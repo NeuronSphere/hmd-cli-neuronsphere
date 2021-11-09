@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: master
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+  - repo: https://github.com/psf/black
+    rev: 19.3b0
+    hooks:
+      - id: black
+        files: src/python
+  - repo: https://github.com/prettier/pre-commit
+    rev: main
+    hooks:
+      - id: prettier
+        files: src/typescript/
