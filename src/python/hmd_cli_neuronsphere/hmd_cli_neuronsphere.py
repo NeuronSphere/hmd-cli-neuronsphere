@@ -29,6 +29,10 @@ _services_dir = _dirname / "services"
 _configs = dict()
 
 
+def load_env():
+    load_dotenv(_hmd_home / ".config" / "hmd.env", override=True)
+
+
 def _get_tech_enabled(name):
     return _get_env_var(f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name}") == "true"
 
@@ -115,7 +119,6 @@ def _get_configs():
 
 
 def _get_base_command():
-    load_dotenv(_hmd_home / ".config" / "hmd.env", override=True)
     stdout, _, _ = _exec(
         ["pip", "config", "get", "global.extra-index-url"], capture=True
     )
@@ -131,6 +134,7 @@ def _get_base_command():
 
 
 def start_neuronsphere():
+    load_env()
     required_dirs = [Path("data", "raw"), Path("postgresql", "data")]
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
@@ -148,5 +152,6 @@ def start_neuronsphere():
 
 
 def stop_neuronsphere():
+    load_env()
     command = [*_get_base_command(), "down"]
     _exec(command)
