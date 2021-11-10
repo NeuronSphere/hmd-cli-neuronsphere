@@ -1,11 +1,11 @@
 import os
+from importlib.metadata import version
 
 from cement import Controller, ex
-from importlib.metadata import version
 from hmd_cli_tools import get_version
 
 VERSION_BANNER = """
-hmd  version: {}
+hmd neuronsphere version: {}
 """
 
 VERSION = version("hmd_cli_neuronsphere")
@@ -13,7 +13,7 @@ VERSION = version("hmd_cli_neuronsphere")
 
 class LocalController(Controller):
     class Meta:
-        label = ""
+        label = "neuronsphere"
 
         stacked_type = "nested"
         stacked_on = "base"
@@ -34,19 +34,16 @@ class LocalController(Controller):
 
     def _default(self):
         """Default action if no sub-command is passed."""
+        self._parser.print_help()
 
-        self.app.args.print_help()
+    @ex(help="Start the local NeuronSphere")
+    def up(self):
+        from .hmd_cli_neuronsphere import start_neuronsphere
 
-    @ex(
-        help="build <...>",
-        arguments=[
-            (["-n", "--name"], {"action": "store", "dest": "name", "required": False})
-        ],
-    )
-    def build(self):
-        args = {}
-        # build the args values...
+        start_neuronsphere()
 
-        from .hmd_cli_neuronsphere import build as do_build
+    @ex(help="Stop the local NeuronSphere")
+    def down(self):
+        from .hmd_cli_neuronsphere import stop_neuronsphere
 
-        result = do_build(**args)
+        stop_neuronsphere()

@@ -1,6 +1,6 @@
 .vscode/
 .idea/
-/src/*.egg-info/
+*.egg-info
 
 # Logs
 logs
