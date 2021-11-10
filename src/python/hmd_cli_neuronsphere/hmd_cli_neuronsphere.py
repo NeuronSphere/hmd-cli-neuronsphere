@@ -124,7 +124,7 @@ def _get_base_command():
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
-    command = ["docker compose", "--project-name", "neuronsphere"]
+    command = ["docker-compose", "--project-name", "neuronsphere"]
     configs = _get_configs()
 
     for name, details in configs.items():
@@ -135,7 +135,11 @@ def _get_base_command():
 
 def start_neuronsphere():
     load_env()
-    required_dirs = [Path("data", "raw"), Path("postgresql", "data")]
+    required_dirs = [
+        Path("data", "raw"),
+        Path("studio", "projects"),
+        Path("postgresql", "data"),
+    ]
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
         required_dirs += [
@@ -145,6 +149,7 @@ def start_neuronsphere():
         ]
 
     for dir in required_dirs:
+        print("make", str(_hmd_home / dir))
         (_hmd_home / dir).mkdir(exist_ok=True, parents=True)
 
     command = [*_get_base_command(), "up", "--remove-orphans", "--force-recreate", "-d"]
