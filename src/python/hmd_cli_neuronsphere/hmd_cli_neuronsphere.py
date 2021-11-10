@@ -91,9 +91,9 @@ def _get_configs():
         if hmd_repo_home is not None:
 
             def set_config_path(tech_name, repo_name, file_name="docker-compose.yaml"):
-                _configs.get(tech_name)["path"] = (
-                    hmd_repo_home / repo_name / "src" / "docker" / file_name
-                )
+                repo_path = hmd_repo_home / repo_name / "src" / "docker" / file_name
+                if repo_path.exists():
+                    _configs.get(tech_name)["path"] = repo_path
 
             set_config_path("base", "hmd-img-local-ns")
             set_config_path("trino", "hmd-img-local-ns", "docker-compose.hive.yml")
