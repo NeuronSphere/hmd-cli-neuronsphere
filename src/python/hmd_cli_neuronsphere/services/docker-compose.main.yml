@@ -46,7 +46,7 @@ services:
       HMD_DID: ${HMD_DID}
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
       HMD_REGION: ${HMD_REGION}
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:0.1.3
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:0.1.5
     ports:
       - "5432:5432"
     volumes:
@@ -55,12 +55,12 @@ services:
         target: /var/lib/postgresql/data
 
   local_projects:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.15
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.18
     container_name: hmd_ms_local_projects
     environment:
       HMD_INSTANCE_NAME: ms-local-projects
       HMD_REPO_NAME: hmd-ms-local-projects
-      HMD_REPO_VERSION: "0.1.15"
+      HMD_REPO_VERSION: "0.1.18"
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
       HMD_REGION: ${HMD_REGION}
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
