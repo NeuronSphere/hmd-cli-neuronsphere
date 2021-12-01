@@ -2,7 +2,7 @@ version: "3.2"
 
 services:
   jupyter-local:
-    image: "${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:0.1.14"
+    image: "${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:0.1.19"
     container_name: jupyter-local
     ports:
       - "8888:8888"

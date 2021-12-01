@@ -30,7 +30,7 @@ services:
 
   proxy:
     container_name: hmd_proxy
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-local-gateway:0.1.14
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-local-gateway:0.1.15
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
