@@ -35,6 +35,7 @@ services:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
+      HMD_HOME: ${HMD_HOME}
       HMD_REGION: ${HMD_REGION}
     ports:
       - "80:80"
