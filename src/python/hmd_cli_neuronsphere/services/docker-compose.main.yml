@@ -56,12 +56,12 @@ services:
         target: /var/lib/postgresql/data
 
   local_projects:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.20
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.22
     container_name: hmd_ms_local_projects
     environment:
       HMD_INSTANCE_NAME: ms-local-projects
       HMD_REPO_NAME: hmd-ms-local-projects
-      HMD_REPO_VERSION: "0.1.18"
+      HMD_REPO_VERSION: "0.1.22"
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
       HMD_REGION: ${HMD_REGION}
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
@@ -72,6 +72,8 @@ services:
       HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
       HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
       HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
+      HMD_STATSD_HOST: datadog
+      HMD_STATSD_PORT: 5555
       SCHEMA_URI: "/schemas/hmd-lang-projects"
       OPERATIONS_MODULE: hmd_ms_local_projects.hmd_ms_local_projects
       AWS_PROFILE: ${AWS_PROFILE}
