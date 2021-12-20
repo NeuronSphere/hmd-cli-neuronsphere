@@ -80,6 +80,7 @@ services:
       DD_LAMBDA_HANDLER: "main.handler"
       DD_TRACE_ENABLED: "true"
       DD_FLUSH_TO_LOG: "true"
+      AWS_XRAY_SDK_ENABLED: "false"
     expose:
       - 8080
     volumes:
