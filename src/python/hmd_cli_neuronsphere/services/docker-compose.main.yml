@@ -56,7 +56,7 @@ services:
         target: /var/lib/postgresql/data
 
   local_projects:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.22
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.23
     container_name: hmd_ms_local_projects
     environment:
       HMD_INSTANCE_NAME: ms-local-projects
