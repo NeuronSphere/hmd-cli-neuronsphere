@@ -30,7 +30,7 @@ services:
 
   proxy:
     container_name: hmd_proxy
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-local-gateway:0.1.15
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-local-gateway:${HMD_IMG_LOCAL_GATEWAY_VERSION}
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
@@ -47,7 +47,7 @@ services:
       HMD_DID: ${HMD_DID}
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
       HMD_REGION: ${HMD_REGION}
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:0.1.5
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}
     ports:
       - "5432:5432"
     volumes:
@@ -56,7 +56,7 @@ services:
         target: /var/lib/postgresql/data
 
   local_projects:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:0.1.34
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:${HMD_MS_LOCAL_PROJECTS_VERSION}
     container_name: hmd_ms_local_projects
     environment:
       HMD_INSTANCE_NAME: ms-local-projects
