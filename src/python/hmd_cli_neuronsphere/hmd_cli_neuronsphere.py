@@ -147,10 +147,11 @@ def start_neuronsphere():
             Path("trino", "config"),
             Path("warehouse"),
         ]
-
     for dir in required_dirs:
-        print("make", str(_hmd_home / dir))
-        (_hmd_home / dir).mkdir(exist_ok=True, parents=True)
+        full_dir = _hmd_home / dir
+        if not full_dir.exists():
+            print("make", str(_hmd_home / dir))
+            (_hmd_home / dir).mkdir(exist_ok=True, parents=True)
 
     command = [*_get_base_command(), "up", "--remove-orphans", "--force-recreate", "-d"]
     _exec(command)
