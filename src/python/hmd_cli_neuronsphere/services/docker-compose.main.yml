@@ -61,13 +61,13 @@ services:
     environment:
       HMD_INSTANCE_NAME: ms-local-projects
       HMD_REPO_NAME: hmd-ms-local-projects
-      HMD_REPO_VERSION: "0.1.22"
       HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
       HMD_REGION: ${HMD_REGION}
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
       HMD_DB_ENGINES: "{}"
       HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
+      HMD_HOSTNAME: ${HMD_HOSTNAME}
       HMD_PROJECTS_DIR: "/projects"
       HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
       HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
