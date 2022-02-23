@@ -9,6 +9,7 @@ services:
     environment:
       HMD_DATA: /hmd/data/
       HMD_REPO_NAME: hmd-img-jupyter-server
+      HMD_REPO_VERSION: ${HMD_IMG_JUPYTER_SERVER_VERSION}
       HMD_INSTANCE_NAME: local
       PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL}
     labels:
@@ -22,3 +23,6 @@ services:
       - type: bind
         source: ${HMD_HOME}/language_packs/
         target: /hmd/schemas/
+      - type: bind
+        source: ${HMD_HOME}/studio/projects
+        target: /hmd/projects/
