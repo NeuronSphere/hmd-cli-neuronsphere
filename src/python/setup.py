@@ -19,6 +19,7 @@ setup(
     include_package_data=True,
     package_data={
         "": [
+            "services/docker-compose.airflow.yml",
             "services/docker-compose.jupyter.yml",
             "services/docker-compose.main.yml",
             "services/docker-compose.trino.yml",

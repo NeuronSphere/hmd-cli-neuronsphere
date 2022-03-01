@@ -50,6 +50,7 @@ def _get_configs():
         enable_hmd_ms_mesh_proto = _get_tech_enabled("HMD_MS_MESH_PROTO")
         enable_hmd_ms_deployment = _get_tech_enabled("HMD_MS_DEPLOYMENT")
         enable_hmd_ms_librarian = _get_tech_enabled("HMD_MS_LIBRARIAN")
+        enable_airflow = _get_tech_enabled("AIRFLOW")
         enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET")
 
         _configs.update(
@@ -90,6 +91,10 @@ def _get_configs():
                     "enabled": enable_apache_superset,
                     "path": _services_dir / f"docker-compose.apache-superset.yml",
                 },
+                "airflow": {
+                    "enabled": enable_airflow,
+                    "path": _services_dir / f"docker-compose.airflow.yml",
+                },
             }
         )
         if hmd_repo_home is not None:
@@ -113,6 +118,7 @@ def _get_configs():
             set_config_path(
                 "apache-superset", "hmd-inf-superset", "docker-compose-non-dev.yml"
             )
+            set_config_path("airflow", "hmd-img-airflow", "docker-compose-local.yml")
             set_config_path("hmd-ms-librarian", "hmd-ms-librarian")
 
     return _configs
