@@ -50,7 +50,7 @@ def _get_configs():
         enable_hmd_ms_mesh_proto = _get_tech_enabled("HMD_MS_MESH_PROTO")
         enable_hmd_ms_deployment = _get_tech_enabled("HMD_MS_DEPLOYMENT")
         enable_hmd_ms_librarian = _get_tech_enabled("HMD_MS_LIBRARIAN")
-        enable_airflow = _get_tech_enabled("AIRFLOW")
+        enable_transform = _get_tech_enabled("TRANSFORM")
         enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET")
 
         _configs.update(
@@ -92,8 +92,12 @@ def _get_configs():
                     "path": _services_dir / f"docker-compose.apache-superset.yml",
                 },
                 "airflow": {
-                    "enabled": enable_airflow,
+                    "enabled": enable_transform,
                     "path": _services_dir / f"docker-compose.airflow.yml",
+                },
+                "transform": {
+                    "enabled": enable_transform,
+                    "path": _services_dir / f"docker-compose.transform.yml",
                 },
             }
         )
@@ -119,6 +123,7 @@ def _get_configs():
                 "apache-superset", "hmd-inf-superset", "docker-compose-non-dev.yml"
             )
             set_config_path("airflow", "hmd-img-airflow", "docker-compose-local.yml")
+            set_config_path("transform", "hmd-ms-transform", "docker-compose.local.yml")
             set_config_path("hmd-ms-librarian", "hmd-ms-librarian")
 
     return _configs
@@ -153,6 +158,8 @@ def start_neuronsphere():
             Path("trino", "config"),
             Path("warehouse"),
         ]
+    if configs.get("transform").get("enabled"):
+        required_dirs += [Path("transform", "logs")]
     for dir in required_dirs:
         full_dir = _hmd_home / dir
         if not full_dir.exists():

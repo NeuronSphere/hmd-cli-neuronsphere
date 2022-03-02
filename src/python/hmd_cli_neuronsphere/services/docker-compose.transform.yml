@@ -1,0 +1,23 @@
+version: "3.2"
+services:
+  transform:
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-0.1.72}
+    container_name: hmd_ms_transform
+    environment:
+      HMD_INSTANCE_NAME: ms-transform
+      HMD_REPO_NAME: hmd-ms-transform
+      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION:-0.1.72}
+      HMD_ENVIRONMENT: local
+      HMD_REGION: local
+      HMD_CUSTOMER_CODE: hmd
+      HMD_DID: aaa
+      HMD_DB_ENGINES: "{}"
+      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
+      SCHEMA_URI: "/schemas"
+      OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
+      DD_LAMBDA_HANDLER: "main.handler"
+      DD_TRACE_ENABLED: "true"
+      DD_FLUSH_TO_LOG: "true"
+      AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
+    expose:
+      - 8080
