@@ -11,8 +11,12 @@ services:
       AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
     volumes:
       - type: bind
-        source: ${HMD_HOME}/airflow/logs
+        source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
+      # TODO: implement a dag location that can persist in HMD_HOME
+      # - type: bind
+      #   source: ${HMD_HOME}/transform/airflow/dags
+      #   target: /opt/airflow/dags
     depends_on:
       - db
 
@@ -29,8 +33,12 @@ services:
       AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
     volumes:
       - type: bind
-        source: ${HMD_HOME}/airflow/logs
+        source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
+      # TODO: implement a dag location that can persist in HMD_HOME
+      # - type: bind
+      #   source: ${HMD_HOME}/transform/airflow/dags
+      #   target: /opt/airflow/dags
     depends_on:
       - db
       - airflow-scheduler

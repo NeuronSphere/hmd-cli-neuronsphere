@@ -159,7 +159,8 @@ def start_neuronsphere():
             Path("warehouse"),
         ]
     if configs.get("transform").get("enabled"):
-        required_dirs += [Path("transform", "logs")]
+        required_dirs += [Path("transform", "airflow", "logs")]
+        required_dirs += [Path("transform", "airflow", "dags")]
     for dir in required_dirs:
         full_dir = _hmd_home / dir
         if not full_dir.exists():
