@@ -17,6 +17,8 @@ setup(
     license="unlicensed",
     packages=find_packages(),
     include_package_data=True,
-    package_data={"": ["services/**/*"]},
+    package_data={
+        "": ["services/*", "services/superset/*", "services/superset/pythonpath_dev/*"]
+    },
     install_requires=[],
 )
