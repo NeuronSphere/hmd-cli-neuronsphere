@@ -88,4 +88,6 @@ services:
 
 volumes:
   namenode:
+    name: neuronsphere_${HMD_CUSTOMER_CODE}_namenode
   datanode:
+    name: neuronsphere_${HMD_CUSTOMER_CODE}_datanode
