@@ -1,0 +1,103 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+x-superset-image: &superset-image ${HMD_CONTAINER_REGISTRY}/hmd-inf-superset:0.1.37
+x-superset-env: &superset-env superset/.env-non-dev
+x-superset-depends-on:
+  &superset-depends-on
+  - db
+  - redis
+x-superset-volumes:
+  # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
+  &superset-volumes
+  - ./superset:/app/docker
+  - ${HMD_HOME}/superset_home:/app/superset_home
+
+version: "3.7"
+services:
+  redis:
+    image: redis:latest
+    container_name: superset_cache
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+
+  # Commented out from original in apache-superset because local-ns already has a db in it
+  # db:
+  #   env_file: docker/.env-non-dev
+  #   image: postgres:10
+  #   container_name: superset_db
+  #   restart: unless-stopped
+  #   volumes:
+  #     - db_home:/var/lib/postgresql/data
+
+  superset:
+    env_file: *superset-env
+    image: *superset-image
+    container_name: superset_app
+    command: [ "/app/docker/docker-bootstrap.sh", "app-gunicorn" ]
+    environment:
+      MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+    user: "root"
+    restart: unless-stopped
+    ports:
+      - 8088:8088
+    depends_on: *superset-depends-on
+    volumes: *superset-volumes
+
+  superset-init:
+    image: *superset-image
+    container_name: superset_init
+    command: [ "/app/docker/docker-init.sh" ]
+    env_file: *superset-env
+    environment:
+      MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+    depends_on: *superset-depends-on
+    user: "root"
+    volumes: *superset-volumes
+
+  superset-worker:
+    image: *superset-image
+    container_name: superset_worker
+    command: [ "/app/docker/docker-bootstrap.sh", "worker" ]
+    env_file: *superset-env
+    environment:
+      MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+    restart: unless-stopped
+    depends_on: *superset-depends-on
+    user: "root"
+    volumes: *superset-volumes
+
+  superset-worker-beat:
+    image: *superset-image
+    container_name: superset_worker_beat
+    command: [ "/app/docker/docker-bootstrap.sh", "beat" ]
+    env_file: *superset-env
+    environment:
+      MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+    restart: unless-stopped
+    depends_on: *superset-depends-on
+    user: "root"
+    volumes: *superset-volumes
+
+volumes:
+  superset_home:
+    external: false
+  # Commented out from original in apache-superset because local-ns already has a db in it
+  # db_home:
+  #   external: false
+  redis:
+    external: false
