@@ -21,7 +21,7 @@ setup(
         "": [
             "services/*",
             "services/superset/*",
-            "services/superset/.env*",
+            "services/superset/.*",
             "services/superset/pythonpath_dev/*",
         ]
     },
