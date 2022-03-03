@@ -18,7 +18,12 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     package_data={
-        "": ["services/*", "services/superset/*", "services/superset/pythonpath_dev/*"]
+        "": [
+            "services/*",
+            "services/superset/*",
+            "services/superset/.env*",
+            "services/superset/pythonpath_dev/*",
+        ]
     },
     install_requires=[],
 )
