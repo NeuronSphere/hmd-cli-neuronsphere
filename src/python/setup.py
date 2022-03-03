@@ -17,14 +17,6 @@ setup(
     license="unlicensed",
     packages=find_packages(),
     include_package_data=True,
-    package_data={
-        "": [
-            "services/docker-compose.airflow.yml",
-            "services/docker-compose.jupyter.yml",
-            "services/docker-compose.main.yml",
-            "services/docker-compose.trino.yml",
-            "services/hadoop-hive.env",
-        ]
-    },
+    package_data={"": ["services/*"]},
     install_requires=["hmd-cli-app", "python-dotenv"],
 )
