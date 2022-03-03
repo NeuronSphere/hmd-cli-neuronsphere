@@ -17,6 +17,6 @@ setup(
     license="unlicensed",
     packages=find_packages(),
     include_package_data=True,
-    package_data={"": ["services/*"]},
-    install_requires=["hmd-cli-app", "python-dotenv"],
+    package_data={"": ["services/**/*"]},
+    install_requires=[],
 )
