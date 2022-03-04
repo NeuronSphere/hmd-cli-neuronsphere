@@ -4,6 +4,7 @@ services:
   jupyter-local:
     image: "${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION}"
     container_name: jupyter-local
+    user: root
     ports:
       - "8888:8888"
     environment:
