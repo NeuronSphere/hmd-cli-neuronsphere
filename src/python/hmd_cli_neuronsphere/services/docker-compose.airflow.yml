@@ -13,10 +13,7 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
-      # TODO: implement a dag location that can persist in HMD_HOME
-      # - type: bind
-      #   source: ${HMD_HOME}/transform/airflow/dags
-      #   target: /opt/airflow/dags
+      - airflow_dags:/opt/airflow/dags
     depends_on:
       - db
 
@@ -35,10 +32,10 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
-      # TODO: implement a dag location that can persist in HMD_HOME
-      # - type: bind
-      #   source: ${HMD_HOME}/transform/airflow/dags
-      #   target: /opt/airflow/dags
+      - airflow_dags:/opt/airflow/dags
     depends_on:
       - db
       - airflow-scheduler
+volumes:
+  airflow_dags:
+    name: neuronsphere_${HMD_CUSTOMER_CODE}_airflow_dags
