@@ -1,5 +1,7 @@
 {
   "name": "hmd-cli-neuronsphere",
   "description": "Local NeuronSphere Control CLI",
-  "build": {}
+  "build": {
+    "commands": [["python"]]
+  }
 }
