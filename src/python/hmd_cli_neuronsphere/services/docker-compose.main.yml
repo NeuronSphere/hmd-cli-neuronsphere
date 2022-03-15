@@ -75,15 +75,16 @@ services:
       HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
       HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
       HMD_REPO_VERSION: ${HMD_MS_LOCAL_PROJECTS_VERSION}
-      HMD_STATSD_HOST: datadog
-      HMD_STATSD_PORT: 5555
       SCHEMA_URI: "/schemas/hmd-lang-projects"
       OPERATIONS_MODULE: hmd_ms_local_projects.hmd_ms_local_projects
       AWS_PROFILE: ${AWS_PROFILE}
+      DD_API_KEY: ${DD_API_KEY}
+      DD_APP_KEY: ${DD_APP_KEY}
       DD_LAMBDA_HANDLER: "main.handler"
       DD_TRACE_ENABLED: "true"
       DD_FLUSH_TO_LOG: "true"
       AWS_XRAY_SDK_ENABLED: "false"
+      AWS_DEFAULT_REGION: ${AWS_REGION}
     expose:
       - 8080
     volumes:
