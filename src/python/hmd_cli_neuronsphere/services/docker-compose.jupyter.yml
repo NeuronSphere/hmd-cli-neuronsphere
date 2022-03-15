@@ -7,6 +7,8 @@ services:
     user: root
     ports:
       - "8888:8888"
+    env_file:
+      - "${HMD_HOME}/.config/hmd.env"
     environment:
       HMD_DATA: /hmd/data/
       HMD_REPO_NAME: hmd-img-jupyter-server
