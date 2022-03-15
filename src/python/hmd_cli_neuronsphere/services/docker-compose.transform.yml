@@ -1,23 +1,33 @@
 version: "3.2"
 services:
   transform:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-0.1.72}
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION}
     container_name: hmd_ms_transform
     environment:
       HMD_INSTANCE_NAME: ms-transform
       HMD_REPO_NAME: hmd-ms-transform
-      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION:-0.1.72}
+      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION}
       HMD_ENVIRONMENT: local
       HMD_REGION: local
       HMD_CUSTOMER_CODE: hmd
       HMD_DID: aaa
-      HMD_DB_ENGINES: "{}"
-      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
+      HMD_DB_ENGINES: '{"postgres": {"engine_type": "postgres", "engine_config": {"user": "hmd_ms_transform", "password": "hmd_ms_transform", "host": "db", "db_name": "hmd_ms_transform"}}}'
+      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": ["postgres"], "create": {"expose": false, "pre": [], "post": []}, "read": {"expose": true, "pre": [], "post": []}, "update": {"expose": true, "pre": [], "post": []}, "delete": {"expose": false, "pre": [], "post": []}, "search": {"expose": true, "pre": [], "post": []}}}'
       SCHEMA_URI: "/schemas"
       OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
       DD_LAMBDA_HANDLER: "main.handler"
       DD_TRACE_ENABLED: "true"
       DD_FLUSH_TO_LOG: "true"
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
+      DD_API_KEY: ${DD_API_KEY}
+      DD_APP_KEY: ${DD_APP_KEY}
+      AWS_XRAY_SDK_ENABLED: "false"
+      AWS_DEFAULT_REGION: ${AWS_REGION}
+      HMD_HOSTNAME: ${HMD_HOSTNAME}
+      AWS_PROFILE: ${AWS_PROFILE}
     expose:
       - 8080
+    volumes:
+      - type: bind
+        source: ~/.aws
+        target: /root/.aws
