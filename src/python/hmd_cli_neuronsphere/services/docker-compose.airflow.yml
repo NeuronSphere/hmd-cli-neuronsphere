@@ -13,7 +13,10 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
-      - airflow_dags:/opt/airflow/dags
+      - type: bind
+        source: ${HMD_HOME}/transform/airflow/provider_transforms
+        target: /opt/airflow/provider_transforms
+      # - provider_transforms:/opt/airflow/provider_transforms
     depends_on:
       - db
 
@@ -32,10 +35,15 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
         target: /opt/airflow/logs
-      - airflow_dags:/opt/airflow/dags
+      - type: bind
+        source: ${HMD_HOME}/transform/airflow/provider_transforms
+        target: /opt/airflow/provider_transforms
+      # - provider_transforms:/opt/airflow/provider_transforms
     depends_on:
       - db
       - airflow-scheduler
-volumes:
-  airflow_dags:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_airflow_dags
+
+# TODO - fix volume permissions and then move to this.
+# volumes:
+#   provider_transforms:
+#     name: neuronsphere_${HMD_CUSTOMER_CODE}_provider_transforms

@@ -25,6 +25,7 @@ services:
       AWS_DEFAULT_REGION: ${AWS_REGION}
       HMD_HOSTNAME: ${HMD_HOSTNAME}
       AWS_PROFILE: ${AWS_PROFILE}
+      HMD_SVC_HOST: "http://hmd_proxy/hmd_ms_transform"
     expose:
       - 8080
     volumes:
