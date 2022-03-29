@@ -52,10 +52,15 @@ services:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}
     ports:
       - "5432:5432"
+    entrypoint: /postgres-scripts/docker-entrypoint.sh
+    command: postgres
     volumes:
       - type: bind
         source: ${HMD_HOME}/postgresql/data
         target: /var/lib/postgresql/data
+      - type: bind
+        source: ./postgres-scripts/
+        target: /postgres-scripts/
 
   local_projects:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:${HMD_MS_LOCAL_PROJECTS_VERSION}
