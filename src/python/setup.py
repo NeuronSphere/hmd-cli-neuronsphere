@@ -20,6 +20,8 @@ setup(
     package_data={
         "": [
             "services/*",
+            "services/postgres-scripts/*",
+            "services/postgres-scripts/always-initdb.d/*",
             "services/superset/*",
             "services/superset/.*",
             "services/superset/pythonpath_dev/*",
