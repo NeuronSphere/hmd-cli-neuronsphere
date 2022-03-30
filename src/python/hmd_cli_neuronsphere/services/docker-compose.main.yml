@@ -21,7 +21,7 @@ services:
       - 'DD_DOCKER_ENV_AS_TAGS={"HMD_REPO_HOME": "repo_name", "HMD_INSTANCE_NAME": "instance_name", "HMD_CUSTOMER_CODE": "customer_code"}'
       - HMD_CUSTOMER_CODE=${HMD_CUSTOMER_CODE}
       - HMD_DID=${HMD_DID}
-      - HMD_ENVIRONMENT=${HMD_ENVIRONMENT}
+      - HMD_ENVIRONMENT=local
       - HMD_REGION=${HMD_REGION}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -36,7 +36,7 @@ services:
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
-      HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
+      HMD_ENVIRONMENT: local
       HMD_HOME: ${HMD_HOME}
       HMD_REGION: ${HMD_REGION}
     ports:
@@ -47,7 +47,7 @@ services:
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
-      HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
+      HMD_ENVIRONMENT: local
       HMD_REGION: ${HMD_REGION}
     image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}
     ports:
@@ -66,30 +66,30 @@ services:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:${HMD_MS_LOCAL_PROJECTS_VERSION}
     container_name: hmd_ms_local_projects
     environment:
-      HMD_INSTANCE_NAME: ms-local-projects
-      HMD_REPO_NAME: hmd-ms-local-projects
-      HMD_ENVIRONMENT: ${HMD_ENVIRONMENT}
-      HMD_REGION: ${HMD_REGION}
-      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
-      HMD_DID: ${HMD_DID}
-      HMD_DB_ENGINES: "{}"
-      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
-      HMD_HOSTNAME: ${HMD_HOSTNAME}
-      HMD_PROJECTS_DIR: "/projects"
-      HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
-      HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
-      HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
-      HMD_REPO_VERSION: ${HMD_MS_LOCAL_PROJECTS_VERSION}
-      SCHEMA_URI: "/schemas/hmd-lang-projects"
-      OPERATIONS_MODULE: hmd_ms_local_projects.hmd_ms_local_projects
+      AWS_DEFAULT_REGION: ${AWS_REGION}
       AWS_PROFILE: ${AWS_PROFILE}
+      AWS_XRAY_SDK_ENABLED: "false"
       DD_API_KEY: ${DD_API_KEY}
       DD_APP_KEY: ${DD_APP_KEY}
+      DD_FLUSH_TO_LOG: "true"
       DD_LAMBDA_HANDLER: "main.handler"
       DD_TRACE_ENABLED: "true"
-      DD_FLUSH_TO_LOG: "true"
-      AWS_XRAY_SDK_ENABLED: "false"
-      AWS_DEFAULT_REGION: ${AWS_REGION}
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
+      HMD_DB_ENGINES: "{}"
+      HMD_DID: ${HMD_DID}
+      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
+      HMD_ENVIRONMENT: local
+      HMD_HOSTNAME: ${HMD_HOSTNAME}
+      HMD_INSTANCE_NAME: ms-local-projects
+      HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
+      HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
+      HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
+      HMD_PROJECTS_DIR: "/projects"
+      HMD_REGION: ${HMD_REGION}
+      HMD_REPO_NAME: hmd-ms-local-projects
+      HMD_REPO_VERSION: ${HMD_MS_LOCAL_PROJECTS_VERSION}
+      OPERATIONS_MODULE: hmd_ms_local_projects.hmd_ms_local_projects
+      SCHEMA_URI: "/schemas/hmd-lang-projects"
     expose:
       - 8080
     volumes:

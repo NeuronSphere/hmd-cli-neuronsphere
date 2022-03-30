@@ -4,28 +4,27 @@ services:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION}
     container_name: hmd_ms_transform
     environment:
-      HMD_INSTANCE_NAME: ms-transform
-      HMD_REPO_NAME: hmd-ms-transform
-      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION}
-      HMD_ENVIRONMENT: local
-      HMD_REGION: local
-      HMD_CUSTOMER_CODE: hmd
-      HMD_DID: aaa
-      HMD_DB_ENGINES: '{"postgres": {"engine_type": "postgres", "engine_config": {"user": "hmd_ms_transform", "password": "hmd_ms_transform", "host": "db", "db_name": "hmd_ms_transform"}}}'
-      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": ["postgres"], "create": {"expose": false, "pre": [], "post": []}, "read": {"expose": true, "pre": [], "post": []}, "update": {"expose": true, "pre": [], "post": []}, "delete": {"expose": false, "pre": [], "post": []}, "search": {"expose": true, "pre": [], "post": []}}}'
-      SCHEMA_URI: "/schemas"
-      OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
-      DD_LAMBDA_HANDLER: "main.handler"
-      DD_TRACE_ENABLED: "true"
-      DD_FLUSH_TO_LOG: "true"
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
+      AWS_DEFAULT_REGION: ${AWS_REGION}
+      AWS_PROFILE: ${AWS_PROFILE}
+      AWS_XRAY_SDK_ENABLED: "false"
       DD_API_KEY: ${DD_API_KEY}
       DD_APP_KEY: ${DD_APP_KEY}
-      AWS_XRAY_SDK_ENABLED: "false"
-      AWS_DEFAULT_REGION: ${AWS_REGION}
+      DD_FLUSH_TO_LOG: "true"
+      DD_LAMBDA_HANDLER: "hmd_ms_base.hmd_ms_base.handler"
+      DD_TRACE_ENABLED: "true"
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
+      HMD_DID: ${HMD_DID}
+      HMD_ENVIRONMENT: local
       HMD_HOSTNAME: ${HMD_HOSTNAME}
-      AWS_PROFILE: ${AWS_PROFILE}
+      HMD_INSTANCE_NAME: ms-transform
+      HMD_REGION: ${HMD_REGION}
+      HMD_REPO_NAME: hmd-ms-transform
+      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION}
       HMD_SVC_HOST: "http://hmd_proxy/hmd_ms_transform"
+      OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
+      SCHEMA_URI: "/schemas"
+      SERVICE_CONFIG: '{"loader_config": {"ms-transform": ["hmd-lang-transform"]}, "service_loader": "ms-transform", "operations_modules": ["hmd_ms_transform.hmd_ms_transform", "hmd_ms_base.crud_operations"], "hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"host": "db", "user": "hmd_ms_transform", "password": "hmd_ms_transform", "db_name": "hmd_ms_transform"}}}, "hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
     expose:
       - 8080
     volumes:
