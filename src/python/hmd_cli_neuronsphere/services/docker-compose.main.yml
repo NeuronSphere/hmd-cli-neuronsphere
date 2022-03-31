@@ -59,8 +59,8 @@ services:
         source: ${HMD_HOME}/postgresql/data
         target: /var/lib/postgresql/data
       - type: bind
-        source: ./postgres-scripts/
-        target: /postgres-scripts/
+        source: ./postgres-scripts
+        target: /postgres-scripts
 
   local_projects:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:${HMD_MS_LOCAL_PROJECTS_VERSION}
