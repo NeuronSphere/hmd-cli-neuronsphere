@@ -1,4 +1,4 @@
-version: "3.2"
+version: '3.2'
 
 services:
   datadog:
@@ -40,7 +40,7 @@ services:
       HMD_HOME: ${HMD_HOME}
       HMD_REGION: ${HMD_REGION}
     ports:
-      - "80:80"
+      - '80:80'
 
   db:
     container_name: hmd_db
@@ -51,7 +51,7 @@ services:
       HMD_REGION: ${HMD_REGION}
     image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     entrypoint: /postgres-scripts/docker-entrypoint.sh
     command: postgres
     volumes:
@@ -59,8 +59,8 @@ services:
         source: ${HMD_HOME}/postgresql/data
         target: /var/lib/postgresql/data
       - type: bind
-        source: "./postgres"
-        target: "/postgres-scripts"
+        source: './postgres'
+        target: '/postgres-scripts'
 
   local_projects:
     image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-local-projects:${HMD_MS_LOCAL_PROJECTS_VERSION}
@@ -68,14 +68,18 @@ services:
     environment:
       AWS_DEFAULT_REGION: ${AWS_REGION}
       AWS_PROFILE: ${AWS_PROFILE}
-      AWS_XRAY_SDK_ENABLED: "false"
+      AWS_XRAY_SDK_ENABLED: 'false'
       DD_API_KEY: ${DD_API_KEY}
       DD_APP_KEY: ${DD_APP_KEY}
-      DD_FLUSH_TO_LOG: "true"
-      DD_LAMBDA_HANDLER: "main.handler"
-      DD_TRACE_ENABLED: "true"
+      DD_FLUSH_TO_LOG: 'true'
+      DD_LAMBDA_HANDLER: 'main.handler'
+      DD_TRACE_ENABLED: 'true'
+      GIT_AUTHOR_NAME: ${HMD_AUTHOR_NAME}
+      GIT_AUTHOR_EMAIL: ${HMD_AUTHOR_EMAIL}
+      GIT_COMMITTER_NAME: ${HMD_AUTHOR_NAME}
+      GIT_COMMITTER_EMAIL: ${HMD_AUTHOR_EMAIL}
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
-      HMD_DB_ENGINES: "{}"
+      HMD_DB_ENGINES: '{}'
       HMD_DID: ${HMD_DID}
       HMD_ENTITY_CONFIG: '{"__default__": {"persistence": [], "create": {"exposed": false}, "read": {"exposed": false}, "update": {"exposed": false}, "delete": {"exposed": false}, "search": {"exposed": false}}}'
       HMD_ENVIRONMENT: local
@@ -84,12 +88,12 @@ services:
       HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
       HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
       HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
-      HMD_PROJECTS_DIR: "/projects"
+      HMD_PROJECTS_DIR: '/projects'
       HMD_REGION: ${HMD_REGION}
       HMD_REPO_NAME: hmd-ms-local-projects
       HMD_REPO_VERSION: ${HMD_MS_LOCAL_PROJECTS_VERSION}
       OPERATIONS_MODULE: hmd_ms_local_projects.hmd_ms_local_projects
-      SCHEMA_URI: "/schemas/hmd-lang-projects"
+      SCHEMA_URI: '/schemas/hmd-lang-projects'
     expose:
       - 8080
     volumes:
