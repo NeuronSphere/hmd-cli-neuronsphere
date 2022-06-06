@@ -1,14 +1,14 @@
-version: "3.2"
+version: '3.2'
 
 services:
   jupyter-local:
-    image: "${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION}"
+    image: '${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION}'
     container_name: jupyter-local
     user: root
     ports:
-      - "8888:8888"
+      - '8888:8888'
     env_file:
-      - "${HMD_HOME}/.config/hmd.env"
+      - '${HMD_HOME}/.config/hmd.env'
     environment:
       HMD_DATA: /hmd/data/
       HMD_REPO_NAME: hmd-img-jupyter-server
@@ -20,6 +20,9 @@ services:
       io.hmdlabs.environment: local_local_hmd
       io.hmdlabs.version: local_aaa
     volumes:
+      - type: bind
+        source: ~/.aws
+        target: /root/.aws
       - type: bind
         source: ${HMD_HOME}/data
         target: /hmd/data/
