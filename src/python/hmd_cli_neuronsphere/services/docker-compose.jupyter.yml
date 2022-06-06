@@ -22,7 +22,7 @@ services:
     volumes:
       - type: bind
         source: ~/.aws
-        target: /root/.aws
+        target: /home/jovyan/.aws
       - type: bind
         source: ${HMD_HOME}/data
         target: /hmd/data/
