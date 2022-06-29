@@ -1,12 +1,12 @@
 version: 2.1
 
 orbs:
-    hmd-orb-tools: hmdlabs/hmd-orb-tools@dev:first
+  hmd-orb-tools: hmdlabs/hmd-orb-tools@dev:first
 
 workflows:
   main:
     jobs:
-      - hmd-orb-tools/publish_python_package:
+      - hmd-orb-tools/build_repo:
           context: docker_image_context
           filters:
             branches:
