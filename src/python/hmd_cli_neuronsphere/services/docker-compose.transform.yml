@@ -32,3 +32,6 @@ services:
       - type: bind
         source: ~/.aws
         target: /root/.aws
+      - type: bind
+        source: ${HMD_HOME}/studio/projects
+        target: /hmd/projects
