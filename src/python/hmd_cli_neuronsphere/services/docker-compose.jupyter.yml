@@ -11,6 +11,7 @@ services:
       - '${HMD_HOME}/.config/hmd.env'
     environment:
       HMD_DATA: /hmd/data/
+      HMD_HOME: /home/jovyan/hmd
       HMD_REPO_NAME: hmd-img-jupyter-server
       HMD_REPO_VERSION: ${HMD_IMG_JUPYTER_SERVER_VERSION}
       HMD_INSTANCE_NAME: local
@@ -23,6 +24,12 @@ services:
       - type: bind
         source: ~/.aws
         target: /home/jovyan/.aws
+      - type: bind
+        source: ${HMD_HOME}/.config
+        target: /home/jovyan/hmd/.config
+      - type: bind
+        source: ${HMD_HOME}/.cache
+        target: /home/jovyan/hmd/.cache
       - type: bind
         source: ${HMD_HOME}/data
         target: /hmd/data/
