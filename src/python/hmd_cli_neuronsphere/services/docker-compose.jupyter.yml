@@ -32,3 +32,6 @@ services:
       - type: bind
         source: ${HMD_HOME}/studio/projects
         target: /hmd/projects/
+      - type: bind
+        source: ${HMD_HOME}/.cache
+        target: /hmd/.cache
