@@ -85,9 +85,7 @@ services:
       HMD_ENVIRONMENT: local
       HMD_HOSTNAME: ${HMD_HOSTNAME}
       HMD_INSTANCE_NAME: ms-local-projects
-      HMD_NAMING_API_KEY: ${HMD_NAMING_API_KEY}
       HMD_NAMING_SERVICE: ${HMD_NAMING_SERVICE}
-      HMD_PROJECTS_API_KEY: ${HMD_PROJECTS_ADMIN_API_KEY}
       HMD_PROJECTS_DIR: '/projects'
       HMD_REGION: ${HMD_REGION}
       HMD_REPO_NAME: hmd-ms-local-projects
