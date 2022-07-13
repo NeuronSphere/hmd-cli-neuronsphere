@@ -1,4 +1,4 @@
-version: "3.2"
+version: '3.2'
 services:
   airflow-scheduler:
     container_name: hmd_airflow_scheduler
@@ -16,7 +16,6 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/provider_transforms
         target: /opt/airflow/provider_transforms
-      # - provider_transforms:/opt/airflow/provider_transforms
     depends_on:
       - db
 
@@ -38,12 +37,6 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/provider_transforms
         target: /opt/airflow/provider_transforms
-      # - provider_transforms:/opt/airflow/provider_transforms
     depends_on:
       - db
       - airflow-scheduler
-
-# TODO - fix volume permissions and then move to this.
-# volumes:
-#   provider_transforms:
-#     name: neuronsphere_${HMD_CUSTOMER_CODE}_provider_transforms

@@ -150,12 +150,16 @@ def start_neuronsphere():
         Path("data", "raw"),
         Path("studio", "projects"),
         Path("postgresql", "data"),
+        Path("datadog", "s6"),
+        Path("datadog", "log"),
     ]
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
         required_dirs += [
             Path("trino", "data"),
             Path("trino", "config"),
+            Path("trino", "hadoop", "dfs", "name"),
+            Path("trino", "hadoop", "dfs", "data"),
             Path("warehouse"),
         ]
     if configs.get("transform").get("enabled"):
