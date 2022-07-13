@@ -89,9 +89,3 @@ services:
       - type: bind
         source: ${HMD_HOME}/data
         target: /data
-
-volumes:
-  namenode:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_namenode
-  datanode:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_datanode
