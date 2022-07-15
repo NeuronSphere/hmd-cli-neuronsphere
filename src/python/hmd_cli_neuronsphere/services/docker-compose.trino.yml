@@ -27,7 +27,7 @@ services:
         target: /hadoop/dfs/name
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
@@ -46,7 +46,7 @@ services:
         target: /hadoop/dfs/data
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
@@ -69,7 +69,7 @@ services:
     volumes:
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
@@ -88,4 +88,4 @@ services:
         target: /var/trino/data
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
