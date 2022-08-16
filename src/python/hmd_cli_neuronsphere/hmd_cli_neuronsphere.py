@@ -152,6 +152,7 @@ def start_neuronsphere():
         Path("postgresql", "data"),
         Path("datadog", "s6"),
         Path("datadog", "log"),
+        Path("transform"),
     ]
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
