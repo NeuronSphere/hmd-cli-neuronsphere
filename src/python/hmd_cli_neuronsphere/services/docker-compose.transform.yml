@@ -13,6 +13,8 @@ services:
       DD_FLUSH_TO_LOG: "true"
       DD_LAMBDA_HANDLER: "hmd_ms_base.hmd_ms_base.handler"
       DD_TRACE_ENABLED: "true"
+      DD_LOCAL_TEST: "true"
+      DD_LOG_LEVEL: "debug"
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
       HMD_ENVIRONMENT: local
@@ -26,7 +28,7 @@ services:
       LOCAL_TRANSFORM_PROJECTS: /hmd/projects
       OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
       SCHEMA_URI: "/schemas"
-      SERVICE_CONFIG: '{"loader_config": {"ms-transform": ["hmd-lang-transform"], "artifact": ["hmd-lang-librarian", "hmd-lang-artifact-librarian"]}, "service_loader": "ms-transform", "operations_modules": ["hmd_ms_transform.hmd_ms_transform", "hmd_ms_base.crud_operations"], "hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"host": "db", "user": "hmd_ms_transform", "password": "hmd_ms_transform", "db_name": "hmd_ms_transform"}}}, "hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
+      SERVICE_CONFIG: '{"loader_config": {"ms-transform": ["hmd-lang-transform"], "artifact": ["hmd-lang-librarian", "hmd-lang-artifact-librarian"]}, "service_loader": "ms-transform", "operations_modules": ["hmd_ms_transform.hmd_ms_transform", "hmd_ms_base.crud_operations"], "hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"host": "hmd_db", "user": "hmd_ms_transform", "password": "hmd_ms_transform", "db_name": "hmd_ms_transform"}}}, "hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
     expose:
       - 8080
     volumes:
