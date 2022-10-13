@@ -15,17 +15,19 @@
 # limitations under the License.
 #
 
-version: "3.2"
+version: '3.2'
 
 services:
   namenode:
     container_name: namenode
     image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
     volumes:
-      - namenode:/hadoop/dfs/name
+      - type: bind
+        source: ${HMD_HOME}/trino/hadoop/dfs/name
+        target: /hadoop/dfs/name
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
@@ -34,24 +36,26 @@ services:
     env_file:
       - ./hadoop-hive.env
     ports:
-      - "50070:50070"
+      - '50070:50070'
   datanode:
     container_name: datanode
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     volumes:
-      - datanode:/hadoop/dfs/data
+      - type: bind
+        source: ${HMD_HOME}/trino/hadoop/dfs/data
+        target: /hadoop/dfs/data
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: "namenode:50070"
+      SERVICE_PRECONDITION: 'namenode:50070'
     ports:
-      - "50075:50075"
+      - '50075:50075'
   metastore:
     container_name: metastore
     image: bde2020/hive:2.3.2-postgresql-metastore
@@ -59,13 +63,13 @@ services:
       - ./hadoop-hive.env
     command: /opt/hive/bin/hive --service metastore
     environment:
-      SERVICE_PRECONDITION: "namenode:50070 datanode:50075 db:5432"
+      SERVICE_PRECONDITION: 'namenode:50070 datanode:50075 db:5432'
     ports:
-      - "9083:9083"
+      - '9083:9083'
     volumes:
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
+        target: /hmd/data
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
@@ -84,10 +88,4 @@ services:
         target: /var/trino/data
       - type: bind
         source: ${HMD_HOME}/data
-        target: /data
-
-volumes:
-  namenode:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_namenode
-  datanode:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_datanode
+        target: /hmd/data

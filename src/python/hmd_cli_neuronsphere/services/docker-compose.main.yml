@@ -27,8 +27,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /proc/:/host/proc/:ro
       - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
-      - datadog_s6:/var/run/s6
-      - datadog_log:/var/log/datadog
+      - type: bind
+        source: ${HMD_HOME}/datadog/s6
+        target: /var/run/s6
+      - type: bind
+        source: ${HMD_HOME}/datadog/log
+        target: /var/log/datadog
 
   proxy:
     container_name: hmd_proxy
@@ -61,9 +65,3 @@ services:
       - type: bind
         source: './postgres'
         target: '/postgres-scripts'
-
-volumes:
-  datadog_s6:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_datadog_s6
-  datadog_log:
-    name: neuronsphere_${HMD_CUSTOMER_CODE}_datadog_log

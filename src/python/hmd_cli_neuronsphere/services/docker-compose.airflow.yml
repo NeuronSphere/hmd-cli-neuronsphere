@@ -1,4 +1,4 @@
-version: "3.2"
+version: '3.2'
 services:
   airflow-scheduler:
     container_name: hmd_airflow_scheduler
@@ -9,6 +9,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
       AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
+      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: trino://trino@trino:8081/hive
     volumes:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
@@ -16,7 +17,9 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/provider_transforms
         target: /opt/airflow/provider_transforms
-      # - provider_transforms:/opt/airflow/provider_transforms
+      - type: bind
+        source: ${HMD_HOME}/transform/airflow/dag_generators
+        target: /opt/airflow/dags/dag_generators
     depends_on:
       - db
 
@@ -31,6 +34,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
       AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
+      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: trino://trino@trino:8081/hive
     volumes:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
@@ -38,12 +42,9 @@ services:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/provider_transforms
         target: /opt/airflow/provider_transforms
-      # - provider_transforms:/opt/airflow/provider_transforms
+      - type: bind
+        source: ${HMD_HOME}/transform/airflow/dag_generators
+        target: /opt/airflow/dags/dag_generators
     depends_on:
       - db
       - airflow-scheduler
-
-# TODO - fix volume permissions and then move to this.
-# volumes:
-#   provider_transforms:
-#     name: neuronsphere_${HMD_CUSTOMER_CODE}_provider_transforms

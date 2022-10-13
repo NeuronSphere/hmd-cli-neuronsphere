@@ -33,8 +33,12 @@ def load_env():
     load_dotenv(_hmd_home / ".config" / "hmd.env", override=True)
 
 
-def _get_tech_enabled(name):
-    return _get_env_var(f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name}") == "true"
+def _get_tech_enabled(name, default=None):
+    var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name}"
+    val = _get_env_var(var)
+    if val is not None:
+        return val == "true"
+    return default
 
 
 def _get_configs():
@@ -44,6 +48,7 @@ def _get_configs():
             if _get_env_var("HMD_REPO_HOME") is not None
             else None
         )
+        enable_project = _get_tech_enabled("PROJECT", True)
         enable_trino = _get_tech_enabled("TRINO")
         enable_dynamodb = _get_tech_enabled("DYNAMODB")
         enable_hmd_ms_core = _get_tech_enabled("HMD_MS_CORE")
@@ -58,6 +63,10 @@ def _get_configs():
                 "base": {
                     "enabled": True,
                     "path": _services_dir / f"docker-compose.main.yml",
+                },
+                "project": {
+                    "enabled": enable_project,
+                    "path": _services_dir / f"docker-compose.project.yml",
                 },
                 "jupyter": {
                     "enabled": True,
@@ -150,17 +159,23 @@ def start_neuronsphere():
         Path("data", "raw"),
         Path("studio", "projects"),
         Path("postgresql", "data"),
+        Path("datadog", "s6"),
+        Path("datadog", "log"),
+        Path("transform"),
     ]
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
         required_dirs += [
             Path("trino", "data"),
             Path("trino", "config"),
+            Path("trino", "hadoop", "dfs", "name"),
+            Path("trino", "hadoop", "dfs", "data"),
             Path("warehouse"),
         ]
     if configs.get("transform").get("enabled"):
         required_dirs += [Path("transform", "airflow", "logs")]
         required_dirs += [Path("transform", "airflow", "provider_transforms")]
+        required_dirs += [Path("transform", "airflow", "dag_generators")]
         required_dirs += [Path("data", "local_transforms")]
     for dir in required_dirs:
         full_dir = _hmd_home / dir
