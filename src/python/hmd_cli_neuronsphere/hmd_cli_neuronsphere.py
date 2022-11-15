@@ -3,6 +3,8 @@ from pathlib import Path
 
 from cement.utils.shell import cmd
 from dotenv import load_dotenv
+from hmd_cli_tools import cd
+from hmd_cli_tools.okta_tools import get_auth_token
 
 
 def _get_env_var(var_name, default=None):
@@ -191,3 +193,34 @@ def stop_neuronsphere():
     load_env()
     command = [*_get_base_command(), "down"]
     _exec(command)
+
+
+def run_local_service():
+    load_env()
+    stdout, _, _ = _exec(
+        ["pip", "config", "get", "global.extra-index-url"], capture=True
+    )
+    pip_url = stdout.decode("utf-8")
+    os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
+    os.environ["HMD_AUTH_TOKEN"] = get_auth_token()
+    command = [
+        "docker-compose",
+        "--project-name",
+        "neuronsphere",
+    ]
+
+    with cd("./src/docker"):
+        if not os.path.exists("docker-compose.local.yaml"):
+            raise Exception("Missing docker-compose.local.yaml file in ./src/docker/")
+
+        command.extend(
+            [
+                "-f",
+                "docker-compose.local.yaml",
+                "up",
+                "--force-recreate",
+                "-d",
+            ]
+        )
+
+        _exec(command)

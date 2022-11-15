@@ -47,3 +47,9 @@ class LocalController(Controller):
         from .hmd_cli_neuronsphere import stop_neuronsphere
 
         stop_neuronsphere()
+
+    @ex(help="Run a NeruonSphere microservice locally")
+    def run(self):
+        from .hmd_cli_neuronsphere import run_local_service
+
+        run_local_service()
