@@ -1,10 +1,14 @@
 import os
 from pathlib import Path
+from typing import Dict, List
+from tempfile import TemporaryDirectory
+from pkgutil import get_loader
 
 from cement.utils.shell import cmd
 from dotenv import load_dotenv
 from hmd_cli_tools import cd
 from hmd_cli_tools.okta_tools import get_auth_token
+import yaml
 
 
 def _get_env_var(var_name, default=None):
@@ -32,7 +36,7 @@ _configs = dict()
 
 
 def load_env():
-    load_dotenv(_hmd_home / ".config" / "hmd.env", override=True)
+    load_dotenv(_hmd_home / ".config" / "hmd.env", override=False)
 
 
 def _get_tech_enabled(name, default=None):
@@ -195,7 +199,27 @@ def stop_neuronsphere():
     _exec(command)
 
 
-def run_local_service():
+def merge_configs(config: Dict, default: Dict):
+    for key, value in config.items():
+        if isinstance(value, dict):
+            node = default.setdefault(key, {})
+            merge_configs(value, node)
+        else:
+            default[key] = value
+
+    return default
+
+
+MICROSERVICE_DB_INIT_SQL = """
+CREATE USER {username} WITH PASSWORD '{password}';
+CREATE DATABASE {database};
+GRANT ALL PRIVILEGES ON DATABASE {database} TO {username};
+"""
+
+
+def run_local_service(
+    repo_name: str, repo_version: str, mount_packages: List[str] = []
+):
     load_env()
     stdout, _, _ = _exec(
         ["pip", "config", "get", "global.extra-index-url"], capture=True
@@ -208,15 +232,96 @@ def run_local_service():
         "--project-name",
         "neuronsphere",
     ]
+    volumes = [{"type": "bind", "source": "$HOME/.aws", "target": "/root/.aws"}]
+
+    for mnt in mount_packages:
+        print(mnt)
+        pkg_path = get_loader(mnt.replace("-", "_"))
+
+        volumes.append(
+            {
+                "type": "bind",
+                "source": str(Path.resolve(Path(pkg_path.get_filename()).parent)),
+                "target": f"/usr/local/lib/python3.9/site-packages/{mnt.replace('-','_')}",
+            }
+        )
+
+    default_config = {
+        "version": "3.2",
+        "services": {
+            repo_name.replace("-", "_"): {
+                "image": f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
+                "container_name": repo_name.replace("-", "_"),
+                "environment": {
+                    "HMD_INSTANCE_NAME": repo_name,
+                    "HMD_REPO_NAME": repo_name,
+                    "HMD_REPO_VERSION": repo_version,
+                    "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
+                    "HMD_REGION": os.environ.get("HMD_REGION", "local"),
+                    "HMD_AUTH_TOKEN": os.environ.get("HMD_AUTH_TOKEN"),
+                    "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE"),
+                    "HMD_DID": "aaa",
+                    "HMD_DB_HOST": "db",
+                    "HMD_DB_USER": repo_name.replace("-", "_"),
+                    "HMD_DB_PASSWORD": repo_name.replace("-", "_"),
+                    "HMD_DB_NAME": repo_name.replace("-", "_"),
+                    "AWS_PROFILE": os.environ.get("AWS_PROFILE"),
+                    "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
+                    "DD_API_KEY": "${DD_API_KEY}",
+                },
+                "command": "hmd_ms_base.hmd_ms_base.handler",
+                "expose": [8080],
+                "volumes": volumes,
+            },
+            "db_init": {
+                "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}",
+                "container_name": f"{repo_name}_db_init",
+                "environment": {
+                    "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
+                    "HMD_REGION": os.environ.get("HMD_REGION", "local"),
+                    "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE"),
+                    "HMD_DID": "aaa",
+                    "PGPASSWORD": "admin",
+                },
+                "ports": ["15432:5432"],
+                "command": 'psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql',
+            },
+        },
+    }
 
     with cd("./src/docker"):
-        if not os.path.exists("docker-compose.local.yaml"):
-            raise Exception("Missing docker-compose.local.yaml file in ./src/docker/")
+        config = {}
+        if os.path.exists("docker-compose.local.yaml"):
+            with open("docker-compose.local.yaml", "r") as dc:
+                config = yaml.safe_load(dc)
+
+    final_config = merge_configs(config, default_config)
+
+    with TemporaryDirectory() as tmpdir:
+
+        path = Path(tmpdir) / "docker-compose.local.yaml"
+        sql_path = Path(tmpdir) / "db_init.sql"
+
+        with open(sql_path, "w") as sql:
+            sql.write(
+                MICROSERVICE_DB_INIT_SQL.format(
+                    username=repo_name.replace("-", "_"),
+                    password=repo_name.replace("-", "_"),
+                    database=repo_name.replace("-", "_"),
+                )
+            )
+
+        final_config["services"]["db_init"]["volumes"] = [
+            {"type": "bind", "source": str(sql_path), "target": "/root/sql/db_init.sql"}
+        ]
+
+        with open(path, "w") as fcfg:
+            yaml.dump(final_config, fcfg)
 
         command.extend(
             [
                 "-f",
-                "docker-compose.local.yaml",
+                str(path),
                 "up",
                 "--force-recreate",
                 "-d",

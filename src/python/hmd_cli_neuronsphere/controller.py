@@ -48,8 +48,27 @@ class LocalController(Controller):
 
         stop_neuronsphere()
 
-    @ex(help="Run a NeruonSphere microservice locally")
+    @ex(
+        help="Run a NeruonSphere microservice locally",
+        arguments=[
+            (
+                ["-mnt", "--mount"],
+                {
+                    "help": "local Python packages to mount into the container",
+                    "action": "store",
+                    "dest": "mounts",
+                    "required": False,
+                    "nargs": "*",
+                    "default": [],
+                },
+            )
+        ],
+    )
     def run(self):
         from .hmd_cli_neuronsphere import run_local_service
 
-        run_local_service()
+        run_local_service(
+            self.app.pargs.repo_name,
+            self.app.pargs.repo_version,
+            mount_packages=self.app.pargs.mounts,
+        )
