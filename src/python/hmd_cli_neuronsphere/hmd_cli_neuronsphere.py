@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Dict, List
@@ -235,7 +236,6 @@ def run_local_service(
     volumes = [{"type": "bind", "source": "$HOME/.aws", "target": "/root/.aws"}]
 
     for mnt in mount_packages:
-        print(mnt)
         pkg_path = get_loader(mnt.replace("-", "_"))
 
         volumes.append(
@@ -245,6 +245,12 @@ def run_local_service(
                 "target": f"/usr/local/lib/python3.9/site-packages/{mnt.replace('-','_')}",
             }
         )
+
+    service_config = {}
+
+    if os.path.exists("./meta-data/config_local.json"):
+        with open("./meta-data/config_local.json", "r") as local_cfg:
+            service_config = json.load(local_cfg)
 
     default_config = {
         "version": "3.2",
@@ -267,8 +273,12 @@ def run_local_service(
                     "HMD_DB_NAME": repo_name.replace("-", "_"),
                     "AWS_PROFILE": os.environ.get("AWS_PROFILE"),
                     "AWS_XRAY_SDK_ENABLED": False,
+                    "SERVICE_CONFIG": json.dumps(service_config),
                     "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
                     "DD_API_KEY": "${DD_API_KEY}",
+                    "DD_LOCAL_TEST": True,
+                    "DD_TRACE_ENABLED": False,
+                    "DD_SERVERLESS_LOGS_ENABLED": False,
                 },
                 "expose": [8080],
                 "volumes": volumes,
