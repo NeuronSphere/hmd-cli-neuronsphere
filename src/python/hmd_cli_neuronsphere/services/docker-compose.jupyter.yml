@@ -38,5 +38,5 @@ services:
         source: ${HMD_HOME}/language_packs/
         target: /hmd/schemas/
       - type: bind
-        source: ${HMD_HOME}/studio/projects
+        source: ${HMD_REPO_HOME}
         target: /hmd/projects/

@@ -36,7 +36,7 @@ services:
         source: ~/.aws
         target: /root/.aws
       - type: bind
-        source: ${HMD_HOME}/studio/projects
+        source: ${HMD_REPO_HOME}
         target: /hmd/projects
       - type: bind
         source: ${HMD_HOME}/data/local_transforms

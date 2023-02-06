@@ -50,18 +50,8 @@ def _get_tech_enabled(name, default=None):
 
 def _get_configs():
     if not any(_configs):
-        hmd_repo_home = (
-            Path(_get_env_var("HMD_REPO_HOME"))
-            if _get_env_var("HMD_REPO_HOME") is not None
-            else None
-        )
-        enable_project = _get_tech_enabled("PROJECT", True)
         enable_trino = _get_tech_enabled("TRINO")
         enable_dynamodb = _get_tech_enabled("DYNAMODB")
-        enable_hmd_ms_core = _get_tech_enabled("HMD_MS_CORE")
-        enable_hmd_ms_mesh_proto = _get_tech_enabled("HMD_MS_MESH_PROTO")
-        enable_hmd_ms_deployment = _get_tech_enabled("HMD_MS_DEPLOYMENT")
-        enable_hmd_ms_librarian = _get_tech_enabled("HMD_MS_LIBRARIAN")
         enable_transform = _get_tech_enabled("TRANSFORM")
         enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET")
 
@@ -70,10 +60,6 @@ def _get_configs():
                 "base": {
                     "enabled": True,
                     "path": _services_dir / f"docker-compose.main.yml",
-                },
-                "project": {
-                    "enabled": enable_project,
-                    "path": _services_dir / f"docker-compose.project.yml",
                 },
                 "jupyter": {
                     "enabled": True,
@@ -85,23 +71,7 @@ def _get_configs():
                 },
                 "dynamodb": {
                     "enabled": enable_dynamodb,
-                    "path": _services_dir / f"docker-compose.dynambodb.yml",
-                },
-                "hmd-ms-core": {
-                    "enabled": enable_hmd_ms_core,
-                    "path": _services_dir / f"docker-compose.hmd-ms-core.yml",
-                },
-                "hmd-ms-mesh-proto": {
-                    "enabled": enable_hmd_ms_mesh_proto,
-                    "path": _services_dir / f"docker-compose.hmd-ms-mesh-proto.yml",
-                },
-                "hmd-ms-deployment": {
-                    "enabled": enable_hmd_ms_deployment,
-                    "path": _services_dir / f"docker-compose.hmd-ms-deployment.yml",
-                },
-                "hmd-ms-librarian": {
-                    "enabled": enable_hmd_ms_librarian,
-                    "path": _services_dir / f"docker-compose.hmd-ms-librarian.yml",
+                    "path": _services_dir / f"docker-compose.dynamodb.yml",
                 },
                 "apache-superset": {
                     "enabled": enable_apache_superset,
@@ -117,30 +87,6 @@ def _get_configs():
                 },
             }
         )
-        if hmd_repo_home is not None:
-
-            def set_config_path(tech_name, repo_name, file_name="docker-compose.yaml"):
-                repo_path = hmd_repo_home / repo_name / "src" / "docker" / file_name
-                if repo_path.exists():
-                    _configs.get(tech_name)["path"] = repo_path
-
-            set_config_path("base", "hmd-img-local-ns")
-            set_config_path("trino", "hmd-img-local-ns", "docker-compose.hive.yml")
-            set_config_path(
-                "dynamodb", "hmd-img-local-ns", "docker-compose.dynamodb.yml"
-            )
-            set_config_path("jupyter", "hmd-img-jupyter-server")
-            set_config_path("hmd-ms-core", "hmd-ms-core", "docker-compose.local.yaml")
-            set_config_path(
-                "hmd-ms-mesh-proto", "hmd-ms-mesh-proto", "docker-compose.local.yaml"
-            )
-            set_config_path("hmd-ms-deployment", "hmd-ms-deployment")
-            set_config_path(
-                "apache-superset", "hmd-inf-superset", "docker-compose-non-dev.yml"
-            )
-            set_config_path("airflow", "hmd-img-airflow", "docker-compose-local.yml")
-            set_config_path("transform", "hmd-ms-transform", "docker-compose.local.yml")
-            set_config_path("hmd-ms-librarian", "hmd-ms-librarian")
 
     return _configs
 
@@ -164,12 +110,16 @@ def start_neuronsphere():
     load_env()
     required_dirs = [
         Path("data", "raw"),
-        Path("studio", "projects"),
         Path("postgresql", "data"),
-        Path("datadog", "s6"),
-        Path("datadog", "log"),
         Path("transform"),
     ]
+
+    hmd_repo_home = os.environ.get("HMD_REPO_HOME")
+
+    if hmd_repo_home is None:
+        hmd_repo_home = _hmd_home / "studio" / "projects"
+        os.environ["HMD_REPO_HOME"] = str(hmd_repo_home)
+
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
         required_dirs += [
