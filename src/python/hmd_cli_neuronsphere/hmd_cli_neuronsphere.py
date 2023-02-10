@@ -85,6 +85,10 @@ def _get_configs():
                     "enabled": enable_transform,
                     "path": _services_dir / f"docker-compose.transform.yml",
                 },
+                "datadog": {
+                    "enabled": os.environ.get("DD_API_KEY"),
+                    "path": _services_dir / "docker-compose.datadog.yml",
+                },
             }
         )
 
@@ -114,11 +118,15 @@ def start_neuronsphere():
         Path("transform"),
     ]
 
+    home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
 
-    if hmd_repo_home is None:
-        hmd_repo_home = _hmd_home / "studio" / "projects"
-        os.environ["HMD_REPO_HOME"] = str(hmd_repo_home)
+    if os.environ.get("HMD_PROJECTS_PATH") is not None:
+        os.environ["HMD_PROJECTS_PATH"] = (
+            str(home_projects_path)
+            if os.path.exists(home_projects_path)
+            else hmd_repo_home
+        )
 
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
@@ -177,7 +185,9 @@ def run_local_service(
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
-    os.environ["HMD_AUTH_TOKEN"] = get_auth_token()
+    auth_token = get_auth_token()
+    if auth_token is not None:
+        os.environ["HMD_AUTH_TOKEN"] = auth_token
     command = [
         "docker-compose",
         "--project-name",

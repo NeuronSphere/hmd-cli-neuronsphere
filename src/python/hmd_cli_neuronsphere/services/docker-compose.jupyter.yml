@@ -2,7 +2,7 @@ version: '3.2'
 
 services:
   jupyter-local:
-    image: '${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION}'
+    image: '${HMD_CONTAINER_REGISTRY}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
     container_name: jupyter-local
     user: root
     ports:
@@ -13,7 +13,7 @@ services:
       HMD_DATA: /hmd/data/
       HMD_HOME: /home/jovyan/hmd
       HMD_REPO_NAME: hmd-img-jupyter-server
-      HMD_REPO_VERSION: ${HMD_IMG_JUPYTER_SERVER_VERSION}
+      HMD_REPO_VERSION: ${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}
       HMD_INSTANCE_NAME: local
       HMD_TRANSFORM_DIAGRAM_PATH: /hmd/data/diagrams/transform
       PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL}
@@ -38,5 +38,5 @@ services:
         source: ${HMD_HOME}/language_packs/
         target: /hmd/schemas/
       - type: bind
-        source: ${HMD_REPO_HOME}
+        source: ${HMD_PROJECTS_PATH}
         target: /hmd/projects/

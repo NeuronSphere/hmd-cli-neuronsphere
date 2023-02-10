@@ -2,7 +2,7 @@ version: '3.2'
 services:
   airflow-scheduler:
     container_name: hmd_airflow_scheduler
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION}
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION:-stable}
     entrypoint: /opt/airflow/entrypoint.sh
     environment:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:airflow@hmd_db/airflow
@@ -25,7 +25,7 @@ services:
 
   airflow-webserver:
     container_name: hmd_airflow_webserver
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION}
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION:-stable}
     command: webserver
     ports:
       - 175:8080

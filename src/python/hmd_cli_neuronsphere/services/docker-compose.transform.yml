@@ -1,7 +1,7 @@
 version: "3.2"
 services:
   transform:
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION}
+    image: ${HMD_CONTAINER_REGISTRY}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-stable}
     container_name: hmd_ms_transform
     environment:
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
@@ -22,7 +22,7 @@ services:
       HMD_INSTANCE_NAME: ms-transform
       HMD_REGION: ${HMD_REGION}
       HMD_REPO_NAME: hmd-ms-transform
-      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION}
+      HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION:-stable}
       HMD_SVC_HOST: "http://hmd_proxy/hmd_ms_transform"
       ARTIFACT_NAME: artifact
       LOCAL_TRANSFORM_PROJECTS: /hmd/projects
@@ -36,7 +36,7 @@ services:
         source: ~/.aws
         target: /root/.aws
       - type: bind
-        source: ${HMD_REPO_HOME}
+        source: ${HMD_PROJECTS_PATH}
         target: /hmd/projects
       - type: bind
         source: ${HMD_HOME}/data/local_transforms
