@@ -14,7 +14,7 @@ setup(
     description="Local NeuronSphere Control CLI",
     author="Adam Stortz",
     author_email="adam.stortz@hmdlabs.io",
-    license="unlicensed",
+    license="Apache 2.0",
     packages=find_packages(),
     include_package_data=True,
     package_data={
