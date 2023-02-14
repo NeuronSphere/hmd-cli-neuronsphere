@@ -51,10 +51,10 @@ def _get_tech_enabled(name, default=None):
 
 def _get_configs():
     if not any(_configs):
-        enable_trino = _get_tech_enabled("TRINO")
-        enable_dynamodb = _get_tech_enabled("DYNAMODB")
-        enable_transform = _get_tech_enabled("TRANSFORM")
-        enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET")
+        enable_trino = _get_tech_enabled("TRINO", True)
+        enable_dynamodb = _get_tech_enabled("DYNAMODB", True)
+        enable_transform = _get_tech_enabled("TRANSFORM", True)
+        enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET", True)
 
         _configs.update(
             {
