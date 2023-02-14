@@ -72,3 +72,9 @@ class LocalController(Controller):
             self.app.pargs.repo_version,
             mount_packages=self.app.pargs.mounts,
         )
+
+    @ex(help="pulls latest versions of required images")
+    def update_images(self):
+        from .hmd_cli_neuronsphere import update_images
+
+        update_images()

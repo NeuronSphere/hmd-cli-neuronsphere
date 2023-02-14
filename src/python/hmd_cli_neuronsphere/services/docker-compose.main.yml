@@ -3,7 +3,7 @@ version: '3.2'
 services:
   proxy:
     container_name: hmd_proxy
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-img-local-gateway:${HMD_IMG_LOCAL_GATEWAY_VERSION:-stable}
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-local-gateway:${HMD_IMG_LOCAL_GATEWAY_VERSION:-stable}
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
@@ -20,7 +20,7 @@ services:
       HMD_DID: ${HMD_DID}
       HMD_ENVIRONMENT: local
       HMD_REGION: ${HMD_REGION}
-    image: ${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
     ports:
       - '5432:5432'
     entrypoint: /postgres-scripts/docker-entrypoint.sh

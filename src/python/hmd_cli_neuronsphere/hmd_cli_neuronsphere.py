@@ -9,6 +9,7 @@ from cement.utils.shell import cmd
 from dotenv import load_dotenv
 from hmd_cli_tools import cd
 from hmd_cli_tools.okta_tools import get_auth_token
+from hmd_cli_tools.hmd_cli_tools import load_hmd_env
 import yaml
 
 
@@ -121,12 +122,16 @@ def start_neuronsphere():
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
 
-    if os.environ.get("HMD_PROJECTS_PATH") is not None:
+    if os.environ.get("HMD_PROJECTS_PATH") is None:
         os.environ["HMD_PROJECTS_PATH"] = (
             str(home_projects_path)
             if os.path.exists(home_projects_path)
             else hmd_repo_home
         )
+
+    assert (
+        os.environ.get("HMD_PROJECTS_PATH") is not None
+    ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
 
     configs = _get_configs()
     if configs.get("trino").get("enabled"):
@@ -299,3 +304,21 @@ def run_local_service(
         )
 
         _exec(command)
+
+
+def update_images():
+    load_hmd_env()
+    home_projects_path = _hmd_home / "studio" / "projects"
+    hmd_repo_home = os.environ.get("HMD_REPO_HOME")
+
+    if os.environ.get("HMD_PROJECTS_PATH") is None:
+        os.environ["HMD_PROJECTS_PATH"] = (
+            str(home_projects_path)
+            if os.path.exists(home_projects_path)
+            else hmd_repo_home
+        )
+    assert (
+        os.environ.get("HMD_PROJECTS_PATH") is not None
+    ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
+    command = [*_get_base_command(), "--verbose", "pull"]
+    _exec(command)
