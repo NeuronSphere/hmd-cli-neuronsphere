@@ -117,6 +117,8 @@ def start_neuronsphere():
         Path("data", "raw"),
         Path("postgresql", "data"),
         Path("transform"),
+        Path(".cache"),
+        Path("language_packs"),
     ]
 
     home_projects_path = _hmd_home / "studio" / "projects"

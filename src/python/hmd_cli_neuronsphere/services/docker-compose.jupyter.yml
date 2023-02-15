@@ -23,9 +23,6 @@ services:
       io.hmdlabs.version: local_aaa
     volumes:
       - type: bind
-        source: ~/.aws
-        target: /home/jovyan/.aws
-      - type: bind
         source: ${HMD_HOME}/.config
         target: /home/jovyan/hmd/.config
       - type: bind

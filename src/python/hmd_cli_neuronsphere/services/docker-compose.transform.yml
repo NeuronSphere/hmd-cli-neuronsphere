@@ -33,9 +33,6 @@ services:
       - 8080
     volumes:
       - type: bind
-        source: ~/.aws
-        target: /root/.aws
-      - type: bind
         source: ${HMD_PROJECTS_PATH}
         target: /hmd/projects
       - type: bind
