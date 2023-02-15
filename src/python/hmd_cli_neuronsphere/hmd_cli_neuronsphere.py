@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 from typing import Dict, List
 from tempfile import TemporaryDirectory
 from pkgutil import get_loader
@@ -149,11 +150,23 @@ def start_neuronsphere():
         required_dirs += [Path("transform", "airflow", "provider_transforms")]
         required_dirs += [Path("transform", "airflow", "dag_generators")]
         required_dirs += [Path("data", "local_transforms")]
+
+    if configs.get("datadog").get("enabled"):
+        required_dirs += [Path("datadog", "log")]
+        required_dirs += [Path("datadog", "s6")]
     for dir in required_dirs:
         full_dir = _hmd_home / dir
         if not full_dir.exists():
+            os.umask(0)
             print("make", str(_hmd_home / dir))
-            (_hmd_home / dir).mkdir(exist_ok=True, parents=True)
+            (_hmd_home / dir).mkdir(mode=0o777, exist_ok=True, parents=True)
+
+    if configs.get("trino").get("enabled"):
+        shutil.copytree(
+            _services_dir / "trino" / "config",
+            _hmd_home / "trino" / "config",
+            dirs_exist_ok=True,
+        )
 
     command = [*_get_base_command(), "up", "--remove-orphans", "--force-recreate", "-d"]
     _exec(command)
