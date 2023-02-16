@@ -28,6 +28,8 @@ setup(
             "services/superset/*",
             "services/superset/.*",
             "services/superset/pythonpath_dev/*",
+            "services/trino/config/*",
+            "services/trino/config/catalog/*",
         ]
     },
     install_requires=[],
