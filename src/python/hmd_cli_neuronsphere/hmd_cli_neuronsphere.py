@@ -161,7 +161,10 @@ def start_neuronsphere():
             print("make", str(_hmd_home / dir))
             (_hmd_home / dir).mkdir(mode=0o777, exist_ok=True, parents=True)
 
-    if configs.get("trino").get("enabled"):
+    if (
+        configs.get("trino").get("enabled")
+        and len(os.listdir(_hmd_home / "trino" / "config")) == 0
+    ):
         shutil.copytree(
             _services_dir / "trino" / "config",
             _hmd_home / "trino" / "config",
