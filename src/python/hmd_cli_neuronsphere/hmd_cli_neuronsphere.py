@@ -103,7 +103,11 @@ def _get_base_command():
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
-    command = ["docker-compose", "--project-name", "neuronsphere"]
+    command = [
+        "docker-compose",
+        "--project-name",
+        "neuronsphere",
+    ]
     configs = _get_configs()
 
     for name, details in configs.items():
@@ -171,7 +175,14 @@ def start_neuronsphere():
             dirs_exist_ok=True,
         )
 
-    command = [*_get_base_command(), "up", "--remove-orphans", "--force-recreate", "-d"]
+    command = [
+        *_get_base_command(),
+        "up",
+        "--remove-orphans",
+        "--force-recreate",
+        "-d",
+        "--quiet-pull",
+    ]
     _exec(command)
 
 
@@ -216,7 +227,7 @@ def run_local_service(
         "--project-name",
         "neuronsphere",
     ]
-    volumes = [{"type": "bind", "source": "$HOME/.aws", "target": "/root/.aws"}]
+    volumes = []
 
     for mnt in mount_packages:
         pkg_path = get_loader(mnt.replace("-", "_"))
@@ -256,6 +267,8 @@ def run_local_service(
                     "HMD_DB_NAME": repo_name.replace("-", "_"),
                     "AWS_PROFILE": os.environ.get("AWS_PROFILE"),
                     "AWS_XRAY_SDK_ENABLED": False,
+                    "AWS_ACCESS_KEY_ID": "dummykey",
+                    "AWS_SECRET_ACCESS_KEY": "dummykey",
                     "SERVICE_CONFIG": json.dumps(service_config),
                     "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
                     "DD_API_KEY": "${DD_API_KEY}",
@@ -313,6 +326,7 @@ def run_local_service(
 
         command.extend(
             [
+                "--quiet-pull",
                 "-f",
                 str(path),
                 "up",

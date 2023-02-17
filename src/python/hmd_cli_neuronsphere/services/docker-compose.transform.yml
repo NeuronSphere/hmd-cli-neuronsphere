@@ -6,14 +6,16 @@ services:
     environment:
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
       AWS_DEFAULT_REGION: ${AWS_REGION}
-      AWS_PROFILE: ${AWS_PROFILE}
-      AWS_XRAY_SDK_ENABLED: "false"
+      AWS_ACCESS_KEY_ID: "dummykey"
+      AWS_SECRET_ACCESS_KEY: "dummykey"
+      AWS_XRAY_SDK_ENABLED: false
       DD_API_KEY: ${DD_API_KEY}
       DD_APP_KEY: ${DD_APP_KEY}
       DD_FLUSH_TO_LOG: "true"
+      DD_SERVERLESS_LOGS_ENABLED: false
       DD_LAMBDA_HANDLER: "hmd_ms_base.hmd_ms_base.handler"
-      DD_TRACE_ENABLED: "true"
-      DD_LOCAL_TEST: "true"
+      DD_TRACE_ENABLED: false
+      DD_LOCAL_TEST: true
       DD_LOG_LEVEL: "debug"
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
       HMD_DID: ${HMD_DID}
