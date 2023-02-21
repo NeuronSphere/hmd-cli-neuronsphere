@@ -326,7 +326,6 @@ def run_local_service(
 
         command.extend(
             [
-                "--quiet-pull",
                 "-f",
                 str(path),
                 "up",
