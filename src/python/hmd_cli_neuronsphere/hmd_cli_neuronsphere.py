@@ -269,6 +269,7 @@ def run_local_service(
                     "AWS_XRAY_SDK_ENABLED": False,
                     "AWS_ACCESS_KEY_ID": "dummykey",
                     "AWS_SECRET_ACCESS_KEY": "dummykey",
+                    "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
                     "SERVICE_CONFIG": json.dumps(service_config),
                     "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
                     "DD_API_KEY": "${DD_API_KEY}",

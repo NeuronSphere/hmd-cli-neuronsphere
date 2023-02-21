@@ -5,7 +5,7 @@ services:
     container_name: hmd_ms_transform
     environment:
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
-      AWS_DEFAULT_REGION: ${AWS_REGION}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
       AWS_XRAY_SDK_ENABLED: false
