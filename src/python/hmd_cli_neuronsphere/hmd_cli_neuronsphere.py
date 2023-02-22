@@ -1,3 +1,4 @@
+import getpass
 import json
 import os
 from pathlib import Path
@@ -174,6 +175,8 @@ def start_neuronsphere():
             _hmd_home / "trino" / "config",
             dirs_exist_ok=True,
         )
+
+    os.environ["UID"] = getpass.getuser()
 
     command = [
         *_get_base_command(),

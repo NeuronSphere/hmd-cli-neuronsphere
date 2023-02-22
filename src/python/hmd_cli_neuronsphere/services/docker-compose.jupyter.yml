@@ -17,6 +17,7 @@ services:
       HMD_INSTANCE_NAME: local
       HMD_TRANSFORM_DIAGRAM_PATH: /hmd/data/diagrams/transform
       PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL}
+      NB_USER: ${UID}
     labels:
       io.hmdlabs.service: local_hmd-img-jupyter-server
       io.hmdlabs.environment: local_local_hmd
@@ -36,4 +37,4 @@ services:
         target: /hmd/schemas/
       - type: bind
         source: ${HMD_PROJECTS_PATH}
-        target: /hmd/projects/
+        target: /home/jovyan/work
