@@ -47,9 +47,9 @@ google-auth==2.9.1
     #   hmd-cli-app
     #   hmd-cli-tools
     #   kubernetes
-hmd-cli-app~=1.0.592
+hmd-cli-app~=1.0.593
     # via -r /tmp/hmd-cli-neuronsphere/src/python/requirements.in
-hmd-cli-tools~=1.0.220
+hmd-cli-tools~=1.0.222
     # via hmd-cli-app
 idna==3.3
     # via
