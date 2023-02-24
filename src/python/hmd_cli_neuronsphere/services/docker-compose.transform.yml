@@ -31,6 +31,7 @@ services:
       OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
       SCHEMA_URI: "/schemas"
       SERVICE_CONFIG: '{"loader_config": {"ms-transform": ["hmd-lang-transform"], "artifact": ["hmd-lang-librarian", "hmd-lang-artifact-librarian"]}, "service_loader": "ms-transform", "operations_modules": ["hmd_ms_transform.hmd_ms_transform", "hmd_ms_base.crud_operations"], "hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"host": "hmd_db", "user": "hmd_ms_transform", "password": "hmd_ms_transform", "db_name": "hmd_ms_transform"}}}, "hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
+      TRINO_BUCKET: file:///hmd/data/trino
     expose:
       - 8080
     volumes:

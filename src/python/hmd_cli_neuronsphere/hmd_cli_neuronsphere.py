@@ -121,6 +121,7 @@ def start_neuronsphere():
     load_env()
     required_dirs = [
         Path("data", "raw"),
+        Path("data", "trino"),
         Path("postgresql", "data"),
         Path("transform"),
         Path(".cache"),
