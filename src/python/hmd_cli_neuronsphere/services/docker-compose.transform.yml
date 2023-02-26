@@ -1,4 +1,4 @@
-version: "3.2"
+version: "3.7"
 services:
   transform:
     image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-stable}
