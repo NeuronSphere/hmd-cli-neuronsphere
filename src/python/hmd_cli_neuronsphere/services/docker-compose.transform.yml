@@ -18,7 +18,7 @@ services:
       DD_LOCAL_TEST: "true"
       DD_LOG_LEVEL: "debug"
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
-      HMD_DID: ${HMD_DID}
+      HMD_DID: ${HMD_DID:-aaa}
       HMD_ENVIRONMENT: local
       HMD_HOSTNAME: ${HMD_HOSTNAME}
       HMD_INSTANCE_NAME: ms-transform

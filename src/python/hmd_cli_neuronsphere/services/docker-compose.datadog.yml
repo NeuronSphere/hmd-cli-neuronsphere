@@ -20,7 +20,7 @@ services:
       - 'DD_DOCKER_LABELS_AS_TAGS={"io.hmdlabs.service": "service", "io.hmdlabs.environment": "env", "io.hmdlabs.version": "version"}'
       - 'DD_DOCKER_ENV_AS_TAGS={"HMD_REPO_HOME": "repo_name", "HMD_INSTANCE_NAME": "instance_name", "HMD_CUSTOMER_CODE": "customer_code"}'
       - HMD_CUSTOMER_CODE=${HMD_CUSTOMER_CODE}
-      - HMD_DID=${HMD_DID}
+      - HMD_DID=${HMD_DID:-aaa}
       - HMD_ENVIRONMENT=local
       - HMD_REGION=${HMD_REGION}
     volumes:
