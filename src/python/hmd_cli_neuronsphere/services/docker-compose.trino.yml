@@ -76,7 +76,7 @@ services:
 
   trino:
     container_name: trino
-    image: trinodb/trino:361
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-trino:${HMD_IMG_TRINO_VERSION:-stable}
     ports:
       - 8081:8081
     volumes:
