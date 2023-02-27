@@ -30,5 +30,5 @@ services:
         source: ${HMD_HOME}/postgresql/data
         target: /var/lib/postgresql/data
       - type: bind
-        source: './postgres'
-        target: '/postgres-scripts'
+        source: ${HMD_HOME}/postgresql/scripts
+        target: /postgres-scripts

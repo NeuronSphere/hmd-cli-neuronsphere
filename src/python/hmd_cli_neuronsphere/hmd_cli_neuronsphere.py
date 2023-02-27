@@ -150,6 +150,7 @@ def start_neuronsphere():
             Path("trino", "hadoop", "dfs", "name"),
             Path("trino", "hadoop", "dfs", "data"),
             Path("warehouse"),
+            Path("postgresql", "scripts"),
         ]
     if configs.get("transform").get("enabled"):
         required_dirs += [Path("transform", "airflow", "logs")]
@@ -166,6 +167,26 @@ def start_neuronsphere():
             os.umask(0)
             print("make", str(_hmd_home / dir))
             (_hmd_home / dir).mkdir(mode=0o777, exist_ok=True, parents=True)
+
+    # Copy over included Postgres Init scripts
+    _pg_scripts_path = _services_dir / "postgres"
+
+    for root, _, files in os.walk(_pg_scripts_path):
+        for f in files:
+            dest = (
+                _hmd_home
+                / "postgresql"
+                / "scripts"
+                / (Path(root) / f).relative_to(_pg_scripts_path)
+            )
+
+            if not os.path.exists(dest.parent):
+                os.makedirs(dest.parent, mode=0o777, exist_ok=True)
+
+            shutil.copy2(
+                Path(root) / f,
+                dest,
+            )
 
     if (
         configs.get("trino").get("enabled")
