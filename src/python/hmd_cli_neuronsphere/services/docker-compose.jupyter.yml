@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   jupyter-local:
-    image: '${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-jupyter-server:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
+    image: '${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/${HMD_JUPYTER_IMAGE_NAME:-hmd-img-jupyter-multiarch}:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
     container_name: jupyter-local
     user: root
     ports:
@@ -16,6 +16,7 @@ services:
       HMD_REPO_VERSION: ${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}
       HMD_INSTANCE_NAME: local
       HMD_TRANSFORM_DIAGRAM_PATH: /hmd/data/diagrams/transform
+      HMD_ENVIRONMENT: local
       PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL}
     labels:
       io.hmdlabs.service: local_hmd-img-jupyter-server
