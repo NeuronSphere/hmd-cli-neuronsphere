@@ -20,7 +20,7 @@ version: '3.7'
 services:
   namenode:
     container_name: namenode
-    image: bde2020/hadoop-namenode:2.0.0-hadoop2.7.4-java8
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-hdfs-namenode:${HMD_IMG_HDFS_NAMENODE_VERSION:-stable}
     volumes:
       - type: bind
         source: ${HMD_HOME}/trino/hadoop/dfs/name
@@ -36,10 +36,10 @@ services:
     env_file:
       - ./hadoop-hive.env
     ports:
-      - '50070:50070'
+      - '9870:9870'
   datanode:
     container_name: datanode
-    image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-hdfs-datanode:${HMD_IMG_HDFS_DATANODE_VERSION:-stable}
     volumes:
       - type: bind
         source: ${HMD_HOME}/trino/hadoop/dfs/data
@@ -53,17 +53,14 @@ services:
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: 'namenode:50070'
+      SERVICE_PRECONDITION: 'namenode:9870'
     ports:
-      - '50075:50075'
+      - '9864:9864'
   metastore:
     container_name: metastore
-    image: bde2020/hive:2.3.2-postgresql-metastore
+    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-hive-metastore:${HMD_INF_HIVE_METASTORE_VERSION:-stable}
     env_file:
       - ./hadoop-hive.env
-    command: /opt/hive/bin/hive --service metastore
-    environment:
-      SERVICE_PRECONDITION: 'namenode:50070 datanode:50075 db:5432'
     ports:
       - '9083:9083'
     volumes:
@@ -73,6 +70,13 @@ services:
       - type: bind
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
+      - type: bind
+        source: ${HMD_HOME}/hive/config
+        target: /opt/metastore/conf
+    depends_on:
+      - db
+      - namenode
+      - datanode
 
   trino:
     container_name: trino

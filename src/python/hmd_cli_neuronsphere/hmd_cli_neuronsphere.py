@@ -149,6 +149,7 @@ def start_neuronsphere():
             Path("trino", "config"),
             Path("trino", "hadoop", "dfs", "name"),
             Path("trino", "hadoop", "dfs", "data"),
+            Path("hive", "config"),
             Path("warehouse"),
             Path("postgresql", "scripts"),
         ]
@@ -195,6 +196,16 @@ def start_neuronsphere():
         shutil.copytree(
             _services_dir / "trino" / "config",
             _hmd_home / "trino" / "config",
+            dirs_exist_ok=True,
+        )
+
+    if (
+        configs.get("trino").get("enabled")
+        and len(os.listdir(_hmd_home / "hive" / "config")) == 0
+    ):
+        shutil.copytree(
+            _services_dir / "hive",
+            _hmd_home / "hive" / "config",
             dirs_exist_ok=True,
         )
 
