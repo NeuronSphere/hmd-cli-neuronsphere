@@ -30,6 +30,7 @@ setup(
             "services/superset/pythonpath_dev/*",
             "services/trino/config/*",
             "services/trino/config/catalog/*",
+            "services/hive/*",
         ]
     },
     install_requires=[],
