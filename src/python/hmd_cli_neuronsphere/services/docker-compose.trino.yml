@@ -37,6 +37,7 @@ services:
       - ./hadoop-hive.env
     ports:
       - '9870:9870'
+      - '8020:8020'
   datanode:
     container_name: datanode
     image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-hdfs-datanode:${HMD_IMG_HDFS_DATANODE_VERSION:-stable}
@@ -61,6 +62,9 @@ services:
     image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-hive-metastore:${HMD_INF_HIVE_METASTORE_VERSION:-stable}
     env_file:
       - ./hadoop-hive.env
+    environment:
+      - HADOOP_CONF_DIR=/opt/hadoop-3.2.3/conf
+      - USER=root
     ports:
       - '9083:9083'
     volumes:
@@ -73,6 +77,10 @@ services:
       - type: bind
         source: ${HMD_HOME}/hive/config
         target: /opt/metastore/conf
+      - type: bind
+        source: ${HMD_HOME}/hadoop/config
+        target: /opt/hadoop-3.2.3/conf
+
     depends_on:
       - db
       - namenode

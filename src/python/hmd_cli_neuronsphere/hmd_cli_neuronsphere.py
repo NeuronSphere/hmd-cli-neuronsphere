@@ -150,6 +150,7 @@ def start_neuronsphere():
             Path("trino", "hadoop", "dfs", "name"),
             Path("trino", "hadoop", "dfs", "data"),
             Path("hive", "config"),
+            Path("hadoop", "config"),
             Path("warehouse"),
             Path("postgresql", "scripts"),
         ]
@@ -167,7 +168,7 @@ def start_neuronsphere():
         if not full_dir.exists():
             os.umask(0)
             print("make", str(_hmd_home / dir))
-            (_hmd_home / dir).mkdir(mode=0o777, exist_ok=True, parents=True)
+            os.makedirs(_hmd_home / dir, exist_ok=True)
 
     # Copy over included Postgres Init scripts
     _pg_scripts_path = _services_dir / "postgres"
@@ -208,6 +209,15 @@ def start_neuronsphere():
             _hmd_home / "hive" / "config",
             dirs_exist_ok=True,
         )
+    if (
+        configs.get("trino").get("enabled")
+        and len(os.listdir(_hmd_home / "hadoop" / "config")) == 0
+    ):
+        shutil.copytree(
+            _services_dir / "hadoop",
+            _hmd_home / "hadoop" / "config",
+            dirs_exist_ok=True,
+        )
 
     os.environ["UID"] = getpass.getuser()
 
@@ -223,7 +233,16 @@ def start_neuronsphere():
 
 
 def stop_neuronsphere():
-    load_env()
+    load_hmd_env()
+    home_projects_path = _hmd_home / "studio" / "projects"
+    hmd_repo_home = os.environ.get("HMD_REPO_HOME")
+
+    if os.environ.get("HMD_PROJECTS_PATH") is None:
+        os.environ["HMD_PROJECTS_PATH"] = (
+            str(home_projects_path)
+            if os.path.exists(home_projects_path)
+            else hmd_repo_home
+        )
     command = [*_get_base_command(), "down"]
     _exec(command)
 
