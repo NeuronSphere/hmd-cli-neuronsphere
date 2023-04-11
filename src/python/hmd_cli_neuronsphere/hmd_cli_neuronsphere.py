@@ -336,7 +336,7 @@ def run_local_service(
                 "volumes": volumes,
             },
             "db_init": {
-                "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION}",
+                "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
                 "container_name": f"{repo_name}_db_init",
                 "environment": {
                     "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
