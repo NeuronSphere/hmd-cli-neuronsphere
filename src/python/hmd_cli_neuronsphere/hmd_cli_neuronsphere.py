@@ -113,7 +113,7 @@ def _get_base_command():
 
     for name, details in configs.items():
         if details.get("enabled"):
-            command += ["-f", str(details.get("path"))]
+            command += ["-f", f'\'{str(details.get("path"))}\'']
     return command
 
 
