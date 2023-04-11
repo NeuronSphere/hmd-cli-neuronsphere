@@ -49,7 +49,7 @@ class LocalController(Controller):
         stop_neuronsphere()
 
     @ex(
-        help="Run a NeruonSphere microservice locally",
+        help="Run a NeuronSphere microservice locally",
         arguments=[
             (
                 ["-mnt", "--mount"],
