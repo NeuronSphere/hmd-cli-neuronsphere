@@ -55,6 +55,7 @@ def _get_configs():
     if not any(_configs):
         enable_trino = _get_tech_enabled("TRINO", True)
         enable_dynamodb = _get_tech_enabled("DYNAMODB", True)
+        enable_graph = _get_tech_enabled("GRAPH", True)
         enable_transform = _get_tech_enabled("TRANSFORM", True)
         enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET", True)
 
@@ -75,6 +76,10 @@ def _get_configs():
                 "dynamodb": {
                     "enabled": enable_dynamodb,
                     "path": _services_dir / f"docker-compose.dynamodb.yml",
+                },
+                "graph": {
+                    "enabled": enable_graph,
+                    "path": _services_dir / "docker-compose.graph.yml",
                 },
                 "apache-superset": {
                     "enabled": enable_apache_superset,
@@ -163,6 +168,11 @@ def start_neuronsphere():
     if configs.get("datadog").get("enabled"):
         required_dirs += [Path("datadog", "log")]
         required_dirs += [Path("datadog", "s6")]
+
+    if configs.get("graph").get("enabled"):
+        required_dirs += [Path("graph_db")]
+        required_dirs += [Path("graph_db/logs")]
+
     for dir in required_dirs:
         full_dir = _hmd_home / dir
         if not full_dir.exists():
@@ -252,6 +262,9 @@ def merge_configs(config: Dict, default: Dict):
         if isinstance(value, dict):
             node = default.setdefault(key, {})
             merge_configs(value, node)
+        elif isinstance(value, list):
+            node = default.get(key, [])
+            default[key] = [*value, *node]
         else:
             default[key] = value
 
@@ -320,7 +333,6 @@ def run_local_service(
                     "HMD_DB_USER": repo_name.replace("-", "_"),
                     "HMD_DB_PASSWORD": repo_name.replace("-", "_"),
                     "HMD_DB_NAME": repo_name.replace("-", "_"),
-                    "AWS_PROFILE": os.environ.get("AWS_PROFILE"),
                     "AWS_XRAY_SDK_ENABLED": False,
                     "AWS_ACCESS_KEY_ID": "dummykey",
                     "AWS_SECRET_ACCESS_KEY": "dummykey",
@@ -359,8 +371,9 @@ def run_local_service(
 
     final_config = merge_configs(config, default_config)
 
-    with TemporaryDirectory() as tmpdir:
+    print(json.dumps(final_config, indent=2))
 
+    with TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "docker-compose.local.yaml"
         sql_path = Path(tmpdir) / "db_init.sql"
 

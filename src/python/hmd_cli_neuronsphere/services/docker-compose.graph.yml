@@ -1,0 +1,10 @@
+version: "3.7"
+
+services:
+  graph-db:
+    image: "${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
+    container_name: global-graph
+    ports:
+      - "8182:8182"
+    volumes:
+      - "${HMD_HOME}/graph_db:/tmp/neo4j"
