@@ -51,13 +51,19 @@ def _get_tech_enabled(name, default=None):
     return default
 
 
-def _get_configs():
+def _get_configs(config_overrides: Dict[str, bool] = {}):
     if not any(_configs):
-        enable_trino = _get_tech_enabled("TRINO", True)
-        enable_dynamodb = _get_tech_enabled("DYNAMODB", True)
-        enable_graph = _get_tech_enabled("GRAPH", True)
-        enable_transform = _get_tech_enabled("TRANSFORM", True)
-        enable_apache_superset = _get_tech_enabled("APACHE_SUPERSET", True)
+        enable_trino = _get_tech_enabled("TRINO", config_overrides.get("trino", True))
+        enable_dynamodb = _get_tech_enabled(
+            "DYNAMODB", config_overrides.get("dynamo", True)
+        )
+        enable_graph = _get_tech_enabled("GRAPH", config_overrides.get("graph", True))
+        enable_transform = _get_tech_enabled(
+            "TRANSFORM", config_overrides.get("transform", True)
+        )
+        enable_apache_superset = _get_tech_enabled(
+            "APACHE_SUPERSET", config_overrides.get("apache_superset", True)
+        )
 
         _configs.update(
             {
@@ -66,7 +72,7 @@ def _get_configs():
                     "path": _services_dir / f"docker-compose.main.yml",
                 },
                 "jupyter": {
-                    "enabled": True,
+                    "enabled": config_overrides.get("jupyter", True),
                     "path": _services_dir / f"docker-compose.jupyter.yml",
                 },
                 "trino": {
@@ -122,7 +128,7 @@ def _get_base_command():
     return command
 
 
-def start_neuronsphere():
+def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     load_env()
     required_dirs = [
         Path("data", "raw"),
@@ -147,7 +153,7 @@ def start_neuronsphere():
         os.environ.get("HMD_PROJECTS_PATH") is not None
     ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
 
-    configs = _get_configs()
+    configs = _get_configs(config_overrides=config_overrides)
     if configs.get("trino").get("enabled"):
         required_dirs += [
             Path("trino", "data"),
@@ -279,7 +285,10 @@ GRANT ALL PRIVILEGES ON DATABASE {database} TO {username};
 
 
 def run_local_service(
-    repo_name: str, repo_version: str, mount_packages: List[str] = []
+    repo_name: str,
+    repo_version: str,
+    mount_packages: List[str] = [],
+    db_init: bool = True,
 ):
     load_env()
     stdout, _, _ = _exec(
@@ -347,21 +356,23 @@ def run_local_service(
                 "expose": [8080],
                 "volumes": volumes,
             },
-            "db_init": {
-                "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
-                "container_name": f"{repo_name}_db_init",
-                "environment": {
-                    "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
-                    "HMD_REGION": os.environ.get("HMD_REGION", "local"),
-                    "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE"),
-                    "HMD_DID": "aaa",
-                    "PGPASSWORD": "admin",
-                },
-                "ports": ["15432:5432"],
-                "command": 'psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql',
-            },
         },
     }
+
+    if db_init:
+        default_config["services"]["db_init"] = {
+            "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
+            "container_name": f"{repo_name}_db_init",
+            "environment": {
+                "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
+                "HMD_REGION": os.environ.get("HMD_REGION", "local"),
+                "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE"),
+                "HMD_DID": "aaa",
+                "PGPASSWORD": "admin",
+            },
+            "ports": ["15432:5432"],
+            "command": 'psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql',
+        }
 
     with cd("./src/docker"):
         config = {}
