@@ -386,20 +386,25 @@ def run_local_service(
 
     with TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "docker-compose.local.yaml"
-        sql_path = Path(tmpdir) / "db_init.sql"
+        if db_init:
+            sql_path = Path(tmpdir) / "db_init.sql"
 
-        with open(sql_path, "w") as sql:
-            sql.write(
-                MICROSERVICE_DB_INIT_SQL.format(
-                    username=repo_name.replace("-", "_"),
-                    password=repo_name.replace("-", "_"),
-                    database=repo_name.replace("-", "_"),
+            with open(sql_path, "w") as sql:
+                sql.write(
+                    MICROSERVICE_DB_INIT_SQL.format(
+                        username=repo_name.replace("-", "_"),
+                        password=repo_name.replace("-", "_"),
+                        database=repo_name.replace("-", "_"),
+                    )
                 )
-            )
 
-        final_config["services"]["db_init"]["volumes"] = [
-            {"type": "bind", "source": str(sql_path), "target": "/root/sql/db_init.sql"}
-        ]
+            final_config["services"]["db_init"]["volumes"] = [
+                {
+                    "type": "bind",
+                    "source": str(sql_path),
+                    "target": "/root/sql/db_init.sql",
+                }
+            ]
 
         with open(path, "w") as fcfg:
             yaml.dump(final_config, fcfg)
