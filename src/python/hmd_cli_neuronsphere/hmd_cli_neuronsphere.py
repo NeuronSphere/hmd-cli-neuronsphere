@@ -58,6 +58,7 @@ def _get_configs(config_overrides: Dict[str, bool] = {}):
             "DYNAMODB", config_overrides.get("dynamo", True)
         )
         enable_graph = _get_tech_enabled("GRAPH", config_overrides.get("graph", True))
+        enable_minio = _get_tech_enabled("MINIO", config_overrides.get("minio", True))
         enable_transform = _get_tech_enabled(
             "TRANSFORM", config_overrides.get("transform", True)
         )
@@ -86,6 +87,10 @@ def _get_configs(config_overrides: Dict[str, bool] = {}):
                 "graph": {
                     "enabled": enable_graph,
                     "path": _services_dir / "docker-compose.graph.yml",
+                },
+                "minio": {
+                    "enabled": enable_minio,
+                    "path": _services_dir / "docker-compose.minio.yml",
                 },
                 "apache-superset": {
                     "enabled": enable_apache_superset,
@@ -133,6 +138,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     required_dirs = [
         Path("data", "raw"),
         Path("data", "trino"),
+        Path("data", "librarians"),
         Path("postgresql", "data"),
         Path("transform"),
         Path(".cache"),
