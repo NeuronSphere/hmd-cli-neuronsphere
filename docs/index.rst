@@ -10,7 +10,7 @@ Welcome to HMD hmd-cli-neuronsphere's documentation!
    readme
 
 
-Indices and tables
+Indexes and tables
 ==================
 
 * :ref:`genindex`
