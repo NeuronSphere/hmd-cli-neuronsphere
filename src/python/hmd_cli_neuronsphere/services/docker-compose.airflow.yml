@@ -5,11 +5,11 @@ services:
     image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION:-stable}
     entrypoint: /opt/airflow/entrypoint.sh
     environment:
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:airflow@hmd_db/airflow
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
-      AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
-      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: trino://trino@trino:8081/hive
+      AIRFLOW_CONN_TRINO_CONN: ${HMD_AIRFLOW_CONN_TRINO_CONN:-trino://trino@trino:8081/hive}
+      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: ${HMD_AIRFLOW_CONN_TRINO_CONN_OVERWRITE:-trino://trino@trino:8081/hive}
     volumes:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
@@ -30,11 +30,11 @@ services:
     ports:
       - 175:8080
     environment:
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql://airflow:airflow@hmd_db/airflow
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
-      AIRFLOW_CONN_TRINO_CONN: trino://trino@trino:8081/hive
-      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: trino://trino@trino:8081/hive
+      AIRFLOW_CONN_TRINO_CONN: ${HMD_AIRFLOW_CONN_TRINO_CONN:-trino://trino@trino:8081/hive}
+      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: ${HMD_AIRFLOW_CONN_TRINO_CONN_OVERWRITE:-trino://trino@trino:8081/hive}
     volumes:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
