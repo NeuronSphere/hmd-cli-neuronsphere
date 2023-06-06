@@ -23,8 +23,9 @@ x-superset-depends-on:
 x-superset-volumes:
   # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
 
+
+  # - ./superset:/app/docker
   &superset-volumes
-  - ./superset:/app/docker
   - ${HMD_HOME}/superset_home:/app/superset_home
 
 version: "3.7"
@@ -52,6 +53,15 @@ services:
     command: [ "/app/docker/docker-bootstrap.sh", "app-gunicorn" ]
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+      DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}
+      DATABASE_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      DATABASE_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      DATABASE_PORT: 5432
+      DATABASE_DIALECT: postgresql
+      POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
     user: "root"
     restart: unless-stopped
     ports:
@@ -66,6 +76,15 @@ services:
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+      DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}
+      DATABASE_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      DATABASE_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      DATABASE_PORT: 5432
+      DATABASE_DIALECT: postgresql
+      POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
@@ -77,6 +96,15 @@ services:
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+      DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}
+      DATABASE_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      DATABASE_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      DATABASE_PORT: 5432
+      DATABASE_DIALECT: postgresql
+      POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
     restart: unless-stopped
     depends_on: *superset-depends-on
     user: "root"
@@ -89,6 +117,15 @@ services:
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
+      DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}
+      DATABASE_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      DATABASE_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      DATABASE_PORT: 5432
+      DATABASE_DIALECT: postgresql
+      POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
+      POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
+      POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
     restart: unless-stopped
     depends_on: *superset-depends-on
     user: "root"
