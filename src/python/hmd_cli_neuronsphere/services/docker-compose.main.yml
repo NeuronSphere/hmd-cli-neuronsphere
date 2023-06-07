@@ -3,6 +3,17 @@ version: '3.7'
 services:
   proxy:
     container_name: hmd_proxy
+    image: nginx:stable-alpine
+    ports:
+      - '80:80'
+    volumes:
+      - './nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro'
+    links:
+      - gateway
+      - airflow-webserver
+      - superset
+  gateway:
+    container_name: hmd_gateway
     image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-local-gateway:${HMD_IMG_LOCAL_GATEWAY_VERSION:-stable}
     environment:
       HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
@@ -11,7 +22,7 @@ services:
       HMD_HOME: ${HMD_HOME}
       HMD_REGION: ${HMD_REGION}
     ports:
-      - '80:80'
+      - '8080:80'
 
   db:
     container_name: hmd_db
