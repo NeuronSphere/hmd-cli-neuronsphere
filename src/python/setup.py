@@ -32,6 +32,7 @@ setup(
             "services/trino/config/catalog/*",
             "services/hive/*",
             "services/hadoop/*",
+            "services/nginx/*",
         ]
     },
     install_requires=[],
