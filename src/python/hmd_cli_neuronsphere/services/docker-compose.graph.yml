@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   graph-db:
-    image: "${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
+    image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
     container_name: global-graph
     ports:
       - "8182:8182"

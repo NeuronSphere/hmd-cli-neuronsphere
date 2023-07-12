@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   jupyter-local:
-    image: '${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/${HMD_JUPYTER_IMAGE_NAME:-hmd-img-jupyter-multiarch}:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
+    image: '${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/${HMD_JUPYTER_IMAGE_NAME:-hmd-img-jupyter-multiarch}:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
     container_name: jupyter-local
     user: root
     ports:
