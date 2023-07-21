@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   transform:
-    image: ${HMD_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-stable}
+    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-ms-transform:${HMD_MS_TRANSFORM_VERSION:-stable}
     container_name: hmd_ms_transform
     environment:
       AIRFLOW_HOST: "http://hmd_airflow_webserver:8080"
