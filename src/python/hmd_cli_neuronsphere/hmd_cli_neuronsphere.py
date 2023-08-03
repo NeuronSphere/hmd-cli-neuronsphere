@@ -135,6 +135,7 @@ def _get_base_command():
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     load_env()
+    print(os.environ["HMD_LOCAL_NS_CONTAINER_REGISTRY"])
     required_dirs = [
         Path("data", "raw"),
         Path("data", "trino"),
@@ -249,7 +250,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         "--remove-orphans",
         "--force-recreate",
         "-d",
-        "--quiet-pull",
+        # "--quiet-pull",
     ]
     _exec(command)
 
@@ -333,7 +334,7 @@ def run_local_service(
         "version": "3.2",
         "services": {
             repo_name.replace("-", "_"): {
-                "image": f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
+                "image": f"{os.environ.get('HMD_LOCAL_NS_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
                 "container_name": repo_name.replace("-", "_"),
                 "environment": {
                     "HMD_INSTANCE_NAME": repo_name,
@@ -367,7 +368,7 @@ def run_local_service(
 
     if db_init:
         default_config["services"]["db_init"] = {
-            "image": "${HMD_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
+            "image": "${HMD_LOCAL_NS_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
             "container_name": f"{repo_name}_db_init",
             "environment": {
                 "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
