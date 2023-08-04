@@ -1,0 +1,29 @@
+{
+  "by_content_item_type_transform_name": {
+    "query_template": "g.V().hasLabel('hmd_lang_librarian.content_item').as('a').out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name', '{item_type}').select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "by_transform_name_dependent_transform": {
+    "query_template": "g.V().hasLabel('hmd_lang_transform.transform_instance').has('status', 'complete_successful').as('a').in('hmd_lang_transform.transform_version_has_transform_instance').in('hmd_lang_transform.transform_has_transform_version').has('name', '{dep_tf_name}').select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_transform_instance').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "entity_name_service": {
+    "query_template": "g.V('{nid}').as('a').select('a').label().as('name').select('a').values('_instance_name').as('service').select('name', 'service')"
+  },
+  "by_content_item_type_category_transform_name": {
+    "query_template": "g.V().hasLabel('hmd_lang_librarian.content_item').as('a').out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name', '{item_type}').select('a').out('hmd_lang_librarian.content_item_has_content_category').has('category_name', '{category}').select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "get_schedules": {
+    "query_template": "g.V().hasLabel('hmd_lang_schedule.{entity_type}').elementMap()"
+  },
+  "by_yearly_schedule": {
+    "query_template": "g.V().hasLabel('hmd_lang_schedule.yearly_instance').as('a').in('hmd_lang_schedule.yearly_has_instance').has('month', {month}).has('day', {day}).has('hour', {hour}).has('minute', {minute}).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "by_monthly_schedule": {
+    "query_template": "g.V().hasLabel('hmd_lang_schedule.monthly_instance').as('a').in('hmd_lang_schedule.monthly_has_instance').has('day', {day}).has('hour', {hour}).has('minute', {minute}).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "by_weekly_schedule": {
+    "query_template": "g.V().hasLabel('hmd_lang_schedule.weekly_instance').as('a').in('hmd_lang_schedule.weekly_has_instance').has('hour', {hour}).has('minute', {minute}).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "by_daily_schedule": {
+    "query_template": "g.V().hasLabel('hmd_lang_schedule.daily_instance').as('a').in('hmd_lang_schedule.daily_has_instance').has('hour', {hour}).has('minute', {minute}).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  }
+}

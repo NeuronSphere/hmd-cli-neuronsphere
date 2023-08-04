@@ -176,7 +176,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         required_dirs += [Path("transform", "airflow", "logs")]
         required_dirs += [Path("transform", "airflow", "provider_transforms")]
         required_dirs += [Path("transform", "airflow", "dag_generators")]
+        required_dirs += [Path("transform", "queries")]
         required_dirs += [Path("data", "local_transforms")]
+        required_dirs += [Path("queues")]
 
     if configs.get("datadog").get("enabled"):
         required_dirs += [Path("datadog", "log")]
@@ -241,8 +243,31 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
             _hmd_home / "hadoop" / "config",
             dirs_exist_ok=True,
         )
-
+    if (
+        configs.get("transform").get("enabled")
+        and len(os.listdir(_hmd_home / "queues")) == 0
+    ):
+        shutil.copytree(
+            _services_dir / "queues",
+            _hmd_home / "queues",
+            dirs_exist_ok=True,
+        )
+    if (
+        configs.get("transform").get("enabled")
+        and len(os.listdir(_hmd_home / "transform" / "queries")) == 0
+    ):
+        shutil.copytree(
+            _services_dir / "transform",
+            _hmd_home / "transform" / "queries",
+            dirs_exist_ok=True,
+        )
     os.environ["UID"] = getpass.getuser()
+
+    if os.path.exists(_hmd_home / "transform" / "queries" / "query_config.json"):
+        with open(_hmd_home / "transform" / "queries" / "query_config.json", "r") as qc:
+            os.environ["TRANSFORM_GRAPH_QUERY_CONFIG"] = json.dumps(json.load(qc))
+    else:
+        os.environ["TRANSFORM_GRAPH_QUERY_CONFIG"] = "{}"
 
     command = [
         *_get_base_command(),
