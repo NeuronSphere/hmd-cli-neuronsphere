@@ -33,6 +33,8 @@ setup(
             "services/hive/*",
             "services/hadoop/*",
             "services/nginx/*",
+            "services/queues/*",
+            "services/transform/*",
         ]
     },
     install_requires=[],
