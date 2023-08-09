@@ -271,11 +271,22 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
 
     command = [
         *_get_base_command(),
+    ]
+
+    cache_dir = Path(_hmd_home) / ".cache" / "local_services"
+
+    if os.path.exists(cache_dir):
+        for root, _, files in os.walk(cache_dir):
+            for f in files:
+                if f.startswith("docker-compose.local"):
+                    command += ["-f", os.path.join(root, f)]
+
+    command += [
         "up",
         "--remove-orphans",
         "--force-recreate",
         "-d",
-        # "--quiet-pull",
+        "--quiet-pull",
     ]
     _exec(command)
 
@@ -416,10 +427,15 @@ def run_local_service(
 
     print(json.dumps(final_config, indent=2))
 
-    with TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "docker-compose.local.yaml"
+    cache_dir = Path(os.environ["HMD_HOME"]) / ".cache" / "local_services" / repo_name
+
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir, exist_ok=True)
+
+    with cd(cache_dir):
+        path = cache_dir / "docker-compose.local.yaml"
         if db_init:
-            sql_path = Path(tmpdir) / "db_init.sql"
+            sql_path = cache_dir / "db_init.sql"
 
             with open(sql_path, "w") as sql:
                 sql.write(

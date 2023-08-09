@@ -34,7 +34,7 @@ services:
       TRINO_BUCKET: file:///hmd/data/trino
       SQS_ENDPOINT: http://queues:9324/
       QUERY_QUEUE: http://queues:9324/000000000000/query_queue
-      INST_QUEUE: http://queues:9324/000000000000/inst_queue
+      INSTANCE_QUEUE: http://queues:9324/000000000000/inst_queue
       QUEUE_RELOAD_LIMIT: 0
       GRAPH_QUERY_CONFIG: ${TRANSFORM_GRAPH_QUERY_CONFIG}
     expose:

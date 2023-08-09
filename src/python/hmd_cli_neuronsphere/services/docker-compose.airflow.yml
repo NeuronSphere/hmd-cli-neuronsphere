@@ -1,10 +1,16 @@
-version: '3.7'
+version: "3.7"
 services:
   airflow-scheduler:
     container_name: hmd_airflow_scheduler
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-airflow:${HMD_IMG_AIRFLOW_SERVER_VERSION:-stable}
     entrypoint: /opt/airflow/entrypoint.sh
     environment:
+      HMD_ENVIRONMENT: local
+      HMD_INSTANCE_NAME: airflow
+      HMD_REGION: ${HMD_REGION:-reg1}
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-hmdd2}
+      HMD_DID: aaa
+      HMD_REPO_NAME: hmd-img-airflow
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
@@ -30,6 +36,12 @@ services:
     ports:
       - 175:8080
     environment:
+      HMD_ENVIRONMENT: local
+      HMD_INSTANCE_NAME: airflow
+      HMD_REGION: ${HMD_REGION:-reg1}
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-hmdd2}
+      HMD_DID: aaa
+      HMD_REPO_NAME: hmd-img-airflow
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
