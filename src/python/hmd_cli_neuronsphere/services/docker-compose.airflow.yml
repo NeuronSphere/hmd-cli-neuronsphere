@@ -46,7 +46,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__API__AUTH_BACKEND: airflow.api.auth.backend.basic_auth
       AIRFLOW_CONN_TRINO_CONN: ${HMD_AIRFLOW_CONN_TRINO_CONN:-trino://trino@trino:8081/hive}
-      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: ${HMD_AIRFLOW_CONN_TRINO_CONN_OVERWRITE:-trino://trino@trino:8081/hive}
+      AIRFLOW_CONN_TRINO_CONN_OVERWRITE: ${HMD_AIRFLOW_CONN_TRINO_CONN_OVERWRITE:-trino://trino@trino:8081/hive?__extra__=%7B%20%22session_properties%22%3A%20%7B%22hive.insert_existing_partitions_behavior%22%3A%20%22OVERWRITE%22%7D%7D}
     volumes:
       - type: bind
         source: ${HMD_HOME}/transform/airflow/logs
