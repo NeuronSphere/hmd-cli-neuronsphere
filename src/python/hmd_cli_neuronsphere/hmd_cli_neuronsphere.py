@@ -135,7 +135,6 @@ def _get_base_command():
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     load_env()
-    print(os.environ["HMD_LOCAL_NS_CONTAINER_REGISTRY"])
     required_dirs = [
         Path("data", "raw"),
         Path("data", "trino"),
