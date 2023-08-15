@@ -49,9 +49,23 @@ services:
       - type: bind
         source: ${HMD_HOME}/.cache
         target: /hmd/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      airflow-webserver:
+        condition: service_healthy
+      queues:
+        condition: service_healthy
+      graph-db:
+        condition: service_healthy
   queues:
     image: softwaremill/elasticmq:1.4.2
     container_name: queues
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9325/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - 9324:9324
       - 9325:9325
@@ -122,4 +136,5 @@ services:
       SQS_ENDPOINT: http://queues:9324/
       QUEUE_CONFIG: '{"query_queue": {"queue_url": "http://queues:9324/000000000000/query_queue", "dispatcher": "query_dispatcher"}, "inst_queue": {"queue_url": "http://queues:9324/000000000000/inst_queue", "dispatcher": "inst_dispatcher"}}'
     depends_on:
-      - queues
+      queues:
+        condition: service_healthy

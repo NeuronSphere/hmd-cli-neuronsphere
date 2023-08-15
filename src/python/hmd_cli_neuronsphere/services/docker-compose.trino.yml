@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-version: '3.7'
+version: "3.7"
 
 services:
   namenode:
@@ -36,8 +36,8 @@ services:
     env_file:
       - ./hadoop-hive.env
     ports:
-      - '9870:9870'
-      - '8020:8020'
+      - "9870:9870"
+      - "8020:8020"
   datanode:
     container_name: datanode
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-hdfs-datanode:${HMD_IMG_HDFS_DATANODE_VERSION:-stable}
@@ -54,9 +54,9 @@ services:
     env_file:
       - ./hadoop-hive.env
     environment:
-      SERVICE_PRECONDITION: 'namenode:9870'
+      SERVICE_PRECONDITION: "namenode:9870"
     ports:
-      - '9864:9864'
+      - "9864:9864"
   metastore:
     container_name: metastore
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-hive-metastore:${HMD_INF_HIVE_METASTORE_VERSION:-stable}
@@ -66,7 +66,7 @@ services:
       - HADOOP_CONF_DIR=/opt/hadoop-3.2.3/conf
       - USER=root
     ports:
-      - '9083:9083'
+      - "9083:9083"
     volumes:
       - type: bind
         source: ${HMD_HOME}/data
@@ -89,6 +89,12 @@ services:
   trino:
     container_name: trino
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-trino:${HMD_IMG_TRINO_VERSION:-stable}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
     ports:
       - 8081:8081
     volumes:

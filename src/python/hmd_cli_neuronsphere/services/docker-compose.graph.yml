@@ -4,6 +4,20 @@ services:
   graph-db:
     image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
     container_name: global-graph
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget", 
+          "--post-data",
+          '{"gremlin":"g.V().count()"}', 
+          "--header=content-type:application/json",
+          "http://global-graph:8182",
+        ]
+      interval: 10s
+      timeout: 1m30s
+      retries: 5
+      start_period: 30s
     ports:
       - "8182:8182"
     volumes:

@@ -32,6 +32,11 @@ services:
       HMD_ENVIRONMENT: local
       HMD_REGION: ${HMD_REGION}
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
       - '5432:5432'
     volumes:

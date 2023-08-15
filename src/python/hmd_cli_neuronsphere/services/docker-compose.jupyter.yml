@@ -1,14 +1,20 @@
-version: '3.7'
+version: "3.7"
 
 services:
   jupyter-local:
-    image: '${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/${HMD_JUPYTER_IMAGE_NAME:-hmd-img-jupyter-multiarch}:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}'
+    image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/${HMD_JUPYTER_IMAGE_NAME:-hmd-img-jupyter-multiarch}:${HMD_IMG_JUPYTER_SERVER_VERSION:-stable}"
     container_name: jupyter-local
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
     user: root
     ports:
-      - '8888:8888'
+      - "8888:8888"
     env_file:
-      - '${HMD_HOME}/.config/hmd.env'
+      - "${HMD_HOME}/.config/hmd.env"
     environment:
       HMD_DATA: /hmd/data/
       HMD_HOME: /home/jovyan/hmd

@@ -16,13 +16,11 @@
 #
 x-superset-image: &superset-image ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-superset:${HMD_INF_SUPERSET_VERSION:-stable}
 x-superset-env: &superset-env superset/.env-non-dev
-x-superset-depends-on:
-  &superset-depends-on
+x-superset-depends-on: &superset-depends-on
   - db
   - redis
 x-superset-volumes:
   # /app/pythonpath_docker will be appended to the PYTHONPATH in the final container
-
 
   # - ./superset:/app/docker
   &superset-volumes
@@ -50,7 +48,13 @@ services:
     env_file: *superset-env
     image: *superset-image
     container_name: superset_app
-    command: [ "/app/docker/docker-bootstrap.sh", "app-gunicorn" ]
+    command: ["/app/docker/docker-bootstrap.sh", "app-gunicorn"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
       DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
@@ -72,7 +76,7 @@ services:
   superset-init:
     image: *superset-image
     container_name: superset_init
-    command: [ "/app/docker/docker-init.sh" ]
+    command: ["/app/docker/docker-init.sh"]
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
@@ -92,7 +96,7 @@ services:
   superset-worker:
     image: *superset-image
     container_name: superset_worker
-    command: [ "/app/docker/docker-bootstrap.sh", "worker" ]
+    command: ["/app/docker/docker-bootstrap.sh", "worker"]
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
@@ -113,7 +117,7 @@ services:
   superset-worker-beat:
     image: *superset-image
     container_name: superset_worker_beat
-    command: [ "/app/docker/docker-bootstrap.sh", "beat" ]
+    command: ["/app/docker/docker-bootstrap.sh", "beat"]
     env_file: *superset-env
     environment:
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
