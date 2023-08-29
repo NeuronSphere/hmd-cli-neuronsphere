@@ -4,21 +4,14 @@ services:
   graph-db:
     image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
     container_name: global-graph
+    environment:
+      - gremlinserver.scriptEngines.gremlin-groovy.plugins[org.apache.tinkerpop.gremlin.jsr223.ScriptFileGremlinPlugin].files[0]=scripts/init.groovy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget", 
-          "--post-data",
-          '{"gremlin":"g.V().count()"}', 
-          "--header=content-type:application/json",
-          "http://global-graph:8182",
-        ]
-      interval: 10s
+      test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
+      interval: 30s
       timeout: 1m30s
       retries: 5
-      start_period: 30s
     ports:
       - "8182:8182"
     volumes:
-      - "${HMD_HOME}/graph_db:/tmp/neo4j"
+      - "${HMD_HOME}/graph_db:/var/lib/janusgraph"
