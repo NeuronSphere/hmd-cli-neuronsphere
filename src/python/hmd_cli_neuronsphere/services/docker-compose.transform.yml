@@ -37,6 +37,7 @@ services:
       INSTANCE_QUEUE: http://queues:9324/000000000000/inst_queue
       QUEUE_RELOAD_LIMIT: 0
       GRAPH_QUERY_CONFIG: ${TRANSFORM_GRAPH_QUERY_CONFIG}
+      TF_ENGINES: '["airflow"]'
     expose:
       - 8080
     volumes:

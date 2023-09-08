@@ -107,3 +107,6 @@ services:
       - type: bind
         source: ${HMD_HOME}/data
         target: /hmd/data
+    depends_on:
+      graph-db:
+        condition: service_healthy
