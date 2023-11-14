@@ -1,17 +1,13 @@
-version: '3.7'
+version: "3.7"
 
 services:
   proxy:
     container_name: hmd_proxy
     image: nginx:stable-alpine
     ports:
-      - '80:80'
+      - "80:80"
     volumes:
-      - './nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro'
-    links:
-      - gateway
-      - airflow-webserver
-      - superset
+      - "./nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
   gateway:
     container_name: hmd_gateway
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-local-gateway:${HMD_IMG_LOCAL_GATEWAY_VERSION:-stable}
@@ -22,7 +18,7 @@ services:
       HMD_HOME: ${HMD_HOME}
       HMD_REGION: ${HMD_REGION}
     ports:
-      - '8080:80'
+      - "8080:80"
 
   db:
     container_name: hmd_db
@@ -38,7 +34,7 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - '5432:5432'
+      - "5432:5432"
     volumes:
       - type: bind
         source: ${HMD_HOME}/postgresql/data
