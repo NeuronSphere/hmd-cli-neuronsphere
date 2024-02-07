@@ -369,7 +369,7 @@ def run_local_service(
         "version": "3.2",
         "services": {
             repo_name.replace("-", "_"): {
-                "image": f"{os.environ.get('HMD_LOCAL_NS_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
+                "image": f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
                 "container_name": repo_name.replace("-", "_"),
                 "environment": {
                     "HMD_INSTANCE_NAME": repo_name,
@@ -384,6 +384,7 @@ def run_local_service(
                     "HMD_DB_USER": repo_name.replace("-", "_"),
                     "HMD_DB_PASSWORD": repo_name.replace("-", "_"),
                     "HMD_DB_NAME": repo_name.replace("-", "_"),
+                    "HMD_USE_FASTAPI": "true",
                     "AWS_XRAY_SDK_ENABLED": False,
                     "AWS_ACCESS_KEY_ID": "dummykey",
                     "AWS_SECRET_ACCESS_KEY": "dummykey",

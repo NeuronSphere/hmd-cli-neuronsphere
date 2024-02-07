@@ -25,5 +25,8 @@
   },
   "by_daily_schedule": {
     "query_template": "g.V().hasLabel('hmd_lang_schedule.daily_instance').as('a').in('hmd_lang_schedule.daily_has_instance').has('hour', {hour}).has('minute', {minute}).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('b', 'c').limit(10)"
+  },
+  "get_entity_by_nid": {
+    "query_template": "g.V('{nid}').valueMap()"
   }
 }
