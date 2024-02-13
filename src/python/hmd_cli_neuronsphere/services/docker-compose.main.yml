@@ -42,3 +42,49 @@ services:
       - type: bind
         source: ${HMD_HOME}/postgresql/scripts/always-initdb.d
         target: /docker-entrypoint-initdb.d
+
+  ms-naming:
+    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-ms-naming:${HMD_MS_NAMING_VERSION:-stable}
+    container_name: ms-naming
+    environment:
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
+      AWS_XRAY_SDK_ENABLED: "false"
+      DD_API_KEY: ${DD_API_KEY:-dummykey}
+      DD_APP_KEY: ${DD_APP_KEY:-dummykey}
+      DD_FLUSH_TO_LOG: "true"
+      DD_SERVERLESS_LOGS_ENABLED: "false"
+      DD_LAMBDA_HANDLER: "hmd_ms_base.hmd_ms_base.handler"
+      DD_TRACE_ENABLED: "false"
+      DD_LOCAL_TEST: "true"
+      DD_LOG_LEVEL: "debug"
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-none}
+      HMD_DID: ${HMD_DID:-aaa}
+      HMD_ENVIRONMENT: local
+      HMD_HOSTNAME: ${HMD_HOSTNAME}
+      HMD_INSTANCE_NAME: ms-naming
+      HMD_REGION: ${HMD_REGION:-reg1}
+      HMD_REPO_NAME: hmd-ms-naming
+      HMD_REPO_VERSION: ${HMD_MS_NAMING_VERSION:-stable}
+      SERVICE_CONFIG: '{"loader_config": {"naming": ["hmd-lang-naming"], "deployment": ["hmd-lang-deployment"]}, "service_loader": "naming", "operations_modules": ["hmd_ms_naming.hmd_ms_naming", "hmd_ms_base.crud_operations"], "hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"host": "hmd_db", "user": "hmd_ms_naming", "password": "hmd_ms_naming", "db_name": "hmd_ms_naming"}}}, "hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db_init:
+    command: psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql
+    container_name: hmd-ms-device_db_init
+    environment:
+      HMD_CUSTOMER_CODE: hmdd2
+      HMD_DID: aaa
+      HMD_ENVIRONMENT: local
+      HMD_REGION: reg1
+      PGPASSWORD: admin
+    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+    ports:
+      - 15432:5432
+    volumes:
+      - source: ./naming/db_init.sql
+        target: /root/sql/db_init.sql
+        type: bind

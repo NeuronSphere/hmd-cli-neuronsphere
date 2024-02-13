@@ -79,6 +79,7 @@ services:
     command: ["/app/docker/docker-init.sh"]
     env_file: *superset-env
     environment:
+      PREVIOUS_SECRET_KEY: CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
       DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}

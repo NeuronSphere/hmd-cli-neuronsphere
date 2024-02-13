@@ -105,7 +105,7 @@ def _get_configs(config_overrides: Dict[str, bool] = {}):
                     "path": _services_dir / f"docker-compose.transform.yml",
                 },
                 "datadog": {
-                    "enabled": os.environ.get("DD_API_KEY"),
+                    "enabled": os.environ.get("DD_API_KEY") is not None,
                     "path": _services_dir / "docker-compose.datadog.yml",
                 },
             }
