@@ -38,6 +38,8 @@ services:
     ports:
       - "9870:9870"
       - "8020:8020"
+    networks:
+      - neuronsphere_default
   datanode:
     container_name: datanode
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-hdfs-datanode:${HMD_IMG_HDFS_DATANODE_VERSION:-stable}
@@ -57,6 +59,8 @@ services:
       SERVICE_PRECONDITION: "namenode:9870"
     ports:
       - "9864:9864"
+    networks:
+      - neuronsphere_default
   metastore:
     container_name: metastore
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-hive-metastore:${HMD_INF_HIVE_METASTORE_VERSION:-stable}
@@ -67,6 +71,8 @@ services:
       - USER=root
     ports:
       - "9083:9083"
+    networks:
+      - neuronsphere_default
     volumes:
       - type: bind
         source: ${HMD_HOME}/data
@@ -97,6 +103,8 @@ services:
       start_period: 30s
     ports:
       - 8081:8081
+    networks:
+      - neuronsphere_default
     volumes:
       - type: bind
         source: ${HMD_HOME}/trino/config

@@ -6,6 +6,8 @@ services:
     image: nginx:stable-alpine
     ports:
       - "80:80"
+    networks:
+      - neuronsphere_default
     volumes:
       - "./nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
   gateway:
@@ -19,6 +21,8 @@ services:
       HMD_REGION: ${HMD_REGION}
     ports:
       - "8080:80"
+    networks:
+      - neuronsphere_default
 
   db:
     container_name: hmd_db
@@ -35,6 +39,8 @@ services:
       retries: 5
     ports:
       - "5432:5432"
+    networks:
+      - neuronsphere_default
     volumes:
       - type: bind
         source: ${HMD_HOME}/postgresql/data
@@ -71,6 +77,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - neuronsphere_default
 
   db_init:
     command: psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql
@@ -88,3 +96,8 @@ services:
       - source: ./naming/db_init.sql
         target: /root/sql/db_init.sql
         type: bind
+    networks:
+      - neuronsphere_default
+
+networks:
+  neuronsphere_default:

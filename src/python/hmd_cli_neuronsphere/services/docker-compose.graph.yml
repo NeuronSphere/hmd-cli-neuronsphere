@@ -15,3 +15,5 @@ services:
       - "8182:8182"
     volumes:
       - "${HMD_HOME}/graph_db:/var/lib/janusgraph"
+    networks:
+      - neuronsphere_default

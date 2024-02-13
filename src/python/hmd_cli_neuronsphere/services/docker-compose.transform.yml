@@ -40,6 +40,8 @@ services:
       TF_ENGINES: '["airflow"]'
     expose:
       - 8080
+    networks:
+      - neuronsphere_default
     volumes:
       - type: bind
         source: ${HMD_PROJECTS_PATH}
@@ -70,6 +72,8 @@ services:
     ports:
       - 9324:9324
       - 9325:9325
+    networks:
+      - neuronsphere_default
     volumes:
       - type: bind
         source: ${HMD_HOME}/queues/queue.conf
@@ -100,6 +104,8 @@ services:
       - type: bind
         source: ${HMD_HOME}/.cache
         target: /hmd/.cache
+    networks:
+      - neuronsphere_default
   inst_dispatcher:
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-lib-dispatch:${HMD_LIB_DISPATCH_VERSION:-stable}
     container_name: inst_dispatcher
@@ -126,6 +132,8 @@ services:
       - type: bind
         source: ${HMD_HOME}/.cache
         target: /hmd/.cache
+    networks:
+      - neuronsphere_default
   queue_poll:
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-local-queue-poll:${HMD_IMG_LOCAL_QUEUE_POLL_VERSION:-stable}
     container_name: queue_poll
@@ -139,3 +147,5 @@ services:
     depends_on:
       queues:
         condition: service_healthy
+    networks:
+      - neuronsphere_default

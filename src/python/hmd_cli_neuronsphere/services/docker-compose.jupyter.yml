@@ -13,6 +13,8 @@ services:
     user: root
     ports:
       - "8888:8888"
+    networks:
+      - neuronsphere_default
     env_file:
       - "${HMD_HOME}/.config/hmd.env"
     environment:

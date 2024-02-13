@@ -8,5 +8,7 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+    networks:
+      - neuronsphere_default
     volumes:
       - "${HMD_HOME}/data/librarians:/data"

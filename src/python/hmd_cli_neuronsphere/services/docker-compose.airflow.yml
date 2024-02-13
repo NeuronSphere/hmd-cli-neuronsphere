@@ -34,6 +34,8 @@ services:
     depends_on:
       - db
       - socket-proxy
+    networks:
+      - neuronsphere_default
 
   airflow-webserver:
     container_name: hmd_airflow_webserver
@@ -78,6 +80,8 @@ services:
       - db
       - airflow-scheduler
       - socket-proxy
+    networks:
+      - neuronsphere_default
 
   socket-proxy:
     image: alpine/socat
@@ -88,3 +92,5 @@ services:
       - type: bind
         source: /var/run/docker.sock
         target: /var/run/docker.sock
+    networks:
+      - neuronsphere_default

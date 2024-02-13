@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 import shutil
 from typing import Dict, List
-from tempfile import TemporaryDirectory
-from pkgutil import get_loader
+from importlib_metadata import entry_points
+from importlib.util import find_spec
 
 from cement.utils.shell import cmd
 from dotenv import load_dotenv
@@ -13,6 +13,15 @@ from hmd_cli_tools import cd
 from hmd_cli_tools.okta_tools import get_auth_token
 from hmd_cli_tools.hmd_cli_tools import load_hmd_env
 import yaml
+
+from cement import App, minimal_logger, shell
+
+logger = minimal_logger("hmd_cli_neuronsphere")
+
+ENABLED_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.enabled"
+PREPARE_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.prepare_hmd_home"
+RESOURCES_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.get_resources"
+COMPOSE_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.render_compose_yaml"
 
 
 def _get_env_var(var_name, default=None):
@@ -114,36 +123,38 @@ def _get_configs(config_overrides: Dict[str, bool] = {}):
     return _configs
 
 
-def _get_base_command():
+def _get_base_command(files: List[str]):
     stdout, _, _ = _exec(
         ["pip", "config", "get", "global.extra-index-url"], capture=True
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
-    command = [
-        "docker-compose",
-        "--project-name",
-        "neuronsphere",
-    ]
-    configs = _get_configs()
-
-    for name, details in configs.items():
-        if details.get("enabled"):
-            command += ["-f", f'\'{str(details.get("path"))}\'']
+    command = ["docker", "compose", "--project-directory", str(_hmd_home / ".cache")]
+    for file_ in files:
+        command += ["-f", str(file_)]
     return command
+
+
+def _load_entry_point(name: str, group: str):
+    entrypoints = entry_points(name=name, group=group)
+
+    for entrypoint in entrypoints:
+        if entrypoint.name == name:
+            return entrypoint
+
+
+def _load_plugins(config_overrides: Dict[str, bool] = {}):
+    entrypoints = entry_points(group=ENABLED_PLUGIN_ENTRY_POINT)
+    plugins = {}
+    for entrypoint in entrypoints:
+        logger.debug(f"Loading plugin...{entrypoint.name}")
+        plugins[entrypoint.name] = entrypoint.load()(config_overrides)
+
+    return plugins
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     load_env()
-    required_dirs = [
-        Path("data", "raw"),
-        Path("data", "trino"),
-        Path("data", "librarians"),
-        Path("postgresql", "data"),
-        Path("transform"),
-        Path(".cache"),
-        Path("language_packs"),
-    ]
 
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -159,107 +170,6 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         os.environ.get("HMD_PROJECTS_PATH") is not None
     ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
 
-    configs = _get_configs(config_overrides=config_overrides)
-    if configs.get("trino").get("enabled"):
-        required_dirs += [
-            Path("trino", "data"),
-            Path("trino", "config"),
-            Path("trino", "hadoop", "dfs", "name"),
-            Path("trino", "hadoop", "dfs", "data"),
-            Path("hive", "config"),
-            Path("hadoop", "config"),
-            Path("warehouse"),
-            Path("postgresql", "scripts"),
-        ]
-    if configs.get("transform").get("enabled"):
-        required_dirs += [Path("transform", "airflow", "logs")]
-        required_dirs += [Path("transform", "airflow", "provider_transforms")]
-        required_dirs += [Path("transform", "airflow", "dag_generators")]
-        required_dirs += [Path("transform", "queries")]
-        required_dirs += [Path("data", "local_transforms")]
-        required_dirs += [Path("queues")]
-
-    if configs.get("datadog").get("enabled"):
-        required_dirs += [Path("datadog", "log")]
-        required_dirs += [Path("datadog", "s6")]
-
-    if configs.get("graph").get("enabled"):
-        required_dirs += [Path("graph_db")]
-        required_dirs += [Path("graph_db/logs")]
-
-    for dir in required_dirs:
-        full_dir = _hmd_home / dir
-        if not full_dir.exists():
-            os.umask(0)
-            print("make", str(_hmd_home / dir))
-            os.makedirs(_hmd_home / dir, exist_ok=True)
-
-    # Copy over included Postgres Init scripts
-    _pg_scripts_path = _services_dir / "postgres"
-
-    for root, _, files in os.walk(_pg_scripts_path):
-        for f in files:
-            dest = (
-                _hmd_home
-                / "postgresql"
-                / "scripts"
-                / (Path(root) / f).relative_to(_pg_scripts_path)
-            )
-
-            if not os.path.exists(dest.parent):
-                os.makedirs(dest.parent, mode=0o777, exist_ok=True)
-
-            shutil.copy2(
-                Path(root) / f,
-                dest,
-            )
-
-    if (
-        configs.get("trino").get("enabled")
-        and len(os.listdir(_hmd_home / "trino" / "config")) == 0
-    ):
-        shutil.copytree(
-            _services_dir / "trino" / "config",
-            _hmd_home / "trino" / "config",
-            dirs_exist_ok=True,
-        )
-
-    if (
-        configs.get("trino").get("enabled")
-        and len(os.listdir(_hmd_home / "hive" / "config")) == 0
-    ):
-        shutil.copytree(
-            _services_dir / "hive",
-            _hmd_home / "hive" / "config",
-            dirs_exist_ok=True,
-        )
-    if (
-        configs.get("trino").get("enabled")
-        and len(os.listdir(_hmd_home / "hadoop" / "config")) == 0
-    ):
-        shutil.copytree(
-            _services_dir / "hadoop",
-            _hmd_home / "hadoop" / "config",
-            dirs_exist_ok=True,
-        )
-    if (
-        configs.get("transform").get("enabled")
-        and len(os.listdir(_hmd_home / "queues")) == 0
-    ):
-        shutil.copytree(
-            _services_dir / "queues",
-            _hmd_home / "queues",
-            dirs_exist_ok=True,
-        )
-    if (
-        configs.get("transform").get("enabled")
-        and len(os.listdir(_hmd_home / "transform" / "queries")) == 0
-    ):
-        shutil.copytree(
-            _services_dir / "transform",
-            _hmd_home / "transform" / "queries",
-            dirs_exist_ok=True,
-        )
     os.environ["UID"] = getpass.getuser()
 
     if os.path.exists(_hmd_home / "transform" / "queries" / "query_config.json"):
@@ -268,9 +178,32 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     else:
         os.environ["TRANSFORM_GRAPH_QUERY_CONFIG"] = "{}"
 
-    command = [
-        *_get_base_command(),
-    ]
+    plugins = _load_plugins(config_overrides=config_overrides)
+    resources = {"buckets": []}
+
+    # Get Plugin Resources
+    for plugin, enabled in plugins.items():
+        if enabled:
+            entrypoint = _load_entry_point(plugin, RESOURCES_PLUGIN_ENTRY_POINT)
+
+            if entrypoint is not None:
+                plugin_resources = entrypoint.load()()
+            else:
+                plugin_resources = {}
+
+            for k, v in plugin_resources.items():
+                if k in resources:
+                    resources[k] = [*resources[k], *v]
+                else:
+                    resources[k] = v
+
+    # Prepare HMD_HOME from plugins
+    for plugin, enabled in plugins.items():
+        if enabled:
+            entrypoint = _load_entry_point(plugin, PREPARE_PLUGIN_ENTRY_POINT)
+            if entrypoint is not None:
+                entrypoint.load()(_hmd_home, plugins)
+    compose_files = []
 
     cache_dir = Path(_hmd_home) / ".cache" / "local_services"
 
@@ -278,12 +211,37 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         for root, _, files in os.walk(cache_dir):
             for f in files:
                 if f.startswith("docker-compose.local"):
-                    command += ["-f", os.path.join(root, f)]
+                    compose_files.append(os.path.join(root, f))
+                    with open(os.path.join(root, f), "r") as yml:
+                        cfg = yaml.safe_load(yml)
+                        for svc, svc_cfg in cfg["services"].items():
+                            if "BUCKET_NAME" in svc_cfg.get("environment", {}):
+                                resources["buckets"].append(
+                                    {
+                                        "name": svc,
+                                        "url": svc_cfg.get("environment", {}).get(
+                                            "BUCKET_NAME"
+                                        ),
+                                    }
+                                )
 
+    # Render Compose Files
+    for plugin, enabled in plugins.items():
+        if enabled:
+            entrypoint = _load_entry_point(plugin, COMPOSE_PLUGIN_ENTRY_POINT)
+            if entrypoint is not None:
+                compose_file = entrypoint.load()(
+                    resources, _hmd_home / ".cache", plugins
+                )
+                if compose_file is not None:
+                    compose_files.append(compose_file)
+
+    command = [
+        *_get_base_command(compose_files),
+    ]
     command += [
         "up",
         "--remove-orphans",
-        "--force-recreate",
         "-d",
         "--quiet-pull",
     ]
@@ -301,7 +259,21 @@ def stop_neuronsphere():
             if os.path.exists(home_projects_path)
             else hmd_repo_home
         )
-    command = [*_get_base_command(), "down"]
+
+    compose_files = []
+    for file_ in os.listdir(_hmd_home / ".cache"):
+        if file_.endswith(".yml"):
+            compose_files.append(_hmd_home / ".cache" / file_)
+
+    cache_dir = Path(_hmd_home) / ".cache" / "local_services"
+
+    if os.path.exists(cache_dir):
+        for root, _, files in os.walk(cache_dir):
+            for f in files:
+                if f.startswith("docker-compose.local"):
+                    compose_files.append(os.path.join(root, f))
+
+    command = [*_get_base_command(compose_files), "down"]
     _exec(command)
 
 
@@ -349,12 +321,14 @@ def run_local_service(
     volumes = []
 
     for mnt in mount_packages:
-        pkg_path = get_loader(mnt.replace("-", "_"))
+        spec = find_spec(mnt.replace("-", "_"))
+
+        pkg_path = spec.origin
 
         volumes.append(
             {
                 "type": "bind",
-                "source": str(Path.resolve(Path(pkg_path.get_filename()).parent)),
+                "source": str(Path.resolve(Path(pkg_path).parent)),
                 "target": f"/usr/local/lib/python3.9/site-packages/{mnt.replace('-','_')}",
             }
         )

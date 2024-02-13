@@ -34,6 +34,8 @@ services:
     restart: unless-stopped
     volumes:
       - redis:/data
+    networks:
+      - neuronsphere_default
 
   # Commented out from original in apache-superset because local-ns already has a db in it
   # db:
@@ -72,6 +74,8 @@ services:
       - 8088:8088
     depends_on: *superset-depends-on
     volumes: *superset-volumes
+    networks:
+      - neuronsphere_default
 
   superset-init:
     image: *superset-image
@@ -93,6 +97,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
+    networks:
+      - neuronsphere_default
 
   superset-worker:
     image: *superset-image
@@ -135,6 +141,8 @@ services:
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
+    networks:
+      - neuronsphere_default
 
 volumes:
   superset_home:

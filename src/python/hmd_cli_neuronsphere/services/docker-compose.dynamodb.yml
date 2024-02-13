@@ -10,3 +10,5 @@ services:
     volumes:
       - "${HMD_HOME}/dynamodb:/home/dynamodblocal/data"
     working_dir: /home/dynamodblocal
+    networks:
+      - neuronsphere_default
