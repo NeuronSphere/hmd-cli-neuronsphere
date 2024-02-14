@@ -39,6 +39,7 @@ setup(
     entry_points={
         "hmd_cli_neuronsphere.enabled": [
             "main=hmd_cli_neuronsphere.plugins.main:enabled",
+            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:enabled",
             "graph=hmd_cli_neuronsphere.plugins.graph:enabled",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:enabled",
             "jupyter=hmd_cli_neuronsphere.plugins.jupyter:enabled",
@@ -49,6 +50,7 @@ setup(
         ],
         "hmd_cli_neuronsphere.prepare_hmd_home": [
             "main=hmd_cli_neuronsphere.plugins.main:prepare_hmd_home",
+            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:prepare_hmd_home",
             "graph=hmd_cli_neuronsphere.plugins.graph:prepare_hmd_home",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:prepare_hmd_home",
             "jupyter=hmd_cli_neuronsphere.plugins.jupyter:prepare_hmd_home",
@@ -59,6 +61,7 @@ setup(
         ],
         "hmd_cli_neuronsphere.get_resources": [
             "main=hmd_cli_neuronsphere.plugins.main:get_resources",
+            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:get_resources",
             "graph=hmd_cli_neuronsphere.plugins.graph:get_resources",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:get_resources",
             "jupyter=hmd_cli_neuronsphere.plugins.jupyter:get_resources",
@@ -69,6 +72,7 @@ setup(
         ],
         "hmd_cli_neuronsphere.render_compose_yaml": [
             "main=hmd_cli_neuronsphere.plugins.main:render_compose_yaml",
+            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:render_compose_yaml",
             "graph=hmd_cli_neuronsphere.plugins.graph:render_compose_yaml",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:render_compose_yaml",
             "jupyter=hmd_cli_neuronsphere.plugins.jupyter:render_compose_yaml",
