@@ -2,6 +2,11 @@ receivers:
   otlp:
     protocols:
       grpc:
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - http://*
 
 exporters:
   prometheus:
@@ -18,6 +23,10 @@ extensions:
 service:
   extensions: [health_check]
   pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
     metrics:
       receivers: [otlp]
       processors: [batch]

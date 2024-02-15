@@ -52,6 +52,13 @@ class LocalController(Controller):
         help="Run a NeuronSphere microservice locally",
         arguments=[
             (
+                ["instance_name"],
+                {
+                    "help": "name to assign service",
+                    "action": "store",
+                },
+            ),
+            (
                 ["-mnt", "--mount"],
                 {
                     "help": "local Python packages to mount into the container",
@@ -61,7 +68,7 @@ class LocalController(Controller):
                     "nargs": "*",
                     "default": [],
                 },
-            )
+            ),
         ],
     )
     def run(self):
@@ -70,6 +77,7 @@ class LocalController(Controller):
         run_local_service(
             self.app.pargs.repo_name,
             self.app.pargs.repo_version,
+            self.app.pargs.instance_name,
             mount_packages=self.app.pargs.mounts,
         )
 

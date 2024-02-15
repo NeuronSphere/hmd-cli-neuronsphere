@@ -2,6 +2,7 @@ version: "3.7"
 services:
   # Collector
   otel-collector:
+    container_name: otel-collector
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-otel-collector:${HMD_IMG_OTEL_COLLECTOR_VERSION:-stable}
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
@@ -10,10 +11,16 @@ services:
       - "8899:8899" # Prometheus metrics exposed by the collector
       - "8889:8889" # Prometheus exporter metrics
       - "13133:13133" # health_check extension
-
+      - 4318:4318
+      - 4317:4317
+    networks:
+      - neuronsphere_default
   prometheus:
+    container_name: prometheus
     image: prom/prometheus:latest
     volumes:
       - ./telemetry/prometheus.yaml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
+    networks:
+      - neuronsphere_default

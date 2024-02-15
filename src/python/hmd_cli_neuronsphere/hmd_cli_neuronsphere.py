@@ -301,10 +301,14 @@ GRANT ALL PRIVILEGES ON DATABASE {database} TO {username};
 def run_local_service(
     repo_name: str,
     repo_version: str,
+    instance_name: str,
     mount_packages: List[str] = [],
     db_init: bool = True,
 ):
-    load_env()
+    load_hmd_env()
+
+    local_svcs = os.listdir(_hmd_home / ".cache" / "local_services")
+    port = f"{len(local_svcs)+2}5432"
     stdout, _, _ = _exec(
         ["pip", "config", "get", "global.extra-index-url"], capture=True
     )
@@ -313,11 +317,6 @@ def run_local_service(
     auth_token = get_auth_token()
     if auth_token is not None:
         os.environ["HMD_AUTH_TOKEN"] = auth_token
-    command = [
-        "docker-compose",
-        "--project-name",
-        "neuronsphere",
-    ]
     volumes = []
 
     for mnt in mount_packages:
@@ -340,13 +339,13 @@ def run_local_service(
             service_config = json.load(local_cfg)
 
     default_config = {
-        "version": "3.2",
+        "version": "3.7",
         "services": {
             repo_name.replace("-", "_"): {
                 "image": f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}",
-                "container_name": repo_name.replace("-", "_"),
+                "container_name": instance_name,
                 "environment": {
-                    "HMD_INSTANCE_NAME": repo_name,
+                    "HMD_INSTANCE_NAME": instance_name,
                     "HMD_REPO_NAME": repo_name,
                     "HMD_REPO_VERSION": repo_version,
                     "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
@@ -372,12 +371,18 @@ def run_local_service(
                 },
                 "expose": [8080],
                 "volumes": volumes,
+                "networks": ["neuronsphere_default"],
             },
         },
     }
 
+    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_TELEMETRY", "true") == "true":
+        default_config["services"][repo_name.replace("-", "_")]["environment"][
+            "HMD_OTEL_ENDPOINT"
+        ] = "http://otel-collector:4317/"
+
     if db_init:
-        default_config["services"]["db_init"] = {
+        default_config["services"][f"{repo_name}_db_init"] = {
             "image": "${HMD_LOCAL_NS_CONTAINER_REGISTRY}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
             "container_name": f"{repo_name}_db_init",
             "environment": {
@@ -387,8 +392,9 @@ def run_local_service(
                 "HMD_DID": "aaa",
                 "PGPASSWORD": "admin",
             },
-            "ports": ["15432:5432"],
+            "ports": [f"{port}:5432"],
             "command": 'psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql',
+            "networks": ["neuronsphere_default"],
         }
 
     with cd("./src/docker"):
@@ -398,8 +404,6 @@ def run_local_service(
                 config = yaml.safe_load(dc)
 
     final_config = merge_configs(config, default_config)
-
-    print(json.dumps(final_config, indent=2))
 
     cache_dir = Path(os.environ["HMD_HOME"]) / ".cache" / "local_services" / repo_name
 
@@ -420,7 +424,7 @@ def run_local_service(
                     )
                 )
 
-            final_config["services"]["db_init"]["volumes"] = [
+            final_config["services"][f"{repo_name}_db_init"]["volumes"] = [
                 {
                     "type": "bind",
                     "source": str(sql_path),
@@ -431,17 +435,7 @@ def run_local_service(
         with open(path, "w") as fcfg:
             yaml.dump(final_config, fcfg)
 
-        command.extend(
-            [
-                "-f",
-                str(path),
-                "up",
-                "--force-recreate",
-                "-d",
-            ]
-        )
-
-        _exec(command)
+        start_neuronsphere()
 
 
 def update_images():

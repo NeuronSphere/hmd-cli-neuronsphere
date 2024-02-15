@@ -81,8 +81,8 @@ services:
       - neuronsphere_default
 
   db_init:
-    command: psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql
-    container_name: hmd-ms-device_db_init
+    command: psql -h db --username postgres -a --dbname "postgres" -f /root/sql/db_init.sql
+    container_name: hmd-ms-naming_db_init
     environment:
       HMD_CUSTOMER_CODE: hmdd2
       HMD_DID: aaa
