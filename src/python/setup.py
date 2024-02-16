@@ -34,6 +34,8 @@ setup(
             "services/nginx/*",
             "services/queues/*",
             "services/transform/*",
+            "services/naming/*",
+            "services/telemetry/*",
         ]
     },
     entry_points={
