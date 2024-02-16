@@ -210,7 +210,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     if os.path.exists(cache_dir):
         for root, _, files in os.walk(cache_dir):
             for f in files:
-                if f.startswith("docker-compose.local"):
+                if f.startswith("docker-compose."):
                     compose_files.append(os.path.join(root, f))
                     with open(os.path.join(root, f), "r") as yml:
                         cfg = yaml.safe_load(yml)
@@ -270,7 +270,7 @@ def stop_neuronsphere():
     if os.path.exists(cache_dir):
         for root, _, files in os.walk(cache_dir):
             for f in files:
-                if f.startswith("docker-compose.local"):
+                if f.startswith("docker-compose."):
                     compose_files.append(os.path.join(root, f))
 
     command = [*_get_base_command(compose_files), "down"]
@@ -304,6 +304,7 @@ def run_local_service(
     instance_name: str,
     mount_packages: List[str] = [],
     db_init: bool = True,
+    docker_compose: dict = {},
 ):
     load_hmd_env()
 
@@ -397,11 +398,12 @@ def run_local_service(
             "networks": ["neuronsphere_default"],
         }
 
-    with cd("./src/docker"):
-        config = {}
-        if os.path.exists("docker-compose.local.yaml"):
-            with open("docker-compose.local.yaml", "r") as dc:
-                config = yaml.safe_load(dc)
+    config = docker_compose
+    if os.path.exists("./src/docker"):
+        with cd("./src/docker"):
+            if os.path.exists("docker-compose.local.yaml"):
+                with open("docker-compose.local.yaml", "r") as dc:
+                    config = yaml.safe_load(dc)
 
     final_config = merge_configs(config, default_config)
 
@@ -411,7 +413,7 @@ def run_local_service(
         os.makedirs(cache_dir, exist_ok=True)
 
     with cd(cache_dir):
-        path = cache_dir / "docker-compose.local.yaml"
+        path = cache_dir / f"docker-compose.{instance_name}.yaml"
         if db_init:
             sql_path = cache_dir / "db_init.sql"
 
