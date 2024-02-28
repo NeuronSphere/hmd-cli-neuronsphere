@@ -49,6 +49,7 @@ setup(
             "apache_superset=hmd_cli_neuronsphere.plugins.apache_superset:enabled",
             "airflow=hmd_cli_neuronsphere.plugins.airflow:enabled",
             "transform=hmd_cli_neuronsphere.plugins.transform:enabled",
+            "trino=hmd_cli_neuronsphere.plugins.trino:enabled",
         ],
         "hmd_cli_neuronsphere.prepare_hmd_home": [
             "main=hmd_cli_neuronsphere.plugins.main:prepare_hmd_home",
@@ -60,6 +61,7 @@ setup(
             "apache_superset=hmd_cli_neuronsphere.plugins.apache_superset:prepare_hmd_home",
             "airflow=hmd_cli_neuronsphere.plugins.airflow:prepare_hmd_home",
             "transform=hmd_cli_neuronsphere.plugins.transform:prepare_hmd_home",
+            "trino=hmd_cli_neuronsphere.plugins.trino:prepare_hmd_home",
         ],
         "hmd_cli_neuronsphere.get_resources": [
             "main=hmd_cli_neuronsphere.plugins.main:get_resources",
@@ -71,6 +73,7 @@ setup(
             "apache_superset=hmd_cli_neuronsphere.plugins.apache_superset:get_resources",
             "airflow=hmd_cli_neuronsphere.plugins.airflow:get_resources",
             "transform=hmd_cli_neuronsphere.plugins.transform:get_resources",
+            "trino=hmd_cli_neuronsphere.plugins.trino:get_resources",
         ],
         "hmd_cli_neuronsphere.render_compose_yaml": [
             "main=hmd_cli_neuronsphere.plugins.main:render_compose_yaml",
@@ -82,6 +85,7 @@ setup(
             "apache_superset=hmd_cli_neuronsphere.plugins.apache_superset:render_compose_yaml",
             "airflow=hmd_cli_neuronsphere.plugins.airflow:render_compose_yaml",
             "transform=hmd_cli_neuronsphere.plugins.transform:render_compose_yaml",
+            "trino=hmd_cli_neuronsphere.plugins.trino:render_compose_yaml",
         ],
     },
     install_requires=[],
