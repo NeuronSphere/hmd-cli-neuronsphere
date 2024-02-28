@@ -34,7 +34,7 @@ services:
     environment:
       - CLUSTER_NAME=test
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop/hadoop-hive.env
     ports:
       - "9870:9870"
       - "8020:8020"
@@ -54,7 +54,7 @@ services:
         source: ${HMD_HOME}/warehouse
         target: /user/hive/warehouse
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop/hadoop-hive.env
     environment:
       SERVICE_PRECONDITION: "namenode:9870"
     ports:
@@ -65,7 +65,7 @@ services:
     container_name: metastore
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-inf-hive-metastore:${HMD_INF_HIVE_METASTORE_VERSION:-stable}
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop/hadoop-hive.env
     environment:
       - HADOOP_CONF_DIR=/opt/hadoop-3.2.3/conf
       - USER=root

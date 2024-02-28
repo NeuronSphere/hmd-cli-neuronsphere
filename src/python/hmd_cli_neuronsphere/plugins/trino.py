@@ -30,6 +30,7 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
         Path("trino", "hadoop", "dfs", "data"),
         Path("hive", "config"),
         Path("hadoop", "config"),
+        Path(".cache", "hadoop"),
         Path("warehouse"),
     ]
 
@@ -65,6 +66,12 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
             _services_dir / "hadoop",
             HMD_HOME / "hadoop" / "config",
             dirs_exist_ok=True,
+        )
+
+    if not (HMD_HOME / ".cache" / "hadoop" / "hadoop-hive.env").exists():
+        shutil.copy2(
+            _services_dir / "hadoop-hive.env",
+            HMD_HOME / ".cache" / "hadoop" / "hadoop-hive.env",
         )
 
 
