@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 
 repo_dir = pathlib.Path(__file__).absolute().parent.parent.parent
 version_file = repo_dir / "meta-data" / "VERSION"
-readme = (repo_dir / "docs" / "index.rst").read_text()
+readme = (repo_dir / "docs" / "readme.rst").read_text()
 
 with open(version_file, "r") as vfl:
     version = vfl.read().strip()
