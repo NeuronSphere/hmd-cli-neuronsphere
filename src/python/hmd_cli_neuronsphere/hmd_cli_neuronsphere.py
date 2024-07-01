@@ -454,5 +454,11 @@ def update_images():
     assert (
         os.environ.get("HMD_PROJECTS_PATH") is not None
     ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
-    command = [*_get_base_command(), "--verbose", "pull"]
+
+    compose_files = []
+    for file_ in os.listdir(_hmd_home / ".cache"):
+        if file_.endswith(".yml"):
+            compose_files.append(_hmd_home / ".cache" / file_)
+
+    command = [*_get_base_command(compose_files), "--verbose", "pull"]
     _exec(command)
