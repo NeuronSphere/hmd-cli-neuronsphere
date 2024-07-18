@@ -49,6 +49,25 @@ class LocalController(Controller):
         stop_neuronsphere()
 
     @ex(
+        help="Restart the local NeuronSphere",
+        arguments=[
+            (
+                ["-s", "--service_name"],
+                {
+                    "help": "name of service to restart",
+                    "action": "store",
+                    "dest": "service_name",
+                    "nargs": "*",
+                },
+            )
+        ],
+    )
+    def restart(self):
+        from .hmd_cli_neuronsphere import restart_service
+
+        restart_service(self.app.pargs.service_name)
+
+    @ex(
         help="Run a NeuronSphere microservice locally",
         arguments=[
             (

@@ -24,10 +24,6 @@ RESOURCES_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.get_resources"
 COMPOSE_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.render_compose_yaml"
 
 
-def _get_env_var(var_name, default=None):
-    return os.environ.get(var_name, default)
-
-
 def _get_required_env_var(var_name, default=None):
     value = os.environ.get(var_name, default)
 
@@ -43,84 +39,7 @@ def _exec(command, capture=False):
 
 
 _hmd_home = Path(_get_required_env_var("HMD_HOME"))
-_dirname = Path(os.path.dirname(__file__))
-_services_dir = _dirname / "services"
-_configs = dict()
-
-
-def load_env():
-    load_dotenv(_hmd_home / ".config" / "hmd.env", override=False)
-
-
-def _get_tech_enabled(name, default=None):
-    var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name}"
-    val = _get_env_var(var)
-    if val is not None:
-        return val == "true"
-    return default
-
-
-def _get_configs(config_overrides: Dict[str, bool] = {}):
-    if not any(_configs):
-        enable_trino = _get_tech_enabled("TRINO", config_overrides.get("trino", True))
-        enable_dynamodb = _get_tech_enabled(
-            "DYNAMODB", config_overrides.get("dynamo", True)
-        )
-        enable_graph = _get_tech_enabled("GRAPH", config_overrides.get("graph", True))
-        enable_minio = _get_tech_enabled("MINIO", config_overrides.get("minio", True))
-        enable_transform = _get_tech_enabled(
-            "TRANSFORM", config_overrides.get("transform", True)
-        )
-        enable_apache_superset = _get_tech_enabled(
-            "APACHE_SUPERSET", config_overrides.get("apache_superset", True)
-        )
-
-        _configs.update(
-            {
-                "base": {
-                    "enabled": True,
-                    "path": _services_dir / f"docker-compose.main.yml",
-                },
-                "jupyter": {
-                    "enabled": config_overrides.get("jupyter", True),
-                    "path": _services_dir / f"docker-compose.jupyter.yml",
-                },
-                "trino": {
-                    "enabled": enable_trino,
-                    "path": _services_dir / f"docker-compose.trino.yml",
-                },
-                "dynamodb": {
-                    "enabled": enable_dynamodb,
-                    "path": _services_dir / f"docker-compose.dynamodb.yml",
-                },
-                "graph": {
-                    "enabled": enable_graph,
-                    "path": _services_dir / "docker-compose.graph.yml",
-                },
-                "minio": {
-                    "enabled": enable_minio,
-                    "path": _services_dir / "docker-compose.minio.yml",
-                },
-                "apache-superset": {
-                    "enabled": enable_apache_superset,
-                    "path": _services_dir / f"docker-compose.apache-superset.yml",
-                },
-                "airflow": {
-                    "enabled": enable_transform,
-                    "path": _services_dir / f"docker-compose.airflow.yml",
-                },
-                "transform": {
-                    "enabled": enable_transform,
-                    "path": _services_dir / f"docker-compose.transform.yml",
-                },
-                "datadog": {
-                    "enabled": os.environ.get("DD_API_KEY") is not None,
-                    "path": _services_dir / "docker-compose.datadog.yml",
-                },
-            }
-        )
-
-    return _configs
+_project_name = "local_neuronsphere"
 
 
 def _get_base_command(files: List[str]):
@@ -129,7 +48,14 @@ def _get_base_command(files: List[str]):
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
-    command = ["docker", "compose", "--project-directory", str(_hmd_home / ".cache")]
+    command = [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(_hmd_home / ".cache"),
+        "--project-name",
+        _project_name,
+    ]
     for file_ in files:
         command += ["-f", str(file_)]
     return command
@@ -154,7 +80,7 @@ def _load_plugins(config_overrides: Dict[str, bool] = {}):
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
-    load_env()
+    load_hmd_env()
 
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -248,7 +174,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     _exec(command)
 
 
-def stop_neuronsphere():
+def _get_cached_compose_files():
     load_hmd_env()
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -273,7 +199,23 @@ def stop_neuronsphere():
                 if f.startswith("docker-compose."):
                     compose_files.append(os.path.join(root, f))
 
+    return compose_files
+
+
+def stop_neuronsphere():
+    load_hmd_env()
+    compose_files = _get_cached_compose_files()
     command = [*_get_base_command(compose_files), "down"]
+    _exec(command)
+
+
+def restart_service(service_name: List[str] = None):
+    load_hmd_env()
+    compose_files = _get_cached_compose_files()
+    command = [*_get_base_command(compose_files), "restart"]
+
+    if service_name is not None:
+        command += service_name
     _exec(command)
 
 
