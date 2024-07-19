@@ -17,7 +17,7 @@ def enabled(config_overrides: Dict[str, bool] = {}):
 
 
 def get_resources():
-    return {}
+    return {"graph_database": ["graph-db"]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):

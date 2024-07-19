@@ -17,7 +17,7 @@ def enabled(config_overrides: Dict[str, bool] = {}):
 
 
 def get_resources():
-    return {}
+    return {"endpoints": ["trino:localhost:8081"]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):

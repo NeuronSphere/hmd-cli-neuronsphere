@@ -21,7 +21,14 @@ def get_resources():
     return {
         "services": [
             {"name": "ms-transform", "url": "http://hmd_gateway/hmd_ms_transform/"}
-        ]
+        ],
+        "databases": [
+            {
+                "username": "hmd_ms_transform",
+                "password": "hmd_ms_transform",
+                "database": "hmd_ms_transform",
+            }
+        ],
     }
 
 

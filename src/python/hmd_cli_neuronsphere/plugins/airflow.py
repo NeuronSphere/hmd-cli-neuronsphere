@@ -17,7 +17,7 @@ def enabled(config_overrides: Dict[str, bool] = {}):
 
 
 def get_resources():
-    return {}
+    return {"endpoints": ["airflow:localhost:175"]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):

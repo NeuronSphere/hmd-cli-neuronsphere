@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from hmd_cli_tools import cd
 from hmd_cli_tools.okta_tools import get_auth_token
 from hmd_cli_tools.hmd_cli_tools import load_hmd_env
+import requests
 import yaml
 
 from cement import App, minimal_logger, shell
@@ -151,6 +152,12 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                                     }
                                 )
 
+                if f.startswith("resources."):
+                    with open(os.path.join(root, f), "r") as rjson:
+                        local_resources = json.load(rjson)
+                        for k, v in local_resources.items():
+                            resources[k] = [*resources.get(k, []), *v]
+
     # Render Compose Files
     for plugin, enabled in plugins.items():
         if enabled:
@@ -173,6 +180,40 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     ]
     _exec(command)
 
+    logger.info("Upserting local services to Naming Service...")
+    for svc in resources.get("services", []):
+        if isinstance(svc, dict):
+            name = svc.get("name")
+            url = svc.get("url")
+
+            if name is None or url is None:
+                logger.debug(
+                    f"Cannot upsert service name or url missing. Name: {name} URL: {url}"
+                )
+                continue
+
+            requests.put(
+                f"http://localhost/ms-naming/apiop/service/{name}/local",
+                data={"httpEndpoint": url},
+            )
+
+    logger.info("Updating database connections file...")
+    conn_file_path = cache_dir / ".." / "connections.yml"
+
+    conns = {"databases": {}}
+    if conn_file_path.exists():
+        with open(conn_file_path, "r") as c:
+            conns = yaml.safe_load(c)
+
+    for db in resources.get("databases", []):
+        if not isinstance(db, dict):
+            continue
+        logger.info(f"Adding {db['database']}")
+        conns["databases"][db["database"]] = {"host": "hmd_db", **db}
+
+    with open(conn_file_path, "w") as c:
+        yaml.dump(conns, c)
+
 
 def _get_cached_compose_files():
     load_hmd_env()
@@ -188,6 +229,8 @@ def _get_cached_compose_files():
 
     compose_files = []
     for file_ in os.listdir(_hmd_home / ".cache"):
+        if file_ == "connections.yml":
+            continue
         if file_.endswith(".yml"):
             compose_files.append(_hmd_home / ".cache" / file_)
 
@@ -275,6 +318,11 @@ def run_local_service(
             }
         )
 
+    resources = {
+        "services": [
+            {"name": instance_name, "url": f"http://hmd_gateway/{instance_name}"}
+        ]
+    }
     service_config = {}
 
     if os.path.exists("./meta-data/config_local.json"):
@@ -339,6 +387,13 @@ def run_local_service(
             "command": 'psql -h db --username postgres -a --dbname "$POSTGRES_DB" -f /root/sql/db_init.sql',
             "networks": ["neuronsphere_default"],
         }
+        resources["databases"] = [
+            {
+                "username": repo_name.replace("-", "_"),
+                "password": repo_name.replace("-", "_"),
+                "database": repo_name.replace("-", "_"),
+            }
+        ]
 
     config = docker_compose
     if os.path.exists("./src/docker"):
@@ -356,6 +411,7 @@ def run_local_service(
 
     with cd(cache_dir):
         path = cache_dir / f"docker-compose.{instance_name}.yaml"
+        resource_path = cache_dir / f"resources.{instance_name}.json"
         if db_init:
             sql_path = cache_dir / "db_init.sql"
 
@@ -378,6 +434,9 @@ def run_local_service(
 
         with open(path, "w") as fcfg:
             yaml.dump(final_config, fcfg)
+
+        with open(resource_path, "w") as r:
+            json.dump(resources, r, indent=2)
 
         start_neuronsphere()
 
