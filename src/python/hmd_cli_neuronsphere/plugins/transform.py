@@ -61,8 +61,11 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
             query_cfg = json.load(qc)
 
         existing_cfg = {}
-        with open(HMD_HOME / "transform" / "queries" / "query_config.json", "r") as qc:
-            existing_cfg = json.load(qc)
+        if (HMD_HOME / "transform" / "queries" / "query_config.json").exists():
+            with open(
+                HMD_HOME / "transform" / "queries" / "query_config.json", "r"
+            ) as qc:
+                existing_cfg = json.load(qc)
 
         with open(HMD_HOME / "transform" / "queries" / "query_config.json", "w") as qc:
             existing_cfg = json.dump({**existing_cfg, **query_cfg}, qc)
