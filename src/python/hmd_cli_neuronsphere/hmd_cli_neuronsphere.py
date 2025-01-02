@@ -50,7 +50,7 @@ def _get_base_command(files: List[str]):
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
     compose_cmd = json.loads(
-        os.environ.get("DOCKER_COMPOSE_CMD", "['docker', 'compose']")
+        os.environ.get("DOCKER_COMPOSE_CMD", '["docker", "compose"]')
     )
     command = [
         *compose_cmd,
