@@ -68,6 +68,8 @@ services:
       POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
       POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      SECRET_KEY: ${HMD_SUPERSET_SECRET_KEY:-neuronsphere}
+      PREVIOUS_SECRET_KEY: ${HMD_SUPERSET_PREV_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
     user: "root"
     restart: unless-stopped
     ports:
@@ -83,7 +85,7 @@ services:
     command: ["/app/docker/docker-init.sh"]
     env_file: *superset-env
     environment:
-      PREVIOUS_SECRET_KEY: CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET
+      PREVIOUS_SECRET_KEY: ${HMD_SUPERSET_PREV_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
       MAPBOX_API_KEY: ${MAPBOX_API_KEY:-na}
       DATABASE_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       DATABASE_HOST: ${HMD_SUPERSET_DATABASE_HOST:-db}
@@ -94,6 +96,7 @@ services:
       POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
       POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      SECRET_KEY: ${HMD_SUPERSET_SECRET_KEY:-neuronsphere}
     depends_on: *superset-depends-on
     user: "root"
     volumes: *superset-volumes
@@ -116,6 +119,8 @@ services:
       POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
       POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      SECRET_KEY: ${HMD_SUPERSET_SECRET_KEY:-neuronsphere}
+      PREVIOUS_SECRET_KEY: ${HMD_SUPERSET_PREV_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
     restart: unless-stopped
     depends_on: *superset-depends-on
     user: "root"
@@ -137,6 +142,8 @@ services:
       POSTGRES_DB: ${HMD_SUPERSET_DATABASE_DB:-superset}
       POSTGRES_USER: ${HMD_SUPERSET_DATABASE_USER:-superset}
       POSTGRES_PASSWORD: ${HMD_SUPERSET_DATABASE_PASSWORD:-superset}
+      SECRET_KEY: ${HMD_SUPERSET_SECRET_KEY:-neuronsphere}
+      PREVIOUS_SECRET_KEY: ${HMD_SUPERSET_PREV_SECRET_KEY:-CHANGE_ME_TO_A_COMPLEX_RANDOM_SECRET}
     restart: unless-stopped
     depends_on: *superset-depends-on
     user: "root"
