@@ -217,7 +217,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         yaml.dump(conns, c)
 
 
-def _get_cached_compose_files():
+def _get_cached_compose_files(include_local_services: bool = False):
     load_hmd_env()
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -236,28 +236,29 @@ def _get_cached_compose_files():
         if file_.endswith(".yml"):
             compose_files.append(_hmd_home / ".cache" / file_)
 
-    cache_dir = Path(_hmd_home) / ".cache" / "local_services"
+    if include_local_services:
+        cache_dir = Path(_hmd_home) / ".cache" / "local_services"
 
-    if os.path.exists(cache_dir):
-        for root, _, files in os.walk(cache_dir):
-            for f in files:
-                if f.startswith("docker-compose."):
-                    compose_files.append(os.path.join(root, f))
+        if os.path.exists(cache_dir):
+            for root, _, files in os.walk(cache_dir):
+                for f in files:
+                    if f.startswith("docker-compose."):
+                        compose_files.append(os.path.join(root, f))
 
     return compose_files
 
 
 def stop_neuronsphere():
     load_hmd_env()
-    compose_files = _get_cached_compose_files()
+    compose_files = _get_cached_compose_files(include_local_services=True)
     command = [*_get_base_command(compose_files), "down"]
     _exec(command)
 
 
 def restart_service(service_name: List[str] = None):
     load_hmd_env()
-    compose_files = _get_cached_compose_files()
-    command = [*_get_base_command(compose_files), "restart"]
+    compose_files = _get_cached_compose_files(include_local_services=True)
+    command = [*_get_base_command(compose_files), "up", "-d"]
 
     if service_name is not None:
         command += service_name
