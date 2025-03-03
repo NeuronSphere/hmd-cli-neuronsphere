@@ -11,10 +11,10 @@ _services_dir = _dirname / ".." / "services"
 
 
 def enabled(config_overrides: Dict[str, bool] = {}):
-    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_JUPYTER")
+    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_TRANSFORM")
     if val is not None:
         return val == "true"
-    return config_overrides.get("jupyter", True)
+    return config_overrides.get("transform", True)
 
 
 def get_resources():

@@ -3,12 +3,22 @@ from importlib.metadata import version
 
 from cement import Controller, ex
 from hmd_cli_tools import get_version
+from hmd_cli_tools.hmd_cli_tools import load_hmd_env, set_hmd_env
+from hmd_cli_tools.prompt_tools import prompt_for_values
 
 VERSION_BANNER = """
 hmd neuronsphere version: {}
 """
 
 VERSION = version("hmd_cli_neuronsphere")
+
+
+CONFIG_VALUES = {
+    "HMD_LOCAL_NS_CONTAINER_REGISTRY": {
+        "hidden": True,
+        "default": "ghcr.io/neuronsphere",
+    }
+}
 
 
 class LocalController(Controller):
@@ -105,3 +115,15 @@ class LocalController(Controller):
         from .hmd_cli_neuronsphere import update_images
 
         update_images()
+
+    @ex(
+        help="configures HMD environment variables",
+        arguments=[],
+    )
+    def configure(self):
+        load_hmd_env()
+
+        results = prompt_for_values(CONFIG_VALUES)
+
+        for k, v in results.items():
+            set_hmd_env(k, str(v))
