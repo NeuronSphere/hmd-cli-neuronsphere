@@ -12,6 +12,7 @@ services:
       HMD_DID: aaa
       HMD_REPO_NAME: hmd-img-airflow
       HMD_HOST_HOME: ${HMD_HOME}
+      HMD_REPO_HOME: /hmd/projects
       DOCKER_URL: tcp://socket-proxy:2375
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -31,6 +32,9 @@ services:
       - type: bind
         source: ${HMD_HOME}
         target: /hmd
+      - type: bind
+        source: ${HMD_REPO_HOME}
+        target: /hmd/projects
     depends_on:
       - db
       - socket-proxy
@@ -57,6 +61,7 @@ services:
       HMD_DID: aaa
       HMD_REPO_NAME: hmd-img-airflow
       HMD_HOST_HOME: ${HMD_HOME}
+      HMD_REPO_HOME: /hmd/projects
       DOCKER_URL: tcp://socket-proxy:2375
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: ${HMD_AIRFLOW__CORE__SQL_ALCHEMY_CONN:-postgresql://airflow:airflow@hmd_db/airflow}
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -76,6 +81,9 @@ services:
       - type: bind
         source: ${HMD_HOME}
         target: /hmd
+      - type: bind
+        source: ${HMD_REPO_HOME}
+        target: /hmd/projects
     depends_on:
       - db
       - airflow-scheduler

@@ -27,6 +27,8 @@ services:
       HMD_REPO_VERSION: ${HMD_MS_TRANSFORM_VERSION:-stable}
       HMD_SVC_HOST: "http://hmd_proxy/hmd_ms_transform"
       ARTIFACT_NAME: artifact
+      HMD_USE_FASTAPI: "true"
+      HMD_OTEL_ENDPOINT: http://otel-collector:4317/
       LOCAL_TRANSFORM_PROJECTS: /hmd/projects
       OPERATIONS_MODULE: hmd_ms_transform.hmd_ms_transform
       SCHEMA_URI: "/schemas"
