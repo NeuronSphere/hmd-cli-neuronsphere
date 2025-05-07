@@ -147,7 +147,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                             if "BUCKET_NAME" in svc_cfg.get("environment", {}):
                                 resources["buckets"].append(
                                     {
-                                        "name": svc,
+                                        "name": svc_cfg.get("container_name", svc),
                                         "url": svc_cfg.get("environment", {}).get(
                                             "BUCKET_NAME"
                                         ),
