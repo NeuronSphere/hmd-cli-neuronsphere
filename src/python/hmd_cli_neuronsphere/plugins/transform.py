@@ -77,7 +77,11 @@ def render_compose_yaml(
     configs: Dict[str, bool] = {},
 ):
     compose_dict = {}
-    with open(_services_dir / "docker-compose.transform.yml", "r") as dc:
+    TRANSFORM_SVC_COMPOSE_FILE = os.environ.get(
+        "HMD_MS_TRANSFORM_LOCAL_COMPOSE", _services_dir / "docker-compose.transform.yml"
+    )
+    print(TRANSFORM_SVC_COMPOSE_FILE)
+    with open(TRANSFORM_SVC_COMPOSE_FILE, "r") as dc:
         compose_dict = yaml.safe_load(dc)
 
     if not configs.get("graph") or not configs.get("airflow"):
