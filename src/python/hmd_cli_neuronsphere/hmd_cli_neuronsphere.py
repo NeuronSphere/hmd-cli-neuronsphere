@@ -136,6 +136,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
 
     cache_dir = Path(_hmd_home) / ".cache" / "local_services"
 
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir, exist_ok=True)
+
     if os.path.exists(cache_dir):
         for root, _, files in os.walk(cache_dir):
             for f in files:

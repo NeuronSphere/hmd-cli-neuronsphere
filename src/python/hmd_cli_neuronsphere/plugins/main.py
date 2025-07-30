@@ -91,7 +91,7 @@ def render_compose_yaml(
             "RDS_SECRETS": json.dumps(
                 {
                     db["database"]: {**db, "host": "db", "port": "5432"}
-                    for db in resources["databases"]
+                    for db in resources.get("databases", [])
                 }
             ),
             "NEPTUNE_ENDPOINTS": json.dumps({"global-graph": "global-graph"}),
