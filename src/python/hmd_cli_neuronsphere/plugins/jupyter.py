@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-import shutil
+import boto3
 from typing import Dict, List
 
 import yaml
@@ -45,6 +45,25 @@ def render_compose_yaml(
     compose_dict = {}
     with open(_services_dir / "docker-compose.jupyter.yml", "r") as dc:
         compose_dict = yaml.safe_load(dc)
+
+    aws_profile = os.environ.get("AWS_PROFILE")
+
+    if aws_profile:
+        session = boto3.Session(profile_name=aws_profile)
+        creds = session.get_credentials()
+
+        if creds.access_key:
+            compose_dict["services"]["jupyter-local"]["environment"][
+                "AWS_ACCESS_KEY_ID"
+            ] = creds.access_key
+        if creds.secret_key:
+            compose_dict["services"]["jupyter-local"]["environment"][
+                "AWS_SECRET_ACCESS_KEY"
+            ] = creds.secret_key
+        if creds.token:
+            compose_dict["services"]["jupyter-local"]["environment"][
+                "AWS_SESSION_TOKEN"
+            ] = creds.token
 
     compose_path = cache_dir / "docker-compose.jupyter.yml"
     if compose_path.exists():
