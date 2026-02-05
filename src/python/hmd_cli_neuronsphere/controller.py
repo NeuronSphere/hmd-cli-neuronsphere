@@ -179,3 +179,135 @@ class LocalController(Controller):
 
         print("\nPlugin configuration is INVALID.")
         raise SystemExit(1)
+
+    @ex(
+        help="Initialize a local plugin directory structure (src/local/)",
+        arguments=[
+            (
+                ["--path"],
+                {
+                    "help": "Base path for the repository (defaults to current directory)",
+                    "action": "store",
+                    "dest": "path",
+                    "default": ".",
+                },
+            ),
+            (
+                ["--plugin-name"],
+                {
+                    "help": "Name of the plugin (e.g., 'transform', 'trino')",
+                    "action": "store",
+                    "dest": "plugin_name",
+                    "required": False,
+                },
+            ),
+        ],
+    )
+    def init_plugin(self):
+        import json
+        from pathlib import Path
+
+        base_path = Path(self.app.pargs.path)
+        plugin_name = self.app.pargs.plugin_name
+
+        # Try to infer plugin name from manifest.json if not provided
+        if not plugin_name:
+            manifest_path = base_path / "meta-data" / "manifest.json"
+            if manifest_path.exists():
+                try:
+                    with open(manifest_path, "r") as f:
+                        manifest = json.load(f)
+                    repo_name = manifest.get("name", "")
+                    # Extract plugin name from repo name (e.g., hmd-ms-transform -> transform)
+                    parts = repo_name.split("-")
+                    if len(parts) >= 3:
+                        plugin_name = "-".join(parts[2:])
+                    else:
+                        plugin_name = repo_name
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+        if not plugin_name:
+            print("Error: Could not determine plugin name.")
+            print(
+                "Please provide --plugin-name or run from a repo with meta-data/manifest.json"
+            )
+            raise SystemExit(1)
+
+        # Create directory structure
+        local_dir = base_path / "src" / "local"
+        dirs_to_create = [
+            local_dir,
+            local_dir / "config",
+            local_dir / "templates",
+            local_dir / "scripts" / "postgres",
+        ]
+
+        for dir_path in dirs_to_create:
+            if not dir_path.exists():
+                dir_path.mkdir(parents=True, exist_ok=True)
+                print(f"Created: {dir_path}")
+
+        # Create template nsplugin.json
+        nsplugin_path = local_dir / "nsplugin.json"
+        if nsplugin_path.exists():
+            print(f"Warning: {nsplugin_path} already exists, skipping")
+        else:
+            template = {
+                "plugin_name": plugin_name,
+                "compose_file": f"docker-compose.{plugin_name}.yml",
+                "resources": {
+                    "services": [],
+                    "databases": [],
+                    "endpoints": [],
+                },
+                "required_dirs": [],
+                "config_mappings": [],
+                "templates": [],
+                "postgres_scripts": [],
+                "dependencies": {
+                    "requires_plugins": [],
+                    "requires_services": [],
+                },
+                "env_var_override": f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}",
+            }
+
+            with open(nsplugin_path, "w") as f:
+                json.dump(template, f, indent=2)
+            print(f"Created: {nsplugin_path}")
+
+        # Create empty docker-compose file
+        compose_path = local_dir / f"docker-compose.{plugin_name}.yml"
+        if compose_path.exists():
+            print(f"Warning: {compose_path} already exists, skipping")
+        else:
+            compose_template = f"""services:
+  {plugin_name.replace('-', '_')}:
+    image: ${{HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}}/hmd-ms-{plugin_name}:${{HMD_IMG_{plugin_name.upper().replace('-', '_')}_VERSION:-stable}}
+    container_name: {plugin_name}
+    networks:
+      - neuronsphere_default
+    environment:
+      HMD_CUSTOMER_CODE: ${{HMD_CUSTOMER_CODE}}
+      HMD_DID: ${{HMD_DID:-aaa}}
+      HMD_ENVIRONMENT: ${{HMD_ENVIRONMENT:-local}}
+      HMD_REGION: ${{HMD_REGION:-us-west-2}}
+    # volumes:
+    #   - ${{HMD_HOME}}/data:/data
+    # depends_on:
+    #   db:
+    #     condition: service_healthy
+
+networks:
+  neuronsphere_default:
+    external: true
+"""
+            with open(compose_path, "w") as f:
+                f.write(compose_template)
+            print(f"Created: {compose_path}")
+
+        print(f"\nPlugin '{plugin_name}' initialized successfully!")
+        print(f"\nNext steps:")
+        print(f"  1. Edit {nsplugin_path} to configure resources and dependencies")
+        print(f"  2. Edit {compose_path} to configure your service")
+        print(f"  3. Run 'hmd neuronsphere validate-plugin {local_dir}' to validate")

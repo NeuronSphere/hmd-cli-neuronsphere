@@ -43,19 +43,26 @@ First, understand what type of repository you're working with:
 
 ### Step 2: Create Directory Structure
 
-Create the `src/local/` directory with the following structure:
+Use the `init-plugin` command to scaffold the directory structure:
 
+```bash
+hmd neuronsphere init-plugin --plugin-name <plugin_name>
+```
+
+This creates:
 ```
 src/local/
-    nsplugin.json              # Plugin configuration (required)
-    docker-compose.<plugin>.yml # Docker Compose file (required)
+    nsplugin.json              # Plugin configuration (required) - template created
+    docker-compose.<plugin>.yml # Docker Compose file (required) - template created
     config/                    # Configuration files (optional)
     templates/                 # Jinja2 templates (optional)
     scripts/
         postgres/              # PostgreSQL init scripts (optional)
 ```
 
-Commands to create structure:
+The command auto-detects the plugin name from `meta-data/manifest.json` if not provided.
+
+Alternatively, create the structure manually:
 ```bash
 mkdir -p src/local/config
 mkdir -p src/local/templates
