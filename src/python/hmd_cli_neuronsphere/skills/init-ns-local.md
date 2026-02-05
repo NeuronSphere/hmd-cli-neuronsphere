@@ -213,12 +213,23 @@ Copy any configuration files your service needs to `src/local/config/`:
 
 ### Step 7: Validate Configuration
 
-After creating all files, verify:
+After creating all files, run the validation command:
 
-1. **JSON validity**: `python -m json.tool src/local/nsplugin.json`
-2. **YAML validity**: `python -c "import yaml; yaml.safe_load(open('src/local/docker-compose.<plugin>.yml'))"`
-3. **Directory structure**: All referenced files exist
-4. **Dependencies**: Required plugins are documented
+```bash
+hmd neuronsphere validate-plugin src/local/
+```
+
+This validates:
+1. **JSON validity**: Ensures nsplugin.json is valid JSON
+2. **Required fields**: Checks for `plugin_name` and `compose_file`
+3. **YAML validity**: Validates the Docker Compose file syntax
+4. **File existence**: Verifies all referenced config files, templates, and scripts exist
+5. **Schema compliance**: Checks field types and structure
+
+You can also validate without file existence checks:
+```bash
+hmd neuronsphere validate-plugin src/local/ --no-file-check
+```
 
 ## Examples
 
@@ -322,12 +333,17 @@ services:
 
 ## Checklist
 
-Before completing, verify:
+Before completing, run the validation command and verify it passes:
 
+```bash
+hmd neuronsphere validate-plugin src/local/
+```
+
+The validation checks:
 - [ ] `src/local/nsplugin.json` exists and is valid JSON
 - [ ] `src/local/docker-compose.<plugin>.yml` exists and is valid YAML
 - [ ] All config files referenced in `config_mappings` exist
-- [ ] All postgres scripts referenced exist and are executable
+- [ ] All postgres scripts referenced exist
 - [ ] All template files referenced exist
 - [ ] Dependencies are correctly documented
 - [ ] Environment variable name follows convention: `HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>`

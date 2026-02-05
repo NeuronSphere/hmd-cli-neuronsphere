@@ -127,3 +127,55 @@ class LocalController(Controller):
 
         for k, v in results.items():
             set_hmd_env(k, str(v))
+
+    @ex(
+        help="Validate a local plugin configuration (nsplugin.json)",
+        arguments=[
+            (
+                ["path"],
+                {
+                    "help": "Path to nsplugin.json file or directory containing it",
+                    "action": "store",
+                    "nargs": "?",
+                    "default": ".",
+                },
+            ),
+            (
+                ["--no-file-check"],
+                {
+                    "help": "Skip checking if referenced files exist",
+                    "action": "store_true",
+                    "dest": "no_file_check",
+                },
+            ),
+        ],
+    )
+    def validate_plugin(self):
+        from pathlib import Path
+
+        from .validators import validate_nsplugin
+
+        path = Path(self.app.pargs.path)
+        check_files = not self.app.pargs.no_file_check
+
+        result = validate_nsplugin(path, check_files=check_files)
+
+        if result.errors:
+            print("Errors:")
+            for error in result.errors:
+                print(f"  - {error}")
+
+        if result.warnings:
+            print("Warnings:")
+            for warning in result.warnings:
+                print(f"  - {warning}")
+
+        if result.valid:
+            if not result.warnings:
+                print("Plugin configuration is valid.")
+            else:
+                print("\nPlugin configuration is valid with warnings.")
+            return
+
+        print("\nPlugin configuration is INVALID.")
+        raise SystemExit(1)
