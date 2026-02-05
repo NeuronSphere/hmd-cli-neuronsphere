@@ -9,6 +9,7 @@ This module provides helper functions for:
 - Rendering Jinja2 templates
 - Copying PostgreSQL init scripts
 - Checking plugin dependencies
+- Local plugin override support from HMD_REPO_HOME
 """
 
 import json
@@ -32,10 +33,69 @@ _services_dir = (
     _dirname / ".." / "services"
 )  # Keep for core services and backwards compatibility
 
+# Cached local plugin loader instance
+_local_plugin_loader = None
+
+
+def _get_local_plugin_loader():
+    """Get or create the LocalPluginLoader instance."""
+    global _local_plugin_loader
+    if _local_plugin_loader is None:
+        from ..loaders import LocalPluginLoader
+
+        _local_plugin_loader = LocalPluginLoader()
+    return _local_plugin_loader
+
+
+def _load_local_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Load nsplugin.json from local HMD_REPO_HOME if available and enabled.
+
+    Args:
+        plugin_name: Name of the plugin
+
+    Returns:
+        Configuration dictionary or None if not available
+    """
+    loader = _get_local_plugin_loader()
+    return loader.get_plugin_config(plugin_name)
+
+
+def _get_local_plugin_dir(plugin_name: str) -> Optional[Path]:
+    """
+    Get the src/local directory from local HMD_REPO_HOME if available and enabled.
+
+    Args:
+        plugin_name: Name of the plugin
+
+    Returns:
+        Path to local directory or None if not available
+    """
+    loader = _get_local_plugin_loader()
+    return loader.get_plugin_local_dir(plugin_name)
+
+
+def has_local_override(plugin_name: str) -> bool:
+    """
+    Check if a local plugin override exists and is enabled.
+
+    Args:
+        plugin_name: Name of the plugin
+
+    Returns:
+        True if local override exists and is enabled
+    """
+    loader = _get_local_plugin_loader()
+    return loader.has_local_plugin(plugin_name)
+
 
 def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
     """
-    Load the nsplugin.json configuration for an external plugin.
+    Load the nsplugin.json configuration for a plugin.
+
+    Resolution priority:
+    1. Local HMD_REPO_HOME (if enabled via env var)
+    2. External artifacts (installed)
 
     Args:
         plugin_name: Name of the plugin (e.g., 'transform', 'trino')
@@ -43,6 +103,12 @@ def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dictionary containing the plugin configuration, or None if not found
     """
+    # Check local override first
+    local_config = _load_local_nsplugin_config(plugin_name)
+    if local_config:
+        return local_config
+
+    # Fall back to external artifacts
     config_path = _external_dir / plugin_name / "src" / "local" / "nsplugin.json"
     if config_path.exists():
         with open(config_path, "r") as f:
@@ -52,7 +118,11 @@ def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
 
 def get_external_compose_path(plugin_name: str) -> Optional[Path]:
     """
-    Get path to docker-compose file from external artifact.
+    Get path to docker-compose file from external artifact or local override.
+
+    Resolution priority:
+    1. Local HMD_REPO_HOME (if enabled via env var)
+    2. External artifacts (installed)
 
     Args:
         plugin_name: Name of the plugin
@@ -60,6 +130,13 @@ def get_external_compose_path(plugin_name: str) -> Optional[Path]:
     Returns:
         Path to the compose file, or None if not found
     """
+    # Check local override first
+    loader = _get_local_plugin_loader()
+    local_compose = loader.get_compose_path(plugin_name)
+    if local_compose:
+        return local_compose
+
+    # Fall back to external artifacts
     config = load_nsplugin_config(plugin_name)
     if config:
         compose_file = config.get("compose_file")
@@ -72,7 +149,11 @@ def get_external_compose_path(plugin_name: str) -> Optional[Path]:
 
 def get_external_local_dir(plugin_name: str) -> Optional[Path]:
     """
-    Get path to the src/local directory from external artifact.
+    Get path to the src/local directory from external artifact or local override.
+
+    Resolution priority:
+    1. Local HMD_REPO_HOME (if enabled via env var)
+    2. External artifacts (installed)
 
     Args:
         plugin_name: Name of the plugin
@@ -80,6 +161,12 @@ def get_external_local_dir(plugin_name: str) -> Optional[Path]:
     Returns:
         Path to the local directory, or None if not found
     """
+    # Check local override first
+    local_override_dir = _get_local_plugin_dir(plugin_name)
+    if local_override_dir:
+        return local_override_dir
+
+    # Fall back to external artifacts
     local_dir = _external_dir / plugin_name / "src" / "local"
     if local_dir.exists():
         return local_dir
@@ -104,13 +191,13 @@ def get_external_config_dir(plugin_name: str) -> Optional[Path]:
 
 def has_external_artifact(plugin_name: str) -> bool:
     """
-    Check if an external artifact exists for this plugin.
+    Check if an external artifact or local override exists for this plugin.
 
     Args:
         plugin_name: Name of the plugin
 
     Returns:
-        True if external artifact exists with nsplugin.json
+        True if external artifact or local override exists with nsplugin.json
     """
     return load_nsplugin_config(plugin_name) is not None
 

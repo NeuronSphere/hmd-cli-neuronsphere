@@ -17,6 +17,8 @@ import yaml
 
 from cement import App, minimal_logger, shell
 
+from .loaders import LocalPluginLoader
+
 logger = minimal_logger("hmd_cli_neuronsphere")
 
 ENABLED_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.enabled"
@@ -73,13 +75,178 @@ def _load_entry_point(name: str, group: str):
 
 
 def _load_plugins(config_overrides: Dict[str, bool] = {}):
+    # Load installed plugins via entry points
     entrypoints = entry_points(group=ENABLED_PLUGIN_ENTRY_POINT)
     plugins = {}
     for entrypoint in entrypoints:
         logger.debug(f"Loading plugin...{entrypoint.name}")
         plugins[entrypoint.name] = entrypoint.load()(config_overrides)
 
+    # Discover and add local plugins from HMD_REPO_HOME
+    local_loader = LocalPluginLoader()
+    for plugin_name in local_loader.get_enabled_plugins():
+        if plugin_name in plugins:
+            logger.info(f"Local plugin overriding installed: {plugin_name}")
+        else:
+            logger.info(f"Loading local plugin: {plugin_name}")
+        # Local enabled plugins override installed
+        plugins[plugin_name] = True
+
     return plugins
+
+
+def _prepare_local_plugin(
+    local_loader: LocalPluginLoader,
+    plugin_name: str,
+    hmd_home: Path,
+    plugins: Dict[str, bool],
+) -> None:
+    """
+    Prepare HMD_HOME for a local plugin.
+
+    This handles creating directories, copying configs, rendering templates,
+    and copying postgres scripts for plugins loaded from HMD_REPO_HOME.
+
+    Args:
+        local_loader: The LocalPluginLoader instance
+        plugin_name: Name of the plugin
+        hmd_home: Path to HMD_HOME
+        plugins: Dictionary of plugin enabled states
+    """
+    from .plugins.base import (
+        create_required_dirs,
+        copy_configs,
+        render_templates,
+        copy_postgres_scripts,
+        build_template_context,
+    )
+
+    config = local_loader.get_plugin_config(plugin_name)
+    if not config:
+        return
+
+    local_dir = local_loader.get_plugin_local_dir(plugin_name)
+    if not local_dir:
+        return
+
+    # Create required directories
+    required_dirs = config.get("required_dirs", [])
+    create_required_dirs(hmd_home, required_dirs)
+
+    # Copy config files - use custom copy since local dir is different
+    config_mappings = config.get("config_mappings", [])
+    for mapping in config_mappings:
+        source = local_dir / mapping["source"]
+        dest = hmd_home / mapping["dest"]
+
+        if not source.exists():
+            continue
+
+        # Handle if_empty option
+        if mapping.get("if_empty"):
+            if dest.exists():
+                if dest.is_dir() and os.listdir(dest):
+                    continue
+                elif dest.is_file():
+                    continue
+
+        if source.is_dir():
+            os.makedirs(dest.parent, exist_ok=True)
+            shutil.copytree(source, dest, dirs_exist_ok=True)
+        else:
+            os.makedirs(dest.parent, exist_ok=True)
+            if mapping.get("merge") and dest.exists():
+                with open(source, "r") as sf:
+                    source_data = json.load(sf)
+                with open(dest, "r") as df:
+                    dest_data = json.load(df)
+                merged = {**dest_data, **source_data}
+                with open(dest, "w") as df:
+                    json.dump(merged, df)
+            else:
+                shutil.copy2(source, dest)
+
+    # Render templates - use custom rendering since local dir is different
+    templates = config.get("templates", [])
+    if templates:
+        try:
+            from jinja2 import Environment, FileSystemLoader
+
+            templates_dir = local_dir / "templates"
+            if templates_dir.exists():
+                env = Environment(loader=FileSystemLoader(str(templates_dir)))
+                context = build_template_context({}, plugins)
+
+                for template_def in templates:
+                    template_file = template_def["source"]
+                    dest = hmd_home / template_def["dest"]
+
+                    if "/" in template_file:
+                        template_file = os.path.basename(template_file)
+
+                    try:
+                        template = env.get_template(template_file)
+                        rendered = template.render(**context)
+                        os.makedirs(dest.parent, exist_ok=True)
+                        with open(dest, "w") as f:
+                            f.write(rendered)
+                        print(f"Rendered template: {template_file} -> {dest}")
+                    except Exception as e:
+                        print(
+                            f"Warning: Failed to render template {template_file}: {e}"
+                        )
+        except ImportError:
+            print("Warning: Jinja2 not installed, skipping template rendering")
+
+    # Copy postgres scripts
+    postgres_scripts = config.get("postgres_scripts", [])
+    scripts_dest = hmd_home / "postgresql" / "scripts" / "always-initdb.d"
+    os.makedirs(scripts_dest, exist_ok=True)
+    for script in postgres_scripts:
+        source = local_dir / script
+        if source.exists():
+            shutil.copy2(source, scripts_dest / source.name)
+            print(f"Copied postgres script: {source.name}")
+
+
+def _get_local_plugin_resources(
+    local_loader: LocalPluginLoader, plugin_name: str
+) -> Dict[str, List]:
+    """
+    Get resources from a local plugin's nsplugin.json.
+
+    Args:
+        local_loader: The LocalPluginLoader instance
+        plugin_name: Name of the plugin
+
+    Returns:
+        Dictionary of resources
+    """
+    config = local_loader.get_plugin_config(plugin_name)
+    if not config:
+        return {}
+
+    return config.get("resources", {})
+
+
+def _is_local_only_plugin(local_loader: LocalPluginLoader, plugin_name: str) -> bool:
+    """
+    Check if a plugin is local-only (no installed entry point).
+
+    Args:
+        local_loader: The LocalPluginLoader instance
+        plugin_name: Name of the plugin
+
+    Returns:
+        True if plugin is local-only
+    """
+    # Check if there's an entry point for this plugin
+    entrypoints = entry_points(group=ENABLED_PLUGIN_ENTRY_POINT)
+    for ep in entrypoints:
+        if ep.name == plugin_name:
+            return False
+    # If no entry point, it's local-only
+    return local_loader.has_local_plugin(plugin_name)
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
@@ -110,6 +277,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     plugins = _load_plugins(config_overrides=config_overrides)
     resources = {"buckets": []}
 
+    # Create local plugin loader for handling local-only plugins
+    local_loader = LocalPluginLoader()
+
     # Get Plugin Resources
     for plugin, enabled in plugins.items():
         if enabled:
@@ -119,6 +289,15 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                 plugin_resources = entrypoint.load()()
             else:
                 plugin_resources = {}
+
+            # For local-only plugins, get resources from nsplugin.json
+            if _is_local_only_plugin(local_loader, plugin):
+                local_resources = _get_local_plugin_resources(local_loader, plugin)
+                for k, v in local_resources.items():
+                    if isinstance(v, list):
+                        plugin_resources[k] = [*plugin_resources.get(k, []), *v]
+                    else:
+                        plugin_resources[k] = v
 
             for k, v in plugin_resources.items():
                 if k in resources:
@@ -132,6 +311,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
             entrypoint = _load_entry_point(plugin, PREPARE_PLUGIN_ENTRY_POINT)
             if entrypoint is not None:
                 entrypoint.load()(_hmd_home, plugins)
+            elif _is_local_only_plugin(local_loader, plugin):
+                # For local-only plugins, prepare HMD_HOME directly
+                _prepare_local_plugin(local_loader, plugin, _hmd_home, plugins)
     compose_files = []
 
     cache_dir = Path(_hmd_home) / ".cache" / "local_services"
@@ -173,6 +355,12 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                 )
                 if compose_file is not None:
                     compose_files.append(compose_file)
+            elif _is_local_only_plugin(local_loader, plugin):
+                # For local-only plugins, get compose file directly
+                compose_path = local_loader.get_compose_path(plugin)
+                if compose_path:
+                    compose_files.append(str(compose_path))
+                    logger.info(f"Added local compose file: {compose_path}")
 
     command = [
         *_get_base_command(compose_files),
