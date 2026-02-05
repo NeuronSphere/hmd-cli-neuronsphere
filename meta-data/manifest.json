@@ -2,9 +2,9 @@
   "name": "hmd-cli-neuronsphere",
   "description": "Local NeuronSphere Control CLI",
   "build": {
-    "pre_build_artifacts": [],
+    "pre_build_artifacts": [
+      ["hmd-ms-transform@1.0.778:build", "src/python/hmd_cli_neuronsphere/external/transform"]],
     "pre_build_artifacts_future": [
-      ["hmd-ms-transform@0.1:build", "src/python/hmd_cli_neuronsphere/external/transform"],
       ["hmd-inf-trino@0.1:build", "src/python/hmd_cli_neuronsphere/external/trino"],
       ["hmd-app-airflow@0.4:build", "src/python/hmd_cli_neuronsphere/external/airflow"],
       ["hmd-inf-superset@0.1:build", "src/python/hmd_cli_neuronsphere/external/superset"],
