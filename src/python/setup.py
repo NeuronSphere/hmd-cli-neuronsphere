@@ -21,6 +21,7 @@ setup(
     include_package_data=True,
     package_data={
         "": [
+            # Core services (bundled in this repo)
             "services/*",
             "services/postgres/*",
             "services/postgres/always-initdb.d/*",
@@ -36,6 +37,13 @@ setup(
             "services/transform/*",
             "services/naming/*",
             "services/telemetry/*",
+            # External artifacts (populated by pre_build_artifacts during hmd build)
+            "external/*/src/local/*",
+            "external/*/src/local/config/*",
+            "external/*/src/local/config/**/*",
+            "external/*/src/local/templates/*",
+            "external/*/src/local/scripts/*",
+            "external/*/src/local/scripts/postgres/*",
         ]
     },
     entry_points={
