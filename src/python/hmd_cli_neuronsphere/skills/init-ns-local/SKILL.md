@@ -318,17 +318,23 @@ networks:
 
 If manifest.json contains `hmd-database-account` dependency or `hmd_db_engines.postgres`, create a PostgreSQL init script.
 
+> **Note:** When you define `postgres_scripts` in nsplugin.json, the loader automatically generates a db init container that runs your script after postgres is healthy. You don't need to manually configure an init container.
+
 **1. Create `src/local/scripts/postgres/<db_name>.sh`:**
 
 ```bash
 #!/bin/bash
 set -e
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+# Use postgres user and postgres database for admin commands
+psql -h db -U postgres <<-EOSQL
     CREATE USER <username> WITH PASSWORD '<password>';
     CREATE DATABASE <database_name>;
     GRANT ALL PRIVILEGES ON DATABASE <database_name> TO <username>;
-    \c <database_name>
+EOSQL
+
+# Connect to the new database to grant schema permissions
+psql -h db -U postgres -d <database_name> <<-EOSQL
     GRANT ALL ON SCHEMA public TO <username>;
 EOSQL
 ```
@@ -349,7 +355,14 @@ EOSQL
 }
 ```
 
+The loader will automatically generate a `<plugin>_db_init` container that:
+- Waits for postgres to be healthy
+- Runs your init script
+- Exits after completion
+
 **3. Add to docker-compose:**
+
+Your main service should depend on db being healthy (the db_init container is added automatically):
 
 ```yaml
 services:

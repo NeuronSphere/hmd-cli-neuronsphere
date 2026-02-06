@@ -398,3 +398,58 @@ class LocalPluginLoader:
                 env_vars[env_name] = str(value)
 
         return env_vars
+
+    def get_db_init_compose(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Generate docker-compose config for a db init container.
+
+        Reads postgres_scripts from nsplugin.json and generates a container
+        that runs the scripts after postgres is healthy.
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            Dictionary with service config for the init container, or None
+        """
+        config = self.get_plugin_config(plugin_name)
+        if not config:
+            return None
+
+        postgres_scripts = config.get("postgres_scripts", [])
+        if not postgres_scripts:
+            return None
+
+        info = self.get_plugin_info(plugin_name)
+        if not info:
+            return None
+
+        # Read script content from all postgres scripts
+        script_content = ""
+        for script in postgres_scripts:
+            script_path = info.local_dir / script
+            if script_path.exists():
+                with open(script_path, "r") as f:
+                    script_content += f.read() + "\n"
+
+        if not script_content.strip():
+            return None
+
+        service_name = f"{plugin_name.replace('-', '_')}_db_init"
+
+        # Build the command that waits for postgres and runs the script
+        command = (
+            f"until pg_isready -h db -U postgres; do sleep 1; done\n{script_content}"
+        )
+
+        return {
+            service_name: {
+                "image": "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
+                "container_name": service_name,
+                "environment": {"PGPASSWORD": "admin"},
+                "entrypoint": ["/bin/bash", "-c"],
+                "command": [command],
+                "networks": ["neuronsphere_default"],
+                "depends_on": {"db": {"condition": "service_healthy"}},
+            }
+        }

@@ -198,15 +198,8 @@ def _prepare_local_plugin(
         except ImportError:
             print("Warning: Jinja2 not installed, skipping template rendering")
 
-    # Copy postgres scripts
-    postgres_scripts = config.get("postgres_scripts", [])
-    scripts_dest = hmd_home / "postgresql" / "scripts" / "always-initdb.d"
-    os.makedirs(scripts_dest, exist_ok=True)
-    for script in postgres_scripts:
-        source = local_dir / script
-        if source.exists():
-            shutil.copy2(source, scripts_dest / source.name)
-            print(f"Copied postgres script: {source.name}")
+    # Note: postgres_scripts are now handled via auto-generated db init containers
+    # in start_neuronsphere() using get_db_init_compose()
 
 
 def _get_local_plugin_resources(
@@ -368,6 +361,24 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         for key, value in env_vars.items():
             os.environ[key] = value
             logger.debug(f"Set env var from local plugin {plugin_name}: {key}")
+
+    # Generate db init containers for local plugins with postgres_scripts
+    db_init_services = {}
+    for plugin_name in local_loader.get_enabled_plugins():
+        init_compose = local_loader.get_db_init_compose(plugin_name)
+        if init_compose:
+            db_init_services.update(init_compose)
+            logger.info(f"Generated db init container for plugin: {plugin_name}")
+
+    if db_init_services:
+        db_init_compose = {
+            "services": db_init_services,
+            "networks": {"neuronsphere_default": {"external": True}},
+        }
+        db_init_path = _hmd_home / ".cache" / "docker-compose.db-init.yml"
+        with open(db_init_path, "w") as f:
+            yaml.dump(db_init_compose, f)
+        compose_files.append(str(db_init_path))
 
     command = [
         *_get_base_command(compose_files),
