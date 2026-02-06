@@ -21,8 +21,9 @@ setup(
     include_package_data=True,
     package_data={
         "": [
-            # AI Skills
+            # AI Skills (file-based and directory-based)
             "skills/*.md",
+            "skills/*/*.md",
             # Core services (bundled in this repo)
             "services/*",
             "services/postgres/*",
