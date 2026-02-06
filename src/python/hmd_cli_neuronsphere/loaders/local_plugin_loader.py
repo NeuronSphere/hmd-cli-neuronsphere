@@ -15,13 +15,14 @@ Usage:
 """
 
 import json
-import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from cement import minimal_logger
+
+logger = minimal_logger("local_plugin_loader")
 
 
 @dataclass
