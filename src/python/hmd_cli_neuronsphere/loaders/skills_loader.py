@@ -38,11 +38,22 @@ class SkillsLoader:
     def list_skills(self) -> List[Dict]:
         """List all available skills with their metadata.
 
+        Supports two formats:
+        - File-based: skills/{name}.md
+        - Directory-based: skills/{name}/SKILL.md
+
         Returns:
             List of skill metadata dictionaries
         """
         skills = []
-        skill_files = list(self.default_location.glob("*.md"))
+
+        # Find file-based skills (*.md directly in skills/)
+        file_based = list(self.default_location.glob("*.md"))
+
+        # Find directory-based skills (*/SKILL.md)
+        dir_based = list(self.default_location.glob("*/SKILL.md"))
+
+        skill_files = file_based + dir_based
 
         for skill_file in sorted(skill_files):
             try:
@@ -52,7 +63,11 @@ class SkillsLoader:
 
                 # Add filename-based name if not in metadata
                 if "name" not in metadata:
-                    metadata["name"] = skill_file.stem
+                    # For directory-based, use parent dir name
+                    if skill_file.name == "SKILL.md":
+                        metadata["name"] = skill_file.parent.name
+                    else:
+                        metadata["name"] = skill_file.stem
 
                 # Add file path for reference
                 metadata["_file"] = str(skill_file)
@@ -87,8 +102,12 @@ class SkillsLoader:
     def get_skill_path(self, name: str) -> Path:
         """Get the path to a skill file.
 
+        Supports two formats:
+        - File-based: skills/{name}.md
+        - Directory-based: skills/{name}/SKILL.md
+
         Args:
-            name: Skill name (filename without .md extension)
+            name: Skill name (filename without .md extension or directory name)
 
         Returns:
             Path to the skill file
@@ -96,15 +115,25 @@ class SkillsLoader:
         Raises:
             FileNotFoundError: If skill doesn't exist
         """
-        # Try exact name first
+        # Try file-based format first: {name}.md
         skill_path = self.default_location / f"{name}.md"
         if skill_path.exists():
             return skill_path
 
-        # Try finding by glob pattern
+        # Try directory-based format: {name}/SKILL.md
+        dir_skill_path = self.default_location / name / "SKILL.md"
+        if dir_skill_path.exists():
+            return dir_skill_path
+
+        # Try finding by glob pattern (file-based)
         matches = list(self.default_location.glob(f"*{name}*.md"))
         if matches:
             return matches[0]
+
+        # Try finding by glob pattern (directory-based)
+        dir_matches = list(self.default_location.glob(f"*{name}*/SKILL.md"))
+        if dir_matches:
+            return dir_matches[0]
 
         raise FileNotFoundError(f"Skill '{name}' not found in {self.default_location}")
 
