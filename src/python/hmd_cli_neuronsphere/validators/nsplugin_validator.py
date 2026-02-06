@@ -46,6 +46,7 @@ OPTIONAL_FIELDS = {
     "postgres_scripts": list,
     "dependencies": dict,
     "env_var_override": str,
+    "config": dict,
 }
 
 # Resource field types
@@ -156,6 +157,10 @@ def validate_nsplugin(path: Path, check_files: bool = True) -> ValidationResult:
                 f"env_var_override should start with "
                 f"'HMD_LOCAL_NEURONSPHERE_ENABLE_', got '{env_var}'"
             )
+
+    # Validate config section
+    if "config" in config:
+        _validate_config_section(config["config"], result)
 
     return result
 
@@ -274,3 +279,48 @@ def _validate_dependencies(deps: Dict[str, Any], result: ValidationResult) -> No
     if "requires_services" in deps:
         if not isinstance(deps["requires_services"], list):
             result.add_error("dependencies.requires_services must be a list")
+
+
+def _validate_config_section(
+    config_section: Dict[str, Any], result: ValidationResult
+) -> None:
+    """Validate config section for configurable environment variables.
+
+    The config section defines configurable values that can be overridden
+    via meta-data/config_local.json. Each entry can be:
+    - A simple value (used as default)
+    - A dict with: default, env_var, type
+
+    Example:
+        "config": {
+            "SERVICE_CONFIG": {
+                "default": {},
+                "env_var": "SERVICE_CONFIG",
+                "type": "json"
+            },
+            "LOG_LEVEL": {
+                "default": "INFO",
+                "env_var": "MY_SERVICE_LOG_LEVEL",
+                "type": "string"
+            }
+        }
+    """
+    valid_types = ["string", "json", "int", "bool"]
+
+    for key, schema in config_section.items():
+        if not isinstance(key, str):
+            result.add_error(f"config key must be a string, got {type(key).__name__}")
+            continue
+
+        if isinstance(schema, dict):
+            # Validate schema structure
+            if "type" in schema:
+                if schema["type"] not in valid_types:
+                    result.add_warning(
+                        f"config.{key}.type '{schema['type']}' not in {valid_types}"
+                    )
+
+            if "env_var" in schema:
+                if not isinstance(schema["env_var"], str):
+                    result.add_error(f"config.{key}.env_var must be a string")
+        # Simple values are allowed as defaults

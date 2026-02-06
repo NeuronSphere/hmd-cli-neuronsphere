@@ -90,6 +90,13 @@ Create `src/local/nsplugin.json` with the following structure:
     "requires_plugins": [],
     "requires_services": []
   },
+  "config": {
+    "SERVICE_CONFIG": {
+      "default": {},
+      "env_var": "SERVICE_CONFIG",
+      "type": "json"
+    }
+  },
   "env_var_override": "HMD_LOCAL_NEURONSPHERE_ENABLE_<PLUGIN_NAME_UPPER>"
 }
 ```
@@ -109,7 +116,46 @@ Create `src/local/nsplugin.json` with the following structure:
 | `postgres_scripts` | PostgreSQL init scripts | `["scripts/postgres/init.sh"]` |
 | `dependencies.requires_plugins` | Other plugins that must be enabled | `["graph", "airflow"]` |
 | `dependencies.requires_services` | Docker services that must be running | `["db", "graph-db"]` |
+| `config` | Configurable environment variables with defaults | See below |
 | `env_var_override` | Environment variable to enable/disable | `"HMD_LOCAL_NEURONSPHERE_ENABLE_TRANSFORM"` |
+
+#### Config Section Format:
+
+The `config` section defines environment variables that can be configured via `meta-data/config_local.json`:
+
+```json
+"config": {
+  "SERVICE_CONFIG": {
+    "default": {"operations_modules": ["my_service.my_service"]},
+    "env_var": "SERVICE_CONFIG",
+    "type": "json"
+  },
+  "LOG_LEVEL": {
+    "default": "INFO",
+    "env_var": "MY_SERVICE_LOG_LEVEL",
+    "type": "string"
+  }
+}
+```
+
+Schema options:
+- `default`: Default value if not overridden
+- `env_var`: Environment variable name to set
+- `type`: Value type (`string`, `json`, `int`, `bool`)
+
+To override values, create `meta-data/config_local.json` in your repo:
+
+```json
+{
+  "SERVICE_CONFIG": {
+    "operations_modules": ["my_service.my_service", "my_service.custom_ops"],
+    "custom_setting": true
+  },
+  "LOG_LEVEL": "DEBUG"
+}
+```
+
+The values from `config_local.json` are merged with defaults and injected as environment variables when the plugin starts.
 
 #### Config Mappings Format:
 

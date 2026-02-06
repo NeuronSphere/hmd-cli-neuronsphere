@@ -362,6 +362,13 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                     compose_files.append(str(compose_path))
                     logger.info(f"Added local compose file: {compose_path}")
 
+    # Inject environment variables from local plugin configs
+    for plugin_name in local_loader.get_enabled_plugins():
+        env_vars = local_loader.get_env_vars(plugin_name)
+        for key, value in env_vars.items():
+            os.environ[key] = value
+            logger.debug(f"Set env var from local plugin {plugin_name}: {key}")
+
     command = [
         *_get_base_command(compose_files),
     ]

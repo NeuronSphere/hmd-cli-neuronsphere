@@ -197,3 +197,105 @@ class LocalPluginLoader:
             True if local plugin exists and is enabled
         """
         return self.get_plugin_info(plugin_name) is not None
+
+    def get_local_config(self, plugin_name: str) -> Dict[str, Any]:
+        """
+        Load meta-data/config_local.json from the plugin's repo.
+
+        This file contains local overrides for plugin configuration,
+        such as SERVICE_CONFIG for microservices.
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            Configuration dictionary from config_local.json, or empty dict
+        """
+        info = self.get_plugin_info(plugin_name)
+        if not info:
+            return {}
+
+        config_local_path = info.repo_path / "meta-data" / "config_local.json"
+        if not config_local_path.exists():
+            return {}
+
+        try:
+            with open(config_local_path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+
+    def get_merged_config(self, plugin_name: str) -> Dict[str, Any]:
+        """
+        Get merged configuration for a plugin.
+
+        Merges:
+        1. Defaults from nsplugin.json config section
+        2. Overrides from meta-data/config_local.json
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            Merged configuration dictionary
+        """
+        plugin_config = self.get_plugin_config(plugin_name)
+        if not plugin_config:
+            return {}
+
+        # Get defaults from nsplugin.json config section
+        config_schema = plugin_config.get("config", {})
+        defaults = {}
+        for key, schema in config_schema.items():
+            if isinstance(schema, dict) and "default" in schema:
+                defaults[key] = schema["default"]
+            elif not isinstance(schema, dict):
+                # Simple value as default
+                defaults[key] = schema
+
+        # Get overrides from config_local.json
+        local_config = self.get_local_config(plugin_name)
+
+        # Merge: local overrides defaults
+        merged = {**defaults, **local_config}
+        return merged
+
+    def get_env_vars(self, plugin_name: str) -> Dict[str, str]:
+        """
+        Get environment variables to inject for a plugin.
+
+        Reads the config section from nsplugin.json and config_local.json,
+        then formats values as environment variables.
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            Dictionary of environment variable name -> value
+        """
+        plugin_config = self.get_plugin_config(plugin_name)
+        if not plugin_config:
+            return {}
+
+        config_schema = plugin_config.get("config", {})
+        merged_config = self.get_merged_config(plugin_name)
+        env_vars = {}
+
+        for key, value in merged_config.items():
+            schema = config_schema.get(key, {})
+
+            # Determine env var name
+            if isinstance(schema, dict):
+                env_name = schema.get("env_var", key)
+                value_type = schema.get("type", "string")
+            else:
+                env_name = key
+                value_type = "string"
+
+            # Format value based on type
+            if value_type == "json" or isinstance(value, (dict, list)):
+                env_vars[env_name] = json.dumps(value)
+            else:
+                env_vars[env_name] = str(value)
+
+        return env_vars

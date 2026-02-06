@@ -253,6 +253,7 @@ class LocalController(Controller):
         if nsplugin_path.exists():
             print(f"Warning: {nsplugin_path} already exists, skipping")
         else:
+            service_name = f"hmd_ms_{plugin_name.replace('-', '_')}"
             template = {
                 "plugin_name": plugin_name,
                 "compose_file": f"docker-compose.{plugin_name}.yml",
@@ -269,6 +270,15 @@ class LocalController(Controller):
                     "requires_plugins": [],
                     "requires_services": [],
                 },
+                "config": {
+                    "SERVICE_CONFIG": {
+                        "default": {
+                            "operations_modules": [f"{service_name}.{service_name}"],
+                        },
+                        "env_var": "SERVICE_CONFIG",
+                        "type": "json",
+                    },
+                },
                 "env_var_override": f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}",
             }
 
@@ -281,8 +291,9 @@ class LocalController(Controller):
         if compose_path.exists():
             print(f"Warning: {compose_path} already exists, skipping")
         else:
+            service_key = plugin_name.replace("-", "_")
             compose_template = f"""services:
-  {plugin_name.replace('-', '_')}:
+  {service_key}:
     image: ${{HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}}/hmd-ms-{plugin_name}:${{HMD_IMG_{plugin_name.upper().replace('-', '_')}_VERSION:-stable}}
     container_name: {plugin_name}
     networks:
@@ -292,6 +303,8 @@ class LocalController(Controller):
       HMD_DID: ${{HMD_DID:-aaa}}
       HMD_ENVIRONMENT: ${{HMD_ENVIRONMENT:-local}}
       HMD_REGION: ${{HMD_REGION:-us-west-2}}
+      # Configurable via meta-data/config_local.json
+      SERVICE_CONFIG: ${{SERVICE_CONFIG:-'{{}}'}}
     # volumes:
     #   - ${{HMD_HOME}}/data:/data
     # depends_on:
