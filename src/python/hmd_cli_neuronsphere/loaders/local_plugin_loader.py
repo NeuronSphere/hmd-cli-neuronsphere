@@ -1,17 +1,27 @@
 """
-Loader for local filesystem plugins from HMD_REPO_HOME.
+Loader for local filesystem plugins.
 
 This module provides:
-- Discovery of plugins in HMD_REPO_HOME with src/local/nsplugin.json
-- Explicit enabling via environment variables
+- Explicit local plugin paths via HMD_LOCAL_PLUGINS environment variable
+- Discovery of plugins in HMD_REPO_HOME (when HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true)
 - Local plugin priority over installed plugins
+
+Usage:
+    # Explicit paths (recommended)
+    export HMD_LOCAL_PLUGINS=/path/to/repo1:/path/to/repo2
+
+    # Or scan HMD_REPO_HOME for all plugins with src/local/nsplugin.json
+    export HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +36,7 @@ class LocalPluginInfo:
 
 
 class LocalPluginLoader:
-    """Loader for local filesystem plugins from HMD_REPO_HOME."""
+    """Loader for local filesystem plugins."""
 
     def __init__(self, repo_home: Optional[Path] = None) -> None:
         """
@@ -39,9 +49,56 @@ class LocalPluginLoader:
         self.repo_home = repo_home or (Path(repo_home_str) if repo_home_str else None)
         self._discovered_plugins: Optional[Dict[str, LocalPluginInfo]] = None
 
+    def _load_plugin_from_path(self, repo_path: Path) -> Optional[LocalPluginInfo]:
+        """
+        Load a plugin from a specific repository path.
+
+        Args:
+            repo_path: Path to the repository root
+
+        Returns:
+            LocalPluginInfo if valid plugin found, None otherwise
+        """
+        if not repo_path.is_dir():
+            logger.debug(f"Not a directory: {repo_path}")
+            return None
+
+        # Check for nsplugin.json in src/local/
+        nsplugin_path = repo_path / "src" / "local" / "nsplugin.json"
+        if not nsplugin_path.exists():
+            logger.debug(f"No nsplugin.json at: {nsplugin_path}")
+            return None
+
+        try:
+            with open(nsplugin_path, "r") as f:
+                config = json.load(f)
+
+            plugin_name = config.get("plugin_name")
+            if not plugin_name:
+                logger.warning(f"Missing plugin_name in: {nsplugin_path}")
+                return None
+
+            return LocalPluginInfo(
+                plugin_name=plugin_name,
+                repo_name=repo_path.name,
+                repo_path=repo_path,
+                local_dir=repo_path / "src" / "local",
+                config_path=nsplugin_path,
+            )
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON in {nsplugin_path}: {e}")
+            return None
+        except IOError as e:
+            logger.warning(f"Error reading {nsplugin_path}: {e}")
+            return None
+
     def discover_plugins(self) -> Dict[str, LocalPluginInfo]:
         """
-        Scan HMD_REPO_HOME for repos with src/local/nsplugin.json.
+        Discover local plugins from explicit paths or HMD_REPO_HOME scanning.
+
+        Discovery methods (in order of priority):
+        1. HMD_LOCAL_PLUGINS: Colon-separated list of explicit repo paths
+        2. HMD_REPO_HOME scan: Only if HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true
 
         Returns:
             Dictionary mapping plugin_name to LocalPluginInfo
@@ -51,46 +108,80 @@ class LocalPluginLoader:
 
         self._discovered_plugins = {}
 
-        if not self.repo_home or not self.repo_home.exists():
-            return self._discovered_plugins
-
-        # Scan for repos with src/local/nsplugin.json
-        for item in self.repo_home.iterdir():
-            if not item.is_dir():
-                continue
-
-            # Check for nsplugin.json in src/local/
-            nsplugin_path = item / "src" / "local" / "nsplugin.json"
-            if not nsplugin_path.exists():
-                continue
-
-            try:
-                with open(nsplugin_path, "r") as f:
-                    config = json.load(f)
-
-                plugin_name = config.get("plugin_name")
-                if not plugin_name:
+        # Method 1: Explicit paths from HMD_LOCAL_PLUGINS
+        explicit_plugins = os.environ.get("HMD_LOCAL_PLUGINS", "")
+        if explicit_plugins:
+            for path_str in explicit_plugins.split(":"):
+                path_str = path_str.strip()
+                if not path_str:
                     continue
 
-                self._discovered_plugins[plugin_name] = LocalPluginInfo(
-                    plugin_name=plugin_name,
-                    repo_name=item.name,
-                    repo_path=item,
-                    local_dir=item / "src" / "local",
-                    config_path=nsplugin_path,
-                )
-            except (json.JSONDecodeError, IOError):
-                # Skip invalid plugins
-                continue
+                repo_path = Path(path_str).expanduser().resolve()
+                info = self._load_plugin_from_path(repo_path)
+                if info:
+                    self._discovered_plugins[info.plugin_name] = info
+                    logger.info(
+                        f"Loaded local plugin '{info.plugin_name}' from {repo_path}"
+                    )
+
+        # Method 2: Scan HMD_REPO_HOME (only if explicitly enabled)
+        scan_repo_home = os.environ.get(
+            "HMD_LOCAL_PLUGINS_SCAN_REPO_HOME", ""
+        ).lower() in ("true", "1", "yes")
+
+        if scan_repo_home and self.repo_home and self.repo_home.exists():
+            logger.debug(f"Scanning HMD_REPO_HOME: {self.repo_home}")
+            for item in self.repo_home.iterdir():
+                if not item.is_dir():
+                    continue
+
+                # Skip if already loaded via explicit path
+                info = self._load_plugin_from_path(item)
+                if info and info.plugin_name not in self._discovered_plugins:
+                    self._discovered_plugins[info.plugin_name] = info
+                    logger.info(
+                        f"Discovered local plugin '{info.plugin_name}' in {item}"
+                    )
 
         return self._discovered_plugins
 
+    def _is_explicitly_listed(self, plugin_name: str) -> bool:
+        """
+        Check if a plugin was loaded from HMD_LOCAL_PLUGINS (explicit list).
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            True if plugin was explicitly listed
+        """
+        explicit_plugins = os.environ.get("HMD_LOCAL_PLUGINS", "")
+        if not explicit_plugins:
+            return False
+
+        # Check if plugin's repo path is in the explicit list
+        discovered = self.discover_plugins()
+        info = discovered.get(plugin_name)
+        if not info:
+            return False
+
+        for path_str in explicit_plugins.split(":"):
+            path_str = path_str.strip()
+            if not path_str:
+                continue
+            explicit_path = Path(path_str).expanduser().resolve()
+            if explicit_path == info.repo_path:
+                return True
+
+        return False
+
     def is_plugin_enabled(self, plugin_name: str) -> bool:
         """
-        Check if a plugin is explicitly enabled via environment variable.
+        Check if a plugin is enabled.
 
-        The environment variable follows the pattern:
-        HMD_LOCAL_NEURONSPHERE_ENABLE_<PLUGIN_NAME_UPPER>
+        Plugins are enabled if:
+        1. Listed explicitly in HMD_LOCAL_PLUGINS (auto-enabled), OR
+        2. Discovered via scan AND has HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>=true
 
         Args:
             plugin_name: Name of the plugin (e.g., 'transform')
@@ -98,7 +189,14 @@ class LocalPluginLoader:
         Returns:
             True if the plugin is enabled
         """
-        env_var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper()}"
+        # Explicitly listed plugins are always enabled
+        if self._is_explicitly_listed(plugin_name):
+            return True
+
+        # Scanned plugins need explicit env var
+        env_var = (
+            f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}"
+        )
         value = os.environ.get(env_var, "").lower()
         return value in ("true", "1", "yes")
 

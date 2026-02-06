@@ -329,3 +329,73 @@ networks:
         print(f"  1. Edit {nsplugin_path} to configure resources and dependencies")
         print(f"  2. Edit {compose_path} to configure your service")
         print(f"  3. Run 'hmd neuronsphere validate-plugin {local_dir}' to validate")
+
+    @ex(
+        help="List discovered local plugins",
+        arguments=[
+            (
+                ["--verbose", "-v"],
+                {
+                    "help": "Show detailed plugin information",
+                    "action": "store_true",
+                    "dest": "verbose",
+                },
+            ),
+        ],
+    )
+    def list_local_plugins(self):
+        """List local plugins discovered from HMD_LOCAL_PLUGINS or HMD_REPO_HOME."""
+        import os
+
+        from .loaders import LocalPluginLoader
+
+        loader = LocalPluginLoader()
+        discovered = loader.discover_plugins()
+
+        # Show configuration
+        print("Local Plugin Configuration:")
+        print(
+            f"  HMD_LOCAL_PLUGINS: {os.environ.get('HMD_LOCAL_PLUGINS', '(not set)')}"
+        )
+        print(
+            f"  HMD_LOCAL_PLUGINS_SCAN_REPO_HOME: {os.environ.get('HMD_LOCAL_PLUGINS_SCAN_REPO_HOME', '(not set)')}"
+        )
+        print(f"  HMD_REPO_HOME: {os.environ.get('HMD_REPO_HOME', '(not set)')}")
+        print()
+
+        if not discovered:
+            print("No local plugins discovered.")
+            print()
+            print("To use local plugins, set one of:")
+            print("  export HMD_LOCAL_PLUGINS=/path/to/repo1:/path/to/repo2")
+            print("  export HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true")
+            return
+
+        print(f"Discovered {len(discovered)} local plugin(s):")
+        print()
+
+        for name, info in sorted(discovered.items()):
+            enabled = loader.is_plugin_enabled(name)
+            explicit = loader._is_explicitly_listed(name)
+            status = "enabled" if enabled else "disabled"
+            source = "explicit" if explicit else "scanned"
+
+            print(f"  {name}:")
+            print(f"    Status: {status} ({source})")
+            print(f"    Repo: {info.repo_path}")
+
+            if self.app.pargs.verbose:
+                print(f"    Local dir: {info.local_dir}")
+                print(f"    Config: {info.config_path}")
+
+                # Show compose file
+                compose_path = loader.get_compose_path(name)
+                if compose_path:
+                    print(f"    Compose: {compose_path}")
+
+                # Show env var for enabling (if scanned)
+                if not explicit:
+                    env_var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name.upper().replace('-', '_')}"
+                    print(f"    Enable via: export {env_var}=true")
+
+            print()
