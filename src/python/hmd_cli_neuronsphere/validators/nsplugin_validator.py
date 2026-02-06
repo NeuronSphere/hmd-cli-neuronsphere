@@ -44,6 +44,8 @@ OPTIONAL_FIELDS = {
     "config_mappings": list,
     "templates": list,
     "postgres_scripts": list,
+    "minio_scripts": list,
+    "dynamodb_scripts": list,
     "dependencies": dict,
     "env_var_override": str,
     "config": dict,
@@ -143,7 +145,19 @@ def validate_nsplugin(path: Path, check_files: bool = True) -> ValidationResult:
 
     # Validate postgres_scripts
     if "postgres_scripts" in config and check_files:
-        _validate_postgres_scripts(config["postgres_scripts"], local_dir, result)
+        _validate_scripts(
+            config["postgres_scripts"], local_dir, "postgres_scripts", result
+        )
+
+    # Validate minio_scripts
+    if "minio_scripts" in config and check_files:
+        _validate_scripts(config["minio_scripts"], local_dir, "minio_scripts", result)
+
+    # Validate dynamodb_scripts
+    if "dynamodb_scripts" in config and check_files:
+        _validate_scripts(
+            config["dynamodb_scripts"], local_dir, "dynamodb_scripts", result
+        )
 
     # Validate dependencies
     if "dependencies" in config:
@@ -256,18 +270,18 @@ def _validate_templates(
             result.add_error(f"templates[{i}] missing 'dest' field")
 
 
-def _validate_postgres_scripts(
-    scripts: List[str], local_dir: Path, result: ValidationResult
+def _validate_scripts(
+    scripts: List[str], local_dir: Path, field_name: str, result: ValidationResult
 ) -> None:
-    """Validate postgres_scripts entries."""
+    """Validate script entries (postgres_scripts, minio_scripts, dynamodb_scripts)."""
     for i, script in enumerate(scripts):
         if not isinstance(script, str):
-            result.add_error(f"postgres_scripts[{i}] must be a string")
+            result.add_error(f"{field_name}[{i}] must be a string")
             continue
 
         script_path = local_dir / script
         if not script_path.exists():
-            result.add_error(f"postgres_scripts[{i}] not found: {script}")
+            result.add_error(f"{field_name}[{i}] not found: {script}")
 
 
 def _validate_dependencies(deps: Dict[str, Any], result: ValidationResult) -> None:

@@ -241,6 +241,8 @@ class LocalController(Controller):
             local_dir / "config",
             local_dir / "templates",
             local_dir / "scripts" / "postgres",
+            local_dir / "scripts" / "minio",
+            local_dir / "scripts" / "dynamodb",
         ]
 
         for dir_path in dirs_to_create:
@@ -261,11 +263,14 @@ class LocalController(Controller):
                     "services": [],
                     "databases": [],
                     "endpoints": [],
+                    "buckets": [],
                 },
                 "required_dirs": [],
                 "config_mappings": [],
                 "templates": [],
                 "postgres_scripts": [],
+                "minio_scripts": [],
+                "dynamodb_scripts": [],
                 "dependencies": {
                     "requires_plugins": [],
                     "requires_services": [],
