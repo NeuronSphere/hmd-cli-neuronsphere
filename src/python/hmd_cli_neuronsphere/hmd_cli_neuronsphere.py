@@ -373,12 +373,20 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     if db_init_services:
         db_init_compose = {
             "services": db_init_services,
-            "networks": {"neuronsphere_default": {"external": True}},
         }
         db_init_path = _hmd_home / ".cache" / "docker-compose.db-init.yml"
         with open(db_init_path, "w") as f:
             yaml.dump(db_init_compose, f)
         compose_files.append(str(db_init_path))
+
+    # Ensure docker-compose.main.yml is first (it creates the neuronsphere_default network)
+    main_compose = str(_hmd_home / ".cache" / "docker-compose.main.yml")
+    if main_compose in [str(f) for f in compose_files]:
+        compose_files = [f for f in compose_files if str(f) != main_compose]
+        compose_files.insert(0, main_compose)
+
+    # Create neuronsphere_default network (some compose files declare it as external)
+    _exec(["docker", "network", "create", "neuronsphere_default"], capture=True)
 
     command = [
         *_get_base_command(compose_files),
@@ -460,13 +468,34 @@ def _get_cached_compose_files(include_local_services: bool = False):
 def stop_neuronsphere():
     load_hmd_env()
     compose_files = _get_cached_compose_files(include_local_services=True)
+
+    # Also discover and include local plugin compose files
+    local_loader = LocalPluginLoader()
+    for plugin_name in local_loader.get_enabled_plugins():
+        compose_path = local_loader.get_compose_path(plugin_name)
+        if compose_path and str(compose_path) not in [str(f) for f in compose_files]:
+            compose_files.append(str(compose_path))
+            logger.info(f"Added local plugin compose file for down: {compose_path}")
+
     command = [*_get_base_command(compose_files), "down"]
     _exec(command)
+
+    # Clean up the neuronsphere_default network
+    _exec(["docker", "network", "rm", "neuronsphere_default"], capture=True)
 
 
 def restart_service(service_name: List[str] = None):
     load_hmd_env()
     compose_files = _get_cached_compose_files(include_local_services=True)
+
+    # Also discover and include local plugin compose files
+    local_loader = LocalPluginLoader()
+    for plugin_name in local_loader.get_enabled_plugins():
+        compose_path = local_loader.get_compose_path(plugin_name)
+        if compose_path and str(compose_path) not in [str(f) for f in compose_files]:
+            compose_files.append(str(compose_path))
+            logger.info(f"Added local plugin compose file for restart: {compose_path}")
+
     command = [*_get_base_command(compose_files), "up", "-d"]
 
     if service_name is not None:
