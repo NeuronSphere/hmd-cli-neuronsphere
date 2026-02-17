@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-02-17
+
+- feat: add pre-build artifacts for airflow, clickhouse, and otel-collector plugins
+
+## 2026-02-10
+
+- fix: local plugin support for neuronsphere down/restart commands
+
+## 2026-02-06
+
+- feat: auto-generate postgres init containers from nsplugin.json
+- fix: use cement minimal_logger to fix namespace field error
+- feat: make local plugin discovery explicit via HMD_LOCAL_PLUGINS
+- fix: include directory-based skills in package_data
+- fix: support directory-based skills in SkillsLoader
+- feat: update init-ns-local skill to directory format with manifest analysis
+- feat: add configurable plugin support via config_local.json
+
 ## 2026-02-05
 
 ### Added
