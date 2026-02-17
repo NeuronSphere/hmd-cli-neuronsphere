@@ -3,13 +3,11 @@
   "description": "Local NeuronSphere Control CLI",
   "build": {
     "pre_build_artifacts": [
-      ["hmd-ms-transform@1.0.778:build", "src/python/hmd_cli_neuronsphere/external/transform"]],
-    "pre_build_artifacts_future": [
-      ["hmd-inf-trino@0.1:build", "src/python/hmd_cli_neuronsphere/external/trino"],
-      ["hmd-app-airflow@0.4:build", "src/python/hmd_cli_neuronsphere/external/airflow"],
-      ["hmd-inf-superset@0.1:build", "src/python/hmd_cli_neuronsphere/external/superset"],
-      ["hmd-img-janusgraph@0.1:build", "src/python/hmd_cli_neuronsphere/external/graph"],
-      ["hmd-img-jupyter-server@0.1:build", "src/python/hmd_cli_neuronsphere/external/jupyter"]
+      ["hmd-ms-transform@1.0.802:build", "src/python/hmd_cli_neuronsphere/external/transform"],
+      ["hmd-inf-trino@0.1.198:build", "src/python/hmd_cli_neuronsphere/external/trino"],
+      ["hmd-app-airflow@0.4.311:build", "src/python/hmd_cli_neuronsphere/external/airflow"],
+      ["hmd-inf-clickhouse@0.1.17:build", "src/python/hmd_cli_neuronsphere/external/clickhouse"],
+      ["hmd-inf-otel-collector@0.1.151:build", "src/python/hmd_cli_neuronsphere/external/telemetry"]
     ],
     "commands": [["python"]]
   }
