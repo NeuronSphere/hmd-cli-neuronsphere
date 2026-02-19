@@ -373,6 +373,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     if db_init_services:
         db_init_compose = {
             "services": db_init_services,
+            "networks": {"neuronsphere_default": {"external": True}},
         }
         db_init_path = _hmd_home / ".cache" / "docker-compose.db-init.yml"
         with open(db_init_path, "w") as f:

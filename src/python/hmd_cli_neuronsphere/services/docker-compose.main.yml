@@ -101,4 +101,4 @@ services:
 
 networks:
   neuronsphere_default:
-    name: neuronsphere_default
+    external: true

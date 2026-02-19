@@ -446,7 +446,12 @@ class LocalPluginLoader:
             service_name: {
                 "image": "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}",
                 "container_name": service_name,
-                "environment": {"PGPASSWORD": "admin"},
+                "environment": {
+                    "PGPASSWORD": "admin",
+                    "PGHOST": "db",
+                    "POSTGRES_USER": "postgres",
+                    "POSTGRES_DB": "postgres",
+                },
                 "entrypoint": ["/bin/bash", "-c"],
                 "command": [command],
                 "networks": ["neuronsphere_default"],
