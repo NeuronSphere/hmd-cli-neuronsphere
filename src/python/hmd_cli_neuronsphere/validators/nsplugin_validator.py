@@ -49,6 +49,7 @@ OPTIONAL_FIELDS = {
     "dependencies": dict,
     "env_var_override": str,
     "config": dict,
+    "telemetry_profiles": list,
 }
 
 # Resource field types
@@ -175,6 +176,10 @@ def validate_nsplugin(path: Path, check_files: bool = True) -> ValidationResult:
     # Validate config section
     if "config" in config:
         _validate_config_section(config["config"], result)
+
+    # Validate telemetry_profiles
+    if "telemetry_profiles" in config:
+        _validate_telemetry_profiles(config["telemetry_profiles"], result)
 
     return result
 
@@ -338,3 +343,54 @@ def _validate_config_section(
                 if not isinstance(schema["env_var"], str):
                     result.add_error(f"config.{key}.env_var must be a string")
         # Simple values are allowed as defaults
+
+
+def _validate_telemetry_profiles(
+    profiles: List[Dict], result: ValidationResult
+) -> None:
+    """Validate telemetry_profiles entries."""
+    valid_metric_types = ["gauge", "counter", "histogram", "rate", "percentile"]
+    valid_sources = ["traces", "logs", "metrics"]
+    valid_comparisons = ["gt", "lt", "gte", "lte", "eq"]
+
+    for i, profile in enumerate(profiles):
+        if not isinstance(profile, dict):
+            result.add_error(f"telemetry_profiles[{i}] must be a dict")
+            continue
+
+        if "service_name" not in profile:
+            result.add_error(f"telemetry_profiles[{i}] missing required 'service_name'")
+
+        metric_defs = profile.get("metric_definitions", [])
+        if not isinstance(metric_defs, list):
+            result.add_error(
+                f"telemetry_profiles[{i}].metric_definitions must be a list"
+            )
+            continue
+
+        for j, metric in enumerate(metric_defs):
+            prefix = f"telemetry_profiles[{i}].metric_definitions[{j}]"
+            if not isinstance(metric, dict):
+                result.add_error(f"{prefix} must be a dict")
+                continue
+
+            if "metric_name" not in metric:
+                result.add_error(f"{prefix} missing required 'metric_name'")
+
+            mt = metric.get("metric_type")
+            if mt is not None and mt not in valid_metric_types:
+                result.add_warning(
+                    f"{prefix}.metric_type '{mt}' " f"not in {valid_metric_types}"
+                )
+
+            src = metric.get("source")
+            if src is not None and src not in valid_sources:
+                result.add_warning(
+                    f"{prefix}.source '{src}' " f"not in {valid_sources}"
+                )
+
+            cmp = metric.get("comparison")
+            if cmp is not None and cmp not in valid_comparisons:
+                result.add_warning(
+                    f"{prefix}.comparison '{cmp}' " f"not in {valid_comparisons}"
+                )

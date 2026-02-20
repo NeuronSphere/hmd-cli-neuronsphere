@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from hmd_cli_tools import cd
 from hmd_cli_tools.okta_tools import get_auth_token
 from hmd_cli_tools.hmd_cli_tools import load_hmd_env
+import time
+
 import requests
 import yaml
 
@@ -242,6 +244,75 @@ def _is_local_only_plugin(local_loader: LocalPluginLoader, plugin_name: str) -> 
     return local_loader.has_local_plugin(plugin_name)
 
 
+def _seed_telemetry_profiles(
+    local_loader: LocalPluginLoader, plugins: Dict[str, bool]
+) -> None:
+    """Seed telemetry profiles from local plugins into telemetry-debug service.
+
+    Skips gracefully if telemetry-debug is not enabled or no profiles are defined.
+    Waits for the service to be ready before sending profiles.
+
+    Args:
+        local_loader: The LocalPluginLoader instance
+        plugins: Dictionary of plugin enabled states
+    """
+    # Skip if telemetry-debug is not an enabled plugin
+    if not plugins.get("telemetry-debug"):
+        logger.debug("telemetry-debug plugin not enabled, skipping profile seeding")
+        return
+
+    profiles = local_loader.get_telemetry_profiles()
+    if not profiles:
+        logger.debug("No telemetry_profiles found in any plugin")
+        return
+
+    logger.info(f"Seeding {len(profiles)} telemetry profile(s) into telemetry-debug...")
+
+    # Wait for telemetry-debug service to be ready
+    base_url = "http://localhost/ms-telemetry-debug"
+    ready = False
+    for attempt in range(30):
+        try:
+            resp = requests.post(
+                f"{base_url}/api/service_profile",
+                json={},
+                timeout=5,
+            )
+            if resp.status_code < 500:
+                ready = True
+                break
+        except requests.RequestException:
+            pass
+        logger.debug(
+            f"Waiting for telemetry-debug to be ready (attempt {attempt + 1}/30)..."
+        )
+        time.sleep(2)
+
+    if not ready:
+        logger.warning(
+            "telemetry-debug service not ready after 60s, skipping profile seeding"
+        )
+        return
+
+    # Seed profiles
+    try:
+        resp = requests.post(
+            f"{base_url}/apiop/seed_profiles",
+            json={"profiles": profiles},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            result = resp.json()
+            logger.info(f"Telemetry profile seeding complete: {result}")
+        else:
+            logger.warning(
+                f"Telemetry profile seeding failed: "
+                f"HTTP {resp.status_code} - {resp.text}"
+            )
+    except requests.RequestException as e:
+        logger.warning(f"Telemetry profile seeding failed: {e}")
+
+
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     load_hmd_env()
 
@@ -433,6 +504,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
 
     with open(conn_file_path, "w") as c:
         yaml.dump(conns, c)
+
+    # Seed telemetry profiles from local plugins
+    _seed_telemetry_profiles(local_loader, plugins)
 
 
 def _get_cached_compose_files(include_local_services: bool = False):

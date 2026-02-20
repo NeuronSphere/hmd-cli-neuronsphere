@@ -399,6 +399,22 @@ class LocalPluginLoader:
 
         return env_vars
 
+    def get_telemetry_profiles(self) -> List[Dict[str, Any]]:
+        """Collect telemetry_profiles from all enabled plugins.
+
+        Iterates enabled plugins, reads each nsplugin.json, and extends
+        results with any telemetry_profiles entries found.
+
+        Returns:
+            List of service profile dicts with inline metric_definitions
+        """
+        profiles = []
+        for plugin_name in self.get_enabled_plugins():
+            config = self.get_plugin_config(plugin_name)
+            if config and "telemetry_profiles" in config:
+                profiles.extend(config["telemetry_profiles"])
+        return profiles
+
     def get_db_init_compose(self, plugin_name: str) -> Optional[Dict[str, Any]]:
         """
         Generate docker-compose config for a db init container.
