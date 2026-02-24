@@ -46,17 +46,41 @@ class LocalController(Controller):
         """Default action if no sub-command is passed."""
         self._parser.print_help()
 
-    @ex(help="Start the local NeuronSphere")
+    @ex(
+        help="Start the local NeuronSphere",
+        arguments=[
+            (
+                ["--verbose", "-V"],
+                {
+                    "help": "Show full Docker Compose output",
+                    "action": "store_true",
+                    "dest": "verbose",
+                },
+            ),
+        ],
+    )
     def up(self):
         from .hmd_cli_neuronsphere import start_neuronsphere
 
-        start_neuronsphere()
+        start_neuronsphere(verbose=self.app.pargs.verbose)
 
-    @ex(help="Stop the local NeuronSphere")
+    @ex(
+        help="Stop the local NeuronSphere",
+        arguments=[
+            (
+                ["--verbose", "-V"],
+                {
+                    "help": "Show full Docker Compose output",
+                    "action": "store_true",
+                    "dest": "verbose",
+                },
+            ),
+        ],
+    )
     def down(self):
         from .hmd_cli_neuronsphere import stop_neuronsphere
 
-        stop_neuronsphere()
+        stop_neuronsphere(verbose=self.app.pargs.verbose)
 
     @ex(
         help="Restart the local NeuronSphere",

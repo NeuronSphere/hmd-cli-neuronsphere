@@ -20,6 +20,12 @@ import yaml
 from cement import App, minimal_logger, shell
 
 from .loaders import LocalPluginLoader
+from .startup_display import (
+    print_header,
+    print_step,
+    print_startup_summary,
+    print_shutdown_summary,
+)
 from .validators.port_validator import validate_ports
 
 logger = minimal_logger("hmd_cli_neuronsphere")
@@ -38,9 +44,10 @@ def _get_required_env_var(var_name, default=None):
     return value
 
 
-def _exec(command, capture=False):
+def _exec(command, capture=False, quiet=False):
     _cmd = " ".join(list(map(str, command)))
-    print(_cmd)
+    if not quiet:
+        print(_cmd)
     return cmd(_cmd, capture=capture)
 
 
@@ -48,9 +55,11 @@ _hmd_home = Path(_get_required_env_var("HMD_HOME"))
 _project_name = "local_neuronsphere"
 
 
-def _get_base_command(files: List[str]):
+def _get_base_command(files: List[str], quiet: bool = False):
     stdout, _, _ = _exec(
-        ["pip", "config", "get", "global.extra-index-url"], capture=True
+        ["pip", "config", "get", "global.extra-index-url"],
+        capture=True,
+        quiet=quiet,
     )
     pip_url = stdout.decode("utf-8")
     os.environ["PIP_EXTRA_INDEX_URL"] = pip_url
@@ -314,8 +323,10 @@ def _seed_telemetry_profiles(
         logger.warning(f"Telemetry profile seeding failed: {e}")
 
 
-def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
+def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = False):
     load_hmd_env()
+
+    print_header("Starting")
 
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -339,6 +350,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     else:
         os.environ["TRANSFORM_GRAPH_QUERY_CONFIG"] = "{}"
 
+    print_step("Loading plugins...")
     plugins = _load_plugins(config_overrides=config_overrides)
     resources = {"buckets": []}
 
@@ -370,6 +382,7 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
                 else:
                     resources[k] = v
 
+    print_step("Preparing environment...")
     # Prepare HMD_HOME from plugins
     for plugin, enabled in plugins.items():
         if enabled:
@@ -458,14 +471,21 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         compose_files = [f for f in compose_files if str(f) != main_compose]
         compose_files.insert(0, main_compose)
 
+    print_step("Validating ports...")
     # Check for port conflicts before starting containers
     validate_ports(compose_files)
 
     # Create neuronsphere_default network (some compose files declare it as external)
-    _exec(["docker", "network", "create", "neuronsphere_default"], capture=True)
+    _exec(
+        ["docker", "network", "create", "neuronsphere_default"],
+        capture=True,
+        quiet=not verbose,
+    )
 
+    print_step("Starting containers...")
+    quiet = not verbose
     command = [
-        *_get_base_command(compose_files),
+        *_get_base_command(compose_files, quiet=quiet),
     ]
     command += [
         "up",
@@ -473,8 +493,16 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
         "-d",
         "--quiet-pull",
     ]
-    _exec(command)
+    if quiet:
+        stdout, stderr, retcode = _exec(command, capture=True, quiet=True)
+        if retcode != 0:
+            err_output = stderr.decode("utf-8") if stderr else ""
+            if err_output:
+                print(f"\n  Error starting containers:\n{err_output}")
+    else:
+        _exec(command)
 
+    print_step("Registering services...")
     logger.info("Upserting local services to Naming Service...")
     for svc in resources.get("services", []):
         if isinstance(svc, dict):
@@ -512,6 +540,8 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     # Seed telemetry profiles from local plugins
     _seed_telemetry_profiles(local_loader, plugins)
 
+    print_startup_summary(resources)
+
 
 def _get_cached_compose_files(include_local_services: bool = False):
     load_hmd_env()
@@ -544,8 +574,11 @@ def _get_cached_compose_files(include_local_services: bool = False):
     return compose_files
 
 
-def stop_neuronsphere():
+def stop_neuronsphere(verbose: bool = False):
     load_hmd_env()
+
+    print_header("Stopping")
+
     compose_files = _get_cached_compose_files(include_local_services=True)
 
     # Also discover and include local plugin compose files
@@ -556,11 +589,20 @@ def stop_neuronsphere():
             compose_files.append(str(compose_path))
             logger.info(f"Added local plugin compose file for down: {compose_path}")
 
-    command = [*_get_base_command(compose_files), "down"]
-    _exec(command)
+    print_step("Stopping containers...")
+    quiet = not verbose
+    command = [*_get_base_command(compose_files, quiet=quiet), "down"]
+    _exec(command, capture=quiet, quiet=quiet)
 
+    print_step("Removing network...")
     # Clean up the neuronsphere_default network
-    _exec(["docker", "network", "rm", "neuronsphere_default"], capture=True)
+    _exec(
+        ["docker", "network", "rm", "neuronsphere_default"],
+        capture=True,
+        quiet=not verbose,
+    )
+
+    print_shutdown_summary()
 
 
 def restart_service(service_name: List[str] = None):
