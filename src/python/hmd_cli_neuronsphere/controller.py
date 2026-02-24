@@ -141,16 +141,80 @@ class LocalController(Controller):
         update_images()
 
     @ex(
-        help="configures HMD environment variables",
+        help="Configure local NeuronSphere plugins and settings",
         arguments=[],
     )
     def configure(self):
+        from importlib_metadata import entry_points as get_entry_points
+
+        from InquirerPy import inquirer
+
+        from .loaders import LocalPluginLoader
+
         load_hmd_env()
 
-        results = prompt_for_values(CONFIG_VALUES)
+        # --- Discover all plugins ---
+        choices = []
+        plugin_env_vars = {}  # plugin_name -> env_var_name
 
+        # Bundled plugins (from entry points, skip "main")
+        bundled_eps = get_entry_points(group="hmd_cli_neuronsphere.enabled")
+        for ep in sorted(bundled_eps, key=lambda e: e.name):
+            if ep.name == "main":
+                continue
+            env_var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{ep.name.upper()}"
+            enabled = os.environ.get(env_var, "true").lower() == "true"
+            choices.append({"name": ep.name, "value": ep.name, "enabled": enabled})
+            plugin_env_vars[ep.name] = env_var
+
+        # Local plugins (from LocalPluginLoader)
+        local_loader = LocalPluginLoader()
+        discovered = local_loader.discover_plugins()
+        for name in sorted(discovered.keys()):
+            if name in plugin_env_vars:
+                continue  # Already covered by bundled
+            config = local_loader.get_plugin_config(name)
+            env_var = (config or {}).get(
+                "env_var_override",
+                f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name.upper().replace('-', '_')}",
+            )
+            enabled = os.environ.get(env_var, "").lower() == "true"
+            choices.append(
+                {
+                    "name": f"{name} (local)",
+                    "value": name,
+                    "enabled": enabled,
+                }
+            )
+            plugin_env_vars[name] = env_var
+
+        # --- Prompt ---
+        if choices:
+            selected = inquirer.checkbox(
+                message="Select plugins to enable:",
+                choices=choices,
+            ).execute()
+            selected_set = set(selected)
+
+            # Persist each plugin's enable/disable state
+            for name, env_var in plugin_env_vars.items():
+                value = "true" if name in selected_set else "false"
+                set_hmd_env(env_var, value)
+
+            # Summary
+            enabled_names = sorted(n for n in plugin_env_vars if n in selected_set)
+            disabled_names = sorted(n for n in plugin_env_vars if n not in selected_set)
+            print(f"\nEnabled:  {', '.join(enabled_names) or '(none)'}")
+            print(f"Disabled: {', '.join(disabled_names) or '(none)'}")
+        else:
+            print("No configurable plugins found.")
+
+        # --- Other config (container registry default) ---
+        results = prompt_for_values(CONFIG_VALUES)
         for k, v in results.items():
             set_hmd_env(k, str(v))
+
+        print("\nConfiguration saved to $HMD_HOME/.config/hmd.env")
 
     @ex(
         help="Validate a local plugin configuration (nsplugin.json)",
