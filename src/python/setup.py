@@ -64,6 +64,8 @@ setup(
             "airflow=hmd_cli_neuronsphere.plugins.airflow:enabled",
             "transform=hmd_cli_neuronsphere.plugins.transform:enabled",
             "trino=hmd_cli_neuronsphere.plugins.trino:enabled",
+            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:enabled",
+            "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:enabled",
         ],
         "hmd_cli_neuronsphere.prepare_hmd_home": [
             "main=hmd_cli_neuronsphere.plugins.main:prepare_hmd_home",
@@ -76,6 +78,8 @@ setup(
             "airflow=hmd_cli_neuronsphere.plugins.airflow:prepare_hmd_home",
             "transform=hmd_cli_neuronsphere.plugins.transform:prepare_hmd_home",
             "trino=hmd_cli_neuronsphere.plugins.trino:prepare_hmd_home",
+            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:prepare_hmd_home",
+            "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:prepare_hmd_home",
         ],
         "hmd_cli_neuronsphere.get_resources": [
             "main=hmd_cli_neuronsphere.plugins.main:get_resources",
@@ -88,6 +92,8 @@ setup(
             "airflow=hmd_cli_neuronsphere.plugins.airflow:get_resources",
             "transform=hmd_cli_neuronsphere.plugins.transform:get_resources",
             "trino=hmd_cli_neuronsphere.plugins.trino:get_resources",
+            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:get_resources",
+            "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:get_resources",
         ],
         "hmd_cli_neuronsphere.render_compose_yaml": [
             "main=hmd_cli_neuronsphere.plugins.main:render_compose_yaml",
@@ -100,6 +106,8 @@ setup(
             "airflow=hmd_cli_neuronsphere.plugins.airflow:render_compose_yaml",
             "transform=hmd_cli_neuronsphere.plugins.transform:render_compose_yaml",
             "trino=hmd_cli_neuronsphere.plugins.trino:render_compose_yaml",
+            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:render_compose_yaml",
+            "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:render_compose_yaml",
         ],
     },
     install_requires=[],

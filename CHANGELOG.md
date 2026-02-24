@@ -2,9 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-02-23
+
+- feat: add clickhouse and hive-metastore plugin wrappers with entry points
+- feat: add superset pre-build artifact to manifest
+- fix: correct hive-metastore external artifact path (underscore to hyphen)
+
+## 2026-02-20
+
+- feat: add telemetry profile seeding from local plugin nsplugin.json
+
 ## 2026-02-17
 
 - feat: add pre-build artifacts for airflow, clickhouse, and otel-collector plugins
+- fix: resolve network and db-init issues for local plugin containers
+- fix: telemetry plugin now uses base.py helpers for local plugin support
 
 ## 2026-02-10
 
