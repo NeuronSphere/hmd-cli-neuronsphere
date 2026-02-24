@@ -82,6 +82,15 @@ def _prepare_from_nsplugin(
     config_mappings = config.get("config_mappings", [])
     copy_configs(_PLUGIN_NAME, hmd_home, config_mappings)
 
+    # Fallback: if .env-non-dev wasn't copied (e.g. missing from external artifact),
+    # copy from bundled services directory
+    env_non_dev_target = hmd_home / ".cache" / "superset" / ".env-non-dev"
+    if not env_non_dev_target.exists():
+        bundled_env = _services_dir / "superset" / ".env-non-dev"
+        if bundled_env.exists():
+            env_non_dev_target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bundled_env, env_non_dev_target)
+
     # Render templates if any
     templates = config.get("templates", [])
     if templates:

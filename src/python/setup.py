@@ -44,6 +44,7 @@ setup(
             "external/*/src/local/*",
             "external/*/src/local/config/*",
             "external/*/src/local/config/**/*",
+            "external/*/src/local/config/.*",
             "external/*/src/local/templates/*",
             "external/*/src/local/scripts/*",
             "external/*/src/local/scripts/postgres/*",
