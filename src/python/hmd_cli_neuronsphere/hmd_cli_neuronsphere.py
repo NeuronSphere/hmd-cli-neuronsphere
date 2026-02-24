@@ -20,6 +20,7 @@ import yaml
 from cement import App, minimal_logger, shell
 
 from .loaders import LocalPluginLoader
+from .validators.port_validator import validate_ports
 
 logger = minimal_logger("hmd_cli_neuronsphere")
 
@@ -456,6 +457,9 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}):
     if main_compose in [str(f) for f in compose_files]:
         compose_files = [f for f in compose_files if str(f) != main_compose]
         compose_files.insert(0, main_compose)
+
+    # Check for port conflicts before starting containers
+    validate_ports(compose_files)
 
     # Create neuronsphere_default network (some compose files declare it as external)
     _exec(["docker", "network", "create", "neuronsphere_default"], capture=True)
