@@ -2,3 +2,4 @@ hmd-cli-app~=1.2
 python-dotenv==1.1.1
 PyYAML==6.0.1
 Jinja2>=3.0
+aws-secretsmanager-caching==1.1.3
