@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-02-24
+
+- feat: add clean startup/shutdown output with service URL summary
+- feat: add port conflict detection for local NeuronSphere startup
+
 ## 2026-02-23
 
 - feat: add clickhouse and hive-metastore plugin wrappers with entry points
