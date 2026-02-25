@@ -6,11 +6,12 @@
       ["hmd-ms-transform@1.0.803:build", "src/python/hmd_cli_neuronsphere/external/transform"],
       ["hmd-inf-trino@0.1.199:build", "src/python/hmd_cli_neuronsphere/external/trino"],
       ["hmd-inf-hive-metastore@0.1.61:build", "src/python/hmd_cli_neuronsphere/external/hive-metastore"],
-      ["hmd-app-airflow@0.4.313:build", "src/python/hmd_cli_neuronsphere/external/airflow"],
-      ["hmd-inf-clickhouse@0.1.18:build", "src/python/hmd_cli_neuronsphere/external/clickhouse"],
-      ["hmd-inf-otel-collector@0.1.153:build", "src/python/hmd_cli_neuronsphere/external/telemetry"],
+      ["hmd-app-airflow@0.4.314:build", "src/python/hmd_cli_neuronsphere/external/airflow"],
+      ["hmd-inf-clickhouse@0.1.19:build", "src/python/hmd_cli_neuronsphere/external/clickhouse"],
+      ["hmd-inf-otel-collector@0.1.155:build", "src/python/hmd_cli_neuronsphere/external/telemetry"],
       ["hmd-inf-hyperdx@0.1.4:build", "src/python/hmd_cli_neuronsphere/external/hyperdx"],
-      ["hmd-inf-superset@0.5.227:build", "src/python/hmd_cli_neuronsphere/external/apache_superset"]
+      ["hmd-inf-superset@0.5.227:build", "src/python/hmd_cli_neuronsphere/external/apache_superset"],
+      ["hmd-ms-telemetry-debug@0.1.5:build", "src/python/hmd_cli_neuronsphere/external/telemetry-debug"]
     ],
     "commands": [["python"]]
   }
