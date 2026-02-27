@@ -48,6 +48,7 @@ OPTIONAL_FIELDS = {
     "dynamodb_scripts": list,
     "dependencies": dict,
     "env_var_override": str,
+    "enabled_by_default": bool,
     "config": dict,
     "telemetry_profiles": list,
 }

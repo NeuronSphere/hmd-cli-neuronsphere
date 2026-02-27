@@ -158,12 +158,19 @@ class LocalController(Controller):
         plugin_env_vars = {}  # plugin_name -> env_var_name
 
         # Bundled plugins (from entry points, skip "main")
+        from .plugins.base import load_nsplugin_config
+
         bundled_eps = get_entry_points(group="hmd_cli_neuronsphere.enabled")
         for ep in sorted(bundled_eps, key=lambda e: e.name):
             if ep.name == "main":
                 continue
             env_var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{ep.name.upper()}"
-            enabled = os.environ.get(env_var, "true").lower() == "true"
+            env_val = os.environ.get(env_var)
+            if env_val is not None:
+                enabled = env_val.lower() == "true"
+            else:
+                bundled_config = load_nsplugin_config(ep.name)
+                enabled = (bundled_config or {}).get("enabled_by_default", True)
             choices.append({"name": ep.name, "value": ep.name, "enabled": enabled})
             plugin_env_vars[ep.name] = env_var
 
@@ -173,12 +180,16 @@ class LocalController(Controller):
         for name in sorted(discovered.keys()):
             if name in plugin_env_vars:
                 continue  # Already covered by bundled
-            config = local_loader.get_plugin_config(name)
+            config = local_loader.load_raw_plugin_config(name)
             env_var = (config or {}).get(
                 "env_var_override",
                 f"HMD_LOCAL_NEURONSPHERE_ENABLE_{name.upper().replace('-', '_')}",
             )
-            enabled = os.environ.get(env_var, "").lower() == "true"
+            env_val = os.environ.get(env_var)
+            if env_val is not None:
+                enabled = env_val.lower() == "true"
+            else:
+                enabled = (config or {}).get("enabled_by_default", False)
             choices.append(
                 {
                     "name": f"{name} (local)",
@@ -373,6 +384,7 @@ class LocalController(Controller):
                     },
                 },
                 "env_var_override": f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}",
+                "enabled_by_default": False,
             }
 
             with open(nsplugin_path, "w") as f:

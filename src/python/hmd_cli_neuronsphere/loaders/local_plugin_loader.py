@@ -247,6 +247,18 @@ class LocalPluginLoader:
         except (json.JSONDecodeError, IOError):
             return None
 
+    def load_raw_plugin_config(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+        """Load nsplugin.json for a discovered plugin regardless of enabled state."""
+        discovered = self.discover_plugins()
+        info = discovered.get(plugin_name)
+        if not info:
+            return None
+        try:
+            with open(info.config_path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+
     def get_plugin_local_dir(self, plugin_name: str) -> Optional[Path]:
         """
         Get the src/local directory path for a local plugin.
