@@ -9,7 +9,9 @@ All checks are warn-only and never block startup.
 """
 
 import os
+import re
 import socket
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -143,6 +145,43 @@ def check_ports_in_use(ports: Set[int]) -> Dict[int, bool]:
     return in_use
 
 
+def get_neuronsphere_container_ports(
+    project_name: str = "local_neuronsphere",
+) -> Set[int]:
+    """Return host ports currently bound by containers in the given compose project.
+
+    Queries ``docker ps`` for running containers with the compose project label
+    and parses the Ports column to extract host port numbers.
+
+    Returns an empty set on any error (Docker not running, timeout, etc.).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"label=com.docker.compose.project={project_name}",
+                "--format",
+                "{{.Ports}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return set()
+
+        ports: Set[int] = set()
+        # Each line contains port mappings like "0.0.0.0:8080->8080/tcp, :::8080->8080/tcp"
+        for line in result.stdout.strip().splitlines():
+            for match in re.finditer(r"(?:\d+\.){3}\d+:(\d+)->", line):
+                ports.add(int(match.group(1)))
+        return ports
+    except Exception:
+        return set()
+
+
 def validate_ports(compose_files: List[str]) -> None:
     """Run all port checks and print actionable warnings.
 
@@ -172,8 +211,9 @@ def validate_ports(compose_files: List[str]) -> None:
 
         # 3. Ports already in use on the host
         in_use = check_ports_in_use(set(port_map.keys()))
+        ns_ports = get_neuronsphere_container_ports()
         for port, busy in sorted(in_use.items()):
-            if busy:
+            if busy and port not in ns_ports:
                 svc_list = ", ".join(f"{svc} ({f})" for svc, f in port_map[port])
                 warnings.append(
                     f"Port {port} is already in use on this host "
