@@ -119,6 +119,13 @@ def render_compose_yaml(
     if os.environ.get("ENABLE_GOZER", "false") == "true":
         compose_dict["services"]["ms-gozer"] = gozer_config
 
+    # When MiniStack is enabled, remove gateway (API Gateway handles routing)
+    if configs.get("ministack", False):
+        compose_dict["services"].pop("gateway", None)
+        # Remove proxy depends_on since gateway is removed
+        if "proxy" in compose_dict["services"]:
+            compose_dict["services"]["proxy"].pop("depends_on", None)
+
     compose_path = cache_dir / "docker-compose.main.yml"
     if compose_path.exists():
         os.unlink(compose_path)

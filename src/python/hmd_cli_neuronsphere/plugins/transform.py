@@ -57,8 +57,12 @@ def get_resources() -> Dict[str, Any]:
     if config and "resources" in config:
         return config["resources"]
 
+    use_ministack = (
+        os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") != "false"
+    )
+
     # Fallback to hardcoded resources
-    return {
+    resources = {
         "services": [
             {"name": "ms-transform", "url": "http://hmd_gateway/hmd_ms_transform/"}
         ],
@@ -70,6 +74,15 @@ def get_resources() -> Dict[str, Any]:
             }
         ],
     }
+
+    if use_ministack:
+        resources["sqs_queues"] = [
+            {"name": "query_queue"},
+            {"name": "inst_queue"},
+            {"name": "queue1-dead-letters"},
+        ]
+
+    return resources
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}) -> None:
@@ -197,6 +210,10 @@ def render_compose_yaml(
                 f'{bucket["name"].upper()}_BUCKET'
             ] = f's3://{bucket["url"]}'
 
+    # When MiniStack is enabled, rewrite SQS endpoints and remove ElasticMQ
+    if configs.get("ministack", False):
+        _apply_ministack_overrides(compose_dict)
+
     # Write to cache
     output_path = cache_dir / f"docker-compose.{_PLUGIN_NAME}.yml"
     if output_path.exists():
@@ -206,3 +223,42 @@ def render_compose_yaml(
         yaml.safe_dump(compose_dict, dc_out)
 
     return output_path
+
+
+def _apply_ministack_overrides(compose_dict: dict) -> None:
+    """Rewrite SQS endpoints to MiniStack and remove ElasticMQ container."""
+    services = compose_dict.get("services", {})
+
+    # Remove ElasticMQ queues container
+    services.pop("queues", None)
+
+    # Rewrite SQS endpoints in transform service
+    if "transform" in services:
+        env = services["transform"]["environment"]
+        env["SQS_ENDPOINT"] = "http://ministack:4566/"
+        env["QUERY_QUEUE"] = "http://ministack:4566/000000000000/query_queue"
+        env["INSTANCE_QUEUE"] = "http://ministack:4566/000000000000/inst_queue"
+
+        # Update depends_on: replace queues with ministack
+        deps = services["transform"].get("depends_on", {})
+        deps.pop("queues", None)
+        deps["ministack"] = {"condition": "service_healthy"}
+
+    # Rewrite queue_poll SQS endpoints
+    if "queue_poll" in services:
+        env = services["queue_poll"]["environment"]
+        env["SQS_ENDPOINT"] = "http://ministack:4566/"
+
+        # Update QUEUE_CONFIG JSON
+        queue_config = json.loads(env.get("QUEUE_CONFIG", "{}"))
+        for q_cfg in queue_config.values():
+            if "queue_url" in q_cfg:
+                q_cfg["queue_url"] = q_cfg["queue_url"].replace(
+                    "http://queues:9324", "http://ministack:4566"
+                )
+        env["QUEUE_CONFIG"] = json.dumps(queue_config)
+
+        # Update depends_on
+        deps = services["queue_poll"].get("depends_on", {})
+        deps.pop("queues", None)
+        deps["ministack"] = {"condition": "service_healthy"}

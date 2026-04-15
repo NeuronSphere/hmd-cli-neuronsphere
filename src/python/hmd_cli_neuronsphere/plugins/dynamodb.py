@@ -10,10 +10,13 @@ _services_dir = _dirname / ".." / "services"
 
 
 def enabled(config_overrides: Dict[str, bool] = {}):
+    # Disabled when MiniStack handles DynamoDB
+    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") == "true":
+        return False
     val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_DYNAMODB")
     if val is not None:
         return val == "true"
-    return config_overrides.get("dynamo", True)
+    return config_overrides.get("dynamo", False)
 
 
 def get_resources():

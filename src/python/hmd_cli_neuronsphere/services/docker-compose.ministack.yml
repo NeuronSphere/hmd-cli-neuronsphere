@@ -1,0 +1,29 @@
+version: "3.7"
+
+services:
+  ministack:
+    image: ministackorg/ministack:latest
+    container_name: ministack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,dynamodb,sqs,lambda,apigateway
+      PERSIST_STATE: 1
+      S3_PERSIST: 1
+      LAMBDA_EXECUTOR: docker
+      MINISTACK_REGION: ${AWS_REGION:-us-west-2}
+      MINISTACK_ACCOUNT_ID: "000000000000"
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
+    volumes:
+      - "${HMD_HOME}/ministack/data:/var/lib/ministack"
+      - "${HMD_HOME}/ministack/s3:/tmp/ministack-data/s3"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_ministack/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - neuronsphere_default

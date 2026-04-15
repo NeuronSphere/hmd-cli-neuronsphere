@@ -136,3 +136,7 @@ yarn-debug.log*
 yarn-error.log*
 src/python/build/
 target/bartleby/
+
+# Test artifacts
+test/hmd_home/
+bender/

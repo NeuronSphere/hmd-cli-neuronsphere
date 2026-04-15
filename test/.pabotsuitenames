@@ -1,0 +1,6 @@
+datasources:cbed78f7d9578edbcc9628e927e0ee9aa4ee7b17
+commandlineoptions:8254c72e366c9a57923e582b3488c09c4a610c63
+suitesfrom:no-suites-from-option
+file:9fcb8b00e48f045e17b9149c6acdd0033e233fee
+--suite Suites.Integration Tests
+--suite Suites.Smoke Tests

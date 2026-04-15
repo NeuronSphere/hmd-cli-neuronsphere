@@ -1,0 +1,4 @@
+deployment_id: aaa
+instance_name: hmd_cli_neuronsphere
+repo_name: hmd-cli-neuronsphere
+version: '0.4'

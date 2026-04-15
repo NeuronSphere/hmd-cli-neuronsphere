@@ -4,8 +4,11 @@ services:
   proxy:
     container_name: hmd_proxy
     image: nginx:stable-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
+    depends_on:
+      - gateway
     networks:
       - neuronsphere_default
     volumes:
@@ -83,6 +86,9 @@ services:
   db_init:
     command: psql -h db --username postgres -a --dbname "postgres" -f /root/sql/db_init.sql
     container_name: hmd-ms-naming_db_init
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       HMD_CUSTOMER_CODE: hmdd2
       HMD_DID: aaa

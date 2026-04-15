@@ -71,6 +71,12 @@ services:
       - USER=root
     ports:
       - "9083:9083"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9083"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - neuronsphere_default
     volumes:
@@ -95,6 +101,7 @@ services:
   trino:
     container_name: trino
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-trino:${HMD_IMG_TRINO_VERSION:-stable}
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]
       interval: 1m30s
@@ -117,4 +124,6 @@ services:
         target: /hmd/data
     depends_on:
       graph-db:
+        condition: service_healthy
+      metastore:
         condition: service_healthy

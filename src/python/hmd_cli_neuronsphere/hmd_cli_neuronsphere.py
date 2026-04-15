@@ -502,6 +502,49 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = F
     else:
         _exec(command)
 
+    # MiniStack post-startup: provision resources, deploy Lambdas, configure API Gateway
+    if plugins.get("ministack", False):
+        from .ministack_deployer import (
+            wait_for_ministack,
+            provision_resources,
+            setup_service,
+            get_or_create_api_gateway,
+            deploy_api,
+            write_nginx_config,
+        )
+
+        print_step("Waiting for MiniStack...")
+        try:
+            wait_for_ministack()
+        except RuntimeError as e:
+            logger.warning(f"{e} — skipping MiniStack provisioning")
+            print(f"  Warning: {e}")
+            plugins["ministack"] = "degraded"
+
+        if plugins.get("ministack") is True:
+            print_step("Provisioning MiniStack resources...")
+            provision_resources(resources)
+
+            print_step("Deploying services to MiniStack...")
+            api_id = get_or_create_api_gateway()
+            for svc in resources.get("services", []):
+                if isinstance(svc, dict) and svc.get("deploy_as_lambda"):
+                    image_uri = svc["image"]
+                    env_vars = svc.get("env_vars", {})
+                    svc_url = setup_service(svc["name"], image_uri, env_vars)
+                    svc["url"] = svc_url
+
+            deploy_api(api_id)
+
+            # Write nginx config with API Gateway ID and reload
+            nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
+            write_nginx_config(api_id, nginx_config_path)
+            _exec(
+                ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
+                capture=True,
+                quiet=True,
+            )
+
     print_step("Registering services...")
     logger.info("Upserting local services to Naming Service...")
     for svc in resources.get("services", []):
@@ -655,6 +698,14 @@ def run_local_service(
 ):
     load_hmd_env()
 
+    use_ministack = (
+        os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") != "false"
+    )
+
+    if use_ministack:
+        _run_local_service_ministack(repo_name, repo_version, instance_name, db_init)
+        return
+
     local_svcs = os.listdir(_hmd_home / ".cache" / "local_services")
     port = f"{len(local_svcs)+2}5432"
     stdout, _, _ = _exec(
@@ -801,6 +852,70 @@ def run_local_service(
             json.dump(resources, r, indent=2)
 
         start_neuronsphere()
+
+
+def _run_local_service_ministack(
+    repo_name: str,
+    repo_version: str,
+    instance_name: str,
+    db_init: bool = True,
+):
+    """Deploy a local service as a Lambda function in MiniStack."""
+    from .ministack_deployer import setup_service, wait_for_ministack
+
+    image_uri = f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}"
+
+    service_config = {}
+    if os.path.exists("./meta-data/config_local.json"):
+        with open("./meta-data/config_local.json", "r") as local_cfg:
+            service_config = json.load(local_cfg)
+
+    env_vars = {
+        "HMD_INSTANCE_NAME": instance_name,
+        "HMD_REPO_NAME": repo_name,
+        "HMD_REPO_VERSION": repo_version,
+        "HMD_ENVIRONMENT": os.environ.get("HMD_ENVIRONMENT", "local"),
+        "HMD_REGION": os.environ.get("HMD_REGION", "local"),
+        "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE", ""),
+        "HMD_DID": "aaa",
+        "HMD_DB_HOST": "hmd_db",
+        "HMD_DB_USER": repo_name.replace("-", "_"),
+        "HMD_DB_PASSWORD": repo_name.replace("-", "_"),
+        "HMD_DB_NAME": repo_name.replace("-", "_"),
+        "HMD_USE_FASTAPI": "true",
+        "AWS_XRAY_SDK_ENABLED": "false",
+        "AWS_ACCESS_KEY_ID": "dummykey",
+        "AWS_SECRET_ACCESS_KEY": "dummykey",
+        "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
+        "SERVICE_CONFIG": json.dumps(service_config),
+    }
+
+    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_TELEMETRY", "true") == "true":
+        env_vars["HMD_OTEL_ENDPOINT"] = "http://otel-collector:4317/"
+
+    wait_for_ministack()
+    service_url = setup_service(instance_name, image_uri, env_vars)
+
+    resources = {"services": [{"name": instance_name, "url": service_url}]}
+    if db_init:
+        resources["databases"] = [
+            {
+                "username": repo_name.replace("-", "_"),
+                "password": repo_name.replace("-", "_"),
+                "database": repo_name.replace("-", "_"),
+            }
+        ]
+
+    # Save resources for service registration
+    cache_dir = Path(os.environ["HMD_HOME"]) / ".cache" / "local_services" / repo_name
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir, exist_ok=True)
+
+    resource_path = cache_dir / f"resources.{instance_name}.json"
+    with open(resource_path, "w") as r:
+        json.dump(resources, r, indent=2)
+
+    start_neuronsphere()
 
 
 def update_images():

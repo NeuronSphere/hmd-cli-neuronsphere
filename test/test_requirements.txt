@@ -1,0 +1,5 @@
+docker
+importlib_metadata
+
+-r /hmd_transform/input/src/python/requirements.txt
+-e /hmd_transform/input/src/python/

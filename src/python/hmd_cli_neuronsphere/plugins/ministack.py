@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import shutil
 from typing import Dict, List
 
 import yaml
@@ -10,24 +9,22 @@ _services_dir = _dirname / ".." / "services"
 
 
 def enabled(config_overrides: Dict[str, bool] = {}):
-    # Disabled when MiniStack handles S3
-    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") == "true":
-        return False
-    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINIO")
+    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK")
     if val is not None:
         return val == "true"
-    return config_overrides.get("minio", False)
+    return config_overrides.get("ministack", True)
 
 
 def get_resources():
-    return {"endpoints": ["minio:localhost:9000"]}
+    return {"endpoints": ["ministack:localhost:4566"]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
     HMD_HOME = Path(hmd_home)
 
     required_dirs = [
-        Path("data", "librarians"),
+        Path("ministack", "data"),
+        Path("ministack", "s3"),
     ]
 
     for dir_ in required_dirs:
@@ -44,10 +41,10 @@ def render_compose_yaml(
     configs: Dict[str, bool] = {},
 ):
     compose_dict = {}
-    with open(_services_dir / "docker-compose.minio.yml", "r") as dc:
+    with open(_services_dir / "docker-compose.ministack.yml", "r") as dc:
         compose_dict = yaml.safe_load(dc)
 
-    compose_path = cache_dir / "docker-compose.minio.yml"
+    compose_path = cache_dir / "docker-compose.ministack.yml"
     if compose_path.exists():
         os.unlink(compose_path)
 
