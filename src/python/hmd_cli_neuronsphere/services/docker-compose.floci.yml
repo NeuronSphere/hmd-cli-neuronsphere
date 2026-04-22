@@ -1,0 +1,27 @@
+version: "3.7"
+
+services:
+  floci:
+    image: hectorvent/floci:latest
+    container_name: floci
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_LAMBDA_EXECUTOR: docker
+      FLOCI_REGION: ${AWS_REGION:-us-west-2}
+      FLOCI_ACCOUNT_ID: "000000000000"
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
+    volumes:
+      - "${HMD_HOME}/floci/data:/app/data"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_floci/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - neuronsphere_default

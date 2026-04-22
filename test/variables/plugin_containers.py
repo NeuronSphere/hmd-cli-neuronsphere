@@ -20,9 +20,9 @@ TELEMETRY_INIT_CONTAINERS = []
 GRAPH_RUNNING_CONTAINERS = ["global-graph"]
 GRAPH_INIT_CONTAINERS = []
 
-# --- MiniStack (replaces minio + dynamodb) ---
-MINISTACK_RUNNING_CONTAINERS = ["ministack"]
-MINISTACK_INIT_CONTAINERS = []
+# --- Floci (replaces minio + dynamodb via AWS emulation) ---
+FLOCI_RUNNING_CONTAINERS = ["floci"]
+FLOCI_INIT_CONTAINERS = []
 
 # --- DynamoDB (legacy, disabled when MiniStack is enabled) ---
 DYNAMODB_RUNNING_CONTAINERS = ["dynamodb-local"]
@@ -88,7 +88,7 @@ PLUGIN_RUNNING_CONTAINERS = {
     "main": MAIN_RUNNING_CONTAINERS,
     "telemetry": TELEMETRY_RUNNING_CONTAINERS,
     "graph": GRAPH_RUNNING_CONTAINERS,
-    "ministack": MINISTACK_RUNNING_CONTAINERS,
+    "floci": FLOCI_RUNNING_CONTAINERS,
     "dynamodb": DYNAMODB_RUNNING_CONTAINERS,
     "jupyter": JUPYTER_RUNNING_CONTAINERS,
     "minio": MINIO_RUNNING_CONTAINERS,
@@ -104,7 +104,7 @@ PLUGIN_INIT_CONTAINERS = {
     "main": MAIN_INIT_CONTAINERS,
     "telemetry": TELEMETRY_INIT_CONTAINERS,
     "graph": GRAPH_INIT_CONTAINERS,
-    "ministack": MINISTACK_INIT_CONTAINERS,
+    "floci": FLOCI_INIT_CONTAINERS,
     "dynamodb": DYNAMODB_INIT_CONTAINERS,
     "jupyter": JUPYTER_INIT_CONTAINERS,
     "minio": MINIO_INIT_CONTAINERS,
@@ -120,7 +120,7 @@ PLUGIN_INIT_CONTAINERS = {
 ALL_BUNDLED_PLUGINS = [
     "telemetry",
     "graph",
-    "ministack",
+    "floci",
     "jupyter",
     "apache_superset",
     "airflow",

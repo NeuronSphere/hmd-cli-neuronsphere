@@ -1,8 +1,8 @@
 """
-MiniStack deployer module.
+Floci deployer module.
 
 Handles provisioning AWS resources, deploying Lambda functions, and
-configuring API Gateway in MiniStack for the local NeuronSphere environment.
+configuring API Gateway in Floci for the local NeuronSphere environment.
 """
 
 import json
@@ -16,10 +16,12 @@ import requests
 from botocore.exceptions import ClientError
 from cement import minimal_logger
 
-logger = minimal_logger("ministack_deployer")
+logger = minimal_logger("floci_deployer")
 
-MINISTACK_ENDPOINT = os.environ.get("MINISTACK_ENDPOINT", "http://localhost:4566")
-MINISTACK_INTERNAL_ENDPOINT = "http://ministack:4566"
+FLOCI_ENDPOINT = os.environ.get(
+    "FLOCI_ENDPOINT", os.environ.get("MINISTACK_ENDPOINT", "http://localhost:4566")
+)
+FLOCI_INTERNAL_ENDPOINT = "http://floci:4566"
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 ACCOUNT_ID = "000000000000"
 
@@ -27,29 +29,27 @@ ACCOUNT_ID = "000000000000"
 def _get_client(service: str):
     return boto3.client(
         service,
-        endpoint_url=MINISTACK_ENDPOINT,
+        endpoint_url=FLOCI_ENDPOINT,
         aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
         aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
         region_name=REGION,
     )
 
 
-def wait_for_ministack(timeout: int = 300):
-    """Poll MiniStack health endpoint until all services are available."""
+def wait_for_floci(timeout: int = 300):
+    """Poll Floci health endpoint until all services are available."""
     start = time.time()
     while time.time() - start < timeout:
         try:
-            r = requests.get(f"{MINISTACK_ENDPOINT}/_ministack/health", timeout=5)
+            r = requests.get(f"{FLOCI_ENDPOINT}/_floci/health", timeout=5)
             if r.status_code == 200:
-                logger.info(f"MiniStack healthy: {r.json()}")
+                logger.info(f"Floci healthy: {r.json()}")
                 return
         except requests.RequestException:
             pass
-        logger.debug(
-            f"Waiting for MiniStack ({int(time.time() - start)}s/{timeout}s)..."
-        )
+        logger.debug(f"Waiting for Floci ({int(time.time() - start)}s/{timeout}s)...")
         time.sleep(3)
-    raise RuntimeError(f"MiniStack not ready after {timeout}s")
+    raise RuntimeError(f"Floci not ready after {timeout}s")
 
 
 def provision_resources(resources: Dict[str, List[Dict[str, Any]]]):
@@ -119,7 +119,7 @@ def deploy_lambda_function(
     timeout: int = 300,
     memory_size: int = 512,
 ) -> str:
-    """Deploy a Docker image as a Lambda function in MiniStack.
+    """Deploy a Docker image as a Lambda function in Floci.
 
     Returns the function ARN.
     """
@@ -267,7 +267,7 @@ def deploy_api(api_id: str, stage: str = "local"):
 
 def get_api_gateway_url(api_id: str, stage: str = "local") -> str:
     """Return the internal Docker network URL for the API Gateway."""
-    return f"{MINISTACK_INTERNAL_ENDPOINT}/restapis/{api_id}/{stage}/_user_request_"
+    return f"{FLOCI_INTERNAL_ENDPOINT}/restapis/{api_id}/{stage}/_user_request_"
 
 
 def setup_service(
@@ -294,7 +294,7 @@ def setup_service(
 
 
 def write_nginx_config(api_id: str, config_path: Path, stage: str = "local"):
-    """Write nginx config that proxies to the MiniStack API Gateway.
+    """Write nginx config that proxies to the Floci API Gateway.
 
     Args:
         api_id: The API Gateway REST API ID.
@@ -309,7 +309,7 @@ http {{
         listen 80 default_server;
         server_name _;
         location / {{
-            proxy_pass http://ministack:4566/restapis/{api_id}/{stage}/_user_request_/;
+            proxy_pass http://floci:4566/restapis/{api_id}/{stage}/_user_request_/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

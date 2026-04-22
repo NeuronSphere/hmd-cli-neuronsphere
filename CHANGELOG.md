@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-04-22
+
+- feat: replace MiniStack with Floci as local AWS emulator (NERD001 Phase 0)
+- feat: add mode-switching infrastructure for legacy/deploy operating modes (SPEC008)
+- refactor: rename ministack_deployer to floci_deployer with backwards-compatible env var fallback
+- refactor: rename ministack plugin to floci plugin across entry points and tests
+
+## 2026-03-10
+
+- feat: add MiniStack integration replacing MinIO and DynamoDB plugins
+- fix: skip port-in-use warnings for existing NeuronSphere containers
+- fix: update version numbers for pre_build_artifacts in manifest.json
+- feat: add enabled_by_default to nsplugin.json spec for plugin default state
+- fix: update version numbers for airflow, clickhouse, and otel-collector in manifest
+
 ## 2026-02-24
 
 - feat: add clean startup/shutdown output with service URL summary

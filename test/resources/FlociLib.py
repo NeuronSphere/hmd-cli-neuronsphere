@@ -1,8 +1,8 @@
 """
-Custom Robot Framework library for testing MiniStack integration.
+Custom Robot Framework library for testing Floci integration.
 
 Provides keywords for:
-- Waiting for MiniStack readiness
+- Waiting for Floci readiness
 - S3 bucket and object operations
 - Verifying data persistence
 """
@@ -21,11 +21,13 @@ REGION = "us-west-2"
 
 
 @library
-class MiniStackLib:
-    """Robot Framework library for MiniStack AWS service assertions."""
+class FlociLib:
+    """Robot Framework library for Floci AWS service assertions."""
 
     def _client(self, service):
-        endpoint = os.environ.get("MINISTACK_ENDPOINT", DEFAULT_ENDPOINT)
+        endpoint = os.environ.get(
+            "FLOCI_ENDPOINT", os.environ.get("MINISTACK_ENDPOINT", DEFAULT_ENDPOINT)
+        )
         return boto3.client(
             service,
             endpoint_url=endpoint,
@@ -35,48 +37,50 @@ class MiniStackLib:
         )
 
     @keyword
-    def wait_until_ministack_is_ready(self, timeout=300):
-        """Poll MiniStack health endpoint until all services are available.
+    def wait_until_floci_is_ready(self, timeout=300):
+        """Poll Floci health endpoint until all services are available.
 
         Args:
             timeout: Maximum wait time in seconds.
         """
-        endpoint = os.environ.get("MINISTACK_ENDPOINT", DEFAULT_ENDPOINT)
+        endpoint = os.environ.get(
+            "FLOCI_ENDPOINT", os.environ.get("MINISTACK_ENDPOINT", DEFAULT_ENDPOINT)
+        )
         start = time.time()
         while time.time() - start < int(timeout):
             try:
-                r = requests.get(f"{endpoint}/_ministack/health", timeout=5)
+                r = requests.get(f"{endpoint}/_floci/health", timeout=5)
                 if r.status_code == 200:
-                    logger.info(f"MiniStack healthy: {r.json()}")
+                    logger.info(f"Floci healthy: {r.json()}")
                     return
             except requests.RequestException:
                 pass
             time.sleep(3)
-        raise AssertionError(f"MiniStack not ready after {timeout}s")
+        raise AssertionError(f"Floci not ready after {timeout}s")
 
     @keyword
-    def clean_ministack_state(self):
-        """Remove MiniStack persisted data so the next start is clean.
+    def clean_floci_state(self):
+        """Remove Floci persisted data so the next start is clean.
 
-        Clears ``ministack/data`` (service state) while preserving the parent
-        directories.  Safe to call when MiniStack is stopped.
+        Clears ``floci/data`` (service state) while preserving the parent
+        directories.  Safe to call when Floci is stopped.
         """
         hmd_home = os.environ.get("HMD_HOME", "")
         if not hmd_home:
-            logger.warn("HMD_HOME not set, skipping MiniStack state cleanup")
+            logger.warn("HMD_HOME not set, skipping Floci state cleanup")
             return
-        for subdir in ["ministack/data", "ministack/s3"]:
+        for subdir in ["floci/data"]:
             path = os.path.join(hmd_home, subdir)
             if os.path.isdir(path):
                 shutil.rmtree(path)
                 os.makedirs(path, exist_ok=True)
-                logger.info(f"Cleaned MiniStack state: {path}")
+                logger.info(f"Cleaned Floci state: {path}")
 
     @keyword
     def wait_until_s3_is_ready(self, timeout=600):
-        """Poll MiniStack S3 endpoint until it responds to list-buckets.
+        """Poll Floci S3 endpoint until it responds to list-buckets.
 
-        This is faster than waiting for all MiniStack services when only S3
+        This is faster than waiting for all Floci services when only S3
         is needed (e.g. persistence tests).
 
         Args:
@@ -86,16 +90,16 @@ class MiniStackLib:
         while time.time() - start < int(timeout):
             try:
                 self._client("s3").list_buckets()
-                logger.info("MiniStack S3 is ready")
+                logger.info("Floci S3 is ready")
                 return
             except Exception:
                 pass
             time.sleep(3)
-        raise AssertionError(f"MiniStack S3 not ready after {timeout}s")
+        raise AssertionError(f"Floci S3 not ready after {timeout}s")
 
     @keyword
     def create_s3_bucket(self, bucket_name):
-        """Create an S3 bucket in MiniStack.
+        """Create an S3 bucket in Floci.
 
         Args:
             bucket_name: Name of the bucket to create.

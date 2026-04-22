@@ -21,7 +21,7 @@ from robot.api.deco import keyword, library
 ALL_BUNDLED_PLUGINS = [
     "telemetry",
     "graph",
-    "ministack",
+    "floci",
     "jupyter",
     "apache_superset",
     "airflow",
@@ -79,9 +79,9 @@ class NeuronSphereLib:
 
             # MiniStack runs on the Docker host; from inside Bender,
             # reach it via host.docker.internal instead of localhost.
-            if not os.environ.get("MINISTACK_ENDPOINT"):
-                os.environ["MINISTACK_ENDPOINT"] = "http://host.docker.internal:4566"
-                logger.info("Set MINISTACK_ENDPOINT=http://host.docker.internal:4566")
+            if not os.environ.get("FLOCI_ENDPOINT"):
+                os.environ["FLOCI_ENDPOINT"] = "http://host.docker.internal:4566"
+                logger.info("Set FLOCI_ENDPOINT=http://host.docker.internal:4566")
 
         hmd_home = os.environ.get("HMD_HOME")
         if not hmd_home:

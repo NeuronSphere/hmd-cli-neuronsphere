@@ -324,6 +324,33 @@ def _seed_telemetry_profiles(
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = False):
+    mode = os.environ.get("HMD_LOCAL_NEURONSPHERE_MODE", "legacy")
+    if mode == "deploy":
+        start_neuronsphere_deploy(verbose=verbose)
+    else:
+        start_neuronsphere_legacy(config_overrides=config_overrides, verbose=verbose)
+
+
+def start_neuronsphere_deploy(verbose: bool = False):
+    """Start NeuronSphere in deploy mode (admin control plane with DAG-based deployment).
+
+    Deploy mode is under development and will be enabled in a future release.
+    See NERD001 for the full architecture specification.
+    """
+    load_hmd_env()
+    print_header("Starting")
+    print("\n  Deploy mode is not yet available.")
+    print("  Deploy mode will start an admin control plane (Floci, ms-deployment,")
+    print("  ms-naming, PostgreSQL) and deploy services via a DAG-based workflow.")
+    print(
+        "\n  To use the current Docker Compose mode, unset HMD_LOCAL_NEURONSPHERE_MODE"
+    )
+    print("  or set it to 'legacy'.\n")
+
+
+def start_neuronsphere_legacy(
+    config_overrides: Dict[str, bool] = {}, verbose: bool = False
+):
     load_hmd_env()
 
     print_header("Starting")
@@ -502,10 +529,10 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = F
     else:
         _exec(command)
 
-    # MiniStack post-startup: provision resources, deploy Lambdas, configure API Gateway
-    if plugins.get("ministack", False):
-        from .ministack_deployer import (
-            wait_for_ministack,
+    # Floci post-startup: provision resources, deploy Lambdas, configure API Gateway
+    if plugins.get("floci", False):
+        from .floci_deployer import (
+            wait_for_floci,
             provision_resources,
             setup_service,
             get_or_create_api_gateway,
@@ -513,19 +540,19 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = F
             write_nginx_config,
         )
 
-        print_step("Waiting for MiniStack...")
+        print_step("Waiting for Floci...")
         try:
-            wait_for_ministack()
+            wait_for_floci()
         except RuntimeError as e:
-            logger.warning(f"{e} — skipping MiniStack provisioning")
+            logger.warning(f"{e} — skipping Floci provisioning")
             print(f"  Warning: {e}")
-            plugins["ministack"] = "degraded"
+            plugins["floci"] = "degraded"
 
-        if plugins.get("ministack") is True:
-            print_step("Provisioning MiniStack resources...")
+        if plugins.get("floci") is True:
+            print_step("Provisioning Floci resources...")
             provision_resources(resources)
 
-            print_step("Deploying services to MiniStack...")
+            print_step("Deploying services to Floci...")
             api_id = get_or_create_api_gateway()
             for svc in resources.get("services", []):
                 if isinstance(svc, dict) and svc.get("deploy_as_lambda"):
@@ -618,6 +645,24 @@ def _get_cached_compose_files(include_local_services: bool = False):
 
 
 def stop_neuronsphere(verbose: bool = False):
+    mode = os.environ.get("HMD_LOCAL_NEURONSPHERE_MODE", "legacy")
+    if mode == "deploy":
+        stop_neuronsphere_deploy(verbose=verbose)
+    else:
+        stop_neuronsphere_legacy(verbose=verbose)
+
+
+def stop_neuronsphere_deploy(verbose: bool = False):
+    """Stop NeuronSphere in deploy mode.
+
+    Deploy mode is under development. This is a stub.
+    """
+    load_hmd_env()
+    print_header("Stopping")
+    print("\n  Deploy mode is not yet available. Nothing to stop.\n")
+
+
+def stop_neuronsphere_legacy(verbose: bool = False):
     load_hmd_env()
 
     print_header("Stopping")
@@ -698,12 +743,16 @@ def run_local_service(
 ):
     load_hmd_env()
 
-    use_ministack = (
-        os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") != "false"
+    use_floci = (
+        os.environ.get(
+            "HMD_LOCAL_NEURONSPHERE_ENABLE_FLOCI",
+            os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true"),
+        )
+        != "false"
     )
 
-    if use_ministack:
-        _run_local_service_ministack(repo_name, repo_version, instance_name, db_init)
+    if use_floci:
+        _run_local_service_floci(repo_name, repo_version, instance_name, db_init)
         return
 
     local_svcs = os.listdir(_hmd_home / ".cache" / "local_services")
@@ -854,14 +903,14 @@ def run_local_service(
         start_neuronsphere()
 
 
-def _run_local_service_ministack(
+def _run_local_service_floci(
     repo_name: str,
     repo_version: str,
     instance_name: str,
     db_init: bool = True,
 ):
-    """Deploy a local service as a Lambda function in MiniStack."""
-    from .ministack_deployer import setup_service, wait_for_ministack
+    """Deploy a local service as a Lambda function in Floci."""
+    from .floci_deployer import setup_service, wait_for_floci
 
     image_uri = f"{os.environ.get('HMD_CONTAINER_REGISTRY')}/{repo_name}:{repo_version}"
 
@@ -893,7 +942,7 @@ def _run_local_service_ministack(
     if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_TELEMETRY", "true") == "true":
         env_vars["HMD_OTEL_ENDPOINT"] = "http://otel-collector:4317/"
 
-    wait_for_ministack()
+    wait_for_floci()
     service_url = setup_service(instance_name, image_uri, env_vars)
 
     resources = {"services": [{"name": instance_name, "url": service_url}]}

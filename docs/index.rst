@@ -8,7 +8,9 @@ Welcome to hmd-cli-neuronsphere's documentation
    :caption: Contents:
 
    readme
+   modes
    plugins/index
+   proposals/index
 
 Indices and tables
 ==================

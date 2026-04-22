@@ -2,8 +2,9 @@
 Documentation     Integration tests for NeuronSphere start/stop and plugin combinations.
 ...               All integration tests are in a single suite so Pabot does not
 ...               parallelize them -- they share Docker ports and the neuronsphere_default network.
+Library           OperatingSystem
 Library           resources/NeuronSphereLib.py
-Library           resources/MiniStackLib.py
+Library           resources/FlociLib.py
 Variables         variables/plugin_containers.py
 
 Suite Setup       Ensure Clean State
@@ -68,10 +69,10 @@ Default Plugin Containers Are Running
     ...               Trino, clickhouse, and hive_metastore depend on external build
     ...               artifacts (from hmd build -pdo) and are tested via the Data
     ...               Pipeline Stack combo test instead.
-    ...               MiniStack replaces minio and dynamodb containers.
+    ...               Floci replaces minio and dynamodb containers.
     Verify Plugin Running Containers    ${TELEMETRY_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${GRAPH_RUNNING_CONTAINERS}
-    Verify Plugin Running Containers    ${MINISTACK_RUNNING_CONTAINERS}
+    Verify Plugin Running Containers    ${FLOCI_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${JUPYTER_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${APACHE_SUPERSET_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${AIRFLOW_RUNNING_CONTAINERS}
@@ -84,7 +85,7 @@ Stop Default NeuronSphere
     Verify Plugin Not Running    ${MAIN_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${TELEMETRY_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${GRAPH_RUNNING_CONTAINERS}
-    Verify Plugin Not Running    ${MINISTACK_RUNNING_CONTAINERS}
+    Verify Plugin Not Running    ${FLOCI_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${JUPYTER_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${APACHE_SUPERSET_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${AIRFLOW_RUNNING_CONTAINERS}
@@ -108,13 +109,13 @@ Minimal Setup Main Only
     Verify Plugin Not Running    ${AIRFLOW_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${TRINO_RUNNING_CONTAINERS}
 
-Main Plus MiniStack
+Main Plus Floci
     [Tags]    integration    plugin-combo
-    [Documentation]    Start with only MiniStack enabled alongside main.
+    [Documentation]    Start with only Floci enabled alongside main.
     [Teardown]    Stop And Clear
-    Start With Plugins    ministack
+    Start With Plugins    floci
     Verify Plugin Running Containers    ${MAIN_RUNNING_CONTAINERS}
-    Verify Plugin Running Containers    ${MINISTACK_RUNNING_CONTAINERS}
+    Verify Plugin Running Containers    ${FLOCI_RUNNING_CONTAINERS}
     # Verify others are NOT running
     Verify Plugin Not Running    ${TELEMETRY_RUNNING_CONTAINERS}
     Verify Plugin Not Running    ${GRAPH_RUNNING_CONTAINERS}
@@ -137,9 +138,9 @@ Data Pipeline Stack
     [Documentation]    Start with the full data pipeline: ministack, graph, airflow, trino,
     ...               and transform. Transform depends on graph and airflow.
     [Teardown]    Stop And Clear
-    Start With Plugins    ministack    graph    airflow    trino    transform
+    Start With Plugins    floci    graph    airflow    trino    transform
     Verify Plugin Running Containers    ${MAIN_RUNNING_CONTAINERS}
-    Verify Plugin Running Containers    ${MINISTACK_RUNNING_CONTAINERS}
+    Verify Plugin Running Containers    ${FLOCI_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${GRAPH_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${AIRFLOW_RUNNING_CONTAINERS}
     Verify Plugin Running Containers    ${TRINO_RUNNING_CONTAINERS}
@@ -149,24 +150,36 @@ Data Pipeline Stack
     Verify Plugin Not Running    ${JUPYTER_RUNNING_CONTAINERS}
 
 # ═══════════════════════════════════════════════════════════════
-# MiniStack Persistence
+# Floci Persistence
 # ═══════════════════════════════════════════════════════════════
 
-MiniStack S3 Data Persists Across Restart
-    [Tags]    integration    persistence    ministack
+Floci S3 Data Persists Across Restart
+    [Tags]    integration    persistence    floci
     [Documentation]    Verify files in S3 survive a stop/start cycle.
     [Teardown]    Stop And Clear
-    Clean MiniStack State
-    Start With Plugins    ministack
-    Verify Plugin Running Containers    ${MINISTACK_RUNNING_CONTAINERS}
+    Clean Floci State
+    Start With Plugins    floci
+    Verify Plugin Running Containers    ${FLOCI_RUNNING_CONTAINERS}
     Wait Until S3 Is Ready
     Create S3 Bucket    persistence-test
     Upload Test File To S3    persistence-test    test-key    test-content-12345
     Verify S3 Object Exists    persistence-test    test-key
     Stop Local NeuronSphere
-    Verify Plugin Not Running    ${MINISTACK_RUNNING_CONTAINERS}
-    Start With Plugins    ministack
-    Verify Plugin Running Containers    ${MINISTACK_RUNNING_CONTAINERS}
+    Verify Plugin Not Running    ${FLOCI_RUNNING_CONTAINERS}
+    Start With Plugins    floci
+    Verify Plugin Running Containers    ${FLOCI_RUNNING_CONTAINERS}
     Wait Until S3 Is Ready
     Verify S3 Object Exists    persistence-test    test-key
     Verify S3 Object Content    persistence-test    test-key    test-content-12345
+
+# ═══════════════════════════════════════════════════════════════
+# Mode Switching
+# ═══════════════════════════════════════════════════════════════
+
+Deploy Mode Prints Stub Message
+    [Tags]    integration    mode-switching
+    [Documentation]    When HMD_LOCAL_NEURONSPHERE_MODE=deploy, up should print a stub message.
+    [Setup]    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    deploy
+    [Teardown]    Run Keywords    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    AND    Stop And Clear
+    ${result}=    Run NS Command    up
+    Should Contain    ${result.stdout}    Deploy mode

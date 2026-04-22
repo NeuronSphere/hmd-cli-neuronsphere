@@ -9,22 +9,23 @@ _services_dir = _dirname / ".." / "services"
 
 
 def enabled(config_overrides: Dict[str, bool] = {}):
-    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK")
+    val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_FLOCI")
+    if val is None:
+        val = os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK")
     if val is not None:
         return val == "true"
-    return config_overrides.get("ministack", True)
+    return config_overrides.get("floci", True)
 
 
 def get_resources():
-    return {"endpoints": ["ministack:localhost:4566"]}
+    return {"endpoints": ["floci:localhost:4566"]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
     HMD_HOME = Path(hmd_home)
 
     required_dirs = [
-        Path("ministack", "data"),
-        Path("ministack", "s3"),
+        Path("floci", "data"),
     ]
 
     for dir_ in required_dirs:
@@ -41,10 +42,10 @@ def render_compose_yaml(
     configs: Dict[str, bool] = {},
 ):
     compose_dict = {}
-    with open(_services_dir / "docker-compose.ministack.yml", "r") as dc:
+    with open(_services_dir / "docker-compose.floci.yml", "r") as dc:
         compose_dict = yaml.safe_load(dc)
 
-    compose_path = cache_dir / "docker-compose.ministack.yml"
+    compose_path = cache_dir / "docker-compose.floci.yml"
     if compose_path.exists():
         os.unlink(compose_path)
 
