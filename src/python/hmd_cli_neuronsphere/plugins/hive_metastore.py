@@ -24,11 +24,11 @@ from .base import (
     build_template_context,
 )
 
-_PLUGIN_NAME = "hive-metastore"
+_PLUGIN_NAME = "hive_metastore"
 
 
 def enabled(config_overrides: Dict[str, bool] = {}) -> bool:
-    """Check if hive-metastore plugin is enabled."""
+    """Check if hive_metastore plugin is enabled."""
     config = load_nsplugin_config(_PLUGIN_NAME)
     if config:
         env_var = config.get(

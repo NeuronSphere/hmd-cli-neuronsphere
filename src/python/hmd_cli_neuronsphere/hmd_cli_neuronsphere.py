@@ -78,18 +78,60 @@ def _get_base_command(files: List[str], quiet: bool = False):
     return command
 
 
-def _wait_for_service(url: str, timeout: int = 120):
-    """Poll a URL until a successful HTTP response is received."""
+def _wait_for_service(url: str, timeout: int = 180):
+    """Poll a URL until the service responds with any non-5xx status.
+
+    A 4xx (e.g. 404 from `/` on hmd-ms-base, which only registers
+    `/api/...` and `/apiop/...` routes) confirms the proxy → API Gateway
+    → Lambda chain is wired and the runtime is invokable. Downstream
+    callers hit real endpoints and surface their own errors if anything
+    is wrong further in.
+    """
     start = time.time()
     while time.time() - start < timeout:
         try:
             resp = requests.get(url, timeout=5)
-            if resp.status_code < 400:
+            if resp.status_code < 500:
                 return
         except requests.RequestException:
             pass
         time.sleep(3)
     logger.warning(f"Service at {url} not ready after {timeout}s")
+
+
+def _wait_for_ms_deployment(base_url: str, timeout: int = 180):
+    """Poll ms-deployment by exercising the hmd_lang_deployment.environment CRUD path.
+
+    Stronger than ``_wait_for_service``: a successful POST to
+    ``/api/hmd_lang_deployment.environment`` confirms the CRUD layer is
+    actually serving entity calls (not just that the runtime is invokable).
+    If the search returns an empty list, also seed a ``local`` Environment
+    so downstream flows have one available.
+    """
+    env_url = f"{base_url}/api/hmd_lang_deployment.environment"
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            resp = requests.post(env_url, json={}, timeout=5)
+            if resp.status_code == 200:
+                envs = resp.json()
+                if isinstance(envs, list):
+                    if not envs:
+                        put_resp = requests.put(
+                            env_url,
+                            json={
+                                "type": "local",
+                                "account_number": "000000000000",
+                                "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
+                            },
+                            timeout=30,
+                        )
+                        put_resp.raise_for_status()
+                    return
+        except requests.RequestException:
+            pass
+        time.sleep(3)
+    logger.warning(f"Service at {env_url} not ready after {timeout}s")
 
 
 def _read_repo_version(repo_home: str, repo_name: str) -> str:
@@ -429,22 +471,6 @@ def _aggregate_hmdms_resources(
                 resources[k] = v
 
 
-def _validate_hmdms_image(image: str) -> bool:
-    """Check whether a Docker image is present locally.
-
-    Returns True if `docker image inspect` exits 0, False otherwise.
-    Used to surface a clear error before Floci attempts a registry pull
-    that would fail for locally-built `<repo>:<version>` tags.
-    """
-    import subprocess as _sp
-
-    result = _sp.run(
-        ["docker", "image", "inspect", image],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
 def _deploy_hmdms_service_lambdas(
     api_id: str,
     local_loader: LocalPluginLoader,
@@ -455,7 +481,7 @@ def _deploy_hmdms_service_lambdas(
     for ms-deployment seeding. Skips plugins whose image is not cached locally,
     logging a clear warning so the user can run `hmd build` and retry.
     """
-    from .floci_deployer import setup_service
+    from .floci_deployer import resolve_image_uri, setup_service
 
     deployed: List[Dict] = []
     seen_function_names: set = set()
@@ -474,20 +500,26 @@ def _deploy_hmdms_service_lambdas(
             continue
         seen_function_names.add(function_name)
 
-        image = spec["image"]
-        if not _validate_hmdms_image(image):
+        repo_name = spec["repo_name"]
+        repo_version = spec["repo_version"]
+        image = resolve_image_uri(repo_name, repo_version)
+        if image is None:
             logger.warning(
-                f"HMDMS service '{plugin_name}' image '{image}' not found locally. "
+                f"HMDMS service '{plugin_name}' image for "
+                f"{repo_name}:{repo_version} not found locally. "
                 f"Run `hmd build` in the repo and retry. Skipping Lambda deploy."
             )
             print(
-                f"  Warning: image '{image}' not cached. "
+                f"  Warning: image for {repo_name}:{repo_version} not cached. "
                 f"Run `hmd build` in the source repo first."
             )
             continue
 
-        setup_service(function_name, image, spec["env_vars"], api_id=api_id)
-        spec["api_id"] = api_id
+        spec["image"] = image
+        svc_api_id = setup_service(
+            function_name, image, spec["env_vars"], api_id=api_id
+        )
+        spec["api_id"] = svc_api_id
         deployed.append(spec)
         logger.info(f"Deployed HMDMS service Lambda: {function_name} ({image})")
 
@@ -500,14 +532,20 @@ def _deploy_ms_deployment_lambda(api_id: str) -> str:
     Used by both Platform and Extend modes so ms-deployment is the single
     source of truth for "what's deployed locally".
     """
-    from .floci_deployer import setup_service
+    from .floci_deployer import resolve_image_uri, setup_service
 
-    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
     repo_home = os.environ.get("HMD_REPO_HOME", "")
     deployment_version = os.environ.get(
         "HMD_MS_DEPLOYMENT_VERSION",
         _read_repo_version(repo_home, "hmd-ms-deployment"),
     )
+
+    image_uri = resolve_image_uri("hmd-ms-deployment", deployment_version)
+    if image_uri is None:
+        raise RuntimeError(
+            f"hmd-ms-deployment image for version {deployment_version} not "
+            f"cached locally. Run `hmd build` in hmd-ms-deployment and retry."
+        )
 
     deployment_service_config = json.dumps(
         {
@@ -544,18 +582,20 @@ def _deploy_ms_deployment_lambda(api_id: str) -> str:
         "HMD_REPO_NAME": "hmd-ms-deployment",
         "HMD_REPO_VERSION": deployment_version,
         "HMD_HOSTNAME": os.environ.get("HMD_HOSTNAME", "localhost"),
+        "HMD_USE_FASTAPI": "true",
         "SERVICE_CONFIG": deployment_service_config,
         "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
         "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
         "AWS_SECRET_ACCESS_KEY": os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
         "AWS_XRAY_SDK_ENABLED": "false",
+        "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
         "DD_TRACE_ENABLED": "false",
         "DD_LOCAL_TEST": "true",
     }
 
     return setup_service(
         "hmd_ms_deployment",
-        f"{registry}/hmd-ms-deployment:{deployment_version}",
+        image_uri,
         deployment_env,
         api_id=api_id,
     )
@@ -658,6 +698,7 @@ def start_neuronsphere_extend(verbose: bool = False):
     from .floci_deployer import (
         wait_for_floci,
         setup_service,
+        resolve_image_uri,
         write_nginx_config,
         create_api_gateway,
         deploy_api_gateway,
@@ -798,9 +839,10 @@ def start_neuronsphere_extend(verbose: bool = False):
                 f"  Warning: k3s unavailable — Argo and k3s-dependent plugins will be skipped: {e}"
             )
 
-    # Create shared API Gateway for all services
-    print_step("Creating API Gateway...")
-    api_id = create_api_gateway()
+    # API Gateways are created per-service inside setup_service. Floci's
+    # matcher treats every `{proxy+}` resource as a global wildcard, so a
+    # shared gateway would have every service catching every other
+    # service's traffic.
 
     # Aggregate HMDMS-service buckets into Floci resources and provision
     from .floci_deployer import provision_resources
@@ -813,7 +855,6 @@ def start_neuronsphere_extend(verbose: bool = False):
 
     # Deploy ms-deployment as Lambda function behind API Gateway
     print_step("Deploying ms-deployment Lambda...")
-    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
     repo_home = os.environ.get("HMD_REPO_HOME", "")
     naming_version = os.environ.get(
         "HMD_MS_NAMING_VERSION",
@@ -821,7 +862,13 @@ def start_neuronsphere_extend(verbose: bool = False):
     )
 
     service_api_ids = {}
-    service_api_ids["hmd_ms_deployment"] = _deploy_ms_deployment_lambda(api_id)
+    ms_deployment_available = False
+    try:
+        service_api_ids["hmd_ms_deployment"] = _deploy_ms_deployment_lambda(None)
+        ms_deployment_available = True
+    except Exception as e:
+        logger.warning(f"ms-deployment Lambda deploy failed: {e}")
+        print(f"  Warning: ms-deployment not available: {e}")
 
     # Deploy ms-naming as Lambda function behind API Gateway
     print_step("Deploying ms-naming Lambda...")
@@ -860,85 +907,96 @@ def start_neuronsphere_extend(verbose: bool = False):
         "HMD_REPO_NAME": "hmd-ms-naming",
         "HMD_REPO_VERSION": naming_version,
         "HMD_HOSTNAME": os.environ.get("HMD_HOSTNAME", "localhost"),
+        "HMD_USE_FASTAPI": "true",
         "SERVICE_CONFIG": naming_service_config,
         "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
         "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
         "AWS_SECRET_ACCESS_KEY": os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
         "AWS_XRAY_SDK_ENABLED": "false",
+        "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
         "DD_TRACE_ENABLED": "false",
         "DD_LOCAL_TEST": "true",
     }
 
+    naming_image = resolve_image_uri("hmd-ms-naming", naming_version)
+    if naming_image is None:
+        raise RuntimeError(
+            f"hmd-ms-naming image for version {naming_version} not cached "
+            f"locally. Run `hmd build` in hmd-ms-naming and retry."
+        )
     service_api_ids["hmd_ms_naming"] = setup_service(
         "hmd_ms_naming",
-        f"{registry}/hmd-ms-naming:{naming_version}",
+        naming_image,
         naming_env,
-        api_id=api_id,
     )
 
-    # Deploy HMDMS-service plugins as Floci Lambdas
-    hmdms_deployed = _deploy_hmdms_service_lambdas(api_id, local_loader)
+    # Deploy HMDMS-service plugins as Floci Lambdas (each gets its own gateway)
+    hmdms_deployed = _deploy_hmdms_service_lambdas(None, local_loader)
     for spec in hmdms_deployed:
-        service_api_ids[spec["function_name"]] = api_id
+        service_api_ids[spec["function_name"]] = spec["api_id"]
 
-    # Deploy API Gateway stage and write nginx config
-    print_step("Deploying API Gateway...")
-    deploy_api_gateway(api_id)
+    # Deploy each per-service API Gateway stage
+    print_step("Deploying API Gateway stages...")
+    for svc_api_id in set(service_api_ids.values()):
+        deploy_api_gateway(svc_api_id)
 
     print_step("Configuring API Gateway proxy...")
     nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
-    write_nginx_config(service_api_ids, nginx_config_path, api_id=api_id)
+    write_nginx_config(service_api_ids, nginx_config_path)
     _exec(
         ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
         capture=True,
         quiet=True,
     )
 
-    # Poll ms-deployment readiness through the proxy
-    print_step("Waiting for ms-deployment...")
-    _wait_for_service("http://localhost/hmd_ms_deployment/", timeout=120)
+    if ms_deployment_available:
+        # Poll ms-deployment readiness through the proxy
+        print_step("Waiting for ms-deployment...")
+        _wait_for_ms_deployment("http://localhost/hmd_ms_deployment")
 
-    # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
-    # before the BOM seeder runs (so any BOM references resolve cleanly)
-    if hmdms_deployed:
-        print_step(
-            f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
-        )
-        try:
-            from .hmdms_seeder import seed_hmdms_services
-
-            seed_hmdms_services(
-                "http://localhost/hmd_ms_deployment",
-                hmdms_deployed,
+        # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
+        # before the BOM seeder runs (so any BOM references resolve cleanly)
+        if hmdms_deployed:
+            print_step(
+                f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
             )
+            try:
+                from .hmdms_seeder import seed_hmdms_services
+
+                seed_hmdms_services(
+                    "http://localhost/hmd_ms_deployment",
+                    hmdms_deployed,
+                )
+            except Exception as e:
+                logger.warning(f"HMDMS service seeding failed: {e}")
+                print(f"  Warning: HMDMS service seeding failed: {e}")
+
+        # Seed deployment graph from BOM and apply changeset
+        bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
+        if bom_file:
+            print_step(f"Seeding deployment graph from {bom_file}...")
+        else:
+            print_step("Seeding deployment graph (built-in BOM)...")
+
+        from .bom_seeder import seed_bom
+        from .local_workflow_runner import LocalWorkflowRunner
+
+        ms_deployment_url = "http://localhost/hmd_ms_deployment"
+        try:
+            csd_nid, nodes = seed_bom(ms_deployment_url)
+            print_step(f"  {len(nodes)} deployment nodes")
+
+            # Execute deployment DAG locally
+            print_step("Running local deployments...")
+            runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
+            success = runner.run(csd_nid, nodes)
+            if not success:
+                print("\n  Warning: Some deployments failed")
         except Exception as e:
-            logger.warning(f"HMDMS service seeding failed: {e}")
-            print(f"  Warning: HMDMS service seeding failed: {e}")
-
-    # Seed deployment graph from BOM and apply changeset
-    bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
-    if bom_file:
-        print_step(f"Seeding deployment graph from {bom_file}...")
+            logger.warning(f"BOM seeding/deployment failed: {e}")
+            print(f"\n  Warning: Deployment failed: {e}")
     else:
-        print_step("Seeding deployment graph (built-in BOM)...")
-
-    from .bom_seeder import seed_bom
-    from .local_workflow_runner import LocalWorkflowRunner
-
-    ms_deployment_url = "http://localhost/hmd_ms_deployment"
-    try:
-        csd_nid, nodes = seed_bom(ms_deployment_url)
-        print_step(f"  {len(nodes)} deployment nodes")
-
-        # Execute deployment DAG locally
-        print_step("Running local deployments...")
-        runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
-        success = runner.run(csd_nid, nodes)
-        if not success:
-            print("\n  Warning: Some deployments failed")
-    except Exception as e:
-        logger.warning(f"BOM seeding/deployment failed: {e}")
-        print(f"\n  Warning: Deployment failed: {e}")
+        print_step("Skipping ms-deployment readiness/seeding (Lambda not deployed)")
 
     print_header("Ready")
     print(f"\n  ms-deployment:    http://localhost/hmd_ms_deployment/")
@@ -1215,20 +1273,24 @@ def start_neuronsphere_platform(
         provision_resources(resources)
 
         print_step("Deploying services to Floci...")
-        api_id = create_api_gateway()
+        # One API Gateway per service: Floci's matcher treats every
+        # `{proxy+}` resource as a global wildcard regardless of parent
+        # path, so multiple services on a single gateway end up catching
+        # each other's traffic. Per-service gateways have exactly one
+        # `{proxy+}` resource each, eliminating the ambiguity.
         svc_names = {}
         for svc in resources.get("services", []):
             if isinstance(svc, dict) and svc.get("deploy_as_lambda"):
                 image_uri = svc["image"]
                 env_vars = svc.get("env_vars", {})
-                setup_service(svc["name"], image_uri, env_vars, api_id=api_id)
-                svc_names[svc["name"]] = api_id
+                svc_api_id = setup_service(svc["name"], image_uri, env_vars)
+                svc_names[svc["name"]] = svc_api_id
                 svc["url"] = f"http://hmd_proxy/{svc['name']}/"
 
-        # Deploy HMDMS-service plugins as Floci Lambdas
-        hmdms_deployed = _deploy_hmdms_service_lambdas(api_id, local_loader)
+        # Deploy HMDMS-service plugins as Floci Lambdas (each gets its own gateway)
+        hmdms_deployed = _deploy_hmdms_service_lambdas(None, local_loader)
         for spec in hmdms_deployed:
-            svc_names[spec["function_name"]] = api_id
+            svc_names[spec["function_name"]] = spec["api_id"]
 
         # Deploy ms-deployment Lambda (always available in both modes)
         ms_deployment_url = None
@@ -1236,20 +1298,21 @@ def start_neuronsphere_platform(
             "HMD_LOCAL_NEURONSPHERE_DISABLE_MS_DEPLOYMENT", ""
         ).lower() not in ("true", "1", "yes"):
             try:
-                _deploy_ms_deployment_lambda(api_id)
-                svc_names["hmd_ms_deployment"] = api_id
+                ms_deployment_api_id = _deploy_ms_deployment_lambda(None)
+                svc_names["hmd_ms_deployment"] = ms_deployment_api_id
                 ms_deployment_url = "http://localhost/hmd_ms_deployment"
             except Exception as e:
                 logger.warning(f"ms-deployment Lambda deploy failed: {e}")
                 print(f"  Warning: ms-deployment not available: {e}")
 
         if svc_names:
-            print_step("Deploying API Gateway...")
-            deploy_api_gateway(api_id)
+            print_step("Deploying API Gateway stages...")
+            for svc_api_id in set(svc_names.values()):
+                deploy_api_gateway(svc_api_id)
 
         # Write nginx config with per-service routing and reload
         nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
-        write_nginx_config(svc_names, nginx_config_path, api_id=api_id)
+        write_nginx_config(svc_names, nginx_config_path)
         _exec(
             ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
             capture=True,
@@ -1259,7 +1322,7 @@ def start_neuronsphere_platform(
         # Seed HMDMS services into ms-deployment (single source of truth in both modes)
         if ms_deployment_url and (hmdms_deployed or "hmd_ms_deployment" in svc_names):
             print_step("Waiting for ms-deployment...")
-            _wait_for_service(f"{ms_deployment_url}/", timeout=120)
+            _wait_for_ms_deployment(ms_deployment_url)
             if hmdms_deployed:
                 print_step(
                     f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
@@ -1707,8 +1770,7 @@ def _run_local_service_floci(
         env_vars["HMD_OTEL_ENDPOINT"] = "http://otel-collector:4317/"
 
     wait_for_floci()
-    api_id = create_api_gateway()
-    setup_service(instance_name, image_uri, env_vars, api_id=api_id)
+    api_id = setup_service(instance_name, image_uri, env_vars)
     deploy_api_gateway(api_id)
     service_url = f"http://hmd_proxy/{instance_name}/"
 

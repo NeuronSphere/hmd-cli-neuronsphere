@@ -11,7 +11,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import boto3
 import requests
@@ -391,6 +391,59 @@ def _ensure_local_image(image_uri: str) -> str:
     return image_uri
 
 
+def _image_cached(image_uri: str) -> bool:
+    """Return True if the image is present in the local docker cache."""
+    result = subprocess.run(
+        ["docker", "image", "inspect", image_uri],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def resolve_image_uri(repo_name: str, version: str) -> Optional[str]:
+    """Find a locally-cached Docker image URI for a repo/version.
+
+    Tries each candidate prefix in order and returns the first that
+    `docker image inspect` finds. Returns None if none are cached.
+
+    Candidates (in priority):
+      1. ``$HMD_CONTAINER_REGISTRY/<repo>:<version>`` (matches `hmd build`)
+      2. ``$HMD_LOCAL_NS_CONTAINER_REGISTRY/<repo>:<version>``
+      3. ``ghcr.io/neuronsphere/<repo>:<version>`` (default registry)
+      4. ``<repo>:<version>`` (bare tag)
+
+    Steps 1 and 2 are skipped when the corresponding env var is unset.
+    """
+    candidates: List[str] = []
+    seen: set = set()
+
+    def _add(uri: str) -> None:
+        if uri and uri not in seen:
+            candidates.append(uri)
+            seen.add(uri)
+
+    build_registry = os.environ.get("HMD_CONTAINER_REGISTRY")
+    if build_registry:
+        _add(f"{build_registry}/{repo_name}:{version}")
+
+    local_registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY")
+    if local_registry:
+        _add(f"{local_registry}/{repo_name}:{version}")
+
+    _add(f"ghcr.io/neuronsphere/{repo_name}:{version}")
+    _add(f"{repo_name}:{version}")
+
+    for uri in candidates:
+        if _image_cached(uri):
+            logger.debug(f"Resolved image for {repo_name}:{version} → {uri}")
+            return uri
+
+    logger.debug(
+        f"No locally-cached image for {repo_name}:{version}; tried {candidates}"
+    )
+    return None
+
+
 def deploy_lambda_function(
     function_name: str,
     image_uri: str,
@@ -440,21 +493,32 @@ def deploy_lambda_function(
 # ---------------------------------------------------------------------------
 
 
-def create_api_gateway(api_name: str = "neuronsphere-local") -> str:
+def create_api_gateway(
+    api_name: str = "neuronsphere-local", recreate: bool = False
+) -> str:
     """Create or get a REST API Gateway in Floci.
+
+    When ``recreate`` is True, any existing API Gateway with the same name
+    is deleted first so we start with a clean resource tree. This is
+    important because Floci's resource matcher appears to prefer the
+    earliest-created `{proxy+}` resource on a tie, so accumulated stale
+    routes from previous runs can hijack traffic for newly-registered
+    services.
 
     Returns the REST API ID.
     """
     client = _get_client("apigateway")
 
-    # Check for existing API
     apis = client.get_rest_apis()
     for api in apis.get("items", []):
         if api["name"] == api_name:
-            logger.info(f"Found existing API Gateway: {api['id']}")
-            return api["id"]
+            if recreate:
+                client.delete_rest_api(restApiId=api["id"])
+                logger.info(f"Deleted existing API Gateway: {api['id']}")
+            else:
+                logger.info(f"Found existing API Gateway: {api['id']}")
+                return api["id"]
 
-    # Create new API
     resp = client.create_rest_api(
         name=api_name,
         description="NeuronSphere local API Gateway",
@@ -468,10 +532,14 @@ def add_api_gateway_route(
     service_name: str,
     function_name: str,
 ) -> None:
-    """Add a route to the API Gateway that proxies to a Lambda function.
+    """Add routes at the API Gateway root that proxy to a Lambda function.
 
-    Creates /{service_name} and /{service_name}/{proxy+} resources
-    with ANY method and AWS_PROXY Lambda integration.
+    Creates `/` (root) and `/{proxy+}` integrations for every HTTP method.
+    Designed for one-Lambda-per-gateway: the gateway has no service-name
+    prefix in its path, so nginx must strip the service prefix before
+    proxying to Floci. The Lambda then receives clean `/api/...` paths
+    (rather than `/{service_name}/api/...`), which FastAPI/hmd-ms-base
+    routes natively.
     """
     client = _get_client("apigateway")
     lambda_client = _get_client("lambda")
@@ -493,59 +561,54 @@ def add_api_gateway_route(
         f"/2015-03-31/functions/{function_arn}/invocations"
     )
 
-    # Create /{service_name} resource (if not exists)
-    svc_path = f"/{service_name}"
-    if svc_path in existing_paths:
-        svc_resource_id = existing_paths[svc_path]
-    else:
-        svc_resource = client.create_resource(
-            restApiId=api_id,
-            parentId=root_id,
-            pathPart=service_name,
-        )
-        svc_resource_id = svc_resource["id"]
+    # Use root resource directly for `/`; create `/{proxy+}` as its child
+    svc_resource_id = root_id
 
-    # Create /{service_name}/{proxy+} resource (if not exists)
-    proxy_path = f"/{service_name}/{{proxy+}}"
+    proxy_path = "/{proxy+}"
     if proxy_path in existing_paths:
         proxy_resource_id = existing_paths[proxy_path]
     else:
         proxy_resource = client.create_resource(
             restApiId=api_id,
-            parentId=svc_resource_id,
+            parentId=root_id,
             pathPart="{proxy+}",
         )
         proxy_resource_id = proxy_resource["id"]
 
     # Add methods with Lambda proxy integration on both resources.
     # Floci does not support the ANY catch-all method, so register each
-    # HTTP method individually.
+    # HTTP method individually. Delete any pre-existing method first so a
+    # partial prior registration (e.g. POST set but GET missing) can't leave
+    # gaps that cause Floci's matcher to fall through to a sibling
+    # `{proxy+}` resource.
     http_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
     for resource_id in [svc_resource_id, proxy_resource_id]:
         for method in http_methods:
             try:
-                client.put_method(
+                client.delete_method(
                     restApiId=api_id,
                     resourceId=resource_id,
                     httpMethod=method,
-                    authorizationType="NONE",
                 )
             except ClientError as e:
-                if e.response["Error"]["Code"] != "ConflictException":
+                if e.response["Error"]["Code"] != "NotFoundException":
                     raise
 
-            try:
-                client.put_integration(
-                    restApiId=api_id,
-                    resourceId=resource_id,
-                    httpMethod=method,
-                    type="AWS_PROXY",
-                    integrationHttpMethod="POST",
-                    uri=integration_uri,
-                )
-            except ClientError as e:
-                if e.response["Error"]["Code"] != "ConflictException":
-                    raise
+            client.put_method(
+                restApiId=api_id,
+                resourceId=resource_id,
+                httpMethod=method,
+                authorizationType="NONE",
+            )
+
+            client.put_integration(
+                restApiId=api_id,
+                resourceId=resource_id,
+                httpMethod=method,
+                type="AWS_PROXY",
+                integrationHttpMethod="POST",
+                uri=integration_uri,
+            )
 
     logger.info(
         f"Added API Gateway route: /{service_name}/{{proxy+}} -> {function_name}"
@@ -599,18 +662,24 @@ def setup_service(
 ) -> str:
     """Deploy a service as a Lambda function and add an API Gateway route.
 
-    If api_id is provided, adds a route to the existing API Gateway.
-    Otherwise creates a new API Gateway.
+    If ``api_id`` is provided, adds a route to that existing API Gateway.
+    Otherwise creates a fresh API Gateway named ``neuronsphere-<service_name>``.
+    Per-service gateways are the default because Floci's matcher treats every
+    ``{proxy+}`` resource as a global wildcard; a single shared gateway with
+    multiple services would have every service catching every other service's
+    traffic.
 
-    Returns the API Gateway ID. Caller should call deploy_api_gateway()
-    once after all services are registered.
+    Returns the API Gateway ID. Caller should call ``deploy_api_gateway()``
+    once per returned api_id after all services are registered.
     """
     # Deploy Lambda
     deploy_lambda_function(service_name, image_uri, env_vars)
 
     # Create or reuse API Gateway
     if api_id is None:
-        api_id = create_api_gateway()
+        api_id = create_api_gateway(
+            api_name=f"neuronsphere-{service_name}", recreate=True
+        )
 
     # Add route for this service
     add_api_gateway_route(api_id, service_name, service_name)
@@ -639,9 +708,12 @@ def write_nginx_config(
     location_blocks = []
     for service_name in services:
         gw_id = api_id or services[service_name]
+        # Strip the `/{service_name}` prefix before proxying so the Lambda
+        # receives clean paths like `/api/foo` instead of
+        # `/{service_name}/api/foo` (which FastAPI would 404).
         location_blocks.append(
             f"""        location /{service_name}/ {{
-            proxy_pass http://floci:4566/restapis/{gw_id}/{stage}/_user_request_/{service_name}/;
+            proxy_pass http://floci:4566/restapis/{gw_id}/{stage}/_user_request_/;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;

@@ -540,6 +540,7 @@ class LocalPluginLoader:
             "HMD_REPO_NAME": repo_name,
             "HMD_REPO_VERSION": version,
             "HMD_HOSTNAME": os.environ.get("HMD_HOSTNAME", "localhost"),
+            "HMD_USE_FASTAPI": "true",
             "SERVICE_CONFIG": json.dumps(merged_service_config),
             "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
             "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
@@ -547,6 +548,7 @@ class LocalPluginLoader:
                 "AWS_SECRET_ACCESS_KEY", "dummykey"
             ),
             "AWS_XRAY_SDK_ENABLED": "false",
+            "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
             "DD_TRACE_ENABLED": "false",
             "DD_LOCAL_TEST": "true",
         }
@@ -565,6 +567,7 @@ class LocalPluginLoader:
             "repo_class_name": repo_class_name,
             "repo_class_version": version_spec,
             "repo_name": repo_name,
+            "repo_version": version,
             "manifest": manifest,
             "merged_service_config": merged_service_config,
             "buckets": spec.get("buckets", []) or [],
