@@ -1,0 +1,43 @@
+{
+  "name": "hmd-ms-fake-librarian",
+  "project_type": {"name": "microservice"},
+  "build": {
+    "commands": [["docker"]]
+  },
+  "deploy": {
+    "commands": [["docker"]],
+    "dependencies": {
+      "lib-repo": {
+        "repo_class_name": "hmd-inf-s3bucket",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "service-image": {
+        "repo_class_name": "hmd-ms-base",
+        "required": "false",
+        "version_spec": "~= 0.1"
+      },
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      }
+    },
+    "default_configuration": {
+      "memory_size": 256,
+      "service_config": {
+        "loader_config": {
+          "local": ["hmd-lang-librarian"]
+        },
+        "service_loader": "local",
+        "operations_modules": [
+          "hmd_ms_base.crud_operations"
+        ],
+        "hmd_db_engines": {},
+        "hmd_entity_config": {
+          "__default__": {"persistence": []}
+        }
+      }
+    }
+  }
+}

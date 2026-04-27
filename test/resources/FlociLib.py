@@ -139,6 +139,41 @@ class FlociLib:
         logger.info(f"Verified s3://{bucket}/{key} exists")
 
     @keyword
+    def bucket_should_exist(self, bucket_name):
+        """Assert that an S3 bucket exists in Floci.
+
+        Args:
+            bucket_name: Bucket name to check.
+        """
+        existing = [b["Name"] for b in self._client("s3").list_buckets().get("Buckets", [])]
+        if bucket_name not in existing:
+            raise AssertionError(
+                f"Bucket '{bucket_name}' not found. Existing: {existing}"
+            )
+        logger.info(f"Bucket {bucket_name} exists")
+
+    @keyword
+    def lambda_function_should_exist(self, function_name, expected_image=None):
+        """Assert that a Lambda function exists in Floci.
+
+        Args:
+            function_name: Lambda function name.
+            expected_image: Optional image URI to verify.
+        """
+        try:
+            resp = self._client("lambda").get_function(FunctionName=function_name)
+        except Exception as e:
+            raise AssertionError(f"Lambda '{function_name}' not found: {e}")
+        if expected_image:
+            actual = resp.get("Code", {}).get("ImageUri", "")
+            if expected_image not in actual:
+                raise AssertionError(
+                    f"Lambda '{function_name}' image mismatch: "
+                    f"expected '{expected_image}', got '{actual}'"
+                )
+        logger.info(f"Lambda {function_name} exists")
+
+    @keyword
     def verify_s3_object_content(self, bucket, key, expected):
         """Assert that an S3 object has the expected content.
 
@@ -155,3 +190,12 @@ class FlociLib:
                 f"expected '{expected}', got '{actual}'"
             )
         logger.info(f"Verified s3://{bucket}/{key} content matches")
+
+    @keyword
+    def floci_secret_should_exist(self, secret_id):
+        """Assert that a secret exists in Floci Secrets Manager."""
+        try:
+            self._client("secretsmanager").get_secret_value(SecretId=secret_id)
+        except Exception as e:
+            raise AssertionError(f"Secret '{secret_id}' not found in Floci: {e}")
+        logger.info(f"Secret {secret_id} exists in Floci Secrets Manager")

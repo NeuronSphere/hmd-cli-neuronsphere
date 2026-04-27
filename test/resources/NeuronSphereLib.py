@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 import docker
 import docker.errors
+import requests as http_requests
 from robot.api import logger
 from robot.api.deco import keyword, library
 
@@ -94,6 +95,8 @@ class NeuronSphereLib:
             hmd_home / ".config",
             hmd_home / "postgresql" / "data",
             hmd_home / "postgresql" / "scripts" / "always-initdb.d",
+            hmd_home / "floci" / "data",
+            hmd_home / "floci" / "workload-data",
         ]
         for d in required_dirs:
             d.mkdir(parents=True, exist_ok=True)
@@ -337,3 +340,189 @@ class NeuronSphereLib:
             raise AssertionError(
                 f"{len(failures)} init container(s) failed:\n" + "\n".join(failures)
             )
+
+    # ── HTTP Service Keywords ──
+
+    @keyword
+    def service_should_respond(self, url: str, timeout: int = 10):
+        """Assert that an HTTP service responds at the given URL.
+
+        Any HTTP response (including 4xx/5xx) counts as success -- the goal
+        is to verify the service is reachable, not that it returns 200.
+
+        Args:
+            url: URL to check.
+            timeout: Request timeout in seconds.
+        """
+        try:
+            resp = http_requests.get(url, timeout=int(timeout))
+            logger.info(f"Service responded at {url}: HTTP {resp.status_code}")
+        except http_requests.RequestException as e:
+            raise AssertionError(f"Service at {url} not reachable: {e}")
+
+    @keyword
+    def get_deployment_bom(self, env_type: str, base_url: str = "http://localhost/hmd_ms_deployment"):
+        """Get the deployment BOM for an environment type.
+
+        Args:
+            env_type: Environment type (e.g., "local")
+            base_url: ms-deployment base URL
+
+        Returns:
+            The BOM response as a dictionary
+        """
+        url = f"{base_url}/apiop/get_deployment_bom/{env_type}"
+        resp = http_requests.get(url, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        logger.info(f"Deployment BOM for {env_type}: {result}")
+        return result
+
+    @keyword
+    def get_deployment_bom_count(self, env_type: str, base_url: str = "http://localhost/hmd_ms_deployment"):
+        """Get the count of entries in the deployment BOM.
+
+        Args:
+            env_type: Environment type (e.g., "local")
+            base_url: ms-deployment base URL
+
+        Returns:
+            Integer count of BOM entries
+        """
+        bom = self.get_deployment_bom(env_type, base_url)
+        count = len(bom) if isinstance(bom, list) else 0
+        logger.info(f"BOM entry count for {env_type}: {count}")
+        return count
+
+    @keyword
+    def find_bom_entry_by_instance_name(self, bom, instance_name: str):
+        """Find a specific entry in the BOM by instance name.
+
+        Args:
+            bom: The BOM list (from get_deployment_bom)
+            instance_name: Name of the repo instance
+
+        Returns:
+            The matching BOM entry dict, or raises AssertionError
+        """
+        if isinstance(bom, list):
+            for entry in bom:
+                if entry.get("instance_name") == instance_name or entry.get("repo_instance_name") == instance_name:
+                    return entry
+        raise AssertionError(f"Instance '{instance_name}' not found in BOM")
+
+    @keyword
+    def all_bom_entries_should_have_final_status(self, bom):
+        """Assert all BOM entries have a final status (DEPLOYED or FAILED), not DEPLOY_NEXT.
+
+        Args:
+            bom: The BOM list (from get_deployment_bom)
+        """
+        final_statuses = {"DEPLOYED", "FAILED", "SKIPPED"}
+        stuck = []
+        if isinstance(bom, list):
+            for entry in bom:
+                name = entry.get("instance_name", entry.get("repo_instance_name", "unknown"))
+                status = entry.get("status", "UNKNOWN")
+                if status not in final_statuses:
+                    stuck.append(f"{name}: {status}")
+        if stuck:
+            raise AssertionError(
+                f"{len(stuck)} BOM entries not in final state:\n" + "\n".join(stuck)
+            )
+
+    @keyword
+    def get_container_env(self, container_name: str) -> str:
+        """Get environment variables of a running container as 'KEY=VALUE\\n...' string.
+
+        Args:
+            container_name: Docker container name.
+
+        Returns:
+            Newline-joined env vars (suitable for ``Should Contain``).
+        """
+        try:
+            container = self.docker_client.containers.get(container_name)
+        except docker.errors.NotFound:
+            raise AssertionError(f"Container '{container_name}' not found")
+        env = container.attrs.get("Config", {}).get("Env", [])
+        return "\n".join(env)
+
+    @keyword
+    def repo_class_should_exist(self, repo_class_name: str,
+                                 base_url: str = "http://localhost/hmd_ms_deployment"):
+        """Assert ms-deployment has a hmd_lang_deployment.repo_class with the given name.
+
+        Args:
+            repo_class_name: e.g. "hmd-ms-fake-librarian"
+            base_url: ms-deployment base URL.
+        """
+        url = f"{base_url}/api/hmd_lang_deployment.repo_class"
+        resp = http_requests.get(url, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+        items = body if isinstance(body, list) else body.get("items", [body])
+        for item in items:
+            if item.get("repo_class_name") == repo_class_name:
+                logger.info(f"RepoClass {repo_class_name} found")
+                return
+        raise AssertionError(
+            f"RepoClass '{repo_class_name}' not found at {url}. "
+            f"Got {len(items)} items."
+        )
+
+    @keyword
+    def get_hmdms_deployment_status(self, repo_class_name: str,
+                                     base_url: str = "http://localhost/hmd_ms_deployment") -> str:
+        """Get the status of the most recent repo_instance_deployment for a repo_class.
+
+        Args:
+            repo_class_name: Name of the repo class.
+            base_url: ms-deployment base URL.
+
+        Returns:
+            Status string (e.g. "DEPLOYED", "SKIPPED", "FAILED", "NOT_FOUND").
+        """
+        url = f"{base_url}/apiop/get_hmdms_status/{repo_class_name}"
+        try:
+            resp = http_requests.get(url, timeout=30)
+            if resp.status_code == 200:
+                return resp.json().get("status", "UNKNOWN")
+        except http_requests.RequestException:
+            pass
+        # Fall back: enumerate repo_instance_deployment entities and join via instance->repo_class
+        rid_url = f"{base_url}/api/hmd_lang_deployment.repo_instance_deployment"
+        resp = http_requests.get(rid_url, timeout=30)
+        if resp.status_code != 200:
+            return "NOT_FOUND"
+        body = resp.json()
+        items = body if isinstance(body, list) else body.get("items", [body])
+        # Look for an instance_configuration referencing the repo_class_name
+        for item in items:
+            cfg = item.get("instance_configuration", {})
+            if isinstance(cfg, dict) and cfg.get("repo_class_name") == repo_class_name:
+                return item.get("status", "UNKNOWN")
+        return "NOT_FOUND"
+
+    @keyword
+    def get_instance_deployment_status(self, instance_name: str, env_type: str,
+                                       base_url: str = "http://localhost/hmd_ms_deployment"):
+        """Get the deployment status of a specific repo instance.
+
+        Queries the deployment info for the environment and finds
+        the instance by name.
+
+        Args:
+            instance_name: Name of the repo instance (e.g., "vpc")
+            env_type: Environment type (e.g., "local")
+            base_url: ms-deployment base URL
+
+        Returns:
+            Status string (e.g., "DEPLOYED", "FAILED", "DEPLOY_NEXT")
+        """
+        bom = self.get_deployment_bom(env_type, base_url)
+        if isinstance(bom, list):
+            for entry in bom:
+                if entry.get("instance_name") == instance_name or entry.get("repo_instance_name") == instance_name:
+                    return entry.get("status", "UNKNOWN")
+        return "NOT_FOUND"

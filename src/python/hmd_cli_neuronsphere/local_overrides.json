@@ -1,0 +1,216 @@
+{
+    "hmd-app-airflow": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-app-argo": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-database-account": {
+        "strategy": "default",
+        "reason": "CDKTF calls ms-dbaccount to create databases, mirroring cloud workflow"
+    },
+    "hmd-img-airflow": {
+        "strategy": "skip",
+        "reason": "Image build, not a deploy target"
+    },
+    "hmd-inf-acm": {
+        "strategy": "skip",
+        "reason": "AWS Certificate Manager not applicable locally"
+    },
+    "hmd-inf-api-gateway": {
+        "strategy": "skip",
+        "reason": "AWS API Gateway handled by Floci natively"
+    },
+    "hmd-inf-clickhouse": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-inf-coredns-addon": {
+        "strategy": "skip",
+        "reason": "CoreDNS EKS addon not applicable on k3s"
+    },
+    "hmd-inf-credentials": {
+        "strategy": "default",
+        "reason": "Creates Secrets Manager secrets via CDKTF; Floci supports SM"
+    },
+    "hmd-inf-datadog": {
+        "strategy": "skip",
+        "reason": "Datadog SaaS integration not applicable locally"
+    },
+    "hmd-inf-datadog-lambdas": {
+        "strategy": "skip",
+        "reason": "Datadog Lambda layer not applicable locally"
+    },
+    "hmd-inf-ebs-csi-addon": {
+        "strategy": "skip",
+        "reason": "EBS CSI addon not applicable on k3s; k3s has built-in local-path"
+    },
+    "hmd-inf-efs": {
+        "strategy": "skip",
+        "reason": "EFS file system not needed locally; k3s local-path replaces it"
+    },
+    "hmd-inf-efs-eks-addon": {
+        "strategy": "skip",
+        "reason": "EFS EKS addon not applicable on k3s"
+    },
+    "hmd-inf-eks-alb": {
+        "strategy": "skip",
+        "reason": "ALB controller not applicable on k3s; k3s has built-in ingress"
+    },
+    "hmd-inf-eks-autoscaler": {
+        "strategy": "skip",
+        "reason": "Cluster autoscaler not applicable on k3s"
+    },
+    "hmd-inf-eks-cluster": {
+        "strategy": "default",
+        "reason": "CDKTF creates EKS-like resources in Floci"
+    },
+    "hmd-inf-eks-efs-storage": {
+        "strategy": "local_storage",
+        "reason": "Creates static PVs from plugin volume declarations, backed by HMD_HOME directories"
+    },
+    "hmd-inf-eks-node-group": {
+        "strategy": "skip",
+        "reason": "EKS node groups not applicable on k3s"
+    },
+    "hmd-inf-ext-secrets": {
+        "strategy": "skip",
+        "reason": "External Secrets operator not needed locally; secrets are direct env vars"
+    },
+    "hmd-inf-ext-secrets-crds": {
+        "strategy": "skip",
+        "reason": "External Secrets CRDs not needed locally"
+    },
+    "hmd-inf-hive-metastore": {
+        "strategy": "default",
+        "reason": "Helm deploys to k3s EKS cluster"
+    },
+    "hmd-inf-karpenter": {
+        "strategy": "skip",
+        "reason": "Karpenter autoscaler not applicable on k3s"
+    },
+    "hmd-inf-metrics-server": {
+        "strategy": "skip",
+        "reason": "Metrics server not applicable on k3s"
+    },
+    "hmd-inf-neptune": {
+        "strategy": "compose_substitute",
+        "plugin": "graph",
+        "provides_services": ["graph-db"],
+        "reason": "Floci does not emulate Neptune (graph DB); JanusGraph replaces it"
+    },
+    "hmd-inf-opa-authorizer": {
+        "strategy": "skip",
+        "reason": "Lambda authorizer not needed locally; services run without auth"
+    },
+    "hmd-inf-openpolicyagent": {
+        "strategy": "skip",
+        "reason": "OPA policies not needed locally"
+    },
+    "hmd-inf-otel-collector": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-inf-private-ca": {
+        "strategy": "skip",
+        "reason": "AWS Private CA not applicable locally"
+    },
+    "hmd-inf-rds-loggroup": {
+        "strategy": "skip",
+        "reason": "CloudWatch log group not applicable locally"
+    },
+    "hmd-inf-redis": {
+        "strategy": "default",
+        "reason": "Helm chart deploys Redis to k3s EKS cluster"
+    },
+    "hmd-inf-s3-access-logging": {
+        "strategy": "skip",
+        "reason": "S3 access logging config not applicable locally"
+    },
+    "hmd-inf-s3-external-access": {
+        "strategy": "skip",
+        "reason": "Cross-account S3 access not applicable locally"
+    },
+    "hmd-inf-s3bucket": {
+        "strategy": "default",
+        "reason": "CDKTF creates S3 buckets in workload Floci"
+    },
+    "hmd-inf-superset": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-inf-superset-secret-key": {
+        "strategy": "skip",
+        "reason": "Secrets Manager secret handled by hmd-inf-credentials pattern"
+    },
+    "hmd-inf-transform-broker": {
+        "strategy": "default",
+        "reason": "Helm chart deploys broker to k3s EKS cluster"
+    },
+    "hmd-inf-trino": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm deploys to k3s EKS cluster"
+    },
+    "hmd-inf-trino-store-access": {
+        "strategy": "skip",
+        "reason": "Cross-account bucket IAM not applicable locally"
+    },
+    "hmd-inf-trusted-clients": {
+        "strategy": "skip",
+        "reason": "Okta client config not applicable locally"
+    },
+    "hmd-inf-wafv2": {
+        "strategy": "skip",
+        "reason": "WAF rules not applicable locally"
+    },
+    "hmd-lib-dispatch": {
+        "strategy": "default",
+        "reason": "CDKTF creates SQS dispatch queues and Lambda functions in Floci"
+    },
+    "hmd-ms-base-test": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-case": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-cluster": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-dbaccount": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-device": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-device-lib": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-gozer": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-nsreporting-lib": {
+        "strategy": "default",
+        "reason": "CDKTF deploys Lambda function to workload Floci"
+    },
+    "hmd-ms-transform": {
+        "strategy": "default",
+        "reason": "CDKTF + Helm + Lambda deploys to Floci + k3s"
+    },
+    "hmd-postgres-rds": {
+        "strategy": "default",
+        "reason": "CDKTF creates RDS in workload Floci"
+    },
+    "hmd-vpc": {
+        "strategy": "skip",
+        "reason": "VPC networking not applicable locally; Docker networking handles it"
+    }
+}

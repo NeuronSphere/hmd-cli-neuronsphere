@@ -40,13 +40,16 @@ def print_service_table(resources):
         # Skip services already covered by endpoints
         if any(name == ds[0] for ds in direct_services):
             continue
-        # Rewrite internal gateway URLs to localhost
-        if "hmd_gateway" in url:
-            path = url.split("hmd_gateway")[-1]
-            gateway_services.append((name, f"http://localhost{path}"))
-        elif url.startswith("http://localhost"):
-            # Already a localhost URL but not in endpoints — skip to avoid duplication
-            continue
+        # Rewrite internal proxy/gateway URLs to localhost
+        for internal_host in ("hmd_proxy", "hmd_gateway"):
+            if internal_host in url:
+                path = url.split(internal_host)[-1]
+                gateway_services.append((name, f"http://localhost{path}"))
+                break
+        else:
+            if url.startswith("http://localhost"):
+                # Already a localhost URL but not in endpoints — skip to avoid duplication
+                continue
 
     if direct_services:
         print("  Accessible Services:")
@@ -57,7 +60,7 @@ def print_service_table(resources):
         print()
 
     if gateway_services:
-        print("  Services (via Gateway at http://localhost):")
+        print("  Services (via API Gateway at http://localhost):")
         max_name = max(len(name) for name, _ in gateway_services)
         for name, url in gateway_services:
             print(f"    {name:<{max_name + 2}} {url}")

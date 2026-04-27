@@ -34,11 +34,12 @@ class ValidationResult:
         self.warnings.append(message)
 
 
-# Required fields in nsplugin.json
-REQUIRED_FIELDS = ["plugin_name", "compose_file"]
+# Required fields in nsplugin.json — compose_file is conditionally required (see _validate_compose_or_hmdms_required)
+REQUIRED_FIELDS = ["plugin_name"]
 
 # Optional fields with expected types
 OPTIONAL_FIELDS = {
+    "compose_file": str,
     "resources": dict,
     "required_dirs": list,
     "config_mappings": list,
@@ -51,6 +52,8 @@ OPTIONAL_FIELDS = {
     "enabled_by_default": bool,
     "config": dict,
     "telemetry_profiles": list,
+    "hmdms_service": dict,
+    "local_deploy": dict,
 }
 
 # Resource field types
@@ -112,16 +115,20 @@ def validate_nsplugin(path: Path, check_files: bool = True) -> ValidationResult:
     elif not plugin_name.replace("_", "").replace("-", "").isalnum():
         result.add_warning(f"plugin_name '{plugin_name}' contains special characters")
 
-    # Validate compose_file
+    # Validate compose_file (optional when hmdms_service is present)
     compose_file = config.get("compose_file", "")
-    if not isinstance(compose_file, str) or not compose_file:
-        result.add_error("compose_file must be a non-empty string")
-    elif check_files:
-        compose_path = local_dir / compose_file
-        if not compose_path.exists():
-            result.add_error(f"Compose file not found: {compose_path}")
-        else:
-            _validate_compose_file(compose_path, result)
+    has_hmdms_service = isinstance(config.get("hmdms_service"), dict)
+    if compose_file:
+        if not isinstance(compose_file, str):
+            result.add_error("compose_file must be a string")
+        elif check_files:
+            compose_path = local_dir / compose_file
+            if not compose_path.exists():
+                result.add_error(f"Compose file not found: {compose_path}")
+            else:
+                _validate_compose_file(compose_path, result)
+    elif not has_hmdms_service:
+        result.add_error("Either 'compose_file' or 'hmdms_service' must be defined")
 
     # Validate optional fields
     for field_name, expected_type in OPTIONAL_FIELDS.items():
@@ -182,7 +189,42 @@ def validate_nsplugin(path: Path, check_files: bool = True) -> ValidationResult:
     if "telemetry_profiles" in config:
         _validate_telemetry_profiles(config["telemetry_profiles"], result)
 
+    # Validate hmdms_service block
+    if "hmdms_service" in config:
+        _validate_hmdms_service(config["hmdms_service"], result)
+
     return result
+
+
+def _validate_hmdms_service(spec: Dict[str, Any], result: ValidationResult) -> None:
+    """Validate hmdms_service block.
+
+    Required: lambda_name (string).
+    Optional: buckets (list of {name, env_var}), repo_class_name (string),
+    version_spec (string).
+    """
+    lambda_name = spec.get("lambda_name")
+    if not isinstance(lambda_name, str) or not lambda_name:
+        result.add_error("hmdms_service.lambda_name must be a non-empty string")
+
+    buckets = spec.get("buckets", [])
+    if not isinstance(buckets, list):
+        result.add_error("hmdms_service.buckets must be a list")
+    else:
+        for i, bucket in enumerate(buckets):
+            if not isinstance(bucket, dict):
+                result.add_error(f"hmdms_service.buckets[{i}] must be a dict")
+                continue
+            if "name" not in bucket:
+                result.add_error(f"hmdms_service.buckets[{i}] missing 'name'")
+            if "env_var" not in bucket:
+                result.add_error(f"hmdms_service.buckets[{i}] missing 'env_var'")
+
+    if "repo_class_name" in spec and not isinstance(spec["repo_class_name"], str):
+        result.add_error("hmdms_service.repo_class_name must be a string")
+
+    if "version_spec" in spec and not isinstance(spec["version_spec"], str):
+        result.add_error("hmdms_service.version_spec must be a string")
 
 
 def _validate_compose_file(path: Path, result: ValidationResult) -> None:

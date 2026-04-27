@@ -1,0 +1,16 @@
+{
+  "content_path_configs": {
+    "fake": "/fake-librarian/{repo}/{version}"
+  },
+  "service_config": {
+    "loader_config": {
+      "local": ["hmd-lang-librarian"]
+    },
+    "service_loader": "local",
+    "operations_modules": ["hmd_ms_base.crud_operations"],
+    "hmd_db_engines": {},
+    "hmd_entity_config": {
+      "__default__": {"persistence": []}
+    }
+  }
+}

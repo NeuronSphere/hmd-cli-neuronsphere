@@ -141,6 +141,105 @@ class LocalController(Controller):
         update_images()
 
     @ex(
+        help="Copy an artifact from a cloud artifact librarian into the local one",
+        arguments=[
+            (
+                ["--repo"],
+                {
+                    "help": "Repo name (e.g. hmd-config-transform-tests)",
+                    "action": "store",
+                    "dest": "repo",
+                    "required": True,
+                },
+            ),
+            (
+                ["--version"],
+                {
+                    "help": "Repo version (e.g. 0.1.46)",
+                    "action": "store",
+                    "dest": "version",
+                    "required": True,
+                },
+            ),
+            (
+                ["--cloud-customer"],
+                {
+                    "help": "Cloud customer_code (used to resolve the cloud librarian URL)",
+                    "action": "store",
+                    "dest": "cloud_customer",
+                    "required": False,
+                },
+            ),
+            (
+                ["--cloud-region"],
+                {
+                    "help": "Cloud region (used to resolve the cloud librarian URL)",
+                    "action": "store",
+                    "dest": "cloud_region",
+                    "required": False,
+                },
+            ),
+            (
+                ["--cloud-url"],
+                {
+                    "help": "Explicit cloud artifact librarian URL (overrides --cloud-customer/--cloud-region)",
+                    "action": "store",
+                    "dest": "cloud_url",
+                    "required": False,
+                },
+            ),
+            (
+                ["--artifact-type"],
+                {
+                    "help": "Content item type (default: build)",
+                    "action": "store",
+                    "dest": "artifact_type",
+                    "default": "build",
+                },
+            ),
+            (
+                ["--local-url"],
+                {
+                    "help": "Local artifact librarian URL (default: http://localhost/hmd_ms_artifact_lib)",
+                    "action": "store",
+                    "dest": "local_url",
+                    "default": "http://localhost/hmd_ms_artifact_lib",
+                },
+            ),
+        ],
+    )
+    def pull_artifact(self):
+        from .hmd_cli_neuronsphere import pull_artifact
+
+        pull_artifact(
+            repo_name=self.app.pargs.repo,
+            version=self.app.pargs.version,
+            cloud_customer=self.app.pargs.cloud_customer,
+            cloud_region=self.app.pargs.cloud_region,
+            cloud_url=self.app.pargs.cloud_url,
+            artifact_type=self.app.pargs.artifact_type,
+            local_url=self.app.pargs.local_url,
+        )
+
+    @ex(
+        help="Show registered HMDMS services and mocked dependencies",
+        arguments=[
+            (
+                ["--json"],
+                {
+                    "help": "Emit JSON instead of text",
+                    "action": "store_true",
+                    "dest": "json_mode",
+                },
+            ),
+        ],
+    )
+    def status(self):
+        from .hmd_cli_neuronsphere import print_status
+
+        print_status(json_mode=self.app.pargs.json_mode)
+
+    @ex(
         help="Configure local NeuronSphere plugins and settings",
         arguments=[],
     )

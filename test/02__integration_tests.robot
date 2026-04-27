@@ -176,10 +176,18 @@ Floci S3 Data Persists Across Restart
 # Mode Switching
 # ═══════════════════════════════════════════════════════════════
 
-Deploy Mode Prints Stub Message
+Extend Mode Starts Extend Control Plane
     [Tags]    integration    mode-switching
-    [Documentation]    When HMD_LOCAL_NEURONSPHERE_MODE=deploy, up should print a stub message.
+    [Documentation]    When HMD_LOCAL_NEURONSPHERE_MODE=extend, up should start extend mode.
+    [Setup]    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    extend
+    [Teardown]    Run Keywords    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    AND    Stop And Clear
+    ${result}=    Run NS Command    up
+    Should Contain    ${result.stdout}    Extend mode
+
+Legacy Deploy Value Still Works
+    [Tags]    integration    mode-switching    backwards-compat
+    [Documentation]    Setting HMD_LOCAL_NEURONSPHERE_MODE=deploy still triggers extend mode.
     [Setup]    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    deploy
     [Teardown]    Run Keywords    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    AND    Stop And Clear
     ${result}=    Run NS Command    up
-    Should Contain    ${result.stdout}    Deploy mode
+    Should Contain    ${result.stdout}    Extend mode

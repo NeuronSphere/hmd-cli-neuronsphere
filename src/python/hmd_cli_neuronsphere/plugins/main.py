@@ -15,7 +15,7 @@ def enabled(config_overrides: Dict[str, bool] = {}):
 
 
 def get_resources():
-    return {"services": ["ms-naming"]}
+    return {"services": [{"name": "ms-naming", "url": "http://hmd_proxy/ms-naming/"}]}
 
 
 def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
@@ -28,6 +28,7 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
         Path("postgresql", "data"),
         Path(".cache", "nginx"),
         Path(".cache", "naming"),
+        Path(".cache", "deployment"),
     ]
 
     for dir_ in required_dirs:
@@ -65,6 +66,11 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}):
     shutil.copy2(
         _services_dir / "naming" / "db_init.sql",
         HMD_HOME / ".cache" / "naming" / "db_init.sql",
+    )
+
+    shutil.copy2(
+        _services_dir / "deployment" / "db_init.sql",
+        HMD_HOME / ".cache" / "deployment" / "db_init.sql",
     )
 
 
@@ -119,12 +125,10 @@ def render_compose_yaml(
     if os.environ.get("ENABLE_GOZER", "false") == "true":
         compose_dict["services"]["ms-gozer"] = gozer_config
 
-    # When MiniStack is enabled, remove gateway (API Gateway handles routing)
-    if configs.get("ministack", False):
-        compose_dict["services"].pop("gateway", None)
-        # Remove proxy depends_on since gateway is removed
-        if "proxy" in compose_dict["services"]:
-            compose_dict["services"]["proxy"].pop("depends_on", None)
+    # Gateway is replaced by Floci API Gateway — always remove it
+    compose_dict["services"].pop("gateway", None)
+    if "proxy" in compose_dict["services"]:
+        compose_dict["services"]["proxy"].pop("depends_on", None)
 
     compose_path = cache_dir / "docker-compose.main.yml"
     if compose_path.exists():

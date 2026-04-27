@@ -173,11 +173,12 @@ Create `src/local/nsplugin.json` with the following structure. Use manifest.json
 |-------|-------------|---------|
 | `plugin_name` | Short identifier for the plugin | `"transform"` |
 | `compose_file` | Docker Compose filename | `"docker-compose.transform.yml"` |
-| `resources.services` | Services this plugin provides | `[{"name": "ms-transform", "url": "http://hmd_gateway/hmd_ms_transform/"}]` |
+| `resources.services` | Services this plugin provides | `[{"name": "ms-transform", "url": "http://hmd_proxy/hmd_ms_transform/"}]` |
 | `resources.databases` | Databases this plugin needs | `[{"username": "hmd_ms_transform", "password": "hmd_ms_transform", "database": "hmd_ms_transform"}]` |
 | `resources.endpoints` | Endpoints this plugin exposes | `["transform:localhost:8080"]` |
 | `resources.buckets` | S3/MinIO buckets this plugin needs | `[{"name": "transform-data", "region": "us-west-2"}]` |
 | `required_dirs` | Directories to create in HMD_HOME | `["transform", "transform/queries"]` |
+| `volumes` | Persistent volume declarations for Extend mode (optional) | See below |
 | `config_mappings` | Files to copy to HMD_HOME | See below |
 | `templates` | Jinja2 templates to render | See below |
 | `postgres_scripts` | PostgreSQL init scripts | `["scripts/postgres/init.sh"]` |
@@ -263,6 +264,37 @@ Templates receive context including:
 - `resources`: Aggregated resources from all plugins
 - `configs`: Plugin enabled/disabled states
 - `env`: All HMD_* environment variables
+
+#### Volumes Format (Extend Mode Storage):
+
+The optional `volumes` field declares persistent storage that the plugin needs. In Platform mode this field is ignored (Docker Compose bind mounts are used instead). In Extend mode, these declarations are used to create static Kubernetes PersistentVolumes in k3s backed by `${HMD_HOME}` directories.
+
+```json
+"volumes": [
+  {
+    "name": "dags",
+    "hmd_home_path": "airflow/dags",
+    "container_path": "/opt/airflow/dags",
+    "access_mode": "ReadWriteMany"
+  },
+  {
+    "name": "data",
+    "hmd_home_path": "clickhouse/data",
+    "container_path": "/var/lib/clickhouse",
+    "access_mode": "ReadWriteOnce",
+    "pvc_name": "clickhouse-data"
+  }
+]
+```
+
+Field descriptions:
+- `name`: Identifier for the volume within this plugin. Used to derive the PV name (`{plugin_name}-{name}-pv`).
+- `hmd_home_path`: Path relative to `${HMD_HOME}`. Should correspond to an entry in `required_dirs`.
+- `container_path`: Mount path inside the container. Informational for Extend mode (the Helm chart controls the actual mount).
+- `access_mode`: Kubernetes access mode (`ReadWriteOnce`, `ReadWriteMany`, `ReadOnlyMany`).
+- `pvc_name` (optional): Explicit PVC name to bind to. If omitted, defaults to `{plugin_name}-{name}`. Use this when the Helm chart creates PVCs with fixed names (e.g., `dags-volume-claim`).
+
+**When to add `volumes`:** Add this field when your Helm chart creates PVCs backed by EFS or EBS storage. If your service only uses ConfigMaps or Secrets for configuration (e.g., Trino, Superset), you don't need `volumes`.
 
 ### Step 5: Create Docker Compose File
 
@@ -588,7 +620,7 @@ Based on a manifest.json with postgres, gremlin, redis, and s3 dependencies:
   "compose_file": "docker-compose.transform.yml",
   "resources": {
     "services": [
-      {"name": "ms-transform", "url": "http://hmd_gateway/hmd_ms_transform/"}
+      {"name": "ms-transform", "url": "http://hmd_proxy/hmd_ms_transform/"}
     ],
     "databases": [
       {"username": "hmd_ms_transform", "password": "hmd_ms_transform", "database": "hmd_ms_transform"}
@@ -733,3 +765,56 @@ The validation checks:
 - [ ] All template files referenced exist
 - [ ] Dependencies are correctly documented based on manifest.json
 - [ ] Environment variable name follows convention: `HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>`
+
+## HMDMS Service Plugins (librarians and other hmd-ms-* services)
+
+A repo built on `hmd-ms-base` (e.g. a librarian) deploys locally as a Floci
+Lambda + S3 bucket(s) — no docker-compose file required. Drop a
+`src/local/nsplugin.json` with an optional `hmdms_service` block:
+
+```jsonc
+{
+  "plugin_name": "device-librarian",
+  "hmdms_service": {
+    "lambda_name": "hmd_ms_device_librarian",
+    "buckets": [
+      {"name": "device-librarian", "env_var": "DEVICE_BUCKET"}
+    ]
+  },
+  "enabled_by_default": true
+}
+```
+
+How it composes with the rest of `nsplugin.json`:
+
+- `compose_file` is **optional** when `hmdms_service` is present (Lambda-only
+  plugins have no compose file).
+- `repo_class_name` defaults to the repo directory basename (override in
+  `hmdms_service.repo_class_name` if needed).
+- The image URI is derived as `<repo_name>:<contents of meta-data/VERSION>`.
+  Run `hmd build` first to populate the local Docker image cache.
+- `service_config` is auto-merged from `meta-data/manifest.json::deploy.default_configuration.service_config`
+  and `meta-data/config_local.json::service_config` (config_local wins) and
+  injected as the Lambda's `SERVICE_CONFIG` env var.
+- Each declared bucket becomes:
+  - An S3 bucket on Floci (created on `hmd ns up`).
+  - A `<env_var>=s3://<bucket-name>` entry in the Lambda's environment.
+  - A `<env_var>=s3://<bucket-name>` entry on the **transform** plugin's
+    environment so `content_item_path → S3 path` resolution works without
+    further wiring. Each librarian's own `content_path_configs` (from its
+    `meta-data/config_local.json`) loads into the librarian Lambda directly —
+    transform does not consume them.
+
+After `hmd ns up`, the librarian is registered in `ms-deployment` as a
+`hmd_lang_deployment.repo_class` + `repo_instance` + DEPLOYED
+`repo_instance_deployment` (in **both** Platform and Extend modes). Manifest
+dependencies that aren't deployed locally (VPC, Datadog, etc.) are mocked as
+SKIPPED so dependency resolution succeeds. Set
+`HMD_LOCAL_NEURONSPHERE_DISABLE_MS_DEPLOYMENT=true` to opt out of ms-deployment.
+
+Inspect what's running with:
+
+```bash
+hmd neuronsphere status            # text table
+hmd neuronsphere status --json     # for the future Django app
+```

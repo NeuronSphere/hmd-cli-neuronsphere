@@ -57,14 +57,10 @@ def get_resources() -> Dict[str, Any]:
     if config and "resources" in config:
         return config["resources"]
 
-    use_ministack = (
-        os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_MINISTACK", "true") != "false"
-    )
-
     # Fallback to hardcoded resources
     resources = {
         "services": [
-            {"name": "ms-transform", "url": "http://hmd_gateway/hmd_ms_transform/"}
+            {"name": "ms-transform", "url": "http://hmd_proxy/hmd_ms_transform/"}
         ],
         "databases": [
             {
@@ -73,14 +69,12 @@ def get_resources() -> Dict[str, Any]:
                 "database": "hmd_ms_transform",
             }
         ],
-    }
-
-    if use_ministack:
-        resources["sqs_queues"] = [
+        "sqs_queues": [
             {"name": "query_queue"},
             {"name": "inst_queue"},
             {"name": "queue1-dead-letters"},
-        ]
+        ],
+    }
 
     return resources
 
@@ -202,7 +196,6 @@ def render_compose_yaml(
 
     # Apply resource customizations (buckets, etc.)
     buckets = resources.get("buckets", [])
-    print(buckets)
 
     for bucket in buckets:
         if "transform" in compose_dict.get("services", {}):
@@ -210,9 +203,33 @@ def render_compose_yaml(
                 f'{bucket["name"].upper()}_BUCKET'
             ] = f's3://{bucket["url"]}'
 
-    # When MiniStack is enabled, rewrite SQS endpoints and remove ElasticMQ
-    if configs.get("ministack", False):
-        _apply_ministack_overrides(compose_dict)
+    # Inject HMDMS-service bucket env vars (e.g. DEVICE_BUCKET=s3://device-librarian).
+    # Each librarian declares its own content_path_configs internally; transform
+    # only needs to know which bucket name to address per service.
+    try:
+        from ..loaders import LocalPluginLoader
+
+        local_loader = LocalPluginLoader()
+        for plugin_name, hmdms_spec in local_loader.get_all_hmdms_services().items():
+            if "transform" not in compose_dict.get("services", {}):
+                break
+            for hmdms_bucket in hmdms_spec.get("buckets", []) or []:
+                env_var = hmdms_bucket.get("env_var")
+                bucket_name = hmdms_bucket.get("name")
+                if env_var and bucket_name:
+                    compose_dict["services"]["transform"].setdefault("environment", {})[
+                        env_var
+                    ] = f"s3://{bucket_name}"
+    except Exception:
+        pass
+
+    # Rewrite SQS endpoints to Floci and remove ElasticMQ
+    if configs.get("floci", False) or configs.get("ministack", False):
+        _apply_floci_sqs_overrides(compose_dict)
+
+    # When Argo is enabled, wire ARGO_HOST + ARGO_TOKEN into transform's environment
+    if configs.get("argo", False):
+        _apply_argo_overrides(compose_dict)
 
     # Write to cache
     output_path = cache_dir / f"docker-compose.{_PLUGIN_NAME}.yml"
@@ -225,8 +242,38 @@ def render_compose_yaml(
     return output_path
 
 
-def _apply_ministack_overrides(compose_dict: dict) -> None:
-    """Rewrite SQS endpoints to MiniStack and remove ElasticMQ container."""
+def _apply_argo_overrides(compose_dict: dict) -> None:
+    """Inject ARGO_HOST/ARGO_TOKEN/ARGO_NAMESPACE into transform service.
+
+    Pulls the Argo bearer token from Floci Secrets Manager (where
+    plugins/argo.py stashes it after the install script runs). Falls back
+    silently if Argo isn't reachable yet — the engine will run anonymously.
+    """
+    services = compose_dict.get("services", {})
+    if "transform" not in services:
+        return
+
+    env = services["transform"].setdefault("environment", {})
+    env.setdefault(
+        "ARGO_HOST", os.environ.get("ARGO_HOST", "http://host.docker.internal:30246")
+    )
+    env.setdefault("ARGO_NAMESPACE", os.environ.get("ARGO_NAMESPACE", "argo"))
+
+    try:
+        from ..floci_deployer import _get_client
+
+        sm = _get_client("secretsmanager")
+        secret = sm.get_secret_value(SecretId="argo-token")
+        token = secret.get("SecretString")
+        if token:
+            env["ARGO_TOKEN"] = token
+    except Exception:
+        # Argo not yet installed or Secrets Manager unavailable — skip silently.
+        pass
+
+
+def _apply_floci_sqs_overrides(compose_dict: dict) -> None:
+    """Rewrite SQS endpoints to Floci and remove ElasticMQ container."""
     services = compose_dict.get("services", {})
 
     # Remove ElasticMQ queues container
@@ -235,30 +282,30 @@ def _apply_ministack_overrides(compose_dict: dict) -> None:
     # Rewrite SQS endpoints in transform service
     if "transform" in services:
         env = services["transform"]["environment"]
-        env["SQS_ENDPOINT"] = "http://ministack:4566/"
-        env["QUERY_QUEUE"] = "http://ministack:4566/000000000000/query_queue"
-        env["INSTANCE_QUEUE"] = "http://ministack:4566/000000000000/inst_queue"
+        env["SQS_ENDPOINT"] = "http://floci:4566/"
+        env["QUERY_QUEUE"] = "http://floci:4566/000000000000/query_queue"
+        env["INSTANCE_QUEUE"] = "http://floci:4566/000000000000/inst_queue"
 
-        # Update depends_on: replace queues with ministack
+        # Update depends_on: replace queues with floci
         deps = services["transform"].get("depends_on", {})
         deps.pop("queues", None)
-        deps["ministack"] = {"condition": "service_healthy"}
+        deps["floci"] = {"condition": "service_healthy"}
 
     # Rewrite queue_poll SQS endpoints
     if "queue_poll" in services:
         env = services["queue_poll"]["environment"]
-        env["SQS_ENDPOINT"] = "http://ministack:4566/"
+        env["SQS_ENDPOINT"] = "http://floci:4566/"
 
         # Update QUEUE_CONFIG JSON
         queue_config = json.loads(env.get("QUEUE_CONFIG", "{}"))
         for q_cfg in queue_config.values():
             if "queue_url" in q_cfg:
                 q_cfg["queue_url"] = q_cfg["queue_url"].replace(
-                    "http://queues:9324", "http://ministack:4566"
+                    "http://queues:9324", "http://floci:4566"
                 )
         env["QUEUE_CONFIG"] = json.dumps(queue_config)
 
         # Update depends_on
         deps = services["queue_poll"].get("depends_on", {})
         deps.pop("queues", None)
-        deps["ministack"] = {"condition": "service_healthy"}
+        deps["floci"] = {"condition": "service_healthy"}

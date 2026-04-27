@@ -2,16 +2,25 @@ version: "3.7"
 
 services:
   floci:
-    image: hectorvent/floci:latest
+    image: floci/floci:1.5.8
     container_name: floci
     ports:
       - "4566:4566"
     environment:
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,ecr,eks,secretsmanager
       FLOCI_STORAGE_MODE: persistent
       FLOCI_LAMBDA_EXECUTOR: docker
-      FLOCI_REGION: ${AWS_REGION:-us-west-2}
-      FLOCI_ACCOUNT_ID: "000000000000"
+      FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
+      FLOCI_DEFAULT_ACCOUNT_ID: "000000000000"
+      FLOCI_HOSTNAME: floci
+      FLOCI_SERVICES_DOCKER_NETWORK: neuronsphere_default
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: neuronsphere_default
+      FLOCI_SERVICES_EKS_MOCK: "false"
+      # Floci 1.5.8 hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
+      # spawning k3s, but kube-apiserver only accepts etcd3 (kine speaks etcd3
+      # regardless of the underlying SQLite store), so the node exits on startup.
+      # The hmd-img-k3s-floci image's entrypoint drops the bad flag.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-hmd-img-k3s-floci:0.1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:

@@ -1,6 +1,8 @@
-datasources:65cd2c809e7254d1071f7c88e783d6018e4cdc0c
-commandlineoptions:a46c1d316a3084fff3cd3daa08caf58fb09e9396
+datasources:a011475bedcbab064e989eacde6df8402bb80649
+commandlineoptions:d14d71fad9fe86b5f9ad70bf82bb405e259c3d6b
 suitesfrom:no-suites-from-option
-file:76b6ef88aee7e2012bf750461b8ee2a2638b9677
---suite Suites.Integration Tests
+file:7274ad770d588d1149ea6623049bcbed278eaa26
 --suite Suites.Smoke Tests
+--suite Suites.04 Hmdms Service Tests
+--suite Suites.05 Argo Tests
+--suite Suites.06 Artifact Lib Tests

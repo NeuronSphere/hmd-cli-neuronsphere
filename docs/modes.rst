@@ -5,10 +5,10 @@ Operating Modes
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.
 
-Legacy Mode (Default)
----------------------
+Platform Mode (Default)
+-----------------------
 
-Legacy mode is the default. It starts all enabled plugins as Docker Compose
+Platform mode is the default. It starts all enabled plugins as Docker Compose
 services and uses **Floci** for AWS emulation (S3, DynamoDB, SQS, Lambda, API
 Gateway).
 
@@ -22,7 +22,7 @@ Gateway).
    Floci's API Gateway.
 6. Services are registered with ``ms-naming`` for discovery.
 
-**To use Legacy mode** (no action required -- it is the default):
+**To use Platform mode** (no action required -- it is the default):
 
 .. code-block:: bash
 
@@ -32,13 +32,18 @@ Or explicitly:
 
 .. code-block:: bash
 
-    export HMD_LOCAL_NEURONSPHERE_MODE=legacy
+    export HMD_LOCAL_NEURONSPHERE_MODE=platform
     hmd neuronsphere up
 
-Deploy Mode (Future)
---------------------
+.. note::
 
-Deploy mode is under development and will be available in a future release.
+   For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=legacy`` is
+   still accepted and maps to Platform mode.
+
+Extend Mode
+-----------
+
+Extend mode is under development and will be available in a future release.
 When complete, it will start an admin control plane and deploy services
 through a DAG-based workflow, mirroring the cloud deployment architecture.
 
@@ -54,12 +59,17 @@ through a DAG-based workflow, mirroring the cloud deployment architecture.
 - Only genuinely unsupported services (e.g., Neptune) use a Docker Compose
   substitute.
 
-**To try Deploy mode** (currently prints a stub message):
+**To use Extend mode:**
 
 .. code-block:: bash
 
-    export HMD_LOCAL_NEURONSPHERE_MODE=deploy
+    export HMD_LOCAL_NEURONSPHERE_MODE=extend
     hmd neuronsphere up
+
+.. note::
+
+   For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=deploy`` is
+   still accepted and maps to Extend mode.
 
 See :doc:`proposals/NERD001_Floci_Local_Architecture` for the full
 specification.
@@ -87,6 +97,25 @@ The Floci container is configured via environment variables:
 - ``FLOCI_REGION``: AWS region (default: ``us-west-2``).
 
 Data is persisted to ``$HMD_HOME/floci/data/`` when persistence is enabled.
+
+Floci Lambda Image Resolution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Floci spawns Lambda containers through the mounted host ``docker.sock``,
+so any image already in the host's Docker image cache is reusable
+directly. ``floci_deployer._ensure_local_image()`` does **not** push to
+Floci's bundled ECR sidecar — Floci's Lambda runner pulls (or reuses)
+the image via the host daemon using the original URI.
+
+This avoids two problems with Floci 1.5.8's bundled ECR sidecar:
+
+- The sidecar runs on the Docker bridge network with no host port
+  publish, so a host-side ``docker push`` cannot reach it.
+- Its default port (5000) collides with macOS AirPlay Receiver, which
+  intercepts requests with ``403 Forbidden``.
+
+If you need an image that isn't yet on the host, ``hmd build`` it (or
+``docker pull`` it) before ``hmd neuronsphere up``.
 
 Migrating from MiniStack
 -------------------------

@@ -427,6 +427,149 @@ class LocalPluginLoader:
                 profiles.extend(config["telemetry_profiles"])
         return profiles
 
+    def get_repo_version(self, plugin_name: str) -> Optional[str]:
+        """Read meta-data/VERSION from the plugin's repo, stripped."""
+        info = self.get_plugin_info(plugin_name)
+        if not info:
+            return None
+        version_path = info.repo_path / "meta-data" / "VERSION"
+        if not version_path.exists():
+            return None
+        try:
+            with open(version_path, "r") as f:
+                return f.read().strip()
+        except IOError:
+            return None
+
+    def get_repo_manifest(self, plugin_name: str) -> Dict[str, Any]:
+        """Read meta-data/manifest.json from the plugin's repo, or empty dict."""
+        info = self.get_plugin_info(plugin_name)
+        if not info:
+            return {}
+        manifest_path = info.repo_path / "meta-data" / "manifest.json"
+        if not manifest_path.exists():
+            return {}
+        try:
+            with open(manifest_path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+
+    def get_hmdms_service(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+        """Return the hmdms_service block from nsplugin.json, or None."""
+        config = self.get_plugin_config(plugin_name)
+        if not config:
+            return None
+        return config.get("hmdms_service")
+
+    def get_all_hmdms_services(self) -> Dict[str, Dict[str, Any]]:
+        """Return {plugin_name: hmdms_service spec} for all enabled plugins.
+
+        Each entry is the raw `hmdms_service` block from nsplugin.json.
+        Use get_hmdms_lambda_spec(name) to derive the full Lambda deployment spec.
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        for plugin_name in self.get_enabled_plugins():
+            spec = self.get_hmdms_service(plugin_name)
+            if spec:
+                result[plugin_name] = spec
+        return result
+
+    def get_hmdms_resources(self, plugin_name: str) -> Dict[str, List[Dict[str, str]]]:
+        """Convert hmdms_service buckets into a Floci-compatible resources dict.
+
+        Returns ``{"s3_buckets": [{"name": ...}, ...]}`` (canonical key used by
+        floci_deployer.provision_resources). Returns empty dict if no buckets.
+        """
+        spec = self.get_hmdms_service(plugin_name)
+        if not spec:
+            return {}
+        buckets = spec.get("buckets", []) or []
+        if not buckets:
+            return {}
+        return {"s3_buckets": [{"name": b["name"]} for b in buckets]}
+
+    def get_hmdms_lambda_spec(self, plugin_name: str) -> Optional[Dict[str, Any]]:
+        """Build a Lambda deployment spec for an HMDMS-service plugin.
+
+        Returns a dict with: function_name, image, env_vars, repo_class_name,
+        repo_class_version, repo_name, manifest. Returns None if the plugin
+        does not declare hmdms_service or its repo can't be located.
+
+        env_vars include the standard HMDMS-base set plus SERVICE_CONFIG (merged
+        from manifest.deploy.default_configuration.service_config and
+        meta-data/config_local.json's service_config) and one
+        ``<env_var>=s3://<bucket-name>`` entry per declared bucket.
+        """
+        spec = self.get_hmdms_service(plugin_name)
+        info = self.get_plugin_info(plugin_name)
+        if not spec or not info:
+            return None
+
+        version = self.get_repo_version(plugin_name) or "stable"
+        manifest = self.get_repo_manifest(plugin_name)
+        config_local = self.get_local_config(plugin_name)
+
+        # Prefer manifest's "name" — this matches how `hmd docker build` tags
+        # the image (build args REPO_NAME=<manifest.name>, VERSION=<VERSION>).
+        # Fall back to the repo directory basename for fixtures without a name.
+        repo_name = manifest.get("name") or info.repo_path.name
+        repo_class_name = spec.get("repo_class_name") or repo_name
+        version_spec = spec.get("version_spec") or version
+        function_name = spec.get("lambda_name") or repo_name.replace("-", "_")
+        image = f"{repo_name}:{version}"
+
+        # Merge service_config: manifest defaults + config_local overrides
+        manifest_default_config = manifest.get("deploy", {}).get(
+            "default_configuration", {}
+        )
+        manifest_service_config = manifest_default_config.get("service_config", {})
+        local_service_config = (
+            config_local.get("service_config", {})
+            if isinstance(config_local, dict)
+            else {}
+        )
+        merged_service_config = {**manifest_service_config, **local_service_config}
+
+        env_vars: Dict[str, str] = {
+            "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE", "none"),
+            "HMD_DID": os.environ.get("HMD_DID", "aaa"),
+            "HMD_ENVIRONMENT": "local",
+            "HMD_REGION": os.environ.get("HMD_REGION", "reg1"),
+            "HMD_INSTANCE_NAME": function_name,
+            "HMD_REPO_NAME": repo_name,
+            "HMD_REPO_VERSION": version,
+            "HMD_HOSTNAME": os.environ.get("HMD_HOSTNAME", "localhost"),
+            "SERVICE_CONFIG": json.dumps(merged_service_config),
+            "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
+            "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
+            "AWS_SECRET_ACCESS_KEY": os.environ.get(
+                "AWS_SECRET_ACCESS_KEY", "dummykey"
+            ),
+            "AWS_XRAY_SDK_ENABLED": "false",
+            "DD_TRACE_ENABLED": "false",
+            "DD_LOCAL_TEST": "true",
+        }
+
+        for bucket in spec.get("buckets", []) or []:
+            env_var = bucket.get("env_var")
+            name = bucket.get("name")
+            if env_var and name:
+                env_vars[env_var] = f"s3://{name}"
+
+        return {
+            "plugin_name": plugin_name,
+            "function_name": function_name,
+            "image": image,
+            "env_vars": env_vars,
+            "repo_class_name": repo_class_name,
+            "repo_class_version": version_spec,
+            "repo_name": repo_name,
+            "manifest": manifest,
+            "merged_service_config": merged_service_config,
+            "buckets": spec.get("buckets", []) or [],
+        }
+
     def get_db_init_compose(self, plugin_name: str) -> Optional[Dict[str, Any]]:
         """
         Generate docker-compose config for a db init container.

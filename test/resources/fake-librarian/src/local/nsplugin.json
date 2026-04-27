@@ -1,0 +1,10 @@
+{
+  "plugin_name": "fake-librarian",
+  "hmdms_service": {
+    "lambda_name": "hmd_ms_fake_librarian",
+    "buckets": [
+      {"name": "fake-librarian", "env_var": "FAKE_BUCKET"}
+    ]
+  },
+  "enabled_by_default": true
+}

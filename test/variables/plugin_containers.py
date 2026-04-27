@@ -7,9 +7,9 @@ since init containers exit after completing and should not be checked with
 """
 
 # --- Main (always enabled) ---
-# hmd_gateway is excluded when MiniStack is enabled (API Gateway handles routing)
-MAIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "ms-naming"]
-MAIN_RUNNING_CONTAINERS_LEGACY = ["hmd_proxy", "hmd_gateway", "hmd_db", "ms-naming"]
+# hmd_gateway removed — all routing goes through Floci API Gateway
+MAIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db"]
+MAIN_RUNNING_CONTAINERS_LEGACY = ["hmd_proxy", "hmd_db"]
 MAIN_INIT_CONTAINERS = ["hmd-ms-naming_db_init"]
 
 # --- Telemetry ---
@@ -54,11 +54,9 @@ AIRFLOW_RUNNING_CONTAINERS = [
 AIRFLOW_INIT_CONTAINERS = []
 
 # --- Transform ---
-# queues container is excluded when MiniStack is enabled (SQS handled by MiniStack)
+# hmd_ms_transform, query_dispatcher, and inst_dispatcher deploy as Lambdas via Floci
+# queues container replaced by Floci SQS
 TRANSFORM_RUNNING_CONTAINERS = [
-    "hmd_ms_transform",
-    "query_dispatcher",
-    "inst_dispatcher",
     "queue_poll",
 ]
 TRANSFORM_RUNNING_CONTAINERS_LEGACY = [
@@ -81,6 +79,14 @@ CLICKHOUSE_INIT_CONTAINERS = ["clickhouse-init"]
 # --- Hive Metastore ---
 HIVE_METASTORE_RUNNING_CONTAINERS = ["metastore"]
 HIVE_METASTORE_INIT_CONTAINERS = []
+
+
+# --- Extend Mode (admin control plane) ---
+# ms-deployment and ms-naming run as Lambda functions in Floci, not as Docker containers.
+# They are verified via HTTP response, not container status.
+EXTEND_ADMIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "floci", "floci-workload"]
+EXTEND_ADMIN_INIT_CONTAINERS = ["hmd-ms-naming_db_init", "hmd-ms-deployment_db_init"]
+EXTEND_SUBSTITUTE_CONTAINERS = ["global-graph"]
 
 
 # --- Aggregate lookup ---
