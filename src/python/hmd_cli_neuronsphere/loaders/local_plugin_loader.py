@@ -180,9 +180,16 @@ class LocalPluginLoader:
         """
         Check if a plugin is enabled.
 
-        Plugins are enabled if:
-        1. Listed explicitly in HMD_LOCAL_PLUGINS (auto-enabled), OR
-        2. Discovered via scan AND has HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>=true
+        Precedence (highest first):
+        1. Listed explicitly in HMD_LOCAL_PLUGINS — always enabled.
+        2. Env var (``env_var_override`` from nsplugin.json, else
+           ``HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>``) is set —
+           ``true``/``1``/``yes`` enables, anything else disables.
+           This preserves explicit opt-out.
+        3. ``enabled_by_default`` from nsplugin.json (defaults to False).
+
+        Mirrors the behavior of ``hmd neuronsphere configure`` and the
+        bundled-plugin ``enabled()`` pattern (see plugins/argo.py).
 
         Args:
             plugin_name: Name of the plugin (e.g., 'transform')
@@ -190,16 +197,19 @@ class LocalPluginLoader:
         Returns:
             True if the plugin is enabled
         """
-        # Explicitly listed plugins are always enabled
         if self._is_explicitly_listed(plugin_name):
             return True
 
-        # Scanned plugins need explicit env var
-        env_var = (
-            f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}"
+        config = self.load_raw_plugin_config(plugin_name) or {}
+        env_var = config.get(
+            "env_var_override",
+            f"HMD_LOCAL_NEURONSPHERE_ENABLE_{plugin_name.upper().replace('-', '_')}",
         )
-        value = os.environ.get(env_var, "").lower()
-        return value in ("true", "1", "yes")
+        env_val = os.environ.get(env_var)
+        if env_val is not None:
+            return env_val.lower() in ("true", "1", "yes")
+
+        return bool(config.get("enabled_by_default", False))
 
     def get_enabled_plugins(self) -> List[str]:
         """
@@ -210,6 +220,51 @@ class LocalPluginLoader:
         """
         discovered = self.discover_plugins()
         return [name for name in discovered.keys() if self.is_plugin_enabled(name)]
+
+    def ensure_foundation_plugin(
+        self, plugin_name: str, repo_dir_name: str
+    ) -> Optional["LocalPluginInfo"]:
+        """Force-load and enable a foundation plugin from HMD_REPO_HOME.
+
+        For plugins required for cloud parity (e.g. ``dbaccount``) that should
+        always be deployed regardless of the user's HMD_LOCAL_PLUGINS / scan
+        configuration, look up the plugin under
+        ``$HMD_REPO_HOME/<repo_dir_name>``, register it in the discovery
+        cache, and append its path to ``HMD_LOCAL_PLUGINS`` so
+        :meth:`is_plugin_enabled` treats it as explicitly listed.
+
+        Returns the LocalPluginInfo (already-discovered or freshly loaded), or
+        ``None`` if the repo isn't present.
+        """
+        self.discover_plugins()  # initialize cache
+
+        info = (
+            self._discovered_plugins.get(plugin_name)
+            if self._discovered_plugins
+            else None
+        )
+        if info is None:
+            repo_home_str = os.environ.get("HMD_REPO_HOME", "")
+            if not repo_home_str:
+                return None
+            repo_path = Path(repo_home_str) / repo_dir_name
+            info = self._load_plugin_from_path(repo_path)
+            if info is None:
+                return None
+            assert self._discovered_plugins is not None
+            self._discovered_plugins[info.plugin_name] = info
+            logger.info(
+                f"Auto-discovered foundation plugin '{info.plugin_name}' "
+                f"from {info.repo_path}"
+            )
+
+        explicit = os.environ.get("HMD_LOCAL_PLUGINS", "")
+        paths = [p for p in explicit.split(":") if p.strip()]
+        if str(info.repo_path) not in paths:
+            paths.append(str(info.repo_path))
+            os.environ["HMD_LOCAL_PLUGINS"] = ":".join(paths)
+
+        return info
 
     def get_plugin_info(self, plugin_name: str) -> Optional[LocalPluginInfo]:
         """
@@ -476,18 +531,27 @@ class LocalPluginLoader:
         return result
 
     def get_hmdms_resources(self, plugin_name: str) -> Dict[str, List[Dict[str, str]]]:
-        """Convert hmdms_service buckets into a Floci-compatible resources dict.
+        """Convert an hmdms_service plugin spec into a Floci resources dict.
 
-        Returns ``{"s3_buckets": [{"name": ...}, ...]}`` (canonical key used by
-        floci_deployer.provision_resources). Returns empty dict if no buckets.
+        Returns a dict with ``s3_buckets`` (from declared buckets) when the
+        plugin declares any. Empty dict otherwise. Canonical keys used by
+        ``floci_deployer.provision_resources``.
+
+        DynamoDB tables are intentionally not emitted: ``hmd-entity-storage``'s
+        ``DynamoDbEngine`` creates the table with the correct attributes, key
+        schema, and GSIs (``FromIndex``, ``ToIndex``, ``EntityNameIndex``) the
+        first time the service instantiates the engine. Pre-creating with a
+        stub schema here would short-circuit that path and leave the table
+        without its GSIs.
         """
         spec = self.get_hmdms_service(plugin_name)
         if not spec:
             return {}
+        result: Dict[str, List[Dict[str, str]]] = {}
         buckets = spec.get("buckets", []) or []
-        if not buckets:
-            return {}
-        return {"s3_buckets": [{"name": b["name"]} for b in buckets]}
+        if buckets:
+            result["s3_buckets"] = [{"name": b["name"]} for b in buckets]
+        return result
 
     def get_hmdms_lambda_spec(self, plugin_name: str) -> Optional[Dict[str, Any]]:
         """Build a Lambda deployment spec for an HMDMS-service plugin.
@@ -531,6 +595,67 @@ class LocalPluginLoader:
         )
         merged_service_config = {**manifest_service_config, **local_service_config}
 
+        # Resolve `dependency:db-credentials` in hmd_db_engines to the literal
+        # local SecretsManager secret name. Mirrors hmd-lib-cdktf-factories'
+        # ServiceCdkTfStack which does the equivalent resolution at cloud
+        # deploy time (via db_secret_name_from_dependencies). Locally the DB
+        # instance is fixed to the hmd_db / hmd-postgres-base convention used
+        # by `_store_local_admin_db_secret` and `provision_plugin_databases`.
+        from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+        local_secret_base = make_standard_name(
+            "hmd_db",
+            "hmd-postgres-base",
+            os.environ.get("HMD_DID", "aaa"),
+            "local",
+            os.environ.get("HMD_REGION", "reg1"),
+            os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+        )
+        for engine in merged_service_config.get("hmd_db_engines", {}).values():
+            if engine.get("engine_type") != "postgres":
+                continue
+            engine_config = engine.get("engine_config", {})
+            secret_ref = engine_config.get("db_secret_name", "")
+            if isinstance(secret_ref, str) and secret_ref.startswith("dependency:"):
+                db_name = engine_config.get("db_name") or secret_ref.split(":", 1)[1]
+                engine_config["db_secret_name"] = f"{local_secret_base}_{db_name}"
+
+        # Resolve gremlin engine config to local graph-db container values.
+        # Cloud manifests declare `db_host: dependency:neptune-db` (resolved by
+        # hmd-lib-cdktf-factories at deploy time). Locally all gremlin clients
+        # point at the `global-graph` container over plain ws (no TLS) with
+        # Tinkerpop strategies disabled — same values base-librarian's
+        # config_local.json and the transform compose hardcode. setdefault
+        # preserves any explicit override from the plugin's config_local.json.
+        for engine in merged_service_config.get("hmd_db_engines", {}).values():
+            if engine.get("engine_type") != "gremlin":
+                continue
+            engine_config = engine.setdefault("engine_config", {})
+            db_host = engine_config.get("db_host", "")
+            if isinstance(db_host, str) and db_host.startswith("dependency:"):
+                engine_config["db_host"] = "global-graph"
+            engine_config.setdefault("db_protocol", "ws")
+            engine_config.setdefault("with_strategies", False)
+
+        # Auto-populate `dynamo_table` for any dynamo engine that doesn't
+        # specify one. Mirrors hmd-lib-cdktf-factories' ServiceCdkTfStack
+        # (service_base.py:111-115) which sets `dynamo_table = self.base_name`
+        # at cloud deploy time. Locally the table name is the standard
+        # service name; Floci's DynamoDB will be initialized against this.
+        service_base_name = make_standard_name(
+            function_name,
+            repo_name,
+            os.environ.get("HMD_DID", "aaa"),
+            "local",
+            os.environ.get("HMD_REGION", "reg1"),
+            os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+        )
+        for engine in merged_service_config.get("hmd_db_engines", {}).values():
+            if engine.get("engine_type") != "dynamo":
+                continue
+            engine_config = engine.setdefault("engine_config", {})
+            engine_config.setdefault("dynamo_table", service_base_name)
+
         env_vars: Dict[str, str] = {
             "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE", "none"),
             "HMD_DID": os.environ.get("HMD_DID", "aaa"),
@@ -547,17 +672,55 @@ class LocalPluginLoader:
             "AWS_SECRET_ACCESS_KEY": os.environ.get(
                 "AWS_SECRET_ACCESS_KEY", "dummykey"
             ),
+            # `neuronsphere` is the canonical in-network hostname for Floci
+            # (Docker network alias, registered on the compose service). It
+            # is also the hostname baked into presigned URLs returned to
+            # host-side consumers (`hmd build` with HMD_AUTO_PUBLISH=true).
+            # Host requires `127.0.0.1 neuronsphere` in /etc/hosts; checked
+            # by ensure_neuronsphere_hosts_entry pre-flight on `up`.
+            "AWS_ENDPOINT_URL": "http://neuronsphere:4566",
             "AWS_XRAY_SDK_ENABLED": "false",
             "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
             "DD_TRACE_ENABLED": "false",
             "DD_LOCAL_TEST": "true",
         }
 
+        # Librarian-style services declare `content_path_configs` /
+        # `graph_queries` in their manifest's deploy.default_configuration.
+        # hmd-lib-cdktf-factories' LibrarianBase exports them as Lambda env
+        # vars (librarian_base.py:186-189); replicate locally, merging any
+        # config_local overrides on top of the manifest defaults.
+        for src_key, env_name in (
+            ("content_path_configs", "CONTENT_PATH_CONFIGS"),
+            ("graph_queries", "GRAPH_QUERY_CONFIG"),
+        ):
+            manifest_value = manifest_default_config.get(src_key)
+            local_value = (
+                config_local.get(src_key) if isinstance(config_local, dict) else None
+            )
+            merged_value = local_value if local_value is not None else manifest_value
+            if merged_value is not None:
+                env_vars[env_name] = json.dumps(merged_value)
+
+        # LibrarianBase also exports BUCKET_NAME (bare bucket name) for
+        # hmd_ms_librarian.get_service_parameter("BUCKET_NAME") which throws
+        # if missing. Emit only for librarian-style plugins (gated on
+        # content_path_configs presence) that declare at least one bucket;
+        # pick the first, matching cloud's single-bucket get_full_bucket_name.
+        if manifest_default_config.get("content_path_configs"):
+            declared_buckets = spec.get("buckets", []) or []
+            if declared_buckets:
+                env_vars["BUCKET_NAME"] = declared_buckets[0]["name"]
+
         for bucket in spec.get("buckets", []) or []:
             env_var = bucket.get("env_var")
             name = bucket.get("name")
             if env_var and name:
                 env_vars[env_var] = f"s3://{name}"
+
+        # Plugin-specific env vars declared in nsplugin.json hmdms_service.env_vars
+        for k, v in (spec.get("env_vars") or {}).items():
+            env_vars[k] = v if isinstance(v, str) else json.dumps(v)
 
         return {
             "plugin_name": plugin_name,

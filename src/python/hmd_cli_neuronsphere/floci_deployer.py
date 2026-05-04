@@ -23,17 +23,82 @@ logger = minimal_logger("floci_deployer")
 FLOCI_ENDPOINT = os.environ.get(
     "FLOCI_ENDPOINT", os.environ.get("MINISTACK_ENDPOINT", "http://localhost:4566")
 )
-FLOCI_INTERNAL_ENDPOINT = "http://floci:4566"
+# `neuronsphere` is the canonical in-network hostname for the Floci
+# container, registered as a Docker network alias on the compose service so
+# Docker DNS resolves it inside the `neuronsphere_default` network. It is
+# also the hostname baked into presigned S3/API URLs returned to host-side
+# consumers. To make those URLs resolvable from the host (CLI, `hmd build`),
+# the host requires a one-time `/etc/hosts` entry:
+# `127.0.0.1 neuronsphere neuronsphere-workload`. The
+# `ensure_neuronsphere_hosts_entry` pre-flight in the up-path verifies this
+# and prints setup instructions if missing.
+FLOCI_INTERNAL_ENDPOINT = "http://neuronsphere:4566"
 
-# Workload Floci (separate account for infrastructure/service deployments)
+# Workload Floci (separate account for infrastructure/service deployments).
+# Mapped to host port 4567; in-network, registered under the
+# `neuronsphere-workload` Docker network alias.
 FLOCI_WORKLOAD_ENDPOINT = os.environ.get(
     "FLOCI_WORKLOAD_ENDPOINT", "http://localhost:4567"
 )
-FLOCI_WORKLOAD_INTERNAL_ENDPOINT = "http://floci-workload:4566"
+FLOCI_WORKLOAD_INTERNAL_ENDPOINT = "http://neuronsphere-workload:4566"
 
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 ACCOUNT_ID = "000000000000"
 WORKLOAD_ACCOUNT_ID = "654654218804"
+
+# Hostnames the host machine must resolve to a loopback address so it can
+# consume URLs (e.g. presigned S3 URLs) returned by services running inside
+# the Floci Docker network. The same names are registered as Docker network
+# aliases on the Floci compose services so in-network DNS resolves them
+# automatically.
+NEURONSPHERE_HOST_ALIASES = ("neuronsphere", "neuronsphere-workload")
+
+
+def ensure_neuronsphere_hosts_entry() -> None:
+    """Verify that the host can resolve `neuronsphere`/`neuronsphere-workload`
+    to a loopback address.
+
+    Presigned URLs returned by services in the Floci network bake the
+    in-network hostname (e.g. `neuronsphere:4566`) into the URL itself; the
+    host must map that name to 127.0.0.1 (where Floci's published port
+    lives) for those URLs to work outside the network. We can't add the
+    entry automatically without sudo, so when missing we print a one-line
+    setup command and abort. The check runs once per `up` and is cheap.
+
+    Raises ``SystemExit`` with a non-zero status if any required hostname
+    is missing or resolves to a non-loopback address.
+    """
+    import socket
+
+    missing = []
+    for host in NEURONSPHERE_HOST_ALIASES:
+        try:
+            ip = socket.gethostbyname(host)
+        except socket.gaierror:
+            missing.append(host)
+            continue
+        if not (ip.startswith("127.") or ip == "::1"):
+            missing.append(host)
+
+    if not missing:
+        return
+
+    hosts_line = "127.0.0.1 " + " ".join(NEURONSPHERE_HOST_ALIASES)
+    print(
+        "\n"
+        "  ERROR: NeuronSphere requires the following hostnames to resolve\n"
+        f"         to a loopback address on this machine: {', '.join(missing)}\n"
+        "\n"
+        "  Run this once (requires sudo):\n"
+        "\n"
+        f"      sudo sh -c 'echo \"{hosts_line}\" >> /etc/hosts'\n"
+        "\n"
+        "  Why: presigned S3/API URLs returned by services inside the Floci\n"
+        "  network use the in-network hostname (e.g. neuronsphere:4566). The\n"
+        "  host must map that name to 127.0.0.1 so those URLs can be reached\n"
+        "  from `hmd build`, `push-artifact`, and other CLI commands.\n"
+    )
+    raise SystemExit(1)
 
 
 def _get_client(service: str):
@@ -308,12 +373,63 @@ def delete_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> None:
             logger.warning(f"Failed to delete k3s cluster {name}: {e}")
 
 
-def provision_resources(resources: Dict[str, List[Dict[str, Any]]]):
+def _store_local_admin_db_secret() -> None:
+    """Bootstrap the local postgres admin secret in Floci Secrets Manager.
+
+    `hmd-ms-dbaccount`'s `do_create_db_account` reads its admin DB credentials
+    from a SecretsManager secret named `{secret_base}_db-secret`, where
+    `secret_base = make_standard_name(instance_name, repo_class, did, env,
+    region, customer_code)`. For local NS, `instance_name=hmd_db` and
+    `repo_class=hmd-postgres-base` (matches the container/image identity).
+
+    Idempotent: uses put_secret_value to overwrite if the secret already
+    exists.
+    """
+    from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+    did = os.environ.get("HMD_DID", "aaa")
+    region = os.environ.get("HMD_REGION", "reg1")
+    customer_code = os.environ.get("HMD_CUSTOMER_CODE", "hmd")
+
+    secret_base = make_standard_name(
+        "hmd_db", "hmd-postgres-base", did, "local", region, customer_code
+    )
+    secret_name = f"{secret_base}_db-secret"
+    secret_value = json.dumps(
+        {
+            "username": "postgres",
+            "password": "admin",
+            "engine": "aurora-postgresql",
+            "host": "hmd_db",
+            "port": 5432,
+        }
+    )
+
+    sm = _get_client("secretsmanager")
+    try:
+        sm.create_secret(Name=secret_name, SecretString=secret_value)
+        logger.info(f"Stored local admin DB secret: {secret_name}")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceExistsException":
+            sm.put_secret_value(SecretId=secret_name, SecretString=secret_value)
+            logger.info(f"Updated local admin DB secret: {secret_name}")
+        else:
+            raise
+
+
+def provision_resources(resources: Dict[str, List[Dict[str, Any]]], local_loader=None):
     """Provision AWS resources declared by plugins.
 
-    Creates SQS queues, S3 buckets, and DynamoDB tables from the aggregated
-    resource dictionary. Each call is idempotent.
+    Creates SQS queues, S3 buckets, and the local admin postgres secret
+    from the aggregated resource dictionary. Each call is idempotent.
+    Per-DB user secrets are created later by ms-dbaccount via
+    `provision_plugin_databases()`. DynamoDB tables are created lazily
+    by `hmd-entity-storage`'s `DynamoDbEngine` on first service
+    invocation, so they have the correct attributes, key schema, and
+    GSIs.
     """
+    _store_local_admin_db_secret()
+
     # Create SQS queues
     sqs = _get_client("sqs")
     for queue in resources.get("sqs_queues", []):
@@ -344,28 +460,143 @@ def provision_resources(resources: Dict[str, List[Dict[str, Any]]]):
             else:
                 raise
 
-    # Create DynamoDB tables
-    dynamodb = _get_client("dynamodb")
-    for table in resources.get("dynamodb_tables", []):
-        name = table["name"]
+
+def _local_db_secret_base() -> str:
+    """Compute the make_standard_name secret_base for the local admin DB.
+
+    Mirrors `_store_local_admin_db_secret`: instance_name=hmd_db,
+    repo_class=hmd-postgres-base. The resulting prefix is what
+    `hmd-ms-dbaccount`'s `do_create_db_account` uses for both the admin
+    `_db-secret` and the per-user `_<username>` credential secrets.
+    """
+    from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+    return make_standard_name(
+        "hmd_db",
+        "hmd-postgres-base",
+        os.environ.get("HMD_DID", "aaa"),
+        "local",
+        os.environ.get("HMD_REGION", "reg1"),
+        os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+    )
+
+
+CORE_DATABASES = [
+    {"db_name": "hmd_ms_naming", "username": "hmd_ms_naming"},
+    {"db_name": "hmd_ms_deployment", "username": "hmd_ms_deployment"},
+]
+
+
+def _post_create_db_account(did: str, db_name: str, username: str, origin: str) -> None:
+    """POST to ms-dbaccount to idempotently create a database/user.
+
+    `origin` is a label (plugin name or "core") used in log lines. Retries
+    on 404 ``Invalid API id`` to absorb the brief gap between
+    ``deploy_api_gateway()`` and Floci having the route fully live. Lets
+    KeyboardInterrupt propagate so Ctrl+C aborts the provisioning loop
+    promptly instead of running through every plugin's per-call timeout.
+    """
+    payload = {
+        "db_repo_class": "hmd-postgres-base",
+        "db_instance_name": "hmd_db",
+        "db_deployment_id": did,
+        "db_name": db_name,
+        "username": username,
+    }
+    url = "http://localhost/hmd_ms_dbaccount/api/create_db_account"
+    max_attempts = 6
+    backoff = 0.5
+    for attempt in range(1, max_attempts + 1):
         try:
-            dynamodb.create_table(
-                TableName=name,
-                KeySchema=table.get(
-                    "key_schema", [{"AttributeName": "id", "KeyType": "HASH"}]
-                ),
-                AttributeDefinitions=table.get(
-                    "attribute_definitions",
-                    [{"AttributeName": "id", "AttributeType": "S"}],
-                ),
-                BillingMode="PAY_PER_REQUEST",
+            resp = requests.post(url, json=payload, timeout=20)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            logger.warning(f"dbaccount provisioning for {origin}/{db_name} failed: {e}")
+            return
+
+        # Floci returns 404 with body containing "Invalid API id" while the
+        # API Gateway is still propagating after deploy_api_gateway. Retry
+        # briefly before giving up.
+        if resp.status_code == 404 and "Invalid API id" in resp.text:
+            if attempt < max_attempts:
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 4.0)
+                continue
+            logger.warning(
+                f"dbaccount provisioning for {origin}/{db_name} returned 404 "
+                f"after {max_attempts} attempts: {resp.text}"
             )
-            logger.info(f"Created DynamoDB table: {name}")
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceInUseException":
-                logger.debug(f"DynamoDB table already exists: {name}")
-            else:
-                raise
+            return
+
+        if resp.status_code >= 400:
+            logger.warning(
+                f"dbaccount provisioning for {origin}/{db_name} "
+                f"returned {resp.status_code}: {resp.text}"
+            )
+        else:
+            logger.info(f"dbaccount provisioning for {origin}/{db_name}: {resp.text}")
+        return
+
+
+def provision_plugin_databases(local_loader) -> None:
+    """Call hmd-ms-dbaccount to create every local DB and user.
+
+    POSTs to `http://localhost/ms-dbaccount/api/create_db_account` with
+    `db_instance_name=hmd_db`, `db_repo_class=hmd-postgres-base`. dbaccount
+    detects `HMD_ENVIRONMENT=local` and uses `password=username` so the
+    resulting secret matches the convention every local service compose
+    config hardcodes.
+
+    Provisions both `CORE_DATABASES` (ms-naming, ms-deployment) and every
+    enabled plugin's `resources.databases` entries. Idempotent on warm
+    restarts: dbaccount returns `"No secret created."` when both the user
+    and secret already exist.
+    """
+    did = os.environ.get("HMD_DID", "aaa")
+
+    for db in CORE_DATABASES:
+        _post_create_db_account(did, db["db_name"], db["username"], origin="core")
+
+    for plugin_name in local_loader.get_enabled_plugins():
+        config = local_loader.get_plugin_config(plugin_name)
+        if not config:
+            continue
+        databases = config.get("resources", {}).get("databases", []) or []
+        for db in databases:
+            db_name = db.get("database")
+            username = db.get("username") or db_name
+            if not db_name:
+                continue
+            _post_create_db_account(did, db_name, username, origin=plugin_name)
+
+
+def build_gozer_rds_secrets(local_loader) -> Dict[str, List[str]]:
+    """Build the RDS_SECRETS map gozer Lambda expects.
+
+    Maps each plugin's DB to a `[db_name, secret_name]` tuple keyed by the
+    cloud-style identifier `dbaccount-<plugin_name>`. Tests refer to these
+    identifiers via `pre_test_db_clear["rds_services"]`.
+    """
+    secret_base = _local_db_secret_base()
+    rds_secrets: Dict[str, List[str]] = {}
+
+    for plugin_name in local_loader.get_enabled_plugins():
+        config = local_loader.get_plugin_config(plugin_name)
+        if not config:
+            continue
+        databases = config.get("resources", {}).get("databases", []) or []
+        for db in databases:
+            db_name = db.get("database")
+            username = db.get("username") or db_name
+            if not db_name:
+                continue
+            rds_secrets[f"dbaccount-{plugin_name}"] = [
+                db_name,
+                f"{secret_base}_{username}",
+            ]
+
+    return rds_secrets
 
 
 def _ensure_local_image(image_uri: str) -> str:
@@ -713,7 +944,7 @@ def write_nginx_config(
         # `/{service_name}/api/foo` (which FastAPI would 404).
         location_blocks.append(
             f"""        location /{service_name}/ {{
-            proxy_pass http://floci:4566/restapis/{gw_id}/{stage}/_user_request_/;
+            proxy_pass http://neuronsphere:4566/restapis/{gw_id}/{stage}/_user_request_/;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;

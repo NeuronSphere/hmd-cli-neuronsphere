@@ -200,10 +200,10 @@ class LocalController(Controller):
             (
                 ["--local-url"],
                 {
-                    "help": "Local artifact librarian URL (default: http://localhost/hmd_ms_artifact_lib)",
+                    "help": "Local artifact librarian URL (default: http://localhost/hmd_ms_artifact_lib/)",
                     "action": "store",
                     "dest": "local_url",
-                    "default": "http://localhost/hmd_ms_artifact_lib",
+                    "default": "http://localhost/hmd_ms_artifact_lib/",
                 },
             ),
         ],
@@ -217,6 +217,81 @@ class LocalController(Controller):
             cloud_customer=self.app.pargs.cloud_customer,
             cloud_region=self.app.pargs.cloud_region,
             cloud_url=self.app.pargs.cloud_url,
+            artifact_type=self.app.pargs.artifact_type,
+            local_url=self.app.pargs.local_url,
+        )
+
+    @ex(
+        help="Register a local repo's build artifact in the local artifact librarian",
+        arguments=[
+            (
+                ["--name"],
+                {
+                    "help": "Repo name (default: manifest.json `name` from --repo-path)",
+                    "action": "store",
+                    "dest": "repo",
+                    "required": False,
+                    "default": None,
+                },
+            ),
+            (
+                ["--version"],
+                {
+                    "help": "Version to register the artifact under (default: meta-data/VERSION)",
+                    "action": "store",
+                    "dest": "version",
+                    "required": False,
+                    "default": None,
+                },
+            ),
+            (
+                ["--repo-path"],
+                {
+                    "help": "Path to the repo to build (default: cwd)",
+                    "action": "store",
+                    "dest": "repo_path",
+                    "required": False,
+                    "default": None,
+                },
+            ),
+            (
+                ["--build-path"],
+                {
+                    "help": "Path to a pre-built build directory; skips running hmd build",
+                    "action": "store",
+                    "dest": "build_path",
+                    "required": False,
+                    "default": None,
+                },
+            ),
+            (
+                ["--artifact-type"],
+                {
+                    "help": "Content item type (default: build)",
+                    "action": "store",
+                    "dest": "artifact_type",
+                    "default": "build",
+                },
+            ),
+            (
+                ["--local-url"],
+                {
+                    "help": "Local artifact librarian URL (default: http://localhost/hmd_ms_artifact_lib/)",
+                    "action": "store",
+                    "dest": "local_url",
+                    "default": "http://localhost/hmd_ms_artifact_lib/",
+                },
+            ),
+        ],
+    )
+    def push_artifact(self):
+        from .hmd_cli_neuronsphere import push_artifact
+
+        push_artifact(
+            repo=self.app.pargs.repo,
+            version=self.app.pargs.version,
+            repo_path=self.app.pargs.repo_path,
+            build_path=self.app.pargs.build_path,
             artifact_type=self.app.pargs.artifact_type,
             local_url=self.app.pargs.local_url,
         )

@@ -9,6 +9,27 @@ Additional Requirements
 - Docker Compose
 - Docker
 
+Host Setup
+---------------------------------
+The local NeuronSphere stack uses ``neuronsphere`` and
+``neuronsphere-workload`` as the canonical hostnames for the local AWS
+emulator. They are registered as Docker network aliases on the compose
+services so they resolve automatically inside the
+``neuronsphere_default`` network. The host must also resolve them to a
+loopback address so presigned S3/API URLs returned by in-network
+services work from ``hmd build``, ``push-artifact``, and other CLI
+commands running on your machine.
+
+Run this once (any platform - Mac, Linux, Windows-with-WSL)::
+
+    sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'
+
+On native Windows, the equivalent is appending the same line to
+``C:\Windows\System32\drivers\etc\hosts`` from an Administrator shell.
+
+``hmd neuronsphere up`` runs a pre-flight check on every invocation and
+will print this exact instruction (and abort) if the entry is missing.
+
 Configuration
 ---------------------------------
 Required Environment Variables:

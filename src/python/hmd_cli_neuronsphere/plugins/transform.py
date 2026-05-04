@@ -64,15 +64,10 @@ def get_resources() -> Dict[str, Any]:
         ],
         "databases": [
             {
-                "username": "hmd_ms_transform",
-                "password": "hmd_ms_transform",
-                "database": "hmd_ms_transform",
+                "username": "transform",
+                "password": "transform",
+                "database": "transform",
             }
-        ],
-        "sqs_queues": [
-            {"name": "query_queue"},
-            {"name": "inst_queue"},
-            {"name": "queue1-dead-letters"},
         ],
     }
 
@@ -223,10 +218,6 @@ def render_compose_yaml(
     except Exception:
         pass
 
-    # Rewrite SQS endpoints to Floci and remove ElasticMQ
-    if configs.get("floci", False) or configs.get("ministack", False):
-        _apply_floci_sqs_overrides(compose_dict)
-
     # When Argo is enabled, wire ARGO_HOST + ARGO_TOKEN into transform's environment
     if configs.get("argo", False):
         _apply_argo_overrides(compose_dict)
@@ -270,42 +261,3 @@ def _apply_argo_overrides(compose_dict: dict) -> None:
     except Exception:
         # Argo not yet installed or Secrets Manager unavailable — skip silently.
         pass
-
-
-def _apply_floci_sqs_overrides(compose_dict: dict) -> None:
-    """Rewrite SQS endpoints to Floci and remove ElasticMQ container."""
-    services = compose_dict.get("services", {})
-
-    # Remove ElasticMQ queues container
-    services.pop("queues", None)
-
-    # Rewrite SQS endpoints in transform service
-    if "transform" in services:
-        env = services["transform"]["environment"]
-        env["SQS_ENDPOINT"] = "http://floci:4566/"
-        env["QUERY_QUEUE"] = "http://floci:4566/000000000000/query_queue"
-        env["INSTANCE_QUEUE"] = "http://floci:4566/000000000000/inst_queue"
-
-        # Update depends_on: replace queues with floci
-        deps = services["transform"].get("depends_on", {})
-        deps.pop("queues", None)
-        deps["floci"] = {"condition": "service_healthy"}
-
-    # Rewrite queue_poll SQS endpoints
-    if "queue_poll" in services:
-        env = services["queue_poll"]["environment"]
-        env["SQS_ENDPOINT"] = "http://floci:4566/"
-
-        # Update QUEUE_CONFIG JSON
-        queue_config = json.loads(env.get("QUEUE_CONFIG", "{}"))
-        for q_cfg in queue_config.values():
-            if "queue_url" in q_cfg:
-                q_cfg["queue_url"] = q_cfg["queue_url"].replace(
-                    "http://queues:9324", "http://floci:4566"
-                )
-        env["QUEUE_CONFIG"] = json.dumps(queue_config)
-
-        # Update depends_on
-        deps = services["queue_poll"].get("depends_on", {})
-        deps.pop("queues", None)
-        deps["floci"] = {"condition": "service_healthy"}

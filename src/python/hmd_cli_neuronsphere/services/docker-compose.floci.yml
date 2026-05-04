@@ -32,5 +32,11 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+    # Register the canonical NeuronSphere-branded hostname as a Docker
+    # network alias so in-network services and presigned URLs can resolve
+    # `neuronsphere` instead of the underlying tool name `floci`. Host-side
+    # resolution requires a matching /etc/hosts entry (see readme).
     networks:
-      - neuronsphere_default
+      neuronsphere_default:
+        aliases:
+          - neuronsphere

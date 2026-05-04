@@ -167,9 +167,10 @@ class LocalWorkflowRunner:
         repo_class_name = node["repo_class_name"]
         repo_home = os.environ.get("HMD_REPO_HOME", "")
 
-        # Workload Floci endpoint (separate from admin Floci)
+        # Workload Floci endpoint (separate from admin Floci); resolved via
+        # the `neuronsphere-workload` Docker network alias.
         workload_endpoint = os.environ.get(
-            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", "http://floci-workload:4566"
+            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", "http://neuronsphere-workload:4566"
         )
 
         cmd = [

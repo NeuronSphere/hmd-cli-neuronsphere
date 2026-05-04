@@ -64,7 +64,9 @@ services:
       retries: 20
       start_period: 30s
     networks:
-      - neuronsphere_default
+      neuronsphere_default:
+        aliases:
+          - neuronsphere
 
   floci-workload:
     image: floci/floci:1.5.8
@@ -91,39 +93,9 @@ services:
       retries: 20
       start_period: 30s
     networks:
-      - neuronsphere_default
-
-  db_init:
-    command: psql -h db --username postgres -a --dbname "postgres" -f /root/sql/db_init.sql
-    container_name: hmd-ms-naming_db_init
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: admin
-    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
-    volumes:
-      - source: ./naming/db_init.sql
-        target: /root/sql/db_init.sql
-        type: bind
-    networks:
-      - neuronsphere_default
-
-  db_init_deployment:
-    command: psql -h db --username postgres -a --dbname "postgres" -f /root/sql/db_init.sql
-    container_name: hmd-ms-deployment_db_init
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PGPASSWORD: admin
-    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
-    volumes:
-      - source: ./deployment/db_init.sql
-        target: /root/sql/db_init.sql
-        type: bind
-    networks:
-      - neuronsphere_default
+      neuronsphere_default:
+        aliases:
+          - neuronsphere-workload
 
 networks:
   neuronsphere_default:

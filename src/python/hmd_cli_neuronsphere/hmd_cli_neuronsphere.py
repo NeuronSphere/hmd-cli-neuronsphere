@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import tempfile
 from typing import Dict, List, Optional
 from importlib_metadata import entry_points
 from importlib.util import find_spec
@@ -474,29 +476,50 @@ def _aggregate_hmdms_resources(
 def _deploy_hmdms_service_lambdas(
     api_id: str,
     local_loader: LocalPluginLoader,
+    plugin_filter: Optional[List[str]] = None,
+    skip_function_names: Optional[set] = None,
 ) -> List[Dict]:
     """Deploy each enabled HMDMS-service plugin as a Floci Lambda.
 
     Returns a list of deployed spec dicts (from get_hmdms_lambda_spec) suitable
     for ms-deployment seeding. Skips plugins whose image is not cached locally,
     logging a clear warning so the user can run `hmd build` and retry.
+
+    `plugin_filter`: when set, only deploy plugins whose name is in this list.
+    Used to bring up dbaccount alone before any DBs exist (two-phase up).
+
+    `skip_function_names`: when set, skip plugins whose function_name is already
+    in this set. Used by the post-DB-provisioning pass to avoid re-deploying
+    dbaccount.
     """
-    from .floci_deployer import resolve_image_uri, setup_service
+    from .floci_deployer import (
+        resolve_image_uri,
+        setup_service,
+        build_gozer_rds_secrets,
+    )
 
     deployed: List[Dict] = []
-    seen_function_names: set = set()
+    seen_function_names: set = set(skip_function_names or [])
 
     for plugin_name in local_loader.get_enabled_plugins():
+        if plugin_filter is not None and plugin_name not in plugin_filter:
+            continue
+
         spec = local_loader.get_hmdms_lambda_spec(plugin_name)
         if not spec:
             continue
 
         function_name = spec["function_name"]
         if function_name in seen_function_names:
-            logger.warning(
-                f"Duplicate hmdms_service lambda_name '{function_name}' "
-                f"(plugin '{plugin_name}'); skipping subsequent registration"
-            )
+            if skip_function_names and function_name in skip_function_names:
+                logger.debug(
+                    f"Skipping {function_name} (already deployed in earlier pass)"
+                )
+            else:
+                logger.warning(
+                    f"Duplicate hmdms_service lambda_name '{function_name}' "
+                    f"(plugin '{plugin_name}'); skipping subsequent registration"
+                )
             continue
         seen_function_names.add(function_name)
 
@@ -509,16 +532,29 @@ def _deploy_hmdms_service_lambdas(
                 f"{repo_name}:{repo_version} not found locally. "
                 f"Run `hmd build` in the repo and retry. Skipping Lambda deploy."
             )
+            hint = ""
+            if plugin_name == "artifact-lib":
+                hint = (
+                    " Without it, `hmd neuronsphere push-artifact` and "
+                    "`pull-artifact` will return 'no route defined'."
+                )
             print(
                 f"  Warning: image for {repo_name}:{repo_version} not cached. "
-                f"Run `hmd build` in the source repo first."
+                f"Run `hmd build` in the source repo first.{hint}"
             )
             continue
 
+        env_vars = dict(spec["env_vars"])
+        if plugin_name == "gozer":
+            env_vars["RDS_SECRETS"] = json.dumps(build_gozer_rds_secrets(local_loader))
+            env_vars["NEPTUNE_ENDPOINTS"] = json.dumps({"global-graph": "global-graph"})
+            env_vars.setdefault("LIBRARIAN_DYNAMO_TABLES", "{}")
+            env_vars.setdefault("S3_BUCKETS", "{}")
+            env_vars.setdefault("DYNAMO_TABLE_NAMES", "[]")
+
         spec["image"] = image
-        svc_api_id = setup_service(
-            function_name, image, spec["env_vars"], api_id=api_id
-        )
+        spec["env_vars"] = env_vars
+        svc_api_id = setup_service(function_name, image, env_vars, api_id=api_id)
         spec["api_id"] = svc_api_id
         deployed.append(spec)
         logger.info(f"Deployed HMDMS service Lambda: {function_name} ({image})")
@@ -677,6 +713,15 @@ def _resolve_mode() -> str:
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = False):
+    # Verify the host can resolve `neuronsphere`/`neuronsphere-workload` to
+    # loopback before doing anything else. Without this, presigned URLs
+    # returned by in-network services would be unreachable from the host
+    # and the user would hit confusing DNS errors deep in the build/publish
+    # flow rather than a clear setup instruction up front.
+    from .floci_deployer import ensure_neuronsphere_hosts_entry
+
+    ensure_neuronsphere_hosts_entry()
+
     mode = _resolve_mode()
     if mode == "extend":
         start_neuronsphere_extend(verbose=verbose)
@@ -736,6 +781,12 @@ def start_neuronsphere_extend(verbose: bool = False):
 
     # Collect compose_substitute overrides from LocalPluginLoader
     local_loader = LocalPluginLoader()
+    # dbaccount is foundational for cloud-parity DB provisioning — auto-load
+    # it from HMD_REPO_HOME if the user hasn't listed it in HMD_LOCAL_PLUGINS.
+    local_loader.ensure_foundation_plugin("dbaccount", "hmd-ms-dbaccount")
+    # artifact-lib backs the `hmd neuronsphere push-artifact` / `pull-artifact`
+    # CLI commands, so it must always be available locally.
+    local_loader.ensure_foundation_plugin("artifact-lib", "hmd-ms-artifact-lib")
     for plugin_name in local_loader.get_enabled_plugins():
         config = local_loader.get_plugin_config(plugin_name)
         if (
@@ -747,21 +798,11 @@ def start_neuronsphere_extend(verbose: bool = False):
                 compose_files.append(str(compose_path))
                 print_step(f"  compose_substitute (plugin): {plugin_name}")
 
-    # Ensure cache directories, Floci data dirs, and copy db_init scripts
+    # Ensure cache directories and Floci data dirs
     cache_dir = _hmd_home / ".cache"
-    os.makedirs(cache_dir / "naming", exist_ok=True)
-    os.makedirs(cache_dir / "deployment", exist_ok=True)
     os.makedirs(cache_dir / "nginx", exist_ok=True)
     os.makedirs(_hmd_home / "floci" / "data", exist_ok=True)
     os.makedirs(_hmd_home / "floci" / "workload-data", exist_ok=True)
-    shutil.copy2(
-        services_dir / "naming" / "db_init.sql",
-        cache_dir / "naming" / "db_init.sql",
-    )
-    shutil.copy2(
-        services_dir / "deployment" / "db_init.sql",
-        cache_dir / "deployment" / "db_init.sql",
-    )
 
     # Write a placeholder nginx config (will be rewritten after Lambda deployment)
     placeholder_nginx = cache_dir / "nginx" / "neuronsphere.conf"
@@ -781,22 +822,26 @@ def start_neuronsphere_extend(verbose: bool = False):
         quiet=not verbose,
     )
 
-    # Start containers
-    print_step("Starting containers...")
+    # Phase 1: bring up only foundation services (db, floci, floci-workload, proxy).
+    # Lambda-deployed services (ms-naming, ms-deployment, HMDMS plugins) are
+    # provisioned after dbaccount creates their DBs.
+    print_step("Starting foundation containers...")
     quiet = not verbose
+    phase1_services = ["db", "floci", "floci-workload", "proxy"]
     command = [
         *_get_base_command(compose_files, quiet=quiet),
         "up",
-        "--remove-orphans",
         "-d",
+        "--no-deps",
         "--quiet-pull",
+        *phase1_services,
     ]
     if quiet:
         stdout, stderr, retcode = _exec(command, capture=True, quiet=True)
         if retcode != 0:
             err_output = stderr.decode("utf-8") if stderr else ""
             if err_output:
-                print(f"\n  Error starting containers:\n{err_output}")
+                print(f"\n  Error starting foundation containers:\n{err_output}")
     else:
         _exec(command)
 
@@ -819,6 +864,59 @@ def start_neuronsphere_extend(verbose: bool = False):
     except RuntimeError as e:
         logger.warning(f"Workload Floci not ready: {e}")
         print(f"  Warning: Workload Floci: {e}")
+
+    # Aggregate HMDMS-service buckets into Floci resources and provision
+    from .floci_deployer import provision_resources, provision_plugin_databases
+
+    extend_resources: Dict[str, List] = {"s3_buckets": []}
+    _aggregate_hmdms_resources(local_loader, extend_resources)
+    print_step("Provisioning Floci resources...")
+    provision_resources(extend_resources, local_loader=local_loader)
+
+    # Deploy dbaccount alone first so it can provision ms-naming, ms-deployment,
+    # and every HMDMS plugin's DB before those Lambdas start.
+    service_api_ids: Dict[str, str] = {}
+    dbaccount_deployed = _deploy_hmdms_service_lambdas(
+        None, local_loader, plugin_filter=["dbaccount"]
+    )
+    if dbaccount_deployed:
+        for spec in dbaccount_deployed:
+            service_api_ids[spec["function_name"]] = spec["api_id"]
+        print_step("Deploying API Gateway stage for dbaccount...")
+        deploy_api_gateway(dbaccount_deployed[0]["api_id"])
+        write_nginx_config(service_api_ids, placeholder_nginx)
+        _exec(
+            ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
+            capture=True,
+            quiet=True,
+        )
+
+        print_step("Provisioning databases via ms-dbaccount...")
+        provision_plugin_databases(local_loader)
+    else:
+        logger.warning(
+            "dbaccount Lambda not deployed (image missing or plugin not enabled); "
+            "skipping DB provisioning. Lambdas may fail to connect to their DBs."
+        )
+
+    # Phase 2: bring up any compose_substitute application containers now
+    # that DBs exist.
+    print_step("Starting application containers...")
+    command = [
+        *_get_base_command(compose_files, quiet=quiet),
+        "up",
+        "--remove-orphans",
+        "-d",
+        "--quiet-pull",
+    ]
+    if quiet:
+        stdout, stderr, retcode = _exec(command, capture=True, quiet=True)
+        if retcode != 0:
+            err_output = stderr.decode("utf-8") if stderr else ""
+            if err_output:
+                print(f"\n  Error starting application containers:\n{err_output}")
+    else:
+        _exec(command)
 
     # Create the k3s cluster on Floci EKS (shared with platform mode behavior)
     if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_K3S", "true").lower() not in (
@@ -844,15 +942,6 @@ def start_neuronsphere_extend(verbose: bool = False):
     # shared gateway would have every service catching every other
     # service's traffic.
 
-    # Aggregate HMDMS-service buckets into Floci resources and provision
-    from .floci_deployer import provision_resources
-
-    extend_resources: Dict[str, List] = {"s3_buckets": []}
-    _aggregate_hmdms_resources(local_loader, extend_resources)
-    if extend_resources["s3_buckets"]:
-        print_step("Provisioning HMDMS service buckets...")
-        provision_resources(extend_resources)
-
     # Deploy ms-deployment as Lambda function behind API Gateway
     print_step("Deploying ms-deployment Lambda...")
     repo_home = os.environ.get("HMD_REPO_HOME", "")
@@ -861,7 +950,6 @@ def start_neuronsphere_extend(verbose: bool = False):
         _read_repo_version(repo_home, "hmd-ms-naming"),
     )
 
-    service_api_ids = {}
     ms_deployment_available = False
     try:
         service_api_ids["hmd_ms_deployment"] = _deploy_ms_deployment_lambda(None)
@@ -930,8 +1018,13 @@ def start_neuronsphere_extend(verbose: bool = False):
         naming_env,
     )
 
-    # Deploy HMDMS-service plugins as Floci Lambdas (each gets its own gateway)
-    hmdms_deployed = _deploy_hmdms_service_lambdas(None, local_loader)
+    # Deploy remaining HMDMS-service plugins as Floci Lambdas, skipping
+    # dbaccount (already deployed before DB provisioning).
+    already = {s["function_name"] for s in dbaccount_deployed}
+    hmdms_deployed = _deploy_hmdms_service_lambdas(
+        None, local_loader, skip_function_names=already
+    )
+    hmdms_deployed = list(dbaccount_deployed) + list(hmdms_deployed)
     for spec in hmdms_deployed:
         service_api_ids[spec["function_name"]] = spec["api_id"]
 
@@ -941,8 +1034,7 @@ def start_neuronsphere_extend(verbose: bool = False):
         deploy_api_gateway(svc_api_id)
 
     print_step("Configuring API Gateway proxy...")
-    nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
-    write_nginx_config(service_api_ids, nginx_config_path)
+    write_nginx_config(service_api_ids, placeholder_nginx)
     _exec(
         ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
         capture=True,
@@ -1041,6 +1133,12 @@ def start_neuronsphere_platform(
 
     # Create local plugin loader for handling local-only plugins
     local_loader = LocalPluginLoader()
+    # dbaccount is foundational for cloud-parity DB provisioning — auto-load
+    # it from HMD_REPO_HOME if the user hasn't listed it in HMD_LOCAL_PLUGINS.
+    local_loader.ensure_foundation_plugin("dbaccount", "hmd-ms-dbaccount")
+    # artifact-lib backs the `hmd neuronsphere push-artifact` / `pull-artifact`
+    # CLI commands, so it must always be available locally.
+    local_loader.ensure_foundation_plugin("artifact-lib", "hmd-ms-artifact-lib")
 
     # Aggregate HMDMS-service buckets (canonical s3_buckets key)
     _aggregate_hmdms_resources(local_loader, resources)
@@ -1205,23 +1303,37 @@ def start_neuronsphere_platform(
         quiet=not verbose,
     )
 
-    print_step("Starting containers...")
     quiet = not verbose
+
+    # Write a placeholder nginx config so hmd_proxy can start in phase 1
+    # before write_nginx_config runs after Lambda deployment.
+    nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
+    if not nginx_config_path.exists():
+        nginx_config_path.write_text(
+            "events {}\nhttp {\n  server {\n    listen 80;\n"
+            "    location / { return 503 'starting...'; }\n  }\n}\n"
+        )
+
+    # Phase 1: bring up only foundation services (db, floci, proxy).
+    # Application services start in phase 2 after dbaccount has provisioned
+    # their DBs (cloud-parity flow). Platform mode has only one Floci instance
+    # (extend mode has both `floci` and `floci-workload`).
+    print_step("Starting foundation containers...")
+    phase1_services = ["db", "floci", "proxy"]
     command = [
         *_get_base_command(compose_files, quiet=quiet),
-    ]
-    command += [
         "up",
-        "--remove-orphans",
         "-d",
+        "--no-deps",
         "--quiet-pull",
+        *phase1_services,
     ]
     if quiet:
         stdout, stderr, retcode = _exec(command, capture=True, quiet=True)
         if retcode != 0:
             err_output = stderr.decode("utf-8") if stderr else ""
             if err_output:
-                print(f"\n  Error starting containers:\n{err_output}")
+                print(f"\n  Error starting foundation containers:\n{err_output}")
     else:
         _exec(command)
 
@@ -1238,6 +1350,7 @@ def start_neuronsphere_platform(
         write_kubeconfig,
         K3S_CLUSTER_NAME,
         K3S_KUBECONFIG_PATH,
+        provision_plugin_databases,
     )
 
     print_step("Waiting for Floci...")
@@ -1248,6 +1361,57 @@ def start_neuronsphere_platform(
         logger.warning(f"{e} — skipping Floci provisioning")
         print(f"  Warning: {e}")
         floci_ready = False
+
+    svc_names: Dict[str, str] = {}
+    hmdms_deployed: List[Dict] = []
+    ms_deployment_url = None
+
+    if floci_ready:
+        print_step("Provisioning Floci resources...")
+        provision_resources(resources, local_loader=local_loader)
+
+        # Deploy dbaccount alone first so it can provision every other DB.
+        dbaccount_deployed = _deploy_hmdms_service_lambdas(
+            None, local_loader, plugin_filter=["dbaccount"]
+        )
+        if dbaccount_deployed:
+            hmdms_deployed.extend(dbaccount_deployed)
+            for spec in dbaccount_deployed:
+                svc_names[spec["function_name"]] = spec["api_id"]
+            print_step("Deploying API Gateway stage for dbaccount...")
+            deploy_api_gateway(dbaccount_deployed[0]["api_id"])
+            write_nginx_config(svc_names, nginx_config_path)
+            _exec(
+                ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
+                capture=True,
+                quiet=True,
+            )
+
+            print_step("Provisioning databases via ms-dbaccount...")
+            provision_plugin_databases(local_loader)
+        else:
+            logger.warning(
+                "dbaccount Lambda not deployed (image missing or plugin not enabled); "
+                "skipping DB provisioning. Application services may fail to start."
+            )
+
+    # Phase 2: bring up the remaining containers now that the DBs exist.
+    print_step("Starting application containers...")
+    command = [
+        *_get_base_command(compose_files, quiet=quiet),
+        "up",
+        "--remove-orphans",
+        "-d",
+        "--quiet-pull",
+    ]
+    if quiet:
+        stdout, stderr, retcode = _exec(command, capture=True, quiet=True)
+        if retcode != 0:
+            err_output = stderr.decode("utf-8") if stderr else ""
+            if err_output:
+                print(f"\n  Error starting application containers:\n{err_output}")
+    else:
+        _exec(command)
 
     if floci_ready:
         # Create the k3s cluster on Floci EKS so plugins (Argo, etc.) can install onto it
@@ -1269,16 +1433,12 @@ def start_neuronsphere_platform(
                     f"  Warning: k3s unavailable — Argo and k3s-dependent plugins will be skipped: {e}"
                 )
 
-        print_step("Provisioning Floci resources...")
-        provision_resources(resources)
-
         print_step("Deploying services to Floci...")
         # One API Gateway per service: Floci's matcher treats every
         # `{proxy+}` resource as a global wildcard regardless of parent
         # path, so multiple services on a single gateway end up catching
         # each other's traffic. Per-service gateways have exactly one
         # `{proxy+}` resource each, eliminating the ambiguity.
-        svc_names = {}
         for svc in resources.get("services", []):
             if isinstance(svc, dict) and svc.get("deploy_as_lambda"):
                 image_uri = svc["image"]
@@ -1287,13 +1447,17 @@ def start_neuronsphere_platform(
                 svc_names[svc["name"]] = svc_api_id
                 svc["url"] = f"http://hmd_proxy/{svc['name']}/"
 
-        # Deploy HMDMS-service plugins as Floci Lambdas (each gets its own gateway)
-        hmdms_deployed = _deploy_hmdms_service_lambdas(None, local_loader)
-        for spec in hmdms_deployed:
+        # Deploy remaining HMDMS-service plugins as Floci Lambdas, skipping
+        # any (dbaccount) we already deployed in phase 1.
+        already = {s["function_name"] for s in hmdms_deployed}
+        rest = _deploy_hmdms_service_lambdas(
+            None, local_loader, skip_function_names=already
+        )
+        hmdms_deployed.extend(rest)
+        for spec in rest:
             svc_names[spec["function_name"]] = spec["api_id"]
 
         # Deploy ms-deployment Lambda (always available in both modes)
-        ms_deployment_url = None
         if os.environ.get(
             "HMD_LOCAL_NEURONSPHERE_DISABLE_MS_DEPLOYMENT", ""
         ).lower() not in ("true", "1", "yes"):
@@ -1310,8 +1474,7 @@ def start_neuronsphere_platform(
             for svc_api_id in set(svc_names.values()):
                 deploy_api_gateway(svc_api_id)
 
-        # Write nginx config with per-service routing and reload
-        nginx_config_path = _hmd_home / ".cache" / "nginx" / "neuronsphere.conf"
+        # Rewrite nginx config with full per-service routing and reload
         write_nginx_config(svc_names, nginx_config_path)
         _exec(
             ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
@@ -1945,7 +2108,7 @@ def pull_artifact(
     cloud_region: Optional[str] = None,
     cloud_url: Optional[str] = None,
     artifact_type: str = "build",
-    local_url: str = "http://localhost/hmd_ms_artifact_lib",
+    local_url: str = "http://localhost/hmd_ms_artifact_lib/",
 ) -> None:
     """Copy an artifact from a cloud artifact librarian to the local one.
 
@@ -1959,6 +2122,12 @@ def pull_artifact(
         get_artifact_librarian_client,
         ARTIFACT_NAME_TEMPLATE,
     )
+
+    # urljoin strips the last path segment when the base lacks a trailing
+    # slash (e.g. `urljoin("http://x/svc", "apiop/put")` → `http://x/apiop/put`),
+    # which makes nginx's `/svc/` location block miss. Normalize defensively.
+    if local_url and not local_url.endswith("/"):
+        local_url = local_url + "/"
 
     artifact_name = ARTIFACT_NAME_TEMPLATE.format(
         name=repo_name, version=version, type=artifact_type
@@ -2014,3 +2183,125 @@ def pull_artifact(
             del os.environ["HMD_ARTIFACT_LIBRARIAN_URL"]
         if saved_key is not None:
             os.environ["HMD_ARTIFACT_LIBRARIAN_API_KEY"] = saved_key
+
+
+def _resolve_repo_and_version(
+    repo_path: Optional[str],
+    repo: Optional[str],
+    version: Optional[str],
+):
+    resolved_path = Path(repo_path or os.getcwd())
+    if not repo:
+        manifest_path = resolved_path / "meta-data" / "manifest.json"
+        if not manifest_path.exists():
+            raise Exception(f"--repo not given and {manifest_path} not found")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        repo = manifest.get("name")
+        if not repo:
+            raise Exception(f"--repo not given and 'name' missing from {manifest_path}")
+    if not version:
+        version_file = resolved_path / "meta-data" / "VERSION"
+        if not version_file.exists():
+            raise Exception(f"--version not given and {version_file} not found")
+        version = version_file.read_text().strip()
+    return resolved_path, repo, version
+
+
+def push_artifact(
+    repo: Optional[str] = None,
+    version: Optional[str] = None,
+    repo_path: Optional[str] = None,
+    build_path: Optional[str] = None,
+    artifact_type: str = "build",
+    local_url: str = "http://localhost/hmd_ms_artifact_lib/",
+) -> None:
+    """Register a local repo's build artifact in the local artifact librarian.
+
+    Two modes:
+
+    * Auto-build (default): runs ``hmd build`` in ``repo_path`` with
+      ``HMD_BUILD_OUTPUT_DIR`` pointing at a CLI-managed temp dir, then uploads
+      the resulting zip via ``hmd_lib_librarian_client``. Does **not** set
+      ``HMD_AUTO_PUBLISH``, so no Docker/PyPI publishing occurs.
+    * Pre-built: if ``build_path`` is given, zips that directory directly via
+      ``zip_and_archive`` instead of running a build.
+
+    ``repo`` defaults to ``manifest.json``'s ``name``; ``version`` defaults to
+    ``meta-data/VERSION``. Either may be overridden to register the artifact
+    under any tag.
+    """
+    from hmd_lib_librarian_client.artifact_tools import (
+        zip_and_archive,
+        get_artifact_librarian_client,
+        ARTIFACT_NAME_TEMPLATE,
+    )
+
+    # urljoin strips the last path segment when the base lacks a trailing
+    # slash (e.g. `urljoin("http://x/svc", "apiop/put")` → `http://x/apiop/put`),
+    # which makes nginx's `/svc/` location block miss. Normalize defensively.
+    if local_url and not local_url.endswith("/"):
+        local_url = local_url + "/"
+
+    resolved_path, repo, version = _resolve_repo_and_version(repo_path, repo, version)
+    artifact_name = ARTIFACT_NAME_TEMPLATE.format(
+        name=repo, version=version, type=artifact_type
+    )
+    content_path = f"repository:/{repo}/{version}/{artifact_name}"
+
+    saved_url = os.environ.get("HMD_ARTIFACT_LIBRARIAN_URL")
+    saved_key = os.environ.get("HMD_ARTIFACT_LIBRARIAN_API_KEY")
+    try:
+        os.environ["HMD_ARTIFACT_LIBRARIAN_URL"] = local_url
+        os.environ.setdefault("HMD_ARTIFACT_LIBRARIAN_API_KEY", "local-dummy")
+        customer = os.environ.get("HMD_CUSTOMER_CODE", "local")
+        region = os.environ.get("HMD_REGION", "reg1")
+
+        if build_path is not None:
+            print(f"Uploading {build_path} -> {content_path} at {local_url}")
+            zip_and_archive(customer, region, content_path, artifact_type, build_path)
+        else:
+            with tempfile.TemporaryDirectory() as out_dir:
+                build_env = {
+                    **os.environ,
+                    "HMD_BUILD_OUTPUT_DIR": out_dir,
+                    "HMD_REPO_NAME": repo,
+                    "HMD_REPO_VERSION": version,
+                }
+                # Strip HMD_AUTO_PUBLISH so hmd build only writes the zip and
+                # does not push Docker/PyPI artifacts to JFrog/PyPI.
+                build_env.pop("HMD_AUTO_PUBLISH", None)
+                print(f"Running hmd build in {resolved_path}...")
+                subprocess.run(
+                    ["hmd", "build"],
+                    cwd=str(resolved_path),
+                    env=build_env,
+                    check=True,
+                )
+                zip_path = Path(out_dir) / f"{repo}-{version}-build" / artifact_name
+                if not zip_path.exists():
+                    raise Exception(
+                        f"hmd build did not produce expected zip at {zip_path}"
+                    )
+                print(f"Uploading {zip_path} -> {content_path} at {local_url}")
+                client = get_artifact_librarian_client(
+                    hmd_customer_code=customer, hmd_region=region
+                )
+                client.put_file(
+                    content_path=content_path,
+                    file_name=str(zip_path),
+                    content_item_type=artifact_type,
+                )
+
+        print(
+            f"Registered {repo}:{version} ({artifact_type}) in local artifact librarian"
+        )
+    finally:
+        if saved_url is not None:
+            os.environ["HMD_ARTIFACT_LIBRARIAN_URL"] = saved_url
+        elif "HMD_ARTIFACT_LIBRARIAN_URL" in os.environ:
+            del os.environ["HMD_ARTIFACT_LIBRARIAN_URL"]
+        if saved_key is not None:
+            os.environ["HMD_ARTIFACT_LIBRARIAN_API_KEY"] = saved_key
+        elif "HMD_ARTIFACT_LIBRARIAN_API_KEY" in os.environ:
+            del os.environ["HMD_ARTIFACT_LIBRARIAN_API_KEY"]

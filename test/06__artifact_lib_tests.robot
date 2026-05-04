@@ -55,3 +55,47 @@ Pull Artifact CLI Help
     Should Contain    ${result.stdout}    --repo
     Should Contain    ${result.stdout}    --version
     Should Contain    ${result.stdout}    --cloud-url
+
+Push Artifact CLI Help
+    [Tags]    integration    artifact-lib    cli
+    [Documentation]    The new ``hmd neuronsphere push-artifact`` subcommand
+    ...                is registered and prints help.
+    ${result}=    Run Process    hmd    neuronsphere    push-artifact    --help
+    ...    timeout=30s    stdout=PIPE    stderr=PIPE
+    Should Be Equal As Integers    ${result.rc}    0
+    ...    msg=push-artifact help failed: ${result.stderr}
+    Should Contain    ${result.stdout}    --name
+    Should Contain    ${result.stdout}    --version
+    Should Contain    ${result.stdout}    --build-path
+    Should Contain    ${result.stdout}    --local-url
+
+Push Artifact Round Trip
+    [Tags]    integration    artifact-lib    cli
+    [Documentation]    A pre-built directory pushed via ``push-artifact``
+    ...                can be retrieved from the local artifact librarian
+    ...                under the user-specified version.
+    Wait Until S3 Is Ready
+    Wait Until Keyword Succeeds    2 min    10 sec
+    ...    Bucket Should Exist    ${BUCKET_NAME}
+    ${tmp}=    Set Variable    %{TMPDIR=/tmp}/ns-push-artifact-test
+    Remove Directory    ${tmp}    recursive=True
+    Create Directory    ${tmp}/build
+    Create File    ${tmp}/build/marker.txt    push-artifact-roundtrip
+    ${result}=    Run Process    hmd    neuronsphere    push-artifact
+    ...    --name    demo-tf    --version    9.9.9
+    ...    --build-path    ${tmp}/build
+    ...    timeout=120s    stdout=PIPE    stderr=PIPE
+    Should Be Equal As Integers    ${result.rc}    0
+    ...    msg=push-artifact failed: rc=${result.rc} stdout=${result.stdout} stderr=${result.stderr}
+    Should Contain    ${result.stdout}    Registered demo-tf:9.9.9
+    Create Directory    ${tmp}/out
+    Set Environment Variable    HMD_ARTIFACT_LIBRARIAN_URL    http://localhost/hmd_ms_artifact_lib/
+    Set Environment Variable    HMD_ARTIFACT_LIBRARIAN_API_KEY    local-dummy
+    ${pull}=    Run Process    python    -c
+    ...    from hmd_lib_librarian_client.artifact_tools import retrieve_and_unzip; retrieve_and_unzip('local','reg1','repository:/demo-tf/9.9.9/demo-tf_9.9.9_build.zip','${tmp}/out')
+    ...    timeout=60s    stdout=PIPE    stderr=PIPE
+    Should Be Equal As Integers    ${pull.rc}    0
+    ...    msg=retrieve_and_unzip failed: ${pull.stderr}
+    File Should Exist    ${tmp}/out/marker.txt
+    ${marker}=    Get File    ${tmp}/out/marker.txt
+    Should Be Equal As Strings    ${marker.strip()}    push-artifact-roundtrip
