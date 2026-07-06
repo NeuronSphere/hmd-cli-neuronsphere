@@ -49,6 +49,10 @@ setup(
             "external/*/src/local/templates/*",
             "external/*/src/local/scripts/*",
             "external/*/src/local/scripts/postgres/*",
+            # Operator/addon Helm charts (installed onto the Floci k3s cluster)
+            "external/*/meta-data/*",
+            "external/*/src/helm/*",
+            "external/*/src/helm/**/*",
         ]
     },
     entry_points={

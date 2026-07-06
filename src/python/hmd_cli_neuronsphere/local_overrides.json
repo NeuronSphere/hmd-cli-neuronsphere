@@ -77,11 +77,15 @@
     },
     "hmd-inf-ext-secrets": {
         "strategy": "skip",
-        "reason": "External Secrets operator not needed locally; secrets are direct env vars"
+        "reason": "External Secrets operator installed onto k3s at `up` time (k3s_operators), pointed at Floci Secrets Manager; DAG re-deploy is a no-op"
     },
     "hmd-inf-ext-secrets-crds": {
         "strategy": "skip",
-        "reason": "External Secrets CRDs not needed locally"
+        "reason": "External Secrets CRDs installed onto k3s at `up` time (k3s_operators); DAG re-deploy is a no-op"
+    },
+    "hmd-inf-clickhouse-operator": {
+        "strategy": "skip",
+        "reason": "ClickHouse operator (CHOP) + cert-manager installed onto k3s at `up` time (k3s_operators); DAG re-deploy is a no-op"
     },
     "hmd-inf-hive-metastore": {
         "strategy": "default",
@@ -90,6 +94,10 @@
     "hmd-inf-karpenter": {
         "strategy": "skip",
         "reason": "Karpenter autoscaler not applicable on k3s"
+    },
+    "hmd-inf-keda": {
+        "strategy": "skip",
+        "reason": "KEDA operator + CRDs installed onto k3s at `up` time (k3s_operators); DAG re-deploy is a no-op"
     },
     "hmd-inf-metrics-server": {
         "strategy": "skip",

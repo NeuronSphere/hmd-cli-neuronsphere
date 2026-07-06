@@ -931,6 +931,10 @@ def start_neuronsphere_extend(verbose: bool = False):
             kubeconfig_path = write_kubeconfig()
             os.environ["KUBECONFIG"] = str(kubeconfig_path)
             print_step(f"  k3s ready (kubeconfig: {kubeconfig_path})")
+            print_step("Installing cluster operators onto k3s...")
+            from .k3s_operators import provision_k3s_operators
+
+            provision_k3s_operators()
         except Exception as e:
             logger.warning(f"k3s cluster creation failed: {e}")
             print(
@@ -1232,8 +1236,16 @@ def start_neuronsphere_platform(
                             resources[k] = [*resources.get(k, []), *v]
 
     # Render Compose Files
+    from .k3s_chart_plugins import k3s_charts_enabled, is_k3s_chart_plugin
+
+    _k3s_charts = k3s_charts_enabled()
     for plugin, enabled in plugins.items():
         if enabled:
+            # Converted plugins run on k3s (deployed after operators); don't also
+            # start them as compose containers.
+            if _k3s_charts and is_k3s_chart_plugin(plugin):
+                logger.info(f"Plugin '{plugin}' runs on k3s; skipping compose service")
+                continue
             entrypoint = _load_entry_point(plugin, COMPOSE_PLUGIN_ENTRY_POINT)
             compose_file = None
             if entrypoint is not None:
@@ -1427,6 +1439,17 @@ def start_neuronsphere_platform(
                 kubeconfig_path = write_kubeconfig()
                 os.environ["KUBECONFIG"] = str(kubeconfig_path)
                 print_step(f"  k3s ready (kubeconfig: {kubeconfig_path})")
+                print_step("Installing cluster operators onto k3s...")
+                from .k3s_operators import provision_k3s_operators
+                from .k3s_chart_plugins import (
+                    k3s_charts_enabled,
+                    provision_k3s_chart_plugins,
+                )
+
+                provision_k3s_operators()
+                if k3s_charts_enabled():
+                    print_step("Deploying bundled Helm charts to k3s...")
+                    provision_k3s_chart_plugins(local_loader, plugins, resources)
             except Exception as e:
                 logger.warning(f"k3s cluster creation failed: {e}")
                 print(

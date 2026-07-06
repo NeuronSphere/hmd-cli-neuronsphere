@@ -188,7 +188,11 @@ def ensure_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> Dict[str, Any]:
             name=name,
             roleArn=f"arn:aws:iam::{ACCOUNT_ID}:role/eks-role",
             resourcesVpcConfig={"subnetIds": [], "securityGroupIds": []},
-            version="1.29",
+            # Track the cloud EKS version (hmd-inf-eks-cluster cluster_version) so
+            # operator/CRD charts targeting the cloud API also install locally.
+            # The actual k3s version is baked into the wrapper image
+            # (HMD_LOCAL_K3S_WRAPPER_IMAGE); keep them in sync.
+            version=os.environ.get("HMD_LOCAL_K3S_VERSION", "1.34"),
         )
         logger.info(f"Created k3s cluster: {name}")
     except ClientError as e:
