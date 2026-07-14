@@ -509,8 +509,23 @@ def provision_k3s_operators() -> None:
     # and workload charts alike can reach `neuronsphere:4566` (cloud parity).
     _ensure_coredns_floci_entry()
 
+    # When the External Secrets stack is opted into the ms-deployment DAG
+    # (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS), the DAG is its sole installer —
+    # skip the operators-path install here so the two don't collide on CRD
+    # ownership (different helm release names for the same CRDs).
+    ext_secrets_via_dag = os.environ.get(
+        "HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS", ""
+    ).strip().lower() in ("1", "true", "yes", "on")
+    ext_secrets_ops = {"ext-secrets-crds", "ext-secrets"}
+
     installed = []
     for op in _OPERATORS:
+        if ext_secrets_via_dag and op["name"] in ext_secrets_ops:
+            logger.info(
+                f"Skipping operator '{op['name']}' — deployed via the ms-deployment "
+                "DAG (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS)"
+            )
+            continue
         if _install_operator(op):
             installed.append(op["name"])
     if installed:

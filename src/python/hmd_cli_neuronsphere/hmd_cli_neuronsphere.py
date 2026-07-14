@@ -1275,6 +1275,32 @@ def start_neuronsphere_extend(verbose: bool = False):
                 csd_nid, nodes = seed_bom(ms_deployment_url)
                 print_step(f"  {len(nodes)} deployment nodes")
 
+                # Submit the concrete Resources the local core created (Docker
+                # network, k3s cluster + compute pool) as NERD0004 Resources tagged
+                # environment=local, attached to the `local-k3s`
+                # (hmd-cli-neuronsphere) instance the changeset created. This must
+                # run BEFORE the DAG: a repo that depends on the kubernetes-cluster
+                # Resource (e.g. ext-secrets) resolves its endpoint from this
+                # Resource at deploy time (NERD0006), so the cluster Resource — with
+                # its in-network endpoint — has to exist first. Non-fatal.
+                print_step("Submitting local core resources...")
+                try:
+                    from .bom_seeder import (
+                        build_local_core_resources,
+                        submit_local_resources,
+                    )
+
+                    local_resources = build_local_core_resources(
+                        cluster_name=k3s_cluster_name,
+                    )
+                    count = submit_local_resources(
+                        ms_deployment_url, local_resources, nodes
+                    )
+                    print_step(f"  {count} local resource(s) submitted")
+                except Exception as e:
+                    logger.warning(f"Local resource submission failed (non-fatal): {e}")
+                    print(f"  Warning: local resource submission failed: {e}")
+
                 # Execute deployment DAG locally
                 print_step("Running local deployments...")
                 runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
@@ -1283,31 +1309,6 @@ def start_neuronsphere_extend(verbose: bool = False):
             except Exception as e:
                 logger.warning(f"Starter-BOM seeding failed (non-fatal): {e}")
                 print(f"\n  Warning: starter-BOM seeding failed (non-fatal): {e}")
-
-            # Submit the concrete Resources the local core actually created (the
-            # Docker network and, when present, the k3s cluster + compute pool) as
-            # NERD0004 Resources tagged environment=local, attached to the
-            # `local-k3s` (hmd-cli-neuronsphere) instance created by the changeset.
-            # Cloud repos whose manifest.json declares a resource dependency then
-            # resolve against the local environment — real local↔cloud parity.
-            # Non-fatal.
-            print_step("Submitting local core resources...")
-            try:
-                from .bom_seeder import (
-                    build_local_core_resources,
-                    submit_local_resources,
-                )
-
-                local_resources = build_local_core_resources(
-                    cluster_name=k3s_cluster_name,
-                )
-                count = submit_local_resources(
-                    ms_deployment_url, local_resources, nodes
-                )
-                print_step(f"  {count} local resource(s) submitted")
-            except Exception as e:
-                logger.warning(f"Local resource submission failed (non-fatal): {e}")
-                print(f"  Warning: local resource submission failed: {e}")
 
             # The control plane (Floci + DBs + ms-deployment/ms-naming Lambdas +
             # routing) is up. Record the bootstrap independent of the best-effort

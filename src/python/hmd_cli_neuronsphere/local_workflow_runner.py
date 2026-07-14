@@ -15,6 +15,7 @@ Strategy resolution is 3-tier:
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -46,6 +47,40 @@ _OVERLAY_COPY_IGNORE = shutil.ignore_patterns(
 
 def _is_truthy(value: Optional[str]) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Matches the `hmd ... deploy` command line the ms-deployment generator emits
+# (deploy_base.deploy_node), so `--local` is inserted right after the `deploy`
+# subcommand. Anchored on a line that starts with `hmd ` (export / heredoc / config
+# lines don't), and requires a following flag/whitespace so we don't match a value
+# that merely ends in "deploy".
+_DEPLOY_CMD_RE = re.compile(r"^(\s*hmd\b.*?\sdeploy)(\s|$)")
+
+
+def _localize_deploy_script(script: str) -> str:
+    """Make a generated deploy node script deploy from the mounted source.
+
+    The generated script runs a bare ``hmd ... deploy ...`` (no source flag), which
+    makes hmd-cli-deploy pull the build bundle from the Artifact Librarian — absent
+    locally. Insert ``--local`` after the ``deploy`` subcommand so hmd-cli-deploy
+    deploys from the current working directory (the mounted ``/workspace``). Only the
+    command line is transformed (once); ``export``/heredoc/config lines are untouched.
+    Idempotent — a no-op when ``--local`` is already present.
+    """
+    if not script:
+        return script
+    out_lines = []
+    done = False
+    for line in script.splitlines():
+        if not done:
+            m = _DEPLOY_CMD_RE.match(line)
+            if m and "--local" not in line:
+                line = f"{m.group(1)} --local{m.group(2)}{line[m.end():]}"
+                done = True
+            elif m:
+                done = True  # already localized
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 def _repo_path_for(repo_class_name: str) -> Optional[str]:
@@ -278,16 +313,17 @@ class LocalWorkflowRunner:
 
         repo_class_name = node["repo_class_name"]
 
-        # NERD0004/0006: expose a container-reachable Deployment Service URL so a
-        # projectbuilder carrying a local-aware `hmd deploy` can post produced
-        # Resources back itself. `self.base_url` uses `localhost`, which isn't
-        # reachable inside the container — translate it to the `neuronsphere`
-        # docker-network alias (overridable).
+        # NERD0004/0006: expose a container-reachable Deployment Service URL so the
+        # in-container `hmd deploy` can resolve dependency resource outputs (and,
+        # opt-in, post produced Resources). `self.base_url` uses `localhost` (the
+        # host nginx); inside the container the same nginx is the `hmd_proxy`
+        # (alias `proxy`) container on neuronsphere_default — NOT `neuronsphere`,
+        # which is the Floci alias on :4566. Overridable via env.
         rid_nid = node.get("rid_nid", "")
         deployment_service_url = os.environ.get(
             "HMD_DEPLOYMENT_SERVICE_URL",
-            self.base_url.replace("localhost", "neuronsphere").replace(
-                "127.0.0.1", "neuronsphere"
+            self.base_url.replace("localhost", "hmd_proxy").replace(
+                "127.0.0.1", "hmd_proxy"
             ),
         )
         # In-container submit is opt-in: it requires a projectbuilder whose
@@ -312,6 +348,7 @@ class LocalWorkflowRunner:
         overlay_dir = _overlay_dir_for(repo_path)
         workspace = repo_path
         tmp_workspace: Optional[str] = None
+        deploy_script_overridden = False
 
         if overlay_dir is not None:
             if (overlay_dir / "deploy_local.sh").is_file():
@@ -320,9 +357,25 @@ class LocalWorkflowRunner:
                     f"Using src/local/deploy_local.sh override for {repo_class_name}"
                 )
                 script = "bash src/local/deploy_local.sh"
+                deploy_script_overridden = True
             elif _overlay_has_tool_files(overlay_dir):
                 tmp_workspace = self._prepare_overlay_workspace(repo_path, overlay_dir)
                 workspace = tmp_workspace
+
+        # A local NeuronSphere has no Artifact Librarian, so `hmd deploy` must take
+        # its code from a local source instead of pulling the build bundle. Prefer a
+        # previously-downloaded bundle when one is available for this repo
+        # (HMD_LOCAL_DEPLOY_ARTIFACT_ROOT), otherwise deploy from the mounted source
+        # (`--local`). Skip when a deploy_local.sh override owns the command.
+        artifact_root_mount = self._resolve_artifact_bundle_dir(node)
+        if not deploy_script_overridden:
+            if artifact_root_mount is not None:
+                logger.info(
+                    f"Deploying {repo_class_name} from local artifact bundle "
+                    f"({artifact_root_mount})"
+                )
+            else:
+                script = _localize_deploy_script(script)
 
         cmd = [
             "docker",
@@ -348,6 +401,14 @@ class LocalWorkflowRunner:
             # path (the deploy only needs scratch/cache space there).
             "-e",
             "HMD_HOME=/root/hmd",
+            # `hmd cdktf deploy` unconditionally resolves docker registry
+            # credentials (get_credentials reads DOCKER_USERNAME/DOCKER_PASSWORD).
+            # Locally these feed only a no-op cdktf overlay, so dummy values satisfy
+            # the pre-flight without configuring a real registry.
+            "-e",
+            f"DOCKER_USERNAME={os.environ.get('DOCKER_USERNAME', 'local')}",
+            "-e",
+            f"DOCKER_PASSWORD={os.environ.get('DOCKER_PASSWORD', 'local')}",
             "-e",
             f"HMD_DEPLOYMENT_SERVICE_URL={deployment_service_url}",
             "-e",
@@ -381,6 +442,19 @@ class LocalWorkflowRunner:
         if incontainer_submit and rid_nid:
             cmd.extend(["-e", f"HMD_REPO_INSTANCE_DEPLOYMENT_ID={rid_nid}"])
 
+        # Secondary source: mount the local artifact-bundle dir and point
+        # hmd-cli-deploy at it (HMD_ARTIFACT_ROOT). It unzips <repo>_<ver>_build.zip
+        # from here instead of pulling from the (absent) Artifact Librarian.
+        if artifact_root_mount is not None and not deploy_script_overridden:
+            cmd.extend(
+                [
+                    "-v",
+                    f"{artifact_root_mount}:/artifacts:ro",
+                    "-e",
+                    "HMD_ARTIFACT_ROOT=/artifacts",
+                ]
+            )
+
         # Mount the (possibly overlaid) workspace.
         if workspace:
             cmd.extend(["-v", f"{workspace}:/workspace", "-w", "/workspace"])
@@ -412,6 +486,31 @@ class LocalWorkflowRunner:
             logger.info(f"Projectbuilder succeeded for {node['instance_name']}")
 
         return result.returncode == 0
+
+    @staticmethod
+    def _resolve_artifact_bundle_dir(node: Dict) -> Optional[str]:
+        """Return the host artifact-bundle dir for a node, if bundle mode applies.
+
+        Bundle (secondary) source: when ``HMD_LOCAL_DEPLOY_ARTIFACT_ROOT`` points at a
+        directory containing this repo's ``<repo>_<ver>_build.zip`` (the name
+        hmd-cli-deploy's ``--artifact-root`` / ``HMD_ARTIFACT_ROOT`` branch expects),
+        return that directory so the caller mounts it and sets ``HMD_ARTIFACT_ROOT``.
+        Returns ``None`` (→ mounted-source primary) when unset or the bundle is absent.
+        """
+        root = os.environ.get("HMD_LOCAL_DEPLOY_ARTIFACT_ROOT")
+        if not root or not os.path.isdir(root):
+            return None
+        repo = node.get("repo_class_name", "")
+        version = node.get("repo_class_version")
+        if not version:
+            repo_home = os.environ.get("HMD_REPO_HOME", "")
+            try:
+                with open(os.path.join(repo_home, repo, "meta-data", "VERSION")) as f:
+                    version = f.read().strip()
+            except OSError:
+                return None
+        bundle = os.path.join(root, f"{repo}_{version}_build.zip")
+        return root if os.path.isfile(bundle) else None
 
     def _submit_produced_resources(self, workspace: Optional[str], node: Dict) -> int:
         """Submit Resources the deploy rendered under meta-data/resources_output/.

@@ -547,10 +547,16 @@ def provision_resources(resources: Dict[str, List[Dict[str, Any]]], local_loader
             else:
                 raise
 
-    # Create S3 buckets
+    # Create S3 buckets. Always include the CDKTF tfstate bucket so `hmd cdktf
+    # deploy` (which uses an S3 backend at hmd.<account>.<hmd_region>.tfstate) can
+    # `tofu init` locally. The bucket name uses the HMD region (matching
+    # HmdCdkTfStack's backend), not the cloud LocationConstraint region.
+    hmd_region = os.environ.get("HMD_REGION", "reg1")
+    bucket_names = [b["name"] for b in resources.get("s3_buckets", [])]
+    bucket_names.append(f"hmd.{ACCOUNT_ID}.{hmd_region}.tfstate")
+
     s3 = _get_client("s3")
-    for bucket in resources.get("s3_buckets", []):
-        name = bucket["name"]
+    for name in bucket_names:
         try:
             s3.create_bucket(
                 Bucket=name,
