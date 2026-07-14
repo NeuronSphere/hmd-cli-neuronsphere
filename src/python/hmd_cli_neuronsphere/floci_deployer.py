@@ -34,17 +34,18 @@ FLOCI_ENDPOINT = os.environ.get(
 # and prints setup instructions if missing.
 FLOCI_INTERNAL_ENDPOINT = "http://neuronsphere:4566"
 
-# Workload Floci (separate account for infrastructure/service deployments).
-# Mapped to host port 4567; in-network, registered under the
-# `neuronsphere-workload` Docker network alias.
-FLOCI_WORKLOAD_ENDPOINT = os.environ.get(
-    "FLOCI_WORKLOAD_ENDPOINT", "http://localhost:4567"
-)
-FLOCI_WORKLOAD_INTERNAL_ENDPOINT = "http://neuronsphere-workload:4566"
+# The former split "workload" Floci has been collapsed into the single Floci
+# environment above. These constants are retained as backward-compatible
+# aliases of the admin values so existing importers keep working; both the
+# `neuronsphere` and `neuronsphere-workload` network aliases now resolve to
+# the same instance. Override via FLOCI_WORKLOAD_ENDPOINT if ever needed.
+FLOCI_WORKLOAD_ENDPOINT = os.environ.get("FLOCI_WORKLOAD_ENDPOINT", FLOCI_ENDPOINT)
+FLOCI_WORKLOAD_INTERNAL_ENDPOINT = FLOCI_INTERNAL_ENDPOINT
 
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 ACCOUNT_ID = "000000000000"
-WORKLOAD_ACCOUNT_ID = "654654218804"
+# Single-account local: workload deployments share the control-plane account.
+WORKLOAD_ACCOUNT_ID = ACCOUNT_ID
 
 # Hostnames the host machine must resolve to a loopback address so it can
 # consume URLs (e.g. presigned S3 URLs) returned by services running inside
@@ -183,7 +184,8 @@ def ensure_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> Dict[str, Any]:
     """
     ensure_k3s_wrapper_image()
     eks = _get_client("eks")
-    try:
+
+    def _create() -> None:
         eks.create_cluster(
             name=name,
             roleArn=f"arn:aws:iam::{ACCOUNT_ID}:role/eks-role",
@@ -195,14 +197,37 @@ def ensure_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> Dict[str, Any]:
             version=os.environ.get("HMD_LOCAL_K3S_VERSION", "1.34"),
         )
         logger.info(f"Created k3s cluster: {name}")
+
+    try:
+        _create()
     except ClientError as e:
-        if e.response["Error"]["Code"] in (
+        if e.response["Error"]["Code"] not in (
             "ResourceInUseException",
             "ConflictException",
         ):
-            logger.debug(f"k3s cluster already exists: {name}")
-        else:
             raise
+        # A cluster with this name already exists in Floci's *persistent* store.
+        # Floci pins the node image into the cluster record at creation time, so
+        # a cluster created before the wrapper image was wired up (or against a
+        # stale/old image) keeps respawning that image and crash-loops on the
+        # bad --kube-apiserver-arg=storage-backend flag. If the spawned container
+        # is missing, stopped, or not the wrapper image we expect, recreate the
+        # cluster so Floci respawns it from the current
+        # FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
+        image = _k3s_container_image(name)
+        running = _k3s_container_running(name)
+        if image != K3S_WRAPPER_IMAGE or not running:
+            logger.warning(
+                f"Existing k3s cluster {name} is stale "
+                f"(image={image or 'missing'}, running={running}, "
+                f"expected={K3S_WRAPPER_IMAGE}); recreating to pick up the "
+                f"current wrapper image."
+            )
+            delete_k3s_cluster(name)
+            _wait_for_cluster_gone(name)
+            _create()
+        else:
+            logger.debug(f"k3s cluster already exists and healthy: {name}")
     return eks.describe_cluster(name=name)["cluster"]
 
 
@@ -226,6 +251,81 @@ def _k3s_host_port(name: str) -> str:
         return result.stdout.strip() if result.returncode == 0 else ""
     except (subprocess.SubprocessError, OSError):
         return ""
+
+
+def _k3s_container_image(name: str) -> str:
+    """Return the image the spawned ``floci-eks-<name>`` container was launched
+    with, or an empty string if the container is missing or docker is
+    unreachable.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                f"floci-eks-{name}",
+                "--format",
+                "{{.Config.Image}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
+def _k3s_container_running(name: str) -> bool:
+    """True if the spawned ``floci-eks-<name>`` container exists and is running."""
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                f"floci-eks-{name}",
+                "--format",
+                "{{.State.Running}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def _wait_for_cluster_gone(name: str, timeout: int = 60) -> None:
+    """Block until Floci reports the cluster no longer exists.
+
+    Floci's ``delete_cluster`` tears the k3s container down asynchronously; a
+    follow-up ``create_cluster`` issued too soon races the teardown and gets
+    another ``ResourceInUseException``. Poll ``describe_cluster`` until it 404s,
+    then force-remove any container Floci left behind.
+    """
+    eks = _get_client("eks")
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            eks.describe_cluster(name=name)
+        except ClientError as e:
+            if e.response["Error"]["Code"] in (
+                "ResourceNotFoundException",
+                "NotFoundException",
+            ):
+                break
+        time.sleep(2)
+    # Belt-and-suspenders: drop any lingering container so the recreate spawns
+    # fresh from the current FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", f"floci-eks-{name}"],
+            capture_output=True,
+            timeout=15,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass
 
 
 def _k3s_container_logs(name: str) -> str:
@@ -573,6 +673,73 @@ def provision_plugin_databases(local_loader) -> None:
             if not db_name:
                 continue
             _post_create_db_account(did, db_name, username, origin=plugin_name)
+
+
+def _psql(sql: str, dbname: str = "postgres") -> subprocess.CompletedProcess:
+    """Run a SQL statement in the hmd_db container as the postgres superuser."""
+    return subprocess.run(
+        [
+            "docker",
+            "exec",
+            "hmd_db",
+            "psql",
+            "-U",
+            "postgres",
+            "-d",
+            dbname,
+            "-tAc",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def ensure_core_databases_direct(timeout: int = 240) -> None:
+    """Guarantee the foundational control-plane databases/users exist.
+
+    ms-naming and ms-deployment are foundational to the local control plane and
+    their Lambdas connect with the local ``password == username`` convention.
+    The cloud-parity dbaccount path (`provision_plugin_databases`) can be flaky
+    against Floci's freshly-started API Gateway, so this creates the core
+    database + login role directly via psql as a deterministic fallback. Waits
+    for PostgreSQL to accept connections first, then runs idempotently.
+    """
+    # Wait for postgres to accept connections (container may still be running
+    # its entrypoint init on a cold boot).
+    start = time.time()
+    while time.time() - start < timeout:
+        if _psql("SELECT 1").returncode == 0:
+            break
+        time.sleep(2)
+    else:
+        logger.warning(
+            f"hmd_db not accepting connections after {timeout}s; "
+            f"cannot ensure core databases directly"
+        )
+        return
+
+    for db in CORE_DATABASES:
+        name = db["db_name"]
+        user = db["username"]
+        role_sql = (
+            f"DO $do$ BEGIN "
+            f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{user}') THEN "
+            f"CREATE ROLE \"{user}\" LOGIN PASSWORD '{user}'; "
+            f"END IF; END $do$;"
+        )
+        r = _psql(role_sql)
+        if r.returncode != 0:
+            logger.warning(f"Ensuring role {user} failed: {r.stderr.strip()}")
+        # CREATE DATABASE cannot run inside a DO block / transaction, so guard
+        # it with an existence check.
+        exists = _psql(f"SELECT 1 FROM pg_database WHERE datname = '{name}'")
+        if exists.stdout.strip() != "1":
+            c = _psql(f'CREATE DATABASE "{name}" OWNER "{user}";')
+            if c.returncode != 0:
+                logger.warning(f"Creating database {name} failed: {c.stderr.strip()}")
+        _psql(f'GRANT ALL PRIVILEGES ON DATABASE "{name}" TO "{user}";')
+        logger.info(f"Ensured core database/user '{name}' (direct psql)")
 
 
 def build_gozer_rds_secrets(local_loader) -> Dict[str, List[str]]:
@@ -940,14 +1107,12 @@ def write_nginx_config(
         extra_locations: Optional mapping of {path: upstream_url} for routes
             that bypass API Gateway (e.g., /argo/ → k3s NodePort).
     """
-    location_blocks = []
-    for service_name in services:
-        gw_id = api_id or services[service_name]
-        # Strip the `/{service_name}` prefix before proxying so the Lambda
-        # receives clean paths like `/api/foo` instead of
-        # `/{service_name}/api/foo` (which FastAPI would 404).
-        location_blocks.append(
-            f"""        location /{service_name}/ {{
+
+    def _api_location(path: str, gw_id: str) -> str:
+        # Strip the `/{path}` prefix before proxying so the Lambda receives
+        # clean paths like `/api/foo` instead of `/{path}/api/foo` (which
+        # FastAPI would 404).
+        return f"""        location /{path}/ {{
             proxy_pass http://neuronsphere:4566/restapis/{gw_id}/{stage}/_user_request_/;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -955,7 +1120,29 @@ def write_nginx_config(
             proxy_read_timeout 300s;
             proxy_connect_timeout 75s;
         }}"""
-        )
+
+    location_blocks = []
+    routed_paths = set()
+    for service_name in services:
+        gw_id = api_id or services[service_name]
+        location_blocks.append(_api_location(service_name, gw_id))
+        routed_paths.add(service_name)
+
+    # Instance-name aliases: the robot suites build their URL from
+    # HMD_INSTANCE_NAME, which may be `ms-deployment`, `ms_deployment`, or
+    # `hmd-ms-deployment` depending on how bender is invoked. Route all of them
+    # to the same gateway so the acceptance suite resolves regardless.
+    _SERVICE_ALIASES = {
+        "hmd_ms_deployment": ["ms-deployment", "ms_deployment", "hmd-ms-deployment"],
+        "hmd_ms_naming": ["ms-naming", "ms_naming", "hmd-ms-naming"],
+    }
+    for canonical, aliases in _SERVICE_ALIASES.items():
+        if canonical in services:
+            gw_id = api_id or services[canonical]
+            for alias in aliases:
+                if alias not in routed_paths:
+                    location_blocks.append(_api_location(alias, gw_id))
+                    routed_paths.add(alias)
 
     # Argo is enabled by default; expose its UI/API at /argo/.
     if extra_locations is None and os.environ.get(

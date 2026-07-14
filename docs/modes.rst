@@ -5,30 +5,130 @@ Operating Modes
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.
 
-Platform Mode (Default)
------------------------
+Extend Mode (Default)
+---------------------
 
-Platform mode is the default. It starts all enabled plugins as Docker Compose
-services and uses **Floci** for AWS emulation (S3, DynamoDB, SQS, Lambda, API
-Gateway).
+Extend mode is the default. It brings up a **minimal core** that mirrors the
+cloud control plane and deploys services through a DAG-based workflow, rather
+than starting the whole platform as Docker Compose containers.
+
+**The minimal core** — everything ``hmd neuronsphere up`` starts by default:
+
+- a Docker network (``neuronsphere_default``);
+- a single **Floci** instance emulating the AWS account (S3, DynamoDB, SQS,
+  Lambda, API Gateway, IAM, ECR, EKS, Secrets Manager, RDS on port 4566);
+- the core databases (PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment``
+  created directly);
+- a **k3s** cluster on Floci's EKS emulation;
+- the **deployment control plane** — ``hmd-ms-deployment``, ``hmd-ms-naming``,
+  and ``hmd-ms-dbaccount`` as Floci Lambdas behind the nginx proxy;
+- the **graph database** (Neptune/JanusGraph), treated as foundational infra
+  (opt out with ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false``).
+
+Everything else — Airflow, Trino, Superset, ``hmd-ms-transform``, Jupyter,
+ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
+**optional plugin, off by default** (see `Local core vs optional plugins`_).
 
 **How it works:**
 
-1. Plugins are discovered from entry points and ``HMD_REPO_HOME``.
-2. Each enabled plugin's ``compose_file`` is rendered and composed together.
-3. ``docker compose up`` starts all services.
-4. Floci provisions AWS resources declared by plugins (queues, buckets, tables).
-5. Services with ``deploy_as_lambda`` are deployed as Lambda functions behind
-   Floci's API Gateway.
-6. Services are registered with ``ms-naming`` for discovery.
+1. The core containers (``db``, ``floci``, ``proxy``, plus ``graph``) start.
+2. Floci provisions the core databases; the control-plane Lambdas deploy behind
+   the API Gateway proxy.
+3. On the **first** ``up`` (bootstrap), the base NERD0004 ResourceDefinition
+   catalog is seeded (``seed_base_resource_definitions``) and the concrete local
+   Resources — the Docker network and the k3s cluster — are submitted, tagged
+   ``environment=local``, so cloud repos that declare a resource dependency
+   resolve against the local environment (see `Cloud parity via NERD0004`_).
+4. A ``LocalWorkflowRunner`` executes any deployment DAG using
+   ``hmd-img-projectbuilder`` containers, running the same ``hmd deploy``
+   commands used by Argo Workflows in the cloud. CDKTF targets Floci's AWS APIs;
+   Helm deploys to Floci's EKS (k3s).
+5. A subsequent ``down`` then ``up`` takes a **restart fast-path** — the
+   persistent Floci/PostgreSQL state is reused and the BOM/DAG is not re-run.
 
-**To use Platform mode** (no action required -- it is the default):
+**To use Extend mode** (no action required -- it is the default):
 
 .. code-block:: bash
 
     hmd neuronsphere up
 
-Or explicitly:
+.. note::
+
+   For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=deploy`` is
+   still accepted and maps to Extend mode.
+
+Local core vs optional plugins
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The core above is always on. Every other app/infra service is opt-in and
+enabled per user, two ways:
+
+- **Env flag:** ``export HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>=true`` (e.g.
+  ``HMD_LOCAL_NEURONSPHERE_ENABLE_TRINO=true``) before ``hmd neuronsphere up``.
+- **Interactive:** ``hmd neuronsphere configure`` lists the optional plugins,
+  persists the choices to ``$HMD_HOME/.config/hmd.env``, and shows the always-on
+  core.
+
+Cloud parity via NERD0004
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Because ``hmd-ms-deployment`` implements NERD0004 (Resources), local ``up``
+records the things it actually created as concrete **Resources** typed by the
+base catalog (``network.neuronsphere.io/docker-network``,
+``kubernetes.neuronsphere.io/kubernetes-cluster``,
+``compute.neuronsphere.io/compute-node``).
+
+All local default/core Resources are owned by a single RepoClass —
+``hmd-cli-neuronsphere`` itself, the thing that bootstraps them. It is seeded as
+BOM entry #0: a ``local-k3s`` instance (deployed via the ``skip`` strategy) that
+``apply_changeset`` creates as a real environment **producer**, declared to
+produce the three core types before the changeset applies. A cloud repo whose
+``manifest.json`` declares a ``resource`` dependency on those supertypes then
+resolves against ``local-k3s`` — the same RepoClass deploys against a real
+VPC/EKS in the cloud and against the Docker network / k3s locally without
+changing its dependency. Discover the Resources with
+``GET /apiop/find_resources_by_tag/environment/local``.
+
+.. note::
+
+   A dependency role may carry **both** a cloud ``repo_class_name`` (a
+   suggestion) and an authoritative ``resource`` block. Locally, where the cloud
+   RepoClass (e.g. ``hmd-inf-eks-cluster``) isn't registered, ``hmd-ms-deployment``
+   silently ignores the suggestion and resolves the ``resource`` against the
+   local producer — so one shared manifest works in both environments.
+
+External Secrets local dev-deploy loop
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Setting ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=true`` before
+``hmd neuronsphere up`` deploys ``hmd-inf-ext-secrets-crds`` then
+``hmd-inf-ext-secrets`` onto the local k3s cluster through
+``hmd-img-projectbuilder`` — the same tool and ``hmd deploy`` path used in the
+cloud. Their ``eks-cluster`` / ``compute`` dependencies resolve against the
+``local-k3s`` producer via their manifests' SPEC0008 ``resource`` blocks, and
+each repo's produced Resource output (rendered by ``src/helm/templates/
+resource-outputs.yaml`` and submitted by ``hmd deploy``) is tracked in
+``hmd-ms-deployment``:
+
+.. code-block:: bash
+
+   HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=true hmd neuronsphere up
+   # then, against http://localhost/hmd_ms_deployment
+   #   GET /apiop/get_deployment_resources/<ext-secrets rid>
+   #       -> the external-secrets-operator Resource + outputs
+   #   GET /apiop/list_resource_definitions?resource_namespace=external-secrets.neuronsphere.io
+
+``hmd-inf-ext-secrets`` ships a Floci-safe ``src/local/cdktf`` overlay so its
+AWS-only IRSA/IAM step is a no-op locally while the Helm install still runs.
+This validates a local dev-deploy loop close to cloud parity; the two repos are
+intended to move into the default bootstrap once proven.
+
+Platform Mode
+-------------
+
+Platform mode is the legacy compose-everything path: it starts all enabled
+plugins as Docker Compose services. It is no longer the default; prefer Extend
+mode with opt-in plugins. Select it explicitly:
 
 .. code-block:: bash
 
@@ -39,37 +139,6 @@ Or explicitly:
 
    For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=legacy`` is
    still accepted and maps to Platform mode.
-
-Extend Mode
------------
-
-Extend mode is under development and will be available in a future release.
-When complete, it will start an admin control plane and deploy services
-through a DAG-based workflow, mirroring the cloud deployment architecture.
-
-**Planned architecture:**
-
-- An admin control plane (Floci, ``hmd-ms-deployment``, ``hmd-ms-naming``,
-  PostgreSQL) starts first.
-- A Platform BOM (Bill of Materials) defines all required RepoClasses.
-- A ``LocalWorkflowRunner`` executes the deployment DAG using
-  ``hmd-img-projectbuilder`` containers, running the same ``hmd deploy``
-  commands used by Argo Workflows in the cloud.
-- CDKTF targets Floci's AWS APIs. Helm deploys to Floci's EKS (k3s).
-- Only genuinely unsupported services (e.g., Neptune) use a Docker Compose
-  substitute.
-
-**To use Extend mode:**
-
-.. code-block:: bash
-
-    export HMD_LOCAL_NEURONSPHERE_MODE=extend
-    hmd neuronsphere up
-
-.. note::
-
-   For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=deploy`` is
-   still accepted and maps to Extend mode.
 
 See :doc:`proposals/NERD001_Floci_Local_Architecture` for the full
 specification.

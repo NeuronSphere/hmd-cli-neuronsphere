@@ -1,4 +1,8 @@
 {
+    "hmd-cli-neuronsphere": {
+        "strategy": "skip",
+        "reason": "The CLI itself is the RepoClass that owns local core resources (docker-network, k3s cluster, compute pool); its BOM node only anchors the producing instance and is never executed"
+    },
     "hmd-app-airflow": {
         "strategy": "default",
         "reason": "CDKTF + Helm deploys to k3s EKS cluster"
@@ -76,12 +80,12 @@
         "reason": "EKS node groups not applicable on k3s"
     },
     "hmd-inf-ext-secrets": {
-        "strategy": "skip",
-        "reason": "External Secrets operator installed onto k3s at `up` time (k3s_operators), pointed at Floci Secrets Manager; DAG re-deploy is a no-op"
+        "strategy": "default",
+        "reason": "Opt-in (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS): deploy the External Secrets operator through the ms-deployment DAG in projectbuilder (Helm onto k3s; cdktf no-op via src/local overlay), exercising the local dev-deploy loop + NERD0004/0006 resource tracking"
     },
     "hmd-inf-ext-secrets-crds": {
-        "strategy": "skip",
-        "reason": "External Secrets CRDs installed onto k3s at `up` time (k3s_operators); DAG re-deploy is a no-op"
+        "strategy": "default",
+        "reason": "Opt-in (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS): deploy the External Secrets CRDs through the ms-deployment DAG in projectbuilder (Helm onto k3s)"
     },
     "hmd-inf-clickhouse-operator": {
         "strategy": "skip",

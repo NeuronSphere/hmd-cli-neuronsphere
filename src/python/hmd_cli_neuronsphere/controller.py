@@ -75,12 +75,27 @@ class LocalController(Controller):
                     "dest": "verbose",
                 },
             ),
+            (
+                ["--purge"],
+                {
+                    "help": (
+                        "Also delete persisted Floci/PostgreSQL state and the "
+                        "bootstrap marker so the next `up` re-runs the full "
+                        "deployment workflow (extend mode)."
+                    ),
+                    "action": "store_true",
+                    "dest": "purge",
+                },
+            ),
         ],
     )
     def down(self):
         from .hmd_cli_neuronsphere import stop_neuronsphere
 
-        stop_neuronsphere(verbose=self.app.pargs.verbose)
+        stop_neuronsphere(
+            verbose=self.app.pargs.verbose,
+            purge=getattr(self.app.pargs, "purge", False),
+        )
 
     @ex(
         help="Restart the local NeuronSphere",
@@ -324,6 +339,7 @@ class LocalController(Controller):
         from InquirerPy import inquirer
 
         from .loaders import LocalPluginLoader
+        from .loaders.local_plugin_loader import CORE_PLUGINS
 
         load_hmd_env()
 
@@ -331,12 +347,19 @@ class LocalController(Controller):
         choices = []
         plugin_env_vars = {}  # plugin_name -> env_var_name
 
-        # Bundled plugins (from entry points, skip "main")
+        # Bundled plugins (from entry points). "main" and the CORE_PLUGINS
+        # (floci, graph) make up the always-on local core (network + Floci +
+        # DBs + k3s + control plane + graph) and are not user-toggleable — every
+        # other app/infra plugin is opt-in (off by default).
         from .plugins.base import load_nsplugin_config
 
+        always_on = []
         bundled_eps = get_entry_points(group="hmd_cli_neuronsphere.enabled")
         for ep in sorted(bundled_eps, key=lambda e: e.name):
             if ep.name == "main":
+                continue
+            if ep.name in CORE_PLUGINS:
+                always_on.append(ep.name)
                 continue
             env_var = f"HMD_LOCAL_NEURONSPHERE_ENABLE_{ep.name.upper()}"
             env_val = os.environ.get(env_var)
@@ -344,7 +367,7 @@ class LocalController(Controller):
                 enabled = env_val.lower() == "true"
             else:
                 bundled_config = load_nsplugin_config(ep.name)
-                enabled = (bundled_config or {}).get("enabled_by_default", True)
+                enabled = (bundled_config or {}).get("enabled_by_default", False)
             choices.append({"name": ep.name, "value": ep.name, "enabled": enabled})
             plugin_env_vars[ep.name] = env_var
 
@@ -374,9 +397,15 @@ class LocalController(Controller):
             plugin_env_vars[name] = env_var
 
         # --- Prompt ---
+        print(
+            "\nAlways on (local core): network, Floci, databases, k3s, "
+            "deployment control plane"
+            + (f", {', '.join(sorted(always_on))}" if always_on else "")
+        )
+        print("Everything below is optional and off by default.\n")
         if choices:
             selected = inquirer.checkbox(
-                message="Select plugins to enable:",
+                message="Select optional plugins to enable:",
                 choices=choices,
             ).execute()
             selected_set = set(selected)

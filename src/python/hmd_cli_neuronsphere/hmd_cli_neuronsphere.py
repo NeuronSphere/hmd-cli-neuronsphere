@@ -101,6 +101,64 @@ def _wait_for_service(url: str, timeout: int = 180):
     logger.warning(f"Service at {url} not ready after {timeout}s")
 
 
+def _wait_for_hmd_db(timeout: int = 120) -> bool:
+    """Wait until the `hmd_db` PostgreSQL container is accepting connections.
+
+    The dbaccount Lambda provisions per-service databases by connecting to
+    `hmd_db` over the Docker network. If provisioning runs before postgres is
+    up (and registered in Docker DNS), the Lambda fails with a name-resolution
+    or connection error and the service databases are never created. Polling
+    `pg_isready` here removes that race (previously masked incidentally by the
+    now-removed workload-Floci wait).
+
+    :returns: True once ready, False if the timeout elapses.
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        result = subprocess.run(
+            ["docker", "exec", "hmd_db", "pg_isready", "-U", "postgres"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return True
+        time.sleep(2)
+    logger.warning(f"hmd_db not ready after {timeout}s")
+    return False
+
+
+def _reload_nginx() -> None:
+    """Signal the hmd_proxy nginx to reload its config."""
+    _exec(
+        ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
+        capture=True,
+        quiet=True,
+    )
+
+
+def _ensure_nginx_routed(check_url: str, attempts: int = 12, delay: int = 2) -> bool:
+    """Reload nginx and confirm a service route is actually being served.
+
+    An `nginx -s reload` right after writing the config occasionally does not
+    take effect on the first try (the running config keeps serving the catch-all
+    404). Callers depend on the route being live before probing the service, so
+    reload-and-verify: if a POST to ``check_url`` still hits the catch-all
+    (`{"error": "no route defined"}`), reload again. Any real backend response
+    (even a Lambda cold-start error) means the route is wired.
+    """
+    for _ in range(attempts):
+        _reload_nginx()
+        try:
+            resp = requests.post(check_url, json={}, timeout=5)
+            if '"no route defined"' not in resp.text:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(delay)
+    logger.warning(f"nginx route not live after {attempts} reloads: {check_url}")
+    return False
+
+
 def _wait_for_ms_deployment(base_url: str, timeout: int = 180):
     """Poll ms-deployment by exercising the hmd_lang_deployment.environment CRUD path.
 
@@ -707,9 +765,91 @@ def _seed_telemetry_profiles(
 
 
 def _resolve_mode() -> str:
-    """Resolve the operating mode, mapping legacy names to current names."""
-    mode = os.environ.get("HMD_LOCAL_NEURONSPHERE_MODE", "platform")
+    """Resolve the operating mode, mapping legacy names to current names.
+
+    Extend mode (single-Floci control plane with DAG-based deployment) is the
+    default. The legacy compose-only path is still reachable via
+    ``HMD_LOCAL_NEURONSPHERE_MODE=platform`` (or the deprecated ``legacy``).
+    """
+    mode = os.environ.get("HMD_LOCAL_NEURONSPHERE_MODE", "extend")
     return {"legacy": "platform", "deploy": "extend"}.get(mode, mode)
+
+
+# ── Bootstrap state ─────────────────────────────────────────────────────────
+# The first `up` fully bootstraps the deployment graph (seeds the BOM and runs
+# the deployment DAG, which deploys repo classes into Floci/k3s). Subsequent
+# `up`s after a `down` must NOT re-run that expensive workflow — Floci storage
+# (`FLOCI_STORAGE_MODE: persistent`) and the PostgreSQL bind mount preserve the
+# deployment state, so we only restart containers and re-wire the Lambda/proxy
+# routing. A marker file records that a successful bootstrap happened; the
+# ms-deployment graph itself is the authoritative fallback if the marker is
+# missing but the persisted data survived.
+
+
+def _bootstrap_marker_path() -> Path:
+    return _hmd_home / ".cache" / "neuronsphere" / "bootstrap.json"
+
+
+def _read_bootstrap_marker() -> Optional[Dict]:
+    path = _bootstrap_marker_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _write_bootstrap_marker(csd_nid: str, mode: str = "extend") -> None:
+    path = _bootstrap_marker_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"mode": mode, "csd_nid": csd_nid}, indent=2))
+    except OSError as e:
+        logger.warning(f"Could not write bootstrap marker: {e}")
+
+
+def _clear_bootstrap_marker() -> None:
+    try:
+        _bootstrap_marker_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _ms_deployment_has_completed_csd(base_url: str) -> bool:
+    """Return True if ms-deployment already has a COMPLETED ChangeSetDeployment.
+
+    Authoritative signal that a prior `up` fully bootstrapped the deployment
+    graph. Any connection/parse error (e.g. the service isn't deployed yet)
+    is treated as "not bootstrapped" so the caller falls back to a full
+    bootstrap, which is the safe default.
+    """
+    url = f"{base_url}/api/hmd_lang_deployment.change_set_deployment"
+    try:
+        resp = requests.post(url, json={}, timeout=10)
+        if resp.status_code != 200:
+            return False
+        records = resp.json()
+        if not isinstance(records, list):
+            records = records.get("items", []) if isinstance(records, dict) else []
+        for rec in records:
+            if isinstance(rec, dict) and rec.get("csd_status") == "COMPLETED":
+                return True
+    except (requests.RequestException, ValueError):
+        return False
+    return False
+
+
+def _is_already_bootstrapped(base_url: str) -> bool:
+    """Decide whether the deployment workflow has already run for this env.
+
+    Fast path: the local marker file (written at the end of a successful
+    bootstrap, cleared only by `down --purge`). Fallback: query the persisted
+    ms-deployment graph for a COMPLETED ChangeSetDeployment.
+    """
+    if _read_bootstrap_marker() is not None:
+        return True
+    return _ms_deployment_has_completed_csd(base_url)
 
 
 def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = False):
@@ -798,11 +938,25 @@ def start_neuronsphere_extend(verbose: bool = False):
                 compose_files.append(str(compose_path))
                 print_step(f"  compose_substitute (plugin): {plugin_name}")
 
+    # Graph (Neptune/JanusGraph) is part of the local core: the minimal default
+    # is network + Floci + core DBs + k3s + deployment control plane + graph.
+    # Every other app/infra service is opt-in. Users can drop graph with
+    # HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false.
+    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH", "true").lower() not in (
+        "false",
+        "0",
+        "no",
+    ):
+        graph_compose = services_dir / "docker-compose.graph.yml"
+        if graph_compose.exists() and str(graph_compose) not in compose_files:
+            compose_files.append(str(graph_compose))
+            os.makedirs(_hmd_home / "graph_db", exist_ok=True)
+            print_step("  core: graph (JanusGraph/Neptune)")
+
     # Ensure cache directories and Floci data dirs
     cache_dir = _hmd_home / ".cache"
     os.makedirs(cache_dir / "nginx", exist_ok=True)
     os.makedirs(_hmd_home / "floci" / "data", exist_ok=True)
-    os.makedirs(_hmd_home / "floci" / "workload-data", exist_ok=True)
 
     # Write a placeholder nginx config (will be rewritten after Lambda deployment)
     placeholder_nginx = cache_dir / "nginx" / "neuronsphere.conf"
@@ -822,12 +976,12 @@ def start_neuronsphere_extend(verbose: bool = False):
         quiet=not verbose,
     )
 
-    # Phase 1: bring up only foundation services (db, floci, floci-workload, proxy).
+    # Phase 1: bring up only foundation services (db, floci, proxy).
     # Lambda-deployed services (ms-naming, ms-deployment, HMDMS plugins) are
     # provisioned after dbaccount creates their DBs.
     print_step("Starting foundation containers...")
     quiet = not verbose
-    phase1_services = ["db", "floci", "floci-workload", "proxy"]
+    phase1_services = ["db", "floci", "proxy"]
     command = [
         *_get_base_command(compose_files, quiet=quiet),
         "up",
@@ -845,8 +999,8 @@ def start_neuronsphere_extend(verbose: bool = False):
     else:
         _exec(command)
 
-    # Wait for both Floci instances to be healthy
-    print_step("Waiting for Floci (admin)...")
+    # Wait for the single Floci instance to be healthy
+    print_step("Waiting for Floci...")
     try:
         wait_for_floci()
     except RuntimeError as e:
@@ -855,18 +1009,19 @@ def start_neuronsphere_extend(verbose: bool = False):
         print_header("Ready (degraded)")
         return
 
-    print_step("Waiting for Floci (workload)...")
-    workload_endpoint = os.environ.get(
-        "FLOCI_WORKLOAD_ENDPOINT", "http://localhost:4567"
-    )
-    try:
-        wait_for_floci(endpoint=workload_endpoint)
-    except RuntimeError as e:
-        logger.warning(f"Workload Floci not ready: {e}")
-        print(f"  Warning: Workload Floci: {e}")
+    # Wait for PostgreSQL before provisioning: the dbaccount Lambda creates the
+    # per-service databases by connecting to `hmd_db`, so it must be up and
+    # registered in Docker DNS first (otherwise DB provisioning races and the
+    # service databases are never created).
+    print_step("Waiting for PostgreSQL (hmd_db)...")
+    _wait_for_hmd_db()
 
     # Aggregate HMDMS-service buckets into Floci resources and provision
-    from .floci_deployer import provision_resources, provision_plugin_databases
+    from .floci_deployer import (
+        provision_resources,
+        provision_plugin_databases,
+        ensure_core_databases_direct,
+    )
 
     extend_resources: Dict[str, List] = {"s3_buckets": []}
     _aggregate_hmdms_resources(local_loader, extend_resources)
@@ -899,6 +1054,12 @@ def start_neuronsphere_extend(verbose: bool = False):
             "skipping DB provisioning. Lambdas may fail to connect to their DBs."
         )
 
+    # Guarantee the foundational control-plane databases exist even if the
+    # dbaccount/Floci path was flaky (the ms-naming and ms-deployment Lambdas
+    # can't start without them). Deterministic, idempotent, no API dependency.
+    print_step("Ensuring core control-plane databases...")
+    ensure_core_databases_direct()
+
     # Phase 2: bring up any compose_substitute application containers now
     # that DBs exist.
     print_step("Starting application containers...")
@@ -919,6 +1080,7 @@ def start_neuronsphere_extend(verbose: bool = False):
         _exec(command)
 
     # Create the k3s cluster on Floci EKS (shared with platform mode behavior)
+    k3s_cluster_name = None
     if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_K3S", "true").lower() not in (
         "false",
         "0",
@@ -928,6 +1090,7 @@ def start_neuronsphere_extend(verbose: bool = False):
         try:
             ensure_k3s_cluster()
             wait_for_k3s_ready()
+            k3s_cluster_name = K3S_CLUSTER_NAME
             kubeconfig_path = write_kubeconfig()
             os.environ["KUBECONFIG"] = str(kubeconfig_path)
             print_step(f"  k3s ready (kubeconfig: {kubeconfig_path})")
@@ -1039,66 +1202,125 @@ def start_neuronsphere_extend(verbose: bool = False):
 
     print_step("Configuring API Gateway proxy...")
     write_nginx_config(service_api_ids, placeholder_nginx)
-    _exec(
-        ["docker", "exec", "hmd_proxy", "nginx", "-s", "reload"],
-        capture=True,
-        quiet=True,
-    )
+    # Reload-and-verify: confirm the ms-deployment route is actually served
+    # before seeding (an initial reload occasionally doesn't take effect).
+    if ms_deployment_available:
+        _ensure_nginx_routed(
+            "http://localhost/hmd_ms_deployment/api/hmd_lang_deployment.environment"
+        )
+    else:
+        _reload_nginx()
 
     if ms_deployment_available:
+        ms_deployment_url = "http://localhost/hmd_ms_deployment"
         # Poll ms-deployment readiness through the proxy
         print_step("Waiting for ms-deployment...")
-        _wait_for_ms_deployment("http://localhost/hmd_ms_deployment")
+        _wait_for_ms_deployment(ms_deployment_url)
 
-        # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
-        # before the BOM seeder runs (so any BOM references resolve cleanly)
-        if hmdms_deployed:
+        # Restart fast-path: if a prior `up` already bootstrapped the deployment
+        # graph, the Floci + PostgreSQL persistent state still holds every
+        # RepoInstanceDeployment. Re-seeding the BOM would create duplicate
+        # changesets, and re-running the DAG would redeploy everything to
+        # Floci/k3s again — exactly what a restart must avoid. The Lambda/proxy
+        # wiring above already re-ran (idempotent), so the control plane is live.
+        if _is_already_bootstrapped(ms_deployment_url):
             print_step(
-                f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
+                "Already bootstrapped — restarting existing deployment "
+                "(skipping BOM seeding and DAG execution)."
             )
-            try:
-                from .hmdms_seeder import seed_hmdms_services
-
-                seed_hmdms_services(
-                    "http://localhost/hmd_ms_deployment",
-                    hmdms_deployed,
-                )
-            except Exception as e:
-                logger.warning(f"HMDMS service seeding failed: {e}")
-                print(f"  Warning: HMDMS service seeding failed: {e}")
-
-        # Seed deployment graph from BOM and apply changeset
-        bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
-        if bom_file:
-            print_step(f"Seeding deployment graph from {bom_file}...")
         else:
-            print_step("Seeding deployment graph (built-in BOM)...")
+            # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
+            # before the BOM seeder runs (so any BOM references resolve cleanly)
+            if hmdms_deployed:
+                print_step(
+                    f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
+                )
+                try:
+                    from .hmdms_seeder import seed_hmdms_services
 
-        from .bom_seeder import seed_bom
-        from .local_workflow_runner import LocalWorkflowRunner
+                    seed_hmdms_services(ms_deployment_url, hmdms_deployed)
+                except Exception as e:
+                    logger.warning(f"HMDMS service seeding failed: {e}")
+                    print(f"  Warning: HMDMS service seeding failed: {e}")
 
-        ms_deployment_url = "http://localhost/hmd_ms_deployment"
-        try:
-            csd_nid, nodes = seed_bom(ms_deployment_url)
-            print_step(f"  {len(nodes)} deployment nodes")
+            # Seed the standard base ResourceDefinition catalog (NERD0004) so
+            # per-repo concrete definitions that parent these supertypes resolve
+            # cleanly. Idempotent and non-fatal.
+            print_step("Seeding base resource definitions...")
+            try:
+                from .bom_seeder import seed_base_resource_definitions
 
-            # Execute deployment DAG locally
-            print_step("Running local deployments...")
-            runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
-            success = runner.run(csd_nid, nodes)
-            if not success:
-                print("\n  Warning: Some deployments failed")
-        except Exception as e:
-            logger.warning(f"BOM seeding/deployment failed: {e}")
-            print(f"\n  Warning: Deployment failed: {e}")
+                seeded = seed_base_resource_definitions(ms_deployment_url)
+                print_step(f"  {len(seeded)} base resource definitions")
+            except Exception as e:
+                logger.warning(f"Base resource definition seeding failed: {e}")
+                print(f"  Warning: base resource definition seeding failed: {e}")
+
+            # Best-effort starter-BOM seeding + DAG execution. This is NOT
+            # required for the control plane to function (the deployment tests
+            # seed their own data); it only pre-populates a starter graph. Any
+            # failure here is non-fatal.
+            bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
+            if bom_file:
+                print_step(f"Seeding deployment graph from {bom_file}...")
+            else:
+                print_step("Seeding deployment graph (built-in BOM)...")
+
+            from .bom_seeder import seed_bom
+            from .local_workflow_runner import LocalWorkflowRunner
+
+            csd_nid = None
+            nodes = []
+            try:
+                csd_nid, nodes = seed_bom(ms_deployment_url)
+                print_step(f"  {len(nodes)} deployment nodes")
+
+                # Execute deployment DAG locally
+                print_step("Running local deployments...")
+                runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
+                if not runner.run(csd_nid, nodes):
+                    print("\n  Warning: Some deployments failed")
+            except Exception as e:
+                logger.warning(f"Starter-BOM seeding failed (non-fatal): {e}")
+                print(f"\n  Warning: starter-BOM seeding failed (non-fatal): {e}")
+
+            # Submit the concrete Resources the local core actually created (the
+            # Docker network and, when present, the k3s cluster + compute pool) as
+            # NERD0004 Resources tagged environment=local, attached to the
+            # `local-k3s` (hmd-cli-neuronsphere) instance created by the changeset.
+            # Cloud repos whose manifest.json declares a resource dependency then
+            # resolve against the local environment — real local↔cloud parity.
+            # Non-fatal.
+            print_step("Submitting local core resources...")
+            try:
+                from .bom_seeder import (
+                    build_local_core_resources,
+                    submit_local_resources,
+                )
+
+                local_resources = build_local_core_resources(
+                    cluster_name=k3s_cluster_name,
+                )
+                count = submit_local_resources(
+                    ms_deployment_url, local_resources, nodes
+                )
+                print_step(f"  {count} local resource(s) submitted")
+            except Exception as e:
+                logger.warning(f"Local resource submission failed (non-fatal): {e}")
+                print(f"  Warning: local resource submission failed: {e}")
+
+            # The control plane (Floci + DBs + ms-deployment/ms-naming Lambdas +
+            # routing) is up. Record the bootstrap independent of the best-effort
+            # starter BOM so subsequent `up`s take the restart fast-path and skip
+            # the expensive Lambda/DAG setup above.
+            _write_bootstrap_marker(csd_nid or "control-plane")
     else:
         print_step("Skipping ms-deployment readiness/seeding (Lambda not deployed)")
 
     print_header("Ready")
     print(f"\n  ms-deployment:    http://localhost/hmd_ms_deployment/")
     print(f"  ms-naming:        http://localhost/hmd_ms_naming/")
-    print(f"  Floci (admin):    http://localhost:4566")
-    print(f"  Floci (workload): http://localhost:4567")
+    print(f"  Floci:            http://localhost:4566")
     print(f"  PostgreSQL:       localhost:5432\n")
 
 
@@ -1328,8 +1550,8 @@ def start_neuronsphere_platform(
 
     # Phase 1: bring up only foundation services (db, floci, proxy).
     # Application services start in phase 2 after dbaccount has provisioned
-    # their DBs (cloud-parity flow). Platform mode has only one Floci instance
-    # (extend mode has both `floci` and `floci-workload`).
+    # their DBs (cloud-parity flow). Both platform and extend modes now run a
+    # single Floci instance.
     print_step("Starting foundation containers...")
     phase1_services = ["db", "floci", "proxy"]
     command = [
@@ -1593,19 +1815,41 @@ def _get_cached_compose_files(include_local_services: bool = False):
     return compose_files
 
 
-def stop_neuronsphere(verbose: bool = False):
+def stop_neuronsphere(verbose: bool = False, purge: bool = False):
     mode = _resolve_mode()
     if mode == "extend":
-        stop_neuronsphere_extend(verbose=verbose)
+        stop_neuronsphere_extend(verbose=verbose, purge=purge)
     else:
         stop_neuronsphere_platform(verbose=verbose)
 
 
-def stop_neuronsphere_extend(verbose: bool = False):
+def _purge_persistent_state(verbose: bool = False) -> None:
+    """Remove persisted Floci/PostgreSQL state and the bootstrap marker.
+
+    Forces the next `up` to re-run the full bootstrap workflow. Called only
+    for `down --purge`; a plain `down` preserves this state so restarts are
+    fast.
+    """
+    print_step("Purging persistent state (Floci data, PostgreSQL data, marker)...")
+    _clear_bootstrap_marker()
+    for rel in ("floci/data", "postgresql/data"):
+        target = _hmd_home / rel
+        try:
+            if target.exists():
+                shutil.rmtree(target)
+                if verbose:
+                    print(f"  removed {target}")
+        except OSError as e:
+            logger.warning(f"Could not remove {target}: {e}")
+
+
+def stop_neuronsphere_extend(verbose: bool = False, purge: bool = False):
     """Stop NeuronSphere in extend mode.
 
-    Tears down the admin control plane (Floci, PostgreSQL, nginx) and any
+    Tears down the single-Floci control plane (Floci, PostgreSQL, nginx) and any
     compose_substitute services. Lambda functions are cleaned up when Floci stops.
+    When ``purge`` is set, also removes the persisted Floci/PostgreSQL state and
+    the bootstrap marker so the next ``up`` re-runs the full deployment workflow.
     """
     from .local_storage_provisioner import load_local_overrides
 
@@ -1658,6 +1902,9 @@ def stop_neuronsphere_extend(verbose: bool = False):
         capture=True,
         quiet=not verbose,
     )
+
+    if purge:
+        _purge_persistent_state(verbose=verbose)
 
     print_shutdown_summary()
 

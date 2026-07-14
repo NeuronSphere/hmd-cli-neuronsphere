@@ -42,7 +42,7 @@ Verify Extend Containers Stopped
 
 Extend Mode Starts Admin Control Plane
     [Tags]    integration    extend-mode
-    [Documentation]    Floci (admin + workload), PostgreSQL, and nginx containers start in extend mode.
+    [Documentation]    Single Floci, PostgreSQL, and nginx containers start in extend mode.
     Start Local NeuronSphere
     Verify Extend Containers Running    ${EXTEND_ADMIN_RUNNING_CONTAINERS}
 
@@ -53,21 +53,29 @@ Extend Mode ms-deployment Responds
     Wait Until Keyword Succeeds    2 min    10 sec
     ...    Service Should Respond    http://host.docker.internal/hmd_ms_deployment/
 
-Extend Mode Starts Compose Substitutes
+Extend Mode Starts Core Graph
     [Tags]    integration    extend-mode
-    [Documentation]    JanusGraph starts as compose_substitute for Neptune.
+    [Documentation]    JanusGraph (Neptune substitute) is part of the minimal core.
     Verify Extend Containers Running    ${EXTEND_SUBSTITUTE_CONTAINERS}
 
+Extend Mode Default Excludes Optional Plugins
+    [Tags]    integration    extend-mode
+    [Documentation]    The default `up` is a minimal core: no opt-in app/infra plugin
+    ...    container (Trino, Airflow, Superset, transform, Jupyter, ClickHouse,
+    ...    Hive, telemetry, MinIO, DynamoDB) is running.
+    Verify Extend Containers Stopped    ${OPTIONAL_RUNNING_CONTAINERS}
+
 # ═══════════════════════════════════════════════════════════════
-# Workload Floci
+# Single Floci Environment
 # ═══════════════════════════════════════════════════════════════
 
-Extend Mode Workload Floci Running
+Extend Mode Runs Single Floci
     [Tags]    integration    extend-mode    phase2
-    [Documentation]    Workload Floci instance runs on port 4567 with separate account.
-    Container Should Be Running    floci-workload
+    [Documentation]    The former split admin/workload Floci is collapsed into one
+    ...    instance on port 4566; no separate floci-workload container exists.
     Wait Until Keyword Succeeds    2 min    10 sec
-    ...    Service Should Respond    http://localhost:4567/_floci/health
+    ...    Service Should Respond    http://localhost:4566/_floci/health
+    Container Should Not Be Running    floci-workload
 
 # ═══════════════════════════════════════════════════════════════
 # BOM File Loading
@@ -107,7 +115,7 @@ Extend Mode VPC Marked Deployed
 
 Extend Mode S3Bucket Deployed
     [Tags]    integration    extend-mode    phase2
-    [Documentation]    hmd-inf-s3bucket deploys via CDKTF against workload Floci.
+    [Documentation]    hmd-inf-s3bucket deploys via CDKTF against the single Floci.
     ${status}=    Get Instance Deployment Status    ch-storage    local
     Should Be Equal    ${status}    DEPLOYED
 
@@ -117,6 +125,29 @@ Extend Mode All Entries Have Status
     ...    LocalWorkflowRunner and have a final status (not stuck at DEPLOY_NEXT).
     ${bom}=    Get Deployment BOM    local
     All BOM Entries Should Have Final Status    ${bom}
+
+# ═══════════════════════════════════════════════════════════════
+# NERD0004 — local Resources submitted for cloud parity
+# ═══════════════════════════════════════════════════════════════
+
+Extend Mode Submits Local Core Resources
+    [Tags]    integration    extend-mode    phase2    nerd0004
+    [Documentation]    Bootstrap seeds the base ResourceDefinition catalog and submits
+    ...    the concrete local Resources (Docker network + k3s cluster), tagged
+    ...    environment=local, so cloud repos' resource dependencies resolve locally.
+    ${resources}=    Find Resources By Tag    environment    local
+    Should Not Be Empty    ${resources}
+    ...    msg=Expected local Resources tagged environment=local
+    ${names}=    Resource Names From    ${resources}
+    Should Contain    ${names}    neuronsphere_default
+    ...    msg=Docker network Resource should be discoverable
+
+Extend Mode Submits k3s Cluster Resource
+    [Tags]    integration    extend-mode    phase2    nerd0004    k3s
+    [Documentation]    The local k3s cluster is submitted as a kubernetes-cluster Resource.
+    ${resources}=    Find Resources By Tag    cluster_type    k3s
+    Should Not Be Empty    ${resources}
+    ...    msg=Expected the local k3s cluster submitted as a NERD0004 Resource
 
 # ═══════════════════════════════════════════════════════════════
 # Admin Control Plane Stop

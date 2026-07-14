@@ -96,7 +96,6 @@ class NeuronSphereLib:
             hmd_home / "postgresql" / "data",
             hmd_home / "postgresql" / "scripts" / "always-initdb.d",
             hmd_home / "floci" / "data",
-            hmd_home / "floci" / "workload-data",
         ]
         for d in required_dirs:
             d.mkdir(parents=True, exist_ok=True)
@@ -393,6 +392,39 @@ class NeuronSphereLib:
         count = len(bom) if isinstance(bom, list) else 0
         logger.info(f"BOM entry count for {env_type}: {count}")
         return count
+
+    @keyword
+    def find_resources_by_tag(
+        self,
+        key: str,
+        value: str,
+        base_url: str = "http://localhost/hmd_ms_deployment",
+    ):
+        """Return the NERD0004 Resources carrying the given key=value tag.
+
+        Args:
+            key: Tag key (e.g. "environment").
+            value: Tag value (e.g. "local").
+            base_url: ms-deployment base URL.
+
+        Returns:
+            The list of matching Resource records.
+        """
+        url = f"{base_url}/apiop/find_resources_by_tag/{key}/{value}"
+        resp = http_requests.get(url, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        logger.info(f"Resources tagged {key}={value}: {result}")
+        return result if isinstance(result, list) else []
+
+    @keyword
+    def resource_names_from(self, resources):
+        """Extract the ``resource_name`` values from a list of Resource records."""
+        names = [
+            r.get("resource_name") for r in resources if isinstance(r, dict)
+        ]
+        logger.info(f"Resource names: {names}")
+        return names
 
     @keyword
     def find_bom_entry_by_instance_name(self, bom, instance_name: str):

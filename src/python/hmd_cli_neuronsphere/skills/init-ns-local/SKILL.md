@@ -74,7 +74,37 @@ src/local/
         postgres/              # PostgreSQL init scripts (optional)
         minio/                 # MinIO bucket creation scripts (optional)
         dynamodb/              # DynamoDB table creation scripts (optional)
+    # --- Deployment behavior overrides (optional; see below) ---
+    cdktf/cdktf_local.py       # Floci-safe CdkTf stack, overlays src/cdktf/
+    helm/                      # Floci/k3s-safe helm chart/values, overlays src/helm/
+    config_local.json          # Overlays meta-data/config_local.json at deploy time
+    deploy_local.sh            # Full deploy-script override (highest precedence)
 ```
+
+#### Deployment Behavior Overrides (Real Deploy on Floci)
+
+Repo classes are deployed locally by running their real `deploy.commands`
+(docker/cdktf/helm) inside a projectbuilder container against the single Floci
+environment. When the real CDKTF/helm calls AWS APIs that Floci doesn't support,
+ship a Floci-safe alternate under `src/local/` — the `LocalWorkflowRunner`
+applies it in an isolated temp workspace (your source tree is never mutated).
+
+Precedence, per repo class:
+1. `src/local/deploy_local.sh` — if present, it fully replaces the generated
+   deploy script (run as `bash src/local/deploy_local.sh` in `/workspace`).
+2. `src/local/cdktf/` → overlays `src/cdktf/` (so `hmd cdktf` synths the
+   Floci-safe `cdktf_local:CdkTfStack`); `src/local/helm/` → overlays
+   `src/helm/`; `src/local/config_local.json` → `meta-data/config_local.json`.
+3. Otherwise the real deploy script runs as-is.
+
+Control this via `local_deploy.strategy` in `nsplugin.json`:
+- `default` — run the real deploy, applying any `src/local` overlay if present.
+- `src_local` — run the real deploy but require a `src/local` overlay; if the
+  overlay is absent, mark the instance DEPLOYED with a warning instead of
+  running a deploy that would call unsupported APIs.
+- `skip` / `local_storage` — mark DEPLOYED without executing (cloud-only infra).
+- `compose_substitute` — a local container (e.g. JanusGraph for Neptune) stands
+  in for the deploy; mark DEPLOYED once the container is up.
 
 The command auto-detects the plugin name from `meta-data/manifest.json` if not provided.
 
@@ -188,6 +218,13 @@ Create `src/local/nsplugin.json` with the following structure. Use manifest.json
 | `dependencies.requires_services` | Docker services that must be running | `["db", "graph-db"]` |
 | `config` | Configurable environment variables with defaults | See below |
 | `env_var_override` | Environment variable to enable/disable | `"HMD_LOCAL_NEURONSPHERE_ENABLE_TRANSFORM"` |
+
+> **Opt-in by default.** `hmd neuronsphere up` starts only the minimal core
+> (network + Floci + databases + k3s + the deployment control plane + graph).
+> Every app/infra plugin is **off by default** and enabled per-user via its
+> `env_var_override` (set to `true`) or `hmd neuronsphere configure`. Set
+> `enabled_by_default: true` in `nsplugin.json` only for a plugin that must
+> always run locally.
 
 #### Config Section Format:
 

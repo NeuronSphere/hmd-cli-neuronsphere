@@ -13,7 +13,10 @@ Suite Teardown    Teardown NeuronSphere
 *** Keywords ***
 Ensure Clean State
     [Documentation]    Stop any running NeuronSphere and clear plugin env before suite.
+    ...    These integration tests exercise the legacy platform (compose plugin)
+    ...    behavior, so pin platform mode explicitly now that extend is the default.
     Ensure HMD Environment
+    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    platform
     Stop Local NeuronSphere
     Clear Plugin Environment
 
@@ -180,7 +183,7 @@ Extend Mode Starts Extend Control Plane
     [Tags]    integration    mode-switching
     [Documentation]    When HMD_LOCAL_NEURONSPHERE_MODE=extend, up should start extend mode.
     [Setup]    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    extend
-    [Teardown]    Run Keywords    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    AND    Stop And Clear
+    [Teardown]    Run Keywords    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    platform    AND    Stop And Clear
     ${result}=    Run NS Command    up
     Should Contain    ${result.stdout}    Extend mode
 
@@ -188,6 +191,15 @@ Legacy Deploy Value Still Works
     [Tags]    integration    mode-switching    backwards-compat
     [Documentation]    Setting HMD_LOCAL_NEURONSPHERE_MODE=deploy still triggers extend mode.
     [Setup]    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    deploy
-    [Teardown]    Run Keywords    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    AND    Stop And Clear
+    [Teardown]    Run Keywords    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    platform    AND    Stop And Clear
+    ${result}=    Run NS Command    up
+    Should Contain    ${result.stdout}    Extend mode
+
+Default Mode Is Extend
+    [Tags]    integration    mode-switching
+    [Documentation]    With no HMD_LOCAL_NEURONSPHERE_MODE set, up defaults to extend mode
+    ...    (single-Floci control plane).
+    [Setup]    Remove Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE
+    [Teardown]    Run Keywords    Set Environment Variable    HMD_LOCAL_NEURONSPHERE_MODE    platform    AND    Stop And Clear
     ${result}=    Run NS Command    up
     Should Contain    ${result.stdout}    Extend mode

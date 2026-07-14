@@ -84,9 +84,34 @@ HIVE_METASTORE_INIT_CONTAINERS = []
 # --- Extend Mode (admin control plane) ---
 # ms-deployment and ms-naming run as Lambda functions in Floci, not as Docker containers.
 # They are verified via HTTP response, not container status.
-EXTEND_ADMIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "floci", "floci-workload"]
+EXTEND_ADMIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "floci"]
 EXTEND_ADMIN_INIT_CONTAINERS = ["hmd-ms-naming_db_init", "hmd-ms-deployment_db_init"]
 EXTEND_SUBSTITUTE_CONTAINERS = ["global-graph"]
+
+
+# --- Minimal-core default (extend mode) ---
+# What `hmd neuronsphere up` brings up by default: the Docker network, Floci,
+# PostgreSQL, the nginx proxy, and the graph database (Neptune/JanusGraph, part
+# of the core). The deployment control plane (ms-deployment / ms-naming /
+# dbaccount) runs as Floci Lambdas — verified via HTTP, not container status —
+# and k3s runs inside Floci's EKS emulation.
+CORE_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "floci", "global-graph"]
+
+# App/infra plugins that are OFF by default. Each is opt-in per user via
+# HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>=true or `hmd neuronsphere configure`.
+# None of these containers should be present in a default `up`.
+OPTIONAL_PLUGINS = [
+    "telemetry",
+    "jupyter",
+    "apache_superset",
+    "airflow",
+    "transform",
+    "trino",
+    "clickhouse",
+    "hive_metastore",
+    "minio",
+    "dynamodb",
+]
 
 
 # --- Aggregate lookup ---
@@ -151,3 +176,9 @@ def get_expected_init_containers(plugin_list):
     for plugin in plugin_list:
         containers.extend(PLUGIN_INIT_CONTAINERS.get(plugin, []))
     return containers
+
+
+# Flat list of every optional-plugin long-running container. None of these
+# should be present in a default `hmd neuronsphere up`. (Exposed as a Variables
+# value because Robot can't call the helper functions above as keywords.)
+OPTIONAL_RUNNING_CONTAINERS = get_expected_running_containers(OPTIONAL_PLUGINS)

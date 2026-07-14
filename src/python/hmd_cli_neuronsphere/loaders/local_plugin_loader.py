@@ -24,6 +24,14 @@ from cement import minimal_logger
 
 logger = minimal_logger("local_plugin_loader")
 
+# Core plugins are always enabled: they make up the minimal local NeuronSphere
+# that `hmd neuronsphere up` always brings up (network + Floci + core DBs + k3s +
+# deployment control plane), plus the graph database (Neptune/JanusGraph) which
+# is treated as foundational infrastructure. Every other app/infra plugin is
+# opt-in (default off) and enabled per-user via
+# ``HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>`` or ``hmd neuronsphere configure``.
+CORE_PLUGINS = {"floci", "main", "graph"}
+
 
 @dataclass
 class LocalPluginInfo:
@@ -181,12 +189,14 @@ class LocalPluginLoader:
         Check if a plugin is enabled.
 
         Precedence (highest first):
+        0. Core plugins (:data:`CORE_PLUGINS`) — always enabled.
         1. Listed explicitly in HMD_LOCAL_PLUGINS — always enabled.
         2. Env var (``env_var_override`` from nsplugin.json, else
            ``HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>``) is set —
            ``true``/``1``/``yes`` enables, anything else disables.
            This preserves explicit opt-out.
-        3. ``enabled_by_default`` from nsplugin.json (defaults to False).
+        3. ``enabled_by_default`` from nsplugin.json (defaults to False) —
+           so every non-core app/infra plugin is opt-in.
 
         Mirrors the behavior of ``hmd neuronsphere configure`` and the
         bundled-plugin ``enabled()`` pattern (see plugins/argo.py).
@@ -197,6 +207,9 @@ class LocalPluginLoader:
         Returns:
             True if the plugin is enabled
         """
+        if plugin_name in CORE_PLUGINS:
+            return True
+
         if self._is_explicitly_listed(plugin_name):
             return True
 

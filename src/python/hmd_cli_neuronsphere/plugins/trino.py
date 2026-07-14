@@ -44,7 +44,10 @@ def enabled(config_overrides: Dict[str, bool] = {}) -> bool:
     val = os.environ.get(env_var)
     if val is not None:
         return val == "true"
-    return config_overrides.get(_PLUGIN_NAME, True)
+    # Opt-in: off by default. Local NeuronSphere's default is a minimal core
+    # (network + Floci + DBs + k3s + control plane + graph); apps like Trino are
+    # enabled per-user via the env flag above or `hmd neuronsphere configure`.
+    return config_overrides.get(_PLUGIN_NAME, False)
 
 
 def get_resources() -> Dict[str, Any]:

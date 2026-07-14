@@ -43,7 +43,9 @@ def enabled(config_overrides: Dict[str, bool] = {}) -> bool:
         return val.lower() == "true"
     if config and "enabled_by_default" in config:
         return bool(config["enabled_by_default"])
-    return config_overrides.get(_PLUGIN_NAME, True)
+    # Opt-in: off by default (minimal-core local NeuronSphere). Enable via the
+    # env flag above or `hmd neuronsphere configure`.
+    return config_overrides.get(_PLUGIN_NAME, False)
 
 
 def get_resources() -> Dict[str, Any]:

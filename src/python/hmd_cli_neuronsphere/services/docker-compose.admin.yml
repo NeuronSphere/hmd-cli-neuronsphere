@@ -33,17 +33,27 @@ services:
       - type: bind
         source: ${HMD_HOME}/postgresql/data
         target: /var/lib/postgresql/data
-      - type: bind
-        source: ${HMD_HOME}/postgresql/scripts/always-initdb.d
-        target: /docker-entrypoint-initdb.d
+      # NOTE: extend mode intentionally does NOT mount postgres
+      # docker-entrypoint-initdb.d scripts. Databases are created the
+      # cloud-parity way — foundational control-plane DBs via
+      # `ensure_core_databases_direct` (direct psql) and plugin DBs via the
+      # dbaccount Lambda (`provision_plugin_databases`). Mounting the shared
+      # `always-initdb.d` dir pulled in stale/broken scripts (e.g. an airflow
+      # script with a bad interpreter) that abort the init chain and stall
+      # postgres startup for minutes on a fresh boot.
 
+  # Single Floci environment (control plane == workload account). The former
+  # split admin/workload Floci instances were collapsed into this one; the
+  # `neuronsphere-workload` network alias is retained so in-network consumers
+  # that still address `neuronsphere-workload:4566` resolve to this instance.
   floci:
     image: floci/floci:1.5.8
     container_name: floci
     ports:
       - "4566:4566"
     environment:
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager
+      # Union of the former admin (eks) and workload (rds) service sets.
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager,rds
       FLOCI_STORAGE_MODE: persistent
       FLOCI_LAMBDA_EXECUTOR: docker
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
@@ -52,6 +62,11 @@ services:
       FLOCI_SERVICES_DOCKER_NETWORK: neuronsphere_default
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: neuronsphere_default
       FLOCI_SERVICES_EKS_MOCK: "false"
+      # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
+      # two broken kube-apiserver overrides Floci injects
+      # (--kube-apiserver-arg=storage-backend=sqlite3 and etcd-servers=unix:///tmp/kine.sock)
+      # that otherwise crash-loop the apiserver ("--storage-backend invalid").
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-hmd-img-k3s-floci:0.1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:
@@ -67,34 +82,6 @@ services:
       neuronsphere_default:
         aliases:
           - neuronsphere
-
-  floci-workload:
-    image: floci/floci:1.5.8
-    container_name: floci-workload
-    ports:
-      - "4567:4566"
-    environment:
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,secretsmanager,rds,ecr
-      FLOCI_STORAGE_MODE: persistent
-      FLOCI_LAMBDA_EXECUTOR: docker
-      FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
-      FLOCI_DEFAULT_ACCOUNT_ID: "654654218804"
-      FLOCI_HOSTNAME: floci-workload
-      FLOCI_SERVICES_DOCKER_NETWORK: neuronsphere_default
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
-    volumes:
-      - "${HMD_HOME}/floci/workload-data:/app/data"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_floci/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-    networks:
-      neuronsphere_default:
-        aliases:
           - neuronsphere-workload
 
 networks:
