@@ -57,12 +57,26 @@ class LocalController(Controller):
                     "dest": "verbose",
                 },
             ),
+            (
+                ["--upgrade"],
+                {
+                    "help": (
+                        "Repull the latest images and re-sync the bootstrapped "
+                        "core Resources against the running deployment."
+                    ),
+                    "action": "store_true",
+                    "dest": "upgrade",
+                },
+            ),
         ],
     )
     def up(self):
         from .hmd_cli_neuronsphere import start_neuronsphere
 
-        start_neuronsphere(verbose=self.app.pargs.verbose)
+        start_neuronsphere(
+            verbose=self.app.pargs.verbose,
+            upgrade=getattr(self.app.pargs, "upgrade", False),
+        )
 
     @ex(
         help="Stop the local NeuronSphere",
@@ -702,3 +716,94 @@ networks:
                     print(f"    Enable via: export {env_var}=true")
 
             print()
+
+    @ex(
+        help="Provision a local Postgres DB via hmd-ms-dbaccount and register it "
+        "as a NERD Resource for hmd deploy --local dependency resolution",
+        arguments=[
+            (
+                ["db_name"],
+                {"help": "Database (and default user) name", "action": "store"},
+            ),
+            (
+                ["-u", "--username"],
+                {"help": "Login role (defaults to db_name)", "dest": "username"},
+            ),
+            (["--host"], {"help": "DB host", "dest": "host", "default": "hmd_db"}),
+            (
+                ["--port"],
+                {"help": "DB port", "dest": "port", "type": int, "default": 5432},
+            ),
+        ],
+    )
+    def db_provision(self):
+        from .dev_db import provision_and_register_db
+
+        p = self.app.pargs
+        provision_and_register_db(p.db_name, p.username or p.db_name, p.host, p.port)
+
+    @ex(
+        help="Register an existing DB (created without dbaccount) as a NERD Resource",
+        arguments=[
+            (["db_name"], {"help": "Database name", "action": "store"}),
+            (
+                ["-u", "--username"],
+                {"help": "Login role (defaults to db_name)", "dest": "username"},
+            ),
+            (["--host"], {"help": "DB host", "dest": "host", "required": True}),
+            (
+                ["--port"],
+                {"help": "DB port", "dest": "port", "type": int, "default": 5432},
+            ),
+            (
+                ["--secret-name"],
+                {"help": "Connection-credentials secret name", "dest": "secret_name"},
+            ),
+        ],
+    )
+    def db_register(self):
+        from .dev_db import register_db_resource
+
+        p = self.app.pargs
+        register_db_resource(
+            p.db_name,
+            p.username or p.db_name,
+            p.host,
+            p.port,
+            secret_name=p.secret_name,
+        )
+
+    @ex(
+        help="Resolve a hmd deploy --local --config-file for the repo in the current "
+        "directory, binding its manifest dependencies to local NeuronSphere Resources. "
+        "Prints JSON to stdout (redirect to a file, then edit scaffolded roles).",
+        arguments=[
+            (
+                ["--repo-dir"],
+                {"help": "Repo dir (default CWD)", "dest": "repo_dir", "default": "."},
+            ),
+        ],
+    )
+    def gen_dev_config(self):
+        import json
+
+        from .dev_db import _ms_deployment_url
+        from . import _rest
+
+        manifest_path = os.path.join(
+            self.app.pargs.repo_dir, "meta-data", "manifest.json"
+        )
+        with open(manifest_path) as fl:
+            manifest = json.load(fl)
+        deploy = manifest.get("deploy", {})
+        config = _rest.post_apiop(
+            _ms_deployment_url(),
+            "generate_dev_deployment_config",
+            {
+                "environment": "local",
+                "instance_name": manifest.get("name", "dev"),
+                "default_configuration": deploy.get("default_configuration", {}),
+                "dependencies": deploy.get("dependencies", {}),
+            },
+        )
+        print(json.dumps(config, indent=2))

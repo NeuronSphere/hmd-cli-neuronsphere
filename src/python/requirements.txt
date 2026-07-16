@@ -58,9 +58,9 @@ google-auth==2.9.1
     #   hmd-cli-app
     #   hmd-cli-tools
     #   kubernetes
-hmd-cli-app~=1.2.623
+hmd-cli-app~=1.2.625
     # via -r requirements.in
-hmd-cli-tools~=1.2.244
+hmd-cli-tools~=1.2.246
     # via hmd-cli-app
 idna==3.10
     # via
@@ -163,7 +163,9 @@ scramp==1.4.8
     #   hmd-cli-app
     #   hmd-cli-tools
     #   pg8000
-six==1.16.0
+setuptools==83.0.0
+    # via hmd-cli-app
+six==1.17.0
     # via
     #   google-auth
     #   hmd-cli-app

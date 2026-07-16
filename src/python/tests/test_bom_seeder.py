@@ -90,7 +90,13 @@ class CoreResourceTests(unittest.TestCase):
             self.assertEqual(r["instance_name"], b.CORE_INSTANCE_NAME)
         types = {r["resource_definition"]["resource_definition_name"] for r in res}
         self.assertEqual(
-            types, {"docker-network", "kubernetes-cluster", "compute-node"}
+            types,
+            {
+                "docker-network",
+                "kubernetes-cluster",
+                "compute-node",
+                "ingress-controller",
+            },
         )
 
     def test_network_only_without_cluster(self):
@@ -98,6 +104,71 @@ class CoreResourceTests(unittest.TestCase):
         self.assertEqual(len(res), 1)
         self.assertEqual(
             res[0]["resource_definition"]["resource_definition_name"], "docker-network"
+        )
+
+    def test_service_microservice_resources(self):
+        services = [
+            {
+                "service_name": "hmd_ms_deployment",
+                "repo_class_name": "hmd-ms-deployment",
+                "api_base_url": "http://localhost/hmd_ms_deployment",
+            }
+        ]
+        res = b.build_local_core_resources(cluster_name="ns-local", services=services)
+        micro = [
+            r
+            for r in res
+            if r["resource_definition"]["resource_definition_name"] == "microservice"
+        ]
+        self.assertEqual(len(micro), 1)
+        self.assertEqual(micro[0]["repo_class_name"], b.CORE_REPO_CLASS)
+        self.assertEqual(
+            micro[0]["output"]["api_base_url"], "http://localhost/hmd_ms_deployment"
+        )
+        tags = {t["key"]: t["value"] for t in micro[0]["tags"]}
+        self.assertEqual(tags["environment"], "local")
+        self.assertEqual(tags["repo_class"], "hmd-ms-deployment")
+
+    def test_no_services_keeps_core_only(self):
+        # Default (no services) must not change the core resource set.
+        res = b.build_local_core_resources(cluster_name="ns-local")
+        types = {r["resource_definition"]["resource_definition_name"] for r in res}
+        self.assertEqual(
+            types,
+            {
+                "docker-network",
+                "kubernetes-cluster",
+                "compute-node",
+                "ingress-controller",
+            },
+        )
+
+    def test_ingress_controller_only_with_cluster(self):
+        # The Traefik ingress-controller Resource is tied to the k3s cluster.
+        res = b.build_local_core_resources(cluster_name="ns-local")
+        ingress = [
+            r
+            for r in res
+            if r["resource_definition"]["resource_definition_name"]
+            == "ingress-controller"
+        ]
+        self.assertEqual(len(ingress), 1)
+        self.assertEqual(
+            ingress[0]["resource_definition"]["resource_namespace"],
+            "kubernetes.neuronsphere.io",
+        )
+        # Output must satisfy the effective schema inherited from the `deployment`
+        # base type (name + namespace required) plus the ingress-controller field.
+        self.assertEqual(ingress[0]["output"]["ingress_class"], "traefik")
+        self.assertEqual(ingress[0]["output"]["name"], "traefik")
+        self.assertEqual(ingress[0]["output"]["namespace"], "kube-system")
+        self.assertEqual(ingress[0]["resource_name"], "ns-local-traefik")
+
+        # Absent when there is no cluster (see test_network_only_without_cluster).
+        no_cluster = b.build_local_core_resources(cluster_name=None)
+        self.assertNotIn(
+            "ingress-controller",
+            {r["resource_definition"]["resource_definition_name"] for r in no_cluster},
         )
 
     def test_rid_lookup(self):
@@ -136,7 +207,7 @@ class SubmitLocalResourcesTests(unittest.TestCase):
 
 
 class DeclareCoreProducesTests(unittest.TestCase):
-    def test_declares_three_core_types(self):
+    def test_declares_core_types(self):
         def fake_post(url, op, payload=None, **k):
             if op.startswith("find_repo_class_versions/"):
                 return [{"identifier": "rcv-core", "version": "0.5"}]
@@ -144,7 +215,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 3)
+        self.assertEqual(n, 4)
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -152,7 +223,12 @@ class DeclareCoreProducesTests(unittest.TestCase):
         ]
         self.assertEqual(
             set(declared),
-            {"kubernetes-cluster", "compute-node", "docker-network"},
+            {
+                "kubernetes-cluster",
+                "compute-node",
+                "docker-network",
+                "ingress-controller",
+            },
         )
 
     def test_no_rcv_is_noop(self):
@@ -184,6 +260,100 @@ class UpsertRepoResourceDefinitionsTests(unittest.TestCase):
             calls[0]["parent"]["resource_definition_name"],
             "custom-resource-definition",
         )
+
+
+class FindCoreDeploymentNodeTests(unittest.TestCase):
+    def _search(self, instances, edges):
+        """Return a _search_entities stand-in over (repo_instance, has_deployment)."""
+
+        def fake_search(url, entity_type, filter_):
+            if entity_type.endswith("repo_instance"):
+                return instances
+            if entity_type.endswith("repo_instance_has_repo_instance_deployment"):
+                return edges
+            return []
+
+        return fake_search
+
+    def test_returns_node_for_local_k3s(self):
+        instances = [{"identifier": "inst-core", "name": b.CORE_INSTANCE_NAME}]
+        edges = [{"ref_from": "inst-core", "ref_to": "rid-core", "_created": "2026"}]
+        with mock.patch.object(
+            b, "_search_entities", side_effect=self._search(instances, edges)
+        ):
+            nodes = b.find_core_deployment_node("http://x")
+        self.assertEqual(
+            nodes, [{"instance_name": b.CORE_INSTANCE_NAME, "rid_nid": "rid-core"}]
+        )
+
+    def test_empty_when_no_instance(self):
+        with mock.patch.object(b, "_search_entities", side_effect=self._search([], [])):
+            self.assertEqual(b.find_core_deployment_node("http://x"), [])
+
+    def test_empty_when_no_edge(self):
+        instances = [{"identifier": "inst-core", "name": b.CORE_INSTANCE_NAME}]
+        # Edge belongs to a different instance -> filtered out.
+        edges = [{"ref_from": "other", "ref_to": "rid-other", "_created": "2026"}]
+        with mock.patch.object(
+            b, "_search_entities", side_effect=self._search(instances, edges)
+        ):
+            self.assertEqual(b.find_core_deployment_node("http://x"), [])
+
+    def test_picks_most_recent_deployment(self):
+        instances = [{"identifier": "inst-core", "name": b.CORE_INSTANCE_NAME}]
+        edges = [
+            {"ref_from": "inst-core", "ref_to": "rid-old", "_created": "2026-01-01"},
+            {"ref_from": "inst-core", "ref_to": "rid-new", "_created": "2026-07-01"},
+        ]
+        with mock.patch.object(
+            b, "_search_entities", side_effect=self._search(instances, edges)
+        ):
+            nodes = b.find_core_deployment_node("http://x")
+        self.assertEqual(nodes[0]["rid_nid"], "rid-new")
+
+
+class ResyncLocalResourcesTests(unittest.TestCase):
+    def test_refreshes_and_submits(self):
+        with mock.patch.object(
+            b, "seed_base_resource_definitions"
+        ) as seed, mock.patch.object(
+            b, "declare_core_produces"
+        ) as declare, mock.patch.object(
+            b,
+            "find_core_deployment_node",
+            return_value=[
+                {"instance_name": b.CORE_INSTANCE_NAME, "rid_nid": "rid-core"}
+            ],
+        ), mock.patch.object(
+            b, "submit_local_resources", return_value=4
+        ) as submit:
+            n = b.resync_local_resources("http://x", "neuronsphere")
+        self.assertEqual(n, 4)
+        seed.assert_called_once()
+        declare.assert_called_once()
+        # Submitted the built core resources against the found node.
+        submit_args = submit.call_args
+        self.assertEqual(
+            submit_args.args[2],
+            [{"instance_name": b.CORE_INSTANCE_NAME, "rid_nid": "rid-core"}],
+        )
+        types = {
+            r["resource_definition"]["resource_definition_name"]
+            for r in submit_args.args[1]
+        }
+        self.assertIn("ingress-controller", types)
+
+    def test_noop_when_not_bootstrapped(self):
+        with mock.patch.object(b, "seed_base_resource_definitions"), mock.patch.object(
+            b, "declare_core_produces"
+        ), mock.patch.object(
+            b, "find_core_deployment_node", return_value=[]
+        ), mock.patch.object(
+            b, "submit_local_resources"
+        ) as submit:
+            n = b.resync_local_resources("http://x", "neuronsphere")
+        self.assertEqual(n, 0)
+        submit.assert_not_called()
 
 
 if __name__ == "__main__":

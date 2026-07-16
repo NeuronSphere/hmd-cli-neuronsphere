@@ -40,7 +40,10 @@ Required Environment Variables:
 Commands
 ---------------------------------
 
-- `hmd neuronsphere up`: starts all enabled services in the Local NeuronSphere
+- `hmd neuronsphere up`: starts all enabled services in the Local NeuronSphere. On a
+  restart it re-syncs the bootstrapped core Resources (idempotently) so newly-defined
+  core Resources appear without a full re-bootstrap. Pass ``--upgrade`` to also repull the
+  latest images before starting.
 - `hmd neuronsphere down`: stops all enabled services in the Local NeuronSphere
 - `hmd neuronsphere run`: run within a NeuronSphere Microservice project to run it locally for testing
 - `hmd neuronsphere update-images`: pull down updated images to run

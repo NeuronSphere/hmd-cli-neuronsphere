@@ -71,6 +71,16 @@ CORE_PRODUCED_DEFINITIONS = [
         "version": "0.1.0",
         "role": "network",
     },
+    {
+        # k3s ships Traefik enabled, so the local cluster already serves Ingress.
+        # We declare the abstract kubernetes.neuronsphere.io/ingress-controller type
+        # (not the AWS-specific aws-load-balancer-controller subtype) so cloud repos
+        # with a SPEC0008 resource dependency on an ingress-controller resolve locally.
+        "resource_namespace": "kubernetes.neuronsphere.io",
+        "resource_definition_name": "ingress-controller",
+        "version": "0.1.0",
+        "role": "ingress-controller",
+    },
 ]
 
 # BOM entry #0 — always prepended. Deployed via the `skip` strategy (see
@@ -228,6 +238,14 @@ def _put_entity(base_url: str, entity_type: str, data: Dict) -> Dict:
     return resp.json()
 
 
+def _search_entities(base_url: str, entity_type: str, filter_: Dict) -> List[Dict]:
+    """Search entities via the ms-base CRUD POST (filter is the top-level body)."""
+    url = f"{base_url}/api/{entity_type}"
+    resp = requests.post(url, json=filter_, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _post_apiop(
     base_url: str, operation: str, payload: Dict = None, tolerate_exists: bool = False
 ) -> Dict:
@@ -334,11 +352,57 @@ def seed_base_resource_definitions(base_url: str) -> List[Dict]:
     return seeded
 
 
+def build_service_resources(services: Optional[List[Dict]]) -> List[Dict]:
+    """Build ``application/microservice`` Resources for the seeded local services.
+
+    Each entry is ``{"service_name", "repo_class_name", "api_base_url"}`` (derived
+    from the HMDMS-service specs). The Resource is owned by the core
+    ``hmd-cli-neuronsphere`` / ``local-k3s`` instance, typed by the base
+    ``application.neuronsphere.io/microservice`` definition, and tagged
+    ``environment=local`` plus ``repo_class=<name>`` so a consumer's dependency role
+    (e.g. ``deployment-service`` -> ``hmd-ms-deployment``) can select the right one
+    via ``find_resources_by_selector``. This is how a service-backed role resolves in
+    a dev ``hmd deploy --local`` config -- the same tag-based path as the cluster/DB.
+    """
+    common_tags = [{"key": "environment", "value": "local"}]
+    resources: List[Dict] = []
+    for svc in services or []:
+        service_name = svc.get("service_name")
+        repo_class_name = svc.get("repo_class_name")
+        if not service_name:
+            continue
+        resources.append(
+            {
+                "instance_name": CORE_INSTANCE_NAME,
+                "repo_class_name": CORE_REPO_CLASS,
+                "resource_name": f"local-service-{service_name}",
+                "resource_definition": {
+                    "resource_namespace": "application.neuronsphere.io",
+                    "resource_definition_name": "microservice",
+                    "version": "0.1.0",
+                },
+                "output": {
+                    "api_base_url": svc.get(
+                        "api_base_url", f"http://localhost/{service_name}"
+                    )
+                },
+                "tags": common_tags
+                + (
+                    [{"key": "repo_class", "value": repo_class_name}]
+                    if repo_class_name
+                    else []
+                ),
+            }
+        )
+    return resources
+
+
 def build_local_core_resources(
     *,
     network_name: str = "neuronsphere_default",
     cluster_name: Optional[str] = None,
     cluster_endpoint: Optional[str] = None,
+    services: Optional[List[Dict]] = None,
 ) -> List[Dict]:
     """The registry of concrete Resources the local core actually provides.
 
@@ -417,6 +481,32 @@ def build_local_core_resources(
                 "tags": common_tags + [{"key": "cluster_type", "value": "k3s"}],
             }
         )
+        # The k3s cluster's built-in Traefik is the local ingress controller. Typed by
+        # the abstract kubernetes.neuronsphere.io/ingress-controller base definition, it
+        # satisfies any cloud repo's resource dependency on an ingress-controller.
+        resources.append(
+            {
+                "instance_name": CORE_INSTANCE_NAME,
+                "repo_class_name": CORE_REPO_CLASS,
+                "resource_name": f"{cluster_name}-traefik",
+                "resource_definition": {
+                    "resource_namespace": "kubernetes.neuronsphere.io",
+                    "resource_definition_name": "ingress-controller",
+                    "version": "0.1.0",
+                },
+                # k3s runs Traefik as a Deployment named `traefik` in kube-system.
+                # `name`/`namespace` satisfy the effective schema inherited from the
+                # `deployment` base type; `ingress_class` is the ingress-controller field.
+                "output": {
+                    "name": "traefik",
+                    "namespace": "kube-system",
+                    "ingress_class": "traefik",
+                },
+                "tags": common_tags + [{"key": "cluster_type", "value": "k3s"}],
+            }
+        )
+    # microservice Resources for the seeded HMDMS services (deployment-service etc.)
+    resources.extend(build_service_resources(services))
     return resources
 
 
@@ -543,6 +633,82 @@ def declare_core_produces(base_url: str) -> int:
     return declared
 
 
+def find_core_deployment_node(base_url: str) -> List[Dict]:
+    """Return the ``nodes`` shape for the existing ``local-k3s`` deployment, or [].
+
+    On a restart (the deployment graph already bootstrapped), the ``local-k3s``
+    RepoInstanceDeployment persists in ms-deployment, but we no longer have the
+    ``nodes`` list :func:`seed_bom` returns. This looks that deployment up so
+    :func:`submit_local_resources` can attach Resources to it *without* re-running
+    ``seed_bom`` (which would create duplicate changesets):
+
+        repo_instance(name == local-k3s) --has--> repo_instance_deployment
+
+    Returns ``[{"instance_name": CORE_INSTANCE_NAME, "rid_nid": <nid>}]`` (the shape
+    :func:`_rid_for_instance` expects), or ``[]`` when the env isn't bootstrapped.
+    Best-effort: any lookup error resolves to ``[]`` so the caller falls back to a
+    full ``up``.
+    """
+    try:
+        instances = _search_entities(
+            base_url,
+            "hmd_lang_deployment.repo_instance",
+            {"attribute": "name", "operator": "=", "value": CORE_INSTANCE_NAME},
+        )
+        if not instances:
+            return []
+        instance_nid = instances[0]["identifier"]
+        # The relationship search isn't assumed to filter by ref_from, so fetch all
+        # has-deployment edges and filter client-side (the local graph is tiny).
+        edges = _search_entities(
+            base_url,
+            "hmd_lang_deployment.repo_instance_has_repo_instance_deployment",
+            {},
+        )
+    except (requests.RequestException, ValueError, KeyError) as e:
+        logger.warning(f"Could not resolve the '{CORE_INSTANCE_NAME}' deployment: {e}")
+        return []
+
+    owned = [e for e in edges if e.get("ref_from") == instance_nid]
+    if not owned:
+        return []
+    # If the instance was redeployed, prefer the most-recent deployment.
+    owned.sort(key=lambda e: e.get("_created", ""), reverse=True)
+    return [{"instance_name": CORE_INSTANCE_NAME, "rid_nid": owned[0]["ref_to"]}]
+
+
+def resync_local_resources(
+    base_url: str, cluster_name: Optional[str], services: Optional[List[Dict]] = None
+) -> int:
+    """Idempotently refresh the bootstrapped core Resources — no DAG, no re-seed.
+
+    Safe to call on every ``up`` restart: it re-runs only the parts of the bootstrap
+    that upsert/dedupe server-side, so a running env picks up newly-defined core
+    Resources (e.g. a new ingress-controller) without a destructive rebuild:
+
+    1. :func:`seed_base_resource_definitions` — refresh the base ResourceDefinition
+       catalog (registers any new base types).
+    2. :func:`declare_core_produces` — refresh the ``local-k3s`` producer's
+       produced-type declarations.
+    3. :func:`build_local_core_resources` + :func:`submit_local_resources` against
+       the *existing* ``local-k3s`` deployment (found via
+       :func:`find_core_deployment_node`).
+
+    :returns: The number of Resources (re)submitted; 0 if the env isn't bootstrapped.
+    """
+    seed_base_resource_definitions(base_url)
+    declare_core_produces(base_url)
+    nodes = find_core_deployment_node(base_url)
+    if not nodes:
+        logger.info(
+            f"No existing '{CORE_INSTANCE_NAME}' deployment found; skipping local "
+            "resource resync (run a full `up` first)."
+        )
+        return 0
+    resources = build_local_core_resources(cluster_name=cluster_name, services=services)
+    return submit_local_resources(base_url, resources, nodes)
+
+
 def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     """Drop later entries whose ``repo_instance_name`` was already seen (idempotent)."""
     seen = set()
@@ -586,6 +752,35 @@ def _resolve_bom() -> List[Dict]:
         bom = bom + EXT_SECRETS_BOM
 
     return _dedupe_bom(bom)
+
+
+def ensure_local_environment(base_url: str) -> Dict:
+    """Idempotently create the ``local`` Environment.
+
+    Called early in ``up`` (before ``seed_hmdms_services``) so seeded services can be
+    registered as env-linked instances, and again by :func:`seed_bom`. ms-base ``PUT``
+    always takes the create branch (no upsert on business key), so find-first: reuse an
+    existing ``type=local`` env and only PUT when none exists. Without the guard, each
+    call adds another ``local`` env (two per bootstrap) and ``get_valid_environment``
+    (which asserts exactly one) 500s.
+    """
+    logger.info("Ensuring 'local' environment exists")
+    existing = _search_entities(
+        base_url,
+        "hmd_lang_deployment.environment",
+        {"attribute": "type", "operator": "=", "value": "local"},
+    )
+    if existing:
+        return existing[0]
+    return _put_entity(
+        base_url,
+        "hmd_lang_deployment.environment",
+        {
+            "type": "local",
+            "account_number": "000000000000",
+            "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
+        },
+    )
 
 
 def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
@@ -646,16 +841,7 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
     declare_core_produces(base_url)
 
     # 2. Create Environment
-    logger.info("Creating 'local' environment")
-    _put_entity(
-        base_url,
-        "hmd_lang_deployment.environment",
-        {
-            "type": "local",
-            "account_number": "000000000000",
-            "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
-        },
-    )
+    ensure_local_environment(base_url)
 
     # 3. Create DeploymentSet
     logger.info("Creating 'local' deployment set")

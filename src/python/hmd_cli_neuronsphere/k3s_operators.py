@@ -48,6 +48,23 @@ _FLOCI_CONTAINER = os.environ.get("HMD_LOCAL_FLOCI_CONTAINER", "floci")
 _FLOCI_WORKLOAD_CONTAINER = os.environ.get(
     "HMD_LOCAL_FLOCI_WORKLOAD_CONTAINER", "floci-workload"
 )
+# Core docker-network services charts reach by name from inside k3s (same as the
+# cloud in-network hostnames): the nginx edge proxy fronting the microservice
+# Lambdas, and the shared Postgres. Registered in CoreDNS so pods resolve them by
+# name instead of a churny container IP baked into config.
+_PROXY_CONTAINER = os.environ.get("HMD_LOCAL_PROXY_CONTAINER", "hmd_proxy")
+_DB_CONTAINER = os.environ.get("HMD_LOCAL_DB_CONTAINER", "hmd_db")
+
+# The NeuronSphere k3s image ships without a bundled ingress controller, but the
+# local BOM seeds a ``kubernetes.neuronsphere.io/ingress-controller`` Resource
+# (name=traefik, ingress_class=traefik) that repos wire their ``eks-alb`` role to.
+# We install Traefik so that Resource is real and Ingress objects are actually
+# served -- the local analog of the cloud AWS Load Balancer Controller.
+_INGRESS_ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS"
+_TRAEFIK_CHART_REPO = os.environ.get(
+    "HMD_LOCAL_TRAEFIK_REPO", "https://traefik.github.io/charts"
+)
+_TRAEFIK_CHART_VERSION = os.environ.get("HMD_LOCAL_TRAEFIK_VERSION", "34.0.0")
 _FLOCI_EKS_NETWORK = os.environ.get(
     "FLOCI_SERVICES_EKS_DOCKER_NETWORK", "neuronsphere_default"
 )
@@ -93,12 +110,24 @@ def _ensure_coredns_floci_entry() -> None:
         return
     workload_ip = _resolve_floci_ip(_FLOCI_WORKLOAD_CONTAINER) or floci_ip
 
-    server = (
-        f"neuronsphere:53 {{\n"
-        f"    hosts {{\n        {floci_ip} neuronsphere\n        fallthrough\n    }}\n}}\n"
-        f"neuronsphere-workload:53 {{\n"
-        f"    hosts {{\n        {workload_ip} neuronsphere-workload\n        fallthrough\n    }}\n}}\n"
-    )
+    def _block(host: str, ip: str) -> str:
+        return (
+            f"{host}:53 {{\n"
+            f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n}}\n"
+        )
+
+    # Floci endpoints plus the core docker-network services (best-effort: a name
+    # that doesn't resolve on the k3s Docker network is simply skipped).
+    entries = [
+        ("neuronsphere", floci_ip),
+        ("neuronsphere-workload", workload_ip),
+    ]
+    for name in (_PROXY_CONTAINER, _DB_CONTAINER):
+        ip = _resolve_floci_ip(name)
+        if ip:
+            entries.append((name, ip))
+
+    server = "".join(_block(host, ip) for host, ip in entries)
     configmap = {
         "apiVersion": "v1",
         "kind": "ConfigMap",
@@ -135,12 +164,89 @@ def _ensure_coredns_floci_entry() -> None:
             capture_output=True,
             text=True,
         )
-        logger.info(
-            f"CoreDNS: neuronsphere->{floci_ip}, neuronsphere-workload->{workload_ip}"
-        )
+        logger.info("CoreDNS: " + ", ".join(f"{host}->{ip}" for host, ip in entries))
     finally:
         try:
             os.unlink(cm_path)
+        except OSError:
+            pass
+
+
+def _ensure_ingress_controller() -> None:
+    """Install the k3s ingress controller (Traefik) -- best-effort, idempotent.
+
+    This NeuronSphere k3s image ships no ingress controller, so the seeded
+    ``ingress-controller`` Resource (Traefik) would otherwise be aspirational and
+    Ingress objects would go unserved. Traefik binds the node's :80/:443 via
+    ``hostPort`` (no dependency on a servicelb), so it is reachable at the k3s node
+    container's name on the Floci docker network -- the local parity of reaching
+    the cloud app through its ALB hostname. ``helm upgrade --install`` keeps it
+    idempotent; a failure is logged and never aborts the bring-up.
+    """
+    if os.environ.get(_INGRESS_ENABLE_ENV, "true").lower() in ("false", "0", "no"):
+        logger.info("Ingress controller install disabled via " + _INGRESS_ENABLE_ENV)
+        return
+
+    values = {
+        # ClusterIP + hostPort avoids needing a servicelb to reach the node's :80.
+        "service": {"type": "ClusterIP"},
+        "ingressClass": {"enabled": True, "isDefaultClass": True},
+        "deployment": {"replicas": 1},
+        "ports": {
+            "web": {
+                "port": 8000,
+                "hostPort": 80,
+                "exposedPort": 80,
+                "expose": {"default": True},
+            },
+            "websecure": {
+                "port": 8443,
+                "hostPort": 443,
+                "exposedPort": 443,
+                "expose": {"default": True},
+            },
+        },
+        "resources": {
+            "requests": {"cpu": "50m", "memory": "64Mi"},
+            "limits": {"memory": "256Mi"},
+        },
+    }
+    with NamedTemporaryFile(
+        mode="w", suffix=".yaml", prefix="traefik-values-", delete=False
+    ) as vf:
+        yaml.safe_dump(values, vf)
+        values_path = vf.name
+    try:
+        command = [
+            "helm",
+            "upgrade",
+            "--install",
+            "traefik",
+            "traefik",
+            "--repo",
+            _TRAEFIK_CHART_REPO,
+            "--version",
+            _TRAEFIK_CHART_VERSION,
+            "--namespace",
+            "kube-system",
+            "--wait",
+            "--timeout",
+            "5m",
+            "--values",
+            values_path,
+        ]
+        logger.info("Installing ingress controller (Traefik): " + " ".join(command))
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.warning(
+                f"Traefik ingress-controller install failed "
+                f"(exit={result.returncode}):\n{result.stderr}"
+            )
+        else:
+            logger.info("Ingress controller (Traefik) installed")
+    finally:
+        try:
+            os.unlink(values_path)
         except OSError:
             pass
 
@@ -508,6 +614,10 @@ def provision_k3s_operators() -> None:
     # Make the in-network Floci hostname resolvable from pods first, so operators
     # and workload charts alike can reach `neuronsphere:4566` (cloud parity).
     _ensure_coredns_floci_entry()
+
+    # Deploy the ingress controller (Traefik) so the seeded ingress-controller
+    # Resource is real and Ingress objects are served on the node's :80/:443.
+    _ensure_ingress_controller()
 
     # When the External Secrets stack is opted into the ms-deployment DAG
     # (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS), the DAG is its sole installer —

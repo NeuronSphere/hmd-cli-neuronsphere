@@ -852,7 +852,11 @@ def _is_already_bootstrapped(base_url: str) -> bool:
     return _ms_deployment_has_completed_csd(base_url)
 
 
-def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = False):
+def start_neuronsphere(
+    config_overrides: Dict[str, bool] = {},
+    verbose: bool = False,
+    upgrade: bool = False,
+):
     # Verify the host can resolve `neuronsphere`/`neuronsphere-workload` to
     # loopback before doing anything else. Without this, presigned URLs
     # returned by in-network services would be unreachable from the host
@@ -864,12 +868,14 @@ def start_neuronsphere(config_overrides: Dict[str, bool] = {}, verbose: bool = F
 
     mode = _resolve_mode()
     if mode == "extend":
-        start_neuronsphere_extend(verbose=verbose)
+        start_neuronsphere_extend(verbose=verbose, upgrade=upgrade)
     else:
-        start_neuronsphere_platform(config_overrides=config_overrides, verbose=verbose)
+        start_neuronsphere_platform(
+            config_overrides=config_overrides, verbose=verbose, upgrade=upgrade
+        )
 
 
-def start_neuronsphere_extend(verbose: bool = False):
+def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
     """Start NeuronSphere in extend mode (admin control plane with DAG-based deployment).
 
     Starts the admin control plane (Floci, PostgreSQL, nginx), deploys
@@ -896,6 +902,17 @@ def start_neuronsphere_extend(verbose: bool = False):
     load_hmd_env()
     print_header("Starting")
     print_step("Extend mode — admin control plane")
+
+    # --upgrade: repull the compose-service images first (docker only fetches
+    # changed layers) so the restart runs on the latest images. Non-fatal — a
+    # fresh env without cached compose files falls through to a normal start.
+    if upgrade:
+        print_step("Upgrade — pulling latest images...")
+        try:
+            update_images()
+        except Exception as e:
+            logger.warning(f"Image pull failed (non-fatal): {e}")
+            print(f"  Warning: image pull failed: {e}")
 
     # Load override configuration for unsupported cloud services
     overrides = load_local_overrides()
@@ -1228,6 +1245,31 @@ def start_neuronsphere_extend(verbose: bool = False):
                 "Already bootstrapped — restarting existing deployment "
                 "(skipping BOM seeding and DAG execution)."
             )
+            # Idempotently re-sync the core Resources against the existing
+            # `local-k3s` deployment so a restart picks up any newly-defined core
+            # Resource (e.g. a new ingress-controller) without a destructive
+            # re-bootstrap. seed_base_defs / declare_produces / submit_resources all
+            # upsert/dedupe server-side, so this is safe on every `up`. Non-fatal.
+            print_step("Resyncing local core resources...")
+            try:
+                from .bom_seeder import resync_local_resources
+
+                service_specs = [
+                    {
+                        "service_name": s.get("function_name"),
+                        "repo_class_name": s.get("repo_class_name"),
+                        "api_base_url": f"http://localhost/{s.get('function_name')}",
+                    }
+                    for s in (hmdms_deployed or [])
+                    if s.get("function_name")
+                ]
+                count = resync_local_resources(
+                    ms_deployment_url, k3s_cluster_name, services=service_specs
+                )
+                print_step(f"  {count} core resource(s) resynced")
+            except Exception as e:
+                logger.warning(f"Local resource resync failed (non-fatal): {e}")
+                print(f"  Warning: local resource resync failed: {e}")
         else:
             # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
             # before the BOM seeder runs (so any BOM references resolve cleanly)
@@ -1290,8 +1332,21 @@ def start_neuronsphere_extend(verbose: bool = False):
                         submit_local_resources,
                     )
 
+                    # microservice Resources for each seeded HMDMS service so a
+                    # dev `hmd deploy --local` config can bind service-backed roles
+                    # (e.g. deployment-service -> hmd-ms-deployment) by tag.
+                    service_specs = [
+                        {
+                            "service_name": s.get("function_name"),
+                            "repo_class_name": s.get("repo_class_name"),
+                            "api_base_url": f"http://localhost/{s.get('function_name')}",
+                        }
+                        for s in (hmdms_deployed or [])
+                        if s.get("function_name")
+                    ]
                     local_resources = build_local_core_resources(
                         cluster_name=k3s_cluster_name,
+                        services=service_specs,
                     )
                     count = submit_local_resources(
                         ms_deployment_url, local_resources, nodes
@@ -1326,11 +1381,23 @@ def start_neuronsphere_extend(verbose: bool = False):
 
 
 def start_neuronsphere_platform(
-    config_overrides: Dict[str, bool] = {}, verbose: bool = False
+    config_overrides: Dict[str, bool] = {},
+    verbose: bool = False,
+    upgrade: bool = False,
 ):
     load_hmd_env()
 
     print_header("Starting")
+
+    # --upgrade: repull the compose-service images first (docker only fetches
+    # changed layers). Non-fatal.
+    if upgrade:
+        print_step("Upgrade — pulling latest images...")
+        try:
+            update_images()
+        except Exception as e:
+            logger.warning(f"Image pull failed (non-fatal): {e}")
+            print(f"  Warning: image pull failed: {e}")
 
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
