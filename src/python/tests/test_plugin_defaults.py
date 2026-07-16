@@ -26,14 +26,14 @@ from hmd_cli_neuronsphere.loaders.local_plugin_loader import (
 )
 
 # The app/infra plugins that must be opt-in (off by default).
+# Note: clickhouse and telemetry have been moved to hmd-cli-plugin-ns-telemetry
+# and are no longer part of the core plugins.
 OPT_IN_PLUGINS = [
     "airflow",
     "apache_superset",
     "argo",
-    "clickhouse",
     "hive_metastore",
     "jupyter",
-    "telemetry",
     "transform",
     "trino",
 ]

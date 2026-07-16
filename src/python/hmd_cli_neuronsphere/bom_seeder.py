@@ -14,12 +14,56 @@ import base64
 import json
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from cement import minimal_logger
 
+try:
+    from importlib.metadata import entry_points
+except ImportError:
+    from importlib_metadata import entry_points
+
 logger = minimal_logger("bom_seeder")
+
+# Entry-point group any installed plugin package (e.g. hmd-cli-plugin-ns-telemetry) can
+# populate to contribute additional local BOM entries -- see `_collect_plugin_bom_entries`.
+BOM_ENTRIES_ENTRY_POINT = "hmd_cli_neuronsphere.get_local_bom_entries"
+
+
+def s3_bucket_bom_entry(instance_name: str) -> Dict[str, Any]:
+    """A local BOM entry requesting a dedicated ``hmd-inf-s3bucket`` instance.
+
+    Centralizes the shape of an S3-bucket-backed BOM entry so any plugin can request
+    its own named bucket (e.g. ``clickhouse-storage``) without hardcoding
+    ``hmd-inf-s3bucket``'s BOM-entry shape itself. The real bucket is created by that
+    repo's own CDKTF (``make_standard_name``-derived name) once this entry deploys via
+    the local DAG -- same mechanism ``LOCAL_BOM``'s ``project-bucket`` entry already
+    proves out.
+    """
+    return {
+        "repo_instance_name": instance_name,
+        "repo_class_name": "hmd-inf-s3bucket",
+        "deployment_id": "local",
+        "instance_configuration": {},
+        "dependencies": {},
+    }
+
+
+def credentials_bom_entry(instance_name: str) -> Dict[str, Any]:
+    """A local BOM entry requesting a dedicated ``hmd-inf-credentials`` instance.
+
+    Centralizes the shape of a credentials-backed BOM entry the same way
+    :func:`s3_bucket_bom_entry` does for S3 buckets.
+    """
+    return {
+        "repo_instance_name": instance_name,
+        "repo_class_name": "hmd-inf-credentials",
+        "deployment_id": "local",
+        "instance_configuration": {},
+        "dependencies": {},
+    }
+
 
 LOCAL_BOM = [
     {
@@ -29,13 +73,7 @@ LOCAL_BOM = [
         "instance_configuration": {},
         "dependencies": {},
     },
-    {
-        "repo_instance_name": "project-bucket",
-        "repo_class_name": "hmd-inf-s3bucket",
-        "deployment_id": "local",
-        "instance_configuration": {},
-        "dependencies": {},
-    },
+    s3_bucket_bom_entry("project-bucket"),
 ]
 
 # The CLI itself is the RepoClass that owns every local default/core Resource
@@ -722,6 +760,27 @@ def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     return result
 
 
+def _collect_plugin_bom_entries() -> List[Dict]:
+    """Collect BOM entries contributed by installed plugin packages.
+
+    Each entry point in ``BOM_ENTRIES_ENTRY_POINT`` is a zero-arg callable returning a
+    list of BOM-entry dicts (see ``hmd_cli_plugin_ns_telemetry.bom`` for an example).
+    Best-effort per contributor: a broken/misbehaving plugin package logs a warning and
+    is skipped rather than blocking BOM resolution for everyone else.
+    """
+    entries: List[Dict] = []
+    for entrypoint in entry_points(group=BOM_ENTRIES_ENTRY_POINT):
+        try:
+            contributed = entrypoint.load()()
+            if contributed:
+                entries.extend(contributed)
+        except Exception as e:
+            logger.warning(
+                f"Could not load local BOM entries from plugin '{entrypoint.name}': {e}"
+            )
+    return entries
+
+
 def _resolve_bom() -> List[Dict]:
     """Resolve the BOM source and augment it with the local core + opt-in add-ons.
 
@@ -734,6 +793,8 @@ def _resolve_bom() -> List[Dict]:
       instance (RepoClass ``hmd-cli-neuronsphere``) exists for resource-type deps.
     - When ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`` is truthy, ``EXT_SECRETS_BOM``
       is **appended**.
+    - Entries contributed by installed plugin packages (via ``BOM_ENTRIES_ENTRY_POINT``)
+      are **appended** last.
 
     The result is de-duped by ``repo_instance_name`` so an explicit BOM file that
     already lists these entries stays idempotent.
@@ -751,7 +812,24 @@ def _resolve_bom() -> List[Dict]:
         logger.info("ext-secrets opt-in enabled — appending EXT_SECRETS_BOM")
         bom = bom + EXT_SECRETS_BOM
 
+    plugin_entries = _collect_plugin_bom_entries()
+    if plugin_entries:
+        logger.info(
+            f"Appending {len(plugin_entries)} BOM entrie(s) from installed plugins"
+        )
+        bom = bom + plugin_entries
+
     return _dedupe_bom(bom)
+
+
+def bom_includes_repo_class(repo_class_name: str) -> bool:
+    """True if the resolved local BOM includes an entry of the given repo class.
+
+    Used to detect when an installed plugin's BOM contribution already owns a shared
+    dependency (e.g. ext-secrets) so a hardcoded direct-install path elsewhere (see
+    ``k3s_operators.py``) can step aside instead of installing it twice.
+    """
+    return any(e.get("repo_class_name") == repo_class_name for e in _resolve_bom())
 
 
 def ensure_local_environment(base_url: str) -> Dict:

@@ -148,28 +148,40 @@ K3S_KUBECONFIG_PATH = Path(
 )
 
 K3S_WRAPPER_IMAGE = os.environ.get(
-    "HMD_LOCAL_K3S_WRAPPER_IMAGE", "hmd-img-k3s-floci:0.1"
+    "HMD_LOCAL_K3S_WRAPPER_IMAGE",
+    f"{os.environ.get('HMD_LOCAL_NS_CONTAINER_REGISTRY', 'ghcr.io/neuronsphere')}"
+    "/hmd-img-k3s-floci:0.2",
 )
 
 
 def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
-    """Verify the configured k3s wrapper image is available locally.
+    """Verify the configured k3s wrapper image is available, pulling it if not.
 
     Floci 1.5.8 hardcodes ``--kube-apiserver-arg=storage-backend=sqlite3`` when
     spawning k3s, which the kube-apiserver rejects. We work around this by
     pointing Floci at a wrapper image whose entrypoint drops the bad flag
     before calling the real k3s binary. The image lives in ``hmd-img-k3s-floci``.
 
-    Set ``HMD_LOCAL_K3S_WRAPPER_IMAGE`` to point at a different tag (e.g. a
-    published registry image, or a locally-built dev tag).
+    The default resolves to ``$HMD_LOCAL_NS_CONTAINER_REGISTRY`` (or
+    ``ghcr.io/neuronsphere``) -- the same published registry every other
+    bundled image (Postgres, Airflow, Trino, ...) defaults to -- so a
+    developer who hasn't built this repo locally still gets a working cluster:
+    if the image isn't cached, pull it from there rather than requiring a
+    local ``hmd build``. Set ``HMD_LOCAL_K3S_WRAPPER_IMAGE`` to point at a
+    different tag (e.g. a locally-built dev tag) instead.
     """
     inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
     if inspect.returncode == 0:
         return image
+    logger.info(f"k3s wrapper image '{image}' not cached locally; pulling...")
+    pull = subprocess.run(["docker", "pull", image], capture_output=True, text=True)
+    if pull.returncode == 0:
+        return image
     raise RuntimeError(
-        f"k3s wrapper image '{image}' not found locally. Build it with "
-        f"`hmd build` in the hmd-img-k3s-floci repo, pull a published tag, "
-        f"or override via HMD_LOCAL_K3S_WRAPPER_IMAGE."
+        f"k3s wrapper image '{image}' not found locally and could not be "
+        f"pulled:\n{pull.stderr}\n"
+        f"Build it with `hmd build` in the hmd-img-k3s-floci repo, or "
+        f"override via HMD_LOCAL_K3S_WRAPPER_IMAGE."
     )
 
 

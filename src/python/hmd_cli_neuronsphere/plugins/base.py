@@ -89,7 +89,9 @@ def has_local_override(plugin_name: str) -> bool:
     return loader.has_local_plugin(plugin_name)
 
 
-def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
+def load_nsplugin_config(
+    plugin_name: str, external_dir: Optional[Path] = None
+) -> Optional[Dict[str, Any]]:
     """
     Load the nsplugin.json configuration for a plugin.
 
@@ -99,6 +101,10 @@ def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
 
     Args:
         plugin_name: Name of the plugin (e.g., 'transform', 'trino')
+        external_dir: Override for the external-artifacts root (defaults to this
+            package's own ``external/`` directory). A plugin package living outside
+            ``hmd-cli-neuronsphere`` passes its own ``external/`` directory here so
+            its bundled ``pre_build_artifacts`` resolve correctly.
 
     Returns:
         Dictionary containing the plugin configuration, or None if not found
@@ -109,14 +115,17 @@ def load_nsplugin_config(plugin_name: str) -> Optional[Dict[str, Any]]:
         return local_config
 
     # Fall back to external artifacts
-    config_path = _external_dir / plugin_name / "src" / "local" / "nsplugin.json"
+    base_dir = external_dir if external_dir is not None else _external_dir
+    config_path = base_dir / plugin_name / "src" / "local" / "nsplugin.json"
     if config_path.exists():
         with open(config_path, "r") as f:
             return json.load(f)
     return None
 
 
-def get_external_compose_path(plugin_name: str) -> Optional[Path]:
+def get_external_compose_path(
+    plugin_name: str, external_dir: Optional[Path] = None
+) -> Optional[Path]:
     """
     Get path to docker-compose file from external artifact or local override.
 
@@ -126,6 +135,8 @@ def get_external_compose_path(plugin_name: str) -> Optional[Path]:
 
     Args:
         plugin_name: Name of the plugin
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
 
     Returns:
         Path to the compose file, or None if not found
@@ -137,17 +148,20 @@ def get_external_compose_path(plugin_name: str) -> Optional[Path]:
         return local_compose
 
     # Fall back to external artifacts
-    config = load_nsplugin_config(plugin_name)
+    base_dir = external_dir if external_dir is not None else _external_dir
+    config = load_nsplugin_config(plugin_name, external_dir=external_dir)
     if config:
         compose_file = config.get("compose_file")
         if compose_file:
-            compose_path = _external_dir / plugin_name / "src" / "local" / compose_file
+            compose_path = base_dir / plugin_name / "src" / "local" / compose_file
             if compose_path.exists():
                 return compose_path
     return None
 
 
-def get_external_local_dir(plugin_name: str) -> Optional[Path]:
+def get_external_local_dir(
+    plugin_name: str, external_dir: Optional[Path] = None
+) -> Optional[Path]:
     """
     Get path to the src/local directory from external artifact or local override.
 
@@ -157,6 +171,8 @@ def get_external_local_dir(plugin_name: str) -> Optional[Path]:
 
     Args:
         plugin_name: Name of the plugin
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
 
     Returns:
         Path to the local directory, or None if not found
@@ -167,39 +183,49 @@ def get_external_local_dir(plugin_name: str) -> Optional[Path]:
         return local_override_dir
 
     # Fall back to external artifacts
-    local_dir = _external_dir / plugin_name / "src" / "local"
+    base_dir = external_dir if external_dir is not None else _external_dir
+    local_dir = base_dir / plugin_name / "src" / "local"
     if local_dir.exists():
         return local_dir
     return None
 
 
-def get_external_config_dir(plugin_name: str) -> Optional[Path]:
+def get_external_config_dir(
+    plugin_name: str, external_dir: Optional[Path] = None
+) -> Optional[Path]:
     """
     Get path to config directory from external artifact.
 
     Args:
         plugin_name: Name of the plugin
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
 
     Returns:
         Path to the config directory, or None if not found
     """
-    config_path = _external_dir / plugin_name / "src" / "local" / "config"
+    base_dir = external_dir if external_dir is not None else _external_dir
+    config_path = base_dir / plugin_name / "src" / "local" / "config"
     if config_path.exists():
         return config_path
     return None
 
 
-def has_external_artifact(plugin_name: str) -> bool:
+def has_external_artifact(
+    plugin_name: str, external_dir: Optional[Path] = None
+) -> bool:
     """
     Check if an external artifact or local override exists for this plugin.
 
     Args:
         plugin_name: Name of the plugin
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
 
     Returns:
         True if external artifact or local override exists with nsplugin.json
     """
-    return load_nsplugin_config(plugin_name) is not None
+    return load_nsplugin_config(plugin_name, external_dir=external_dir) is not None
 
 
 def check_dependencies(plugins: Dict[str, bool], required: List[str]) -> bool:
@@ -236,7 +262,10 @@ def create_required_dirs(hmd_home: Path, dirs: List[str]) -> None:
 
 
 def copy_configs(
-    plugin_name: str, hmd_home: Path, mappings: List[Dict[str, Any]]
+    plugin_name: str,
+    hmd_home: Path,
+    mappings: List[Dict[str, Any]],
+    external_dir: Optional[Path] = None,
 ) -> None:
     """
     Copy config files according to manifest mappings.
@@ -251,8 +280,10 @@ def copy_configs(
         plugin_name: Name of the plugin
         hmd_home: Path to HMD_HOME
         mappings: List of mapping dictionaries with source, dest, and options
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
     """
-    local_dir = get_external_local_dir(plugin_name)
+    local_dir = get_external_local_dir(plugin_name, external_dir=external_dir)
     if not local_dir:
         return
 
@@ -294,6 +325,7 @@ def render_templates(
     hmd_home: Path,
     templates: List[Dict[str, Any]],
     context: Dict[str, Any],
+    external_dir: Optional[Path] = None,
 ) -> None:
     """
     Render Jinja2 templates to destination files.
@@ -303,12 +335,14 @@ def render_templates(
         hmd_home: Path to HMD_HOME
         templates: List of template definitions with source, dest
         context: Dictionary of variables to pass to templates
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
     """
     if not HAS_JINJA2:
         print("Warning: Jinja2 not installed, skipping template rendering")
         return
 
-    local_dir = get_external_local_dir(plugin_name)
+    local_dir = get_external_local_dir(plugin_name, external_dir=external_dir)
     if not local_dir:
         return
 
@@ -338,7 +372,12 @@ def render_templates(
             print(f"Warning: Failed to render template {template_file}: {e}")
 
 
-def copy_postgres_scripts(plugin_name: str, hmd_home: Path, scripts: List[str]) -> None:
+def copy_postgres_scripts(
+    plugin_name: str,
+    hmd_home: Path,
+    scripts: List[str],
+    external_dir: Optional[Path] = None,
+) -> None:
     """
     Copy PostgreSQL init scripts to the appropriate location.
 
@@ -346,8 +385,10 @@ def copy_postgres_scripts(plugin_name: str, hmd_home: Path, scripts: List[str]) 
         plugin_name: Name of the plugin
         hmd_home: Path to HMD_HOME
         scripts: List of script paths relative to src/local/
+        external_dir: Override for the external-artifacts root (see
+            :func:`load_nsplugin_config`).
     """
-    local_dir = get_external_local_dir(plugin_name)
+    local_dir = get_external_local_dir(plugin_name, external_dir=external_dir)
     if not local_dir:
         return
 

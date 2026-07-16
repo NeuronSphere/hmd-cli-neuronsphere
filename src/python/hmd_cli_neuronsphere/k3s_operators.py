@@ -55,16 +55,15 @@ _FLOCI_WORKLOAD_CONTAINER = os.environ.get(
 _PROXY_CONTAINER = os.environ.get("HMD_LOCAL_PROXY_CONTAINER", "hmd_proxy")
 _DB_CONTAINER = os.environ.get("HMD_LOCAL_DB_CONTAINER", "hmd_db")
 
-# The NeuronSphere k3s image ships without a bundled ingress controller, but the
-# local BOM seeds a ``kubernetes.neuronsphere.io/ingress-controller`` Resource
-# (name=traefik, ingress_class=traefik) that repos wire their ``eks-alb`` role to.
-# We install Traefik so that Resource is real and Ingress objects are actually
-# served -- the local analog of the cloud AWS Load Balancer Controller.
+# Floci disables k3s's own packaged ingress controller (--disable=traefik, to
+# emulate a raw EKS control plane), but the local BOM seeds a
+# ``kubernetes.neuronsphere.io/ingress-controller`` Resource (name=traefik,
+# ingress_class=traefik) that repos wire their ``eks-alb`` role to. The
+# hmd-img-k3s-floci wrapper image bakes a rendered Traefik manifest into k3s's
+# native auto-deploying manifests directory so it installs itself at cluster
+# boot -- this module just waits for/tears down that baked-in install (see
+# ``_ensure_ingress_controller``), it doesn't install Traefik itself.
 _INGRESS_ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS"
-_TRAEFIK_CHART_REPO = os.environ.get(
-    "HMD_LOCAL_TRAEFIK_REPO", "https://traefik.github.io/charts"
-)
-_TRAEFIK_CHART_VERSION = os.environ.get("HMD_LOCAL_TRAEFIK_VERSION", "34.0.0")
 _FLOCI_EKS_NETWORK = os.environ.get(
     "FLOCI_SERVICES_EKS_DOCKER_NETWORK", "neuronsphere_default"
 )
@@ -172,83 +171,107 @@ def _ensure_coredns_floci_entry() -> None:
             pass
 
 
-def _ensure_ingress_controller() -> None:
-    """Install the k3s ingress controller (Traefik) -- best-effort, idempotent.
+_TRAEFIK_LABEL_SELECTOR = "app.kubernetes.io/name=traefik"
+_TRAEFIK_RESOURCE_KINDS = (
+    "deployments,services,serviceaccounts,ingressclasses,"
+    "clusterroles,clusterrolebindings"
+)
+_TRAEFIK_MANIFEST_PATH = (
+    "/var/lib/rancher/k3s/server/manifests/neuronsphere-traefik.yaml"
+)
 
-    This NeuronSphere k3s image ships no ingress controller, so the seeded
-    ``ingress-controller`` Resource (Traefik) would otherwise be aspirational and
-    Ingress objects would go unserved. Traefik binds the node's :80/:443 via
-    ``hostPort`` (no dependency on a servicelb), so it is reachable at the k3s node
-    container's name on the Floci docker network -- the local parity of reaching
-    the cloud app through its ALB hostname. ``helm upgrade --install`` keeps it
-    idempotent; a failure is logged and never aborts the bring-up.
+
+def _ensure_ingress_controller(timeout: int = 120) -> None:
+    """Wait for the image-baked ingress controller (Traefik), or remove it.
+
+    The k3s image (hmd-img-k3s-floci) renders the Traefik chart at build time
+    and bakes the resulting plain manifest into k3s's native auto-deploying
+    manifests directory, so it installs itself on cluster boot -- there is no
+    helm install to run from here. k3s only applies that manifest once (on a
+    content-hash change), so it won't resurrect resources removed by a prior
+    disable -- re-apply it (idempotent) before waiting for readiness, so
+    toggling ``HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS`` back on works without
+    recreating the cluster. Waiting itself mirrors ``_wait_for_node_ready``'s
+    poll-with-deadline pattern.
     """
+    # One-time migration: a cluster/volume created before ingress was baked
+    # into the image may still carry the Helm release this used to install at
+    # runtime, under the same `traefik` name/namespace the baked-in plain
+    # manifest now also uses -- clear it so the two don't collide.
+    migrated = subprocess.run(
+        ["helm", "uninstall", "traefik", "--namespace", "kube-system"],
+        capture_output=True,
+        text=True,
+    )
+    if migrated.returncode == 0:
+        logger.info(
+            "Removed legacy runtime-installed Traefik release "
+            "(ingress is now baked into the k3s image)"
+        )
+
     if os.environ.get(_INGRESS_ENABLE_ENV, "true").lower() in ("false", "0", "no"):
-        logger.info("Ingress controller install disabled via " + _INGRESS_ENABLE_ENV)
+        logger.info(
+            "Ingress controller disabled via "
+            + _INGRESS_ENABLE_ENV
+            + "; removing baked-in Traefik"
+        )
+        subprocess.run(
+            [
+                "kubectl",
+                "-n",
+                "kube-system",
+                "delete",
+                _TRAEFIK_RESOURCE_KINDS,
+                "-l",
+                _TRAEFIK_LABEL_SELECTOR,
+                "--ignore-not-found",
+            ],
+            capture_output=True,
+            text=True,
+        )
         return
 
-    values = {
-        # ClusterIP + hostPort avoids needing a servicelb to reach the node's :80.
-        "service": {"type": "ClusterIP"},
-        "ingressClass": {"enabled": True, "isDefaultClass": True},
-        "deployment": {"replicas": 1},
-        "ports": {
-            "web": {
-                "port": 8000,
-                "hostPort": 80,
-                "exposedPort": 80,
-                "expose": {"default": True},
-            },
-            "websecure": {
-                "port": 8443,
-                "hostPort": 443,
-                "exposedPort": 443,
-                "expose": {"default": True},
-            },
-        },
-        "resources": {
-            "requests": {"cpu": "50m", "memory": "64Mi"},
-            "limits": {"memory": "256Mi"},
-        },
-    }
-    with NamedTemporaryFile(
-        mode="w", suffix=".yaml", prefix="traefik-values-", delete=False
-    ) as vf:
-        yaml.safe_dump(values, vf)
-        values_path = vf.name
-    try:
-        command = [
-            "helm",
-            "upgrade",
-            "--install",
-            "traefik",
-            "traefik",
-            "--repo",
-            _TRAEFIK_CHART_REPO,
-            "--version",
-            _TRAEFIK_CHART_VERSION,
-            "--namespace",
-            "kube-system",
-            "--wait",
-            "--timeout",
-            "5m",
-            "--values",
-            values_path,
-        ]
-        logger.info("Installing ingress controller (Traefik): " + " ".join(command))
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.warning(
-                f"Traefik ingress-controller install failed "
-                f"(exit={result.returncode}):\n{result.stderr}"
-            )
-        else:
-            logger.info("Ingress controller (Traefik) installed")
-    finally:
-        try:
-            os.unlink(values_path)
-        except OSError:
-            pass
+    # Re-apply the baked-in manifest from inside the k3s node container
+    # (idempotent): a no-op if k3s's own addon controller already applied it
+    # at boot, but restores resources a prior disable removed -- k3s only
+    # (re-)applies a manifest on a content-hash change, it doesn't otherwise
+    # reconcile resources deleted out-of-band.
+    from .floci_deployer import K3S_CLUSTER_NAME
+
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            f"floci-eks-{K3S_CLUSTER_NAME}",
+            "kubectl",
+            "apply",
+            "-f",
+            _TRAEFIK_MANIFEST_PATH,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = subprocess.run(
+            [
+                "kubectl",
+                "-n",
+                "kube-system",
+                "rollout",
+                "status",
+                "deploy/traefik",
+                "--timeout=10s",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            logger.info("Ingress controller (Traefik) ready")
+            return
+        time.sleep(4)
+    logger.warning("Ingress controller (Traefik) did not become ready in time")
 
 
 def _ext_secrets_passes() -> List[Dict[str, Any]]:
@@ -287,6 +310,11 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
 # Ordered: CRDs must exist before the operator; operators before workload charts.
 # ``passes`` (or ``passes_builder``) applies successive ``helm upgrade``s where a
 # single release can't converge — e.g. ESO's self-validated ClusterSecretStore.
+#
+# The ClickHouse operator (CHOP) used to be hardcoded here too. It's now deployed
+# through the real DAG (a BOM entry contributed by the optional
+# hmd-cli-plugin-ns-telemetry package, see bom_seeder.BOM_ENTRIES_ENTRY_POINT) so it's
+# only installed when that plugin is actually installed, instead of unconditionally.
 _OPERATORS: List[Dict[str, Any]] = [
     {
         "name": "ext-secrets-crds",
@@ -298,11 +326,6 @@ _OPERATORS: List[Dict[str, Any]] = [
         "repo": "hmd-inf-ext-secrets",
         "release": "external-secrets",
         "passes_builder": _ext_secrets_passes,
-    },
-    {
-        "name": "clickhouse-operator",
-        "repo": "hmd-inf-clickhouse-operator",
-        "release": "clickhouse-operator",
     },
     {
         "name": "keda",
@@ -615,17 +638,25 @@ def provision_k3s_operators() -> None:
     # and workload charts alike can reach `neuronsphere:4566` (cloud parity).
     _ensure_coredns_floci_entry()
 
-    # Deploy the ingress controller (Traefik) so the seeded ingress-controller
-    # Resource is real and Ingress objects are served on the node's :80/:443.
+    # Confirm the image-baked ingress controller (Traefik) is up (or tear it
+    # down if disabled) so the seeded ingress-controller Resource is real and
+    # Ingress objects are served on the node's :80/:443.
     _ensure_ingress_controller()
 
-    # When the External Secrets stack is opted into the ms-deployment DAG
-    # (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS), the DAG is its sole installer —
-    # skip the operators-path install here so the two don't collide on CRD
-    # ownership (different helm release names for the same CRDs).
+    # When the External Secrets stack is opted into the ms-deployment DAG — either
+    # manually (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS) or because an installed
+    # plugin's BOM contribution already brings its own ext-secrets instance (e.g.
+    # hmd-cli-plugin-ns-telemetry, whose ClickHouse chart needs a real
+    # ClusterSecretStore) — the DAG is its sole installer: skip the operators-path
+    # install here so the two don't collide on CRD ownership (different helm release
+    # names for the same CRDs).
+    from .bom_seeder import bom_includes_repo_class
+
     ext_secrets_via_dag = os.environ.get(
         "HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS", ""
-    ).strip().lower() in ("1", "true", "yes", "on")
+    ).strip().lower() in ("1", "true", "yes", "on") or bom_includes_repo_class(
+        "hmd-inf-ext-secrets"
+    )
     ext_secrets_ops = {"ext-secrets-crds", "ext-secrets"}
 
     installed = []

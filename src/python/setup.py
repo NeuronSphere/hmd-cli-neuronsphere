@@ -21,6 +21,7 @@ setup(
     include_package_data=True,
     package_data={
         "": [
+            "local_overrides.json",
             # AI Skills (file-based and directory-based)
             "skills/*.md",
             "skills/*/*.md",
@@ -40,7 +41,6 @@ setup(
             "services/transform/*",
             "services/naming/*",
             "services/docker-compose.floci.yml",
-            "services/telemetry/*",
             # External artifacts (populated by pre_build_artifacts during hmd build)
             "external/*/src/local/*",
             "external/*/src/local/config/*",
@@ -61,7 +61,6 @@ setup(
         ],
         "hmd_cli_neuronsphere.enabled": [
             "main=hmd_cli_neuronsphere.plugins.main:enabled",
-            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:enabled",
             "graph=hmd_cli_neuronsphere.plugins.graph:enabled",
             "floci=hmd_cli_neuronsphere.plugins.floci:enabled",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:enabled",
@@ -72,12 +71,10 @@ setup(
             "argo=hmd_cli_neuronsphere.plugins.argo:enabled",
             "transform=hmd_cli_neuronsphere.plugins.transform:enabled",
             "trino=hmd_cli_neuronsphere.plugins.trino:enabled",
-            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:enabled",
             "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:enabled",
         ],
         "hmd_cli_neuronsphere.prepare_hmd_home": [
             "main=hmd_cli_neuronsphere.plugins.main:prepare_hmd_home",
-            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:prepare_hmd_home",
             "graph=hmd_cli_neuronsphere.plugins.graph:prepare_hmd_home",
             "floci=hmd_cli_neuronsphere.plugins.floci:prepare_hmd_home",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:prepare_hmd_home",
@@ -88,12 +85,10 @@ setup(
             "argo=hmd_cli_neuronsphere.plugins.argo:prepare_hmd_home",
             "transform=hmd_cli_neuronsphere.plugins.transform:prepare_hmd_home",
             "trino=hmd_cli_neuronsphere.plugins.trino:prepare_hmd_home",
-            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:prepare_hmd_home",
             "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:prepare_hmd_home",
         ],
         "hmd_cli_neuronsphere.get_resources": [
             "main=hmd_cli_neuronsphere.plugins.main:get_resources",
-            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:get_resources",
             "graph=hmd_cli_neuronsphere.plugins.graph:get_resources",
             "floci=hmd_cli_neuronsphere.plugins.floci:get_resources",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:get_resources",
@@ -104,12 +99,10 @@ setup(
             "argo=hmd_cli_neuronsphere.plugins.argo:get_resources",
             "transform=hmd_cli_neuronsphere.plugins.transform:get_resources",
             "trino=hmd_cli_neuronsphere.plugins.trino:get_resources",
-            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:get_resources",
             "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:get_resources",
         ],
         "hmd_cli_neuronsphere.render_compose_yaml": [
             "main=hmd_cli_neuronsphere.plugins.main:render_compose_yaml",
-            "telemetry=hmd_cli_neuronsphere.plugins.telemetry:render_compose_yaml",
             "graph=hmd_cli_neuronsphere.plugins.graph:render_compose_yaml",
             "floci=hmd_cli_neuronsphere.plugins.floci:render_compose_yaml",
             "dynamodb=hmd_cli_neuronsphere.plugins.dynamodb:render_compose_yaml",
@@ -120,9 +113,15 @@ setup(
             "argo=hmd_cli_neuronsphere.plugins.argo:render_compose_yaml",
             "transform=hmd_cli_neuronsphere.plugins.transform:render_compose_yaml",
             "trino=hmd_cli_neuronsphere.plugins.trino:render_compose_yaml",
-            "clickhouse=hmd_cli_neuronsphere.plugins.clickhouse:render_compose_yaml",
             "hive_metastore=hmd_cli_neuronsphere.plugins.hive_metastore:render_compose_yaml",
         ],
+        # Note: "hmd_cli_neuronsphere.get_local_bom_entries" is a new entry-point group
+        # (see bom_seeder.BOM_ENTRIES_ENTRY_POINT) populated by installed plugin
+        # packages (e.g. hmd-cli-plugin-ns-telemetry), never by this repo itself.
+    },
+    extras_require={
+        "telemetry": ["hmd-cli-plugin-ns-telemetry~=0.1"],
+        "all": ["hmd-cli-plugin-ns-telemetry~=0.1"],
     },
     install_requires=[],
 )

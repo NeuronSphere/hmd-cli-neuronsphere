@@ -107,25 +107,13 @@ def _label_nodes_for_compute() -> None:
 # Floci fixtures its chart needs. `secrets[*]` name is
 # make_standard_name(instance, repo, did, local, reg1, hmd) to match the chart's
 # ExternalSecret remoteRef.key; value is the JSON the ExternalSecret pulls keys from.
+#
+# ClickHouse and the OTEL collector ("telemetry") used to be hardcoded here too. Both
+# are now deployed through the real DAG (BOM entries contributed by the optional
+# hmd-cli-plugin-ns-telemetry package, see bom_seeder.BOM_ENTRIES_ENTRY_POINT) instead
+# of this direct `hmd helm deploy --local` shortcut.
 # ---------------------------------------------------------------------------
 _CHART_PLUGINS: List[Dict[str, Any]] = [
-    {
-        "plugin_name": "clickhouse",
-        "repo": "hmd-inf-clickhouse",
-        "external_name": "clickhouse",
-        "instance_name": "clickhouse",
-        "buckets": ["clickhouse-storage-local"],
-        "secrets": [
-            {
-                "instance": "clickhouse",
-                "repo": "hmd-inf-credentials",
-                "did": "local",
-                "value": {"username": "default", "password": "clickhouse"},
-            }
-        ],
-        "node_port": None,
-        "nginx_path": None,
-    },
     {
         "plugin_name": "redis",
         "repo": "hmd-inf-redis",
@@ -178,26 +166,6 @@ _CHART_PLUGINS: List[Dict[str, Any]] = [
                 "name": "hive-bucket_hmd-inf-trino-store-access_local_local_reg1_hmd-bucketaccess",
                 "value": {"S3_ACCESS_KEY": "test", "S3_ACCESS_SECRET": "test"},
             },
-        ],
-        "node_port": None,
-        "nginx_path": None,
-    },
-    {
-        "plugin_name": "telemetry",
-        "repo": "hmd-inf-otel-collector",
-        "external_name": "telemetry",
-        "instance_name": "otel",
-        "buckets": [],
-        "secrets": [
-            {
-                # otel connects to ClickHouse as the `clickhouse` app user (the
-                # `default` user has no password); reuses the secret ClickHouse itself
-                # provisioned (user `clickhouse`, password `clickhouse`).
-                "instance": "clickhouse",
-                "repo": "hmd-inf-credentials",
-                "did": "local",
-                "value": {"username": "clickhouse", "password": "clickhouse"},
-            }
         ],
         "node_port": None,
         "nginx_path": None,
