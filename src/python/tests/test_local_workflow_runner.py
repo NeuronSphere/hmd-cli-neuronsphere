@@ -18,6 +18,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+import yaml
+
 from hmd_cli_neuronsphere.local_workflow_runner import (
     LocalWorkflowRunner,
     _localize_deploy_script,
@@ -103,6 +105,66 @@ class ResolveArtifactBundleDirTests(unittest.TestCase):
                 self.assertIsNone(
                     LocalWorkflowRunner._resolve_artifact_bundle_dir(self._node())
                 )
+
+
+RAW_KUBECONFIG = {
+    "apiVersion": "v1",
+    "clusters": [
+        {
+            "name": "default",
+            "cluster": {
+                "server": "https://localhost:6500",
+                "certificate-authority-data": "ZmFrZQ==",
+            },
+        }
+    ],
+    "contexts": [{"name": "default", "context": {"cluster": "default"}}],
+    "current-context": "default",
+    "kind": "Config",
+}
+
+
+class KubeconfigForContainerTests(unittest.TestCase):
+    def _write_kubeconfig(self, tmpdir):
+        path = os.path.join(tmpdir, "kubeconfig")
+        with open(path, "w") as f:
+            yaml.safe_dump(RAW_KUBECONFIG, f)
+        return path
+
+    def test_rewrites_server_to_in_network_endpoint(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_kubeconfig(d)
+            runner = LocalWorkflowRunner("http://x", cluster_name="neuronsphere")
+            with mock.patch.object(runner, "_local_kubeconfig_path", return_value=path):
+                out_path = runner._kubeconfig_for_container()
+            self.assertNotEqual(out_path, path)
+            with open(out_path) as f:
+                cfg = yaml.safe_load(f)
+            cluster = cfg["clusters"][0]["cluster"]
+            self.assertEqual(cluster["server"], "https://floci-eks-neuronsphere:6443")
+            self.assertTrue(cluster["insecure-skip-tls-verify"])
+            self.assertNotIn("certificate-authority-data", cluster)
+
+    def test_falls_back_to_raw_path_without_cluster_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_kubeconfig(d)
+            runner = LocalWorkflowRunner("http://x")
+            with mock.patch.object(runner, "_local_kubeconfig_path", return_value=path):
+                self.assertEqual(runner._kubeconfig_for_container(), path)
+
+    def test_falls_back_when_no_kubeconfig_found(self):
+        runner = LocalWorkflowRunner("http://x", cluster_name="neuronsphere")
+        with mock.patch.object(runner, "_local_kubeconfig_path", return_value=None):
+            self.assertIsNone(runner._kubeconfig_for_container())
+
+    def test_falls_back_on_unparseable_kubeconfig(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "kubeconfig")
+            with open(path, "w") as f:
+                f.write("not: valid: yaml: [")
+            runner = LocalWorkflowRunner("http://x", cluster_name="neuronsphere")
+            with mock.patch.object(runner, "_local_kubeconfig_path", return_value=path):
+                self.assertEqual(runner._kubeconfig_for_container(), path)
 
 
 if __name__ == "__main__":

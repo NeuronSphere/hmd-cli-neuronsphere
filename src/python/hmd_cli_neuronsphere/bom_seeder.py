@@ -14,6 +14,7 @@ import base64
 import json
 import logging
 import os
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -23,6 +24,8 @@ try:
     from importlib.metadata import entry_points
 except ImportError:
     from importlib_metadata import entry_points
+
+from .docker_credentials import local_docker_config_json
 
 logger = minimal_logger("bom_seeder")
 
@@ -135,6 +138,59 @@ LOCAL_CORE_BOM = [
     },
 ]
 
+# In-network Floci endpoint (resolvable from pods once the CoreDNS record exists).
+# Mirrors k3s_operators._FLOCI_INTERNAL_ENDPOINT's default -- not imported from there
+# to avoid coupling bom_seeder to k3s_operators for one constant.
+_FLOCI_INTERNAL_ENDPOINT = os.environ.get(
+    "FLOCI_INTERNAL_ENDPOINT", "http://neuronsphere:4566"
+)
+
+# ext-secrets' Helm defaults (meta-data/manifest.json's default_configuration) assume
+# cloud: ClusterSecretStores authenticate via IRSA (AssumeRoleWithWebIdentity against
+# sts.<region>.amazonaws.com, unresolvable locally). k3s_operators._ext_secrets_passes()
+# used to override this for local, but that function only runs via the legacy
+# hardcoded _OPERATORS install path -- dead code once ext-secrets is part of the BOM
+# (see bom_includes_repo_class), which is always true once
+# HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS is set. Without this override, every
+# ExternalSecret/ClusterExternalSecret (including hmd-docker-repo-secret) never syncs
+# locally -- the store just sits at InvalidProviderConfig.
+#
+# dockerRepoSecret specifically must target `parameterStoreSecretStore`
+# (aws-parameter-store / SSM), not `clusterSecretStore` (aws-secrets-manager): the local
+# CDKTF overlay that provisions the secret's value
+# (hmd-inf-ext-secrets/src/local/cdktf/cdktf_local.py) calls
+# hmd_lib_secrets_backend.create_secret(), which -- despite its "Secrets Manager" naming
+# in older comments -- *always* writes to SSM Parameter Store (see its own docstring:
+# "Writes always go to Parameter Store SecureString"). A ClusterSecretStore reading from
+# Secrets Manager would never find it ("Secret does not exist").
+#
+# No `aws_region` override needed here: hmd-cli-helm's `_set_local_standard_values`
+# resolves it correctly (real AWS region via get_cloud_region(hmd_region), matching
+# where CDKTF writes land) and applies it via `--set`, which unconditionally wins over
+# any `-f values-file` content -- an `aws_region` key here would be silently clobbered.
+_EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
+    "installCRDs": False,  # CRDs come from hmd-inf-ext-secrets-crds (a prior BOM entry)
+    "clusterSecretStore": {
+        "enabled": True,
+        "local": True,  # static test creds against Floci instead of IRSA
+        "name": "aws-secrets-manager",
+    },
+    "parameterStoreSecretStore": {
+        "enabled": True,
+        "local": True,  # static test creds against Floci instead of IRSA
+        "name": "aws-parameter-store",
+    },
+    "dockerRepoSecret": {
+        "enabled": True,
+        "secretStoreName": "aws-parameter-store",  # create_secret() always writes here
+    },
+    "extraEnv": [
+        {"name": "AWS_ENDPOINT_URL", "value": _FLOCI_INTERNAL_ENDPOINT},
+        {"name": "AWS_ACCESS_KEY_ID", "value": "test"},
+        {"name": "AWS_SECRET_ACCESS_KEY", "value": "test"},
+    ],
+}
+
 # Opt-in via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS. crds first (its RepoClass
 # must exist before ext-secrets, which depends on it by class name). The eks-cluster
 # / compute roles are satisfied by the local k3s producer via their manifests'
@@ -154,7 +210,7 @@ EXT_SECRETS_BOM = [
         "repo_instance_name": "ext-secrets",
         "repo_class_name": "hmd-inf-ext-secrets",
         "deployment_id": "local",
-        "instance_configuration": {},
+        "instance_configuration": dict(_EXT_SECRETS_LOCAL_CONFIG),
         "dependencies": {
             "eks-cluster": CORE_INSTANCE_NAME,
             "compute": CORE_INSTANCE_NAME,
@@ -747,6 +803,124 @@ def resync_local_resources(
     return submit_local_resources(base_url, resources, nodes)
 
 
+def _repo_instance_status(base_url: str) -> Dict[str, Optional[str]]:
+    """Map each RepoInstance's name to its most recent deployment's status.
+
+    Mirrors :func:`find_core_deployment_node`'s most-recent-edge-by-``_created``
+    pattern, generalized across every instance instead of just the core one.
+    """
+    instances = _search_entities(base_url, "hmd_lang_deployment.repo_instance", {})
+    edges = _search_entities(
+        base_url, "hmd_lang_deployment.repo_instance_has_repo_instance_deployment", {}
+    )
+    deployments = _search_entities(
+        base_url, "hmd_lang_deployment.repo_instance_deployment", {}
+    )
+    status_by_rid = {d.get("identifier"): d.get("status") for d in deployments}
+
+    latest_rid_by_instance: Dict[str, str] = {}
+    latest_created_by_instance: Dict[str, str] = {}
+    for e in edges:
+        inst = e.get("ref_from")
+        created = e.get("_created", "")
+        if created >= latest_created_by_instance.get(inst, ""):
+            latest_created_by_instance[inst] = created
+            latest_rid_by_instance[inst] = e.get("ref_to")
+
+    status_by_name: Dict[str, Optional[str]] = {}
+    for i in instances:
+        name, nid = i.get("name"), i.get("identifier")
+        if not name:
+            continue
+        rid = latest_rid_by_instance.get(nid)
+        status_by_name[name] = status_by_rid.get(rid) if rid else None
+    return status_by_name
+
+
+# Strategies LocalWorkflowRunner never runs a real deploy script for -- it marks
+# them DEPLOYED the instant it visits them (see local_workflow_runner.py). If
+# LocalWorkflowRunner fails fast on an earlier node, though, one of these can be
+# left at ms-deployment's un-visited default status ("SKIPPED") forever, even
+# though re-attempting it would be a pure no-op. Mirrored here (not imported)
+# because only the central-overrides tier is checked -- the per-repo
+# nsplugin.json tier isn't worth a filesystem lookup just for this comparison.
+_NO_OP_STRATEGIES = {"skip", "local_storage", "compose_substitute"}
+
+
+def compute_new_bom_entries(
+    base_url: str,
+    bom: Optional[List[Dict]] = None,
+    overrides: Optional[Dict] = None,
+) -> List[Dict]:
+    """Resolved BOM entries not yet done in the local env.
+
+    "Done" means either a real deploy succeeded (status ``DEPLOYED``), or the
+    entry's repo_class is configured with a no-op strategy (``_NO_OP_STRATEGIES``,
+    matching ``local_workflow_runner.SKIP_STRATEGIES`` plus ``compose_substitute``)
+    -- those never run a real deploy script, so any existing record for one is
+    terminal even if it's stuck at "SKIPPED" from an earlier fail-fast run.
+    Everything else -- no record yet, or FAILED/SKIPPED for a repo that IS meant
+    to really deploy -- stays eligible for a delta-apply retry.
+
+    Lets a restart pick up entries newly contributed by a plugin installed or
+    enabled after bootstrap, or retry one left unfinished by a prior attempt,
+    without touching anything already deployed. Fail-safe: a query error returns
+    ``[]`` (deploy nothing) rather than risking a redeploy of already-bootstrapped
+    instances. ``overrides`` should be the central ``local_overrides.json`` dict
+    (e.g. from ``load_local_overrides()``) -- omitting it treats every entry as
+    "default" strategy, which is conservative but will keep re-offering a true
+    no-op entry that a fail-fast run left at "SKIPPED".
+    """
+    if bom is None:
+        bom = _resolve_bom()
+    overrides = overrides or {}
+    try:
+        status_by_name = _repo_instance_status(base_url)
+    except (requests.RequestException, ValueError, KeyError) as e:
+        logger.warning(f"Could not compute new BOM entries: {e}")
+        return []
+
+    new_entries = []
+    for entry in bom:
+        name = entry.get("repo_instance_name")
+        status = status_by_name.get(name)
+        strategy = overrides.get(entry.get("repo_class_name"), {}).get("strategy")
+        if strategy in _NO_OP_STRATEGIES:
+            if status is not None:
+                continue
+        elif status == "DEPLOYED":
+            continue
+        new_entries.append(entry)
+    return new_entries
+
+
+def _inject_docker_credentials(bom: List[Dict]) -> None:
+    """Patch any ``hmd-inf-ext-secrets`` BOM entry with host Docker credentials.
+
+    Mutates ``bom`` in place. No-op if the resolved BOM has no ext-secrets entry
+    (skips the host filesystem read entirely), or if
+    :func:`docker_credentials.local_docker_config_json` resolved nothing (e.g. the
+    developer never ran ``docker login``) -- the local CDKTF overlay
+    (``hmd-inf-ext-secrets/src/local/cdktf/cdktf_local.py``) treats a missing
+    ``docker_config_json`` as "skip provisioning the secret," not an error, so
+    private-image pulls simply keep failing until credentials are available.
+    """
+    targets = [e for e in bom if e.get("repo_class_name") == "hmd-inf-ext-secrets"]
+    if not targets:
+        return
+    docker_config_json = local_docker_config_json()
+    if not docker_config_json:
+        logger.info(
+            "No local Docker credentials found -- private image pulls (e.g. "
+            "ghcr.io/hmdlabs/*) from local k3s will fail until you `docker login`"
+        )
+        return
+    for entry in targets:
+        entry.setdefault("instance_configuration", {})[
+            "docker_config_json"
+        ] = docker_config_json
+
+
 def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     """Drop later entries whose ``repo_instance_name`` was already seen (idempotent)."""
     seen = set()
@@ -795,6 +969,10 @@ def _resolve_bom() -> List[Dict]:
       is **appended**.
     - Entries contributed by installed plugin packages (via ``BOM_ENTRIES_ENTRY_POINT``)
       are **appended** last.
+    - Any ``hmd-inf-ext-secrets`` entry present (from either of the above) has the
+      host's Docker credentials injected into its ``instance_configuration`` (see
+      :func:`_inject_docker_credentials`), so its local CDKTF overlay can seed the
+      ``hmd-docker-repo-secret`` k3s uses to pull private images.
 
     The result is de-duped by ``repo_instance_name`` so an explicit BOM file that
     already lists these entries stays idempotent.
@@ -819,6 +997,7 @@ def _resolve_bom() -> List[Dict]:
         )
         bom = bom + plugin_entries
 
+    _inject_docker_credentials(bom)
     return _dedupe_bom(bom)
 
 
@@ -859,6 +1038,25 @@ def ensure_local_environment(base_url: str) -> Dict:
             "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
         },
     )
+
+
+def _new_change_set_name(base_url: str) -> str:
+    """A changeset name not already in use.
+
+    ms-base PUT never upserts on business key, and ``apply_changeset`` asserts
+    exactly one changeset matches the given name, so every :func:`seed_bom`
+    invocation needs a name distinct from any prior one. Keeps the readable
+    ``"local-changeset"`` base name on first use; later calls (e.g. a
+    delta-apply on restart) get a unique suffix.
+    """
+    base = "local-changeset"
+    existing = {
+        c.get("name")
+        for c in _search_entities(base_url, "hmd_lang_deployment.change_set", {})
+    }
+    if base not in existing:
+        return base
+    return f"{base}-{uuid.uuid4().hex[:8]}"
 
 
 def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
@@ -921,25 +1119,37 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
     # 2. Create Environment
     ensure_local_environment(base_url)
 
-    # 3. Create DeploymentSet
-    logger.info("Creating 'local' deployment set")
-    _put_entity(
+    # 3. Create DeploymentSet (find-first — ms-base PUT never upserts on business
+    # key, so a second seed_bom call, e.g. a delta-apply on restart, must not
+    # create a duplicate "local" row).
+    existing_ds = _search_entities(
         base_url,
         "hmd_lang_deployment.deployment_set",
-        {
-            "name": "local",
-            "definition": _encode_collection(
-                [
-                    {
-                        "environment": "local",
-                        "deployment_gate": {"transforms": [], "approval": False},
-                    },
-                ]
-            ),
-        },
+        {"attribute": "name", "operator": "=", "value": "local"},
     )
+    if not existing_ds:
+        logger.info("Creating 'local' deployment set")
+        _put_entity(
+            base_url,
+            "hmd_lang_deployment.deployment_set",
+            {
+                "name": "local",
+                "definition": _encode_collection(
+                    [
+                        {
+                            "environment": "local",
+                            "deployment_gate": {"transforms": [], "approval": False},
+                        },
+                    ]
+                ),
+            },
+        )
 
-    # 4. Create ChangeSet
+    # 4. Create ChangeSet. apply_changeset asserts exactly one changeset row with
+    # the given name, so every call needs a name not already in use (a repeat
+    # seed_bom call, e.g. a delta-apply on restart, would otherwise collide with
+    # the first call's "local-changeset" row and fail that assertion).
+    change_set_name = _new_change_set_name(base_url)
     changeset_def = [
         {
             "deployment_id": entry.get("deployment_id", "local"),
@@ -952,13 +1162,13 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
         for entry in bom
     ]
     logger.info(
-        f"Creating 'local-changeset' changeset with {len(changeset_def)} entries"
+        f"Creating '{change_set_name}' changeset with {len(changeset_def)} entries"
     )
     _put_entity(
         base_url,
         "hmd_lang_deployment.change_set",
         {
-            "name": "local-changeset",
+            "name": change_set_name,
             "definition": _encode_collection(changeset_def),
         },
     )
@@ -969,7 +1179,7 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
         base_url,
         "apply_changeset",
         {
-            "change_set_name": "local-changeset",
+            "change_set_name": change_set_name,
             "deployment_set_name": "local",
             "skip_async": True,
         },

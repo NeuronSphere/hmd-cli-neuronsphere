@@ -87,9 +87,13 @@
         "strategy": "default",
         "reason": "Opt-in (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS): deploy the External Secrets CRDs through the ms-deployment DAG in projectbuilder (Helm onto k3s)"
     },
+    "hmd-inf-cert-manager": {
+        "strategy": "default",
+        "reason": "Helm deploys cert-manager to k3s EKS cluster once per cluster (via the local BOM, when the hmd-cli-plugin-ns-telemetry package is installed); no dependencies"
+    },
     "hmd-inf-clickhouse-operator": {
         "strategy": "default",
-        "reason": "Helm deploys to k3s EKS cluster (via the local BOM, when the hmd-cli-plugin-ns-telemetry package is installed); no dependencies"
+        "reason": "Helm deploys to k3s EKS cluster (via the local BOM, when the hmd-cli-plugin-ns-telemetry package is installed); depends on hmd-inf-cert-manager for its admission webhook TLS"
     },
     "hmd-inf-hive-metastore": {
         "strategy": "default",

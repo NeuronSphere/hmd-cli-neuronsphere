@@ -53,20 +53,48 @@ class ResolveBomTests(unittest.TestCase):
         self.assertNotIn("ext-secrets", names)
         self.assertNotIn("ext-secrets-crds", names)
 
-    def test_ext_secrets_opt_in_appends_crds_first(self):
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json", return_value=None
+    )
+    def test_ext_secrets_opt_in_appends_crds_first(self, _mock_docker_creds):
         os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS"] = "true"
         names = [e["repo_instance_name"] for e in b._resolve_bom()]
         self.assertEqual(names[0], b.CORE_INSTANCE_NAME)
         self.assertIn("ext-secrets-crds", names)
         self.assertLess(names.index("ext-secrets-crds"), names.index("ext-secrets"))
 
-    def test_ext_secrets_dep_names_local_producer(self):
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json", return_value=None
+    )
+    def test_ext_secrets_dep_names_local_producer(self, _mock_docker_creds):
         os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS"] = "1"
         bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
         deps = bom["ext-secrets"]["dependencies"]
         self.assertEqual(deps["eks-cluster"], b.CORE_INSTANCE_NAME)
         self.assertEqual(deps["compute"], b.CORE_INSTANCE_NAME)
         self.assertEqual(deps["crds"], "ext-secrets-crds")
+
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json", return_value=None
+    )
+    def test_ext_secrets_instance_config_uses_local_secret_store_auth(
+        self, _mock_docker_creds
+    ):
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS"] = "true"
+        bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
+        config = bom["ext-secrets"]["instance_configuration"]
+        self.assertTrue(config["clusterSecretStore"]["enabled"])
+        self.assertTrue(config["clusterSecretStore"]["local"])
+        self.assertEqual(config["clusterSecretStore"]["name"], "aws-secrets-manager")
+        self.assertTrue(config["parameterStoreSecretStore"]["enabled"])
+        self.assertTrue(config["parameterStoreSecretStore"]["local"])
+        self.assertEqual(
+            config["parameterStoreSecretStore"]["name"], "aws-parameter-store"
+        )
+        self.assertTrue(config["dockerRepoSecret"]["enabled"])
+        self.assertEqual(
+            config["dockerRepoSecret"]["secretStoreName"], "aws-parameter-store"
+        )
 
     def test_dedupe_is_idempotent(self):
         bom = b._resolve_bom()
@@ -79,6 +107,57 @@ class ResolveBomTests(unittest.TestCase):
         self.assertFalse(b._is_truthy(None))
         self.assertFalse(b._is_truthy("false"))
         self.assertFalse(b._is_truthy(""))
+
+
+class InjectDockerCredentialsTests(unittest.TestCase):
+    def _ext_secrets_entry(self):
+        return {
+            "repo_instance_name": "ext-secrets",
+            "repo_class_name": "hmd-inf-ext-secrets",
+            "deployment_id": "local",
+            "instance_configuration": {},
+            "dependencies": {},
+        }
+
+    @mock.patch("hmd_cli_neuronsphere.bom_seeder.local_docker_config_json")
+    def test_no_ext_secrets_entry_skips_host_read(self, mock_creds):
+        bom = [{"repo_instance_name": "vpc", "repo_class_name": "hmd-vpc"}]
+        b._inject_docker_credentials(bom)
+        mock_creds.assert_not_called()
+
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json",
+        return_value='{"auths": {"ghcr.io": {"auth": "xyz"}}}',
+    )
+    def test_ext_secrets_entry_gets_docker_config_json(self, _mock_creds):
+        entry = self._ext_secrets_entry()
+        b._inject_docker_credentials([entry])
+        self.assertEqual(
+            entry["instance_configuration"]["docker_config_json"],
+            '{"auths": {"ghcr.io": {"auth": "xyz"}}}',
+        )
+
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json", return_value=None
+    )
+    def test_no_resolved_credentials_leaves_config_untouched(self, _mock_creds):
+        entry = self._ext_secrets_entry()
+        b._inject_docker_credentials([entry])
+        self.assertNotIn("docker_config_json", entry["instance_configuration"])
+
+    @mock.patch(
+        "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json",
+        return_value='{"auths": {}}',
+    )
+    def test_all_ext_secrets_entries_patched(self, _mock_creds):
+        entry_a, entry_b = self._ext_secrets_entry(), self._ext_secrets_entry()
+        b._inject_docker_credentials([entry_a, entry_b])
+        self.assertEqual(
+            entry_a["instance_configuration"]["docker_config_json"], '{"auths": {}}'
+        )
+        self.assertEqual(
+            entry_b["instance_configuration"]["docker_config_json"], '{"auths": {}}'
+        )
 
 
 class CoreResourceTests(unittest.TestCase):
@@ -354,6 +433,304 @@ class ResyncLocalResourcesTests(unittest.TestCase):
             n = b.resync_local_resources("http://x", "neuronsphere")
         self.assertEqual(n, 0)
         submit.assert_not_called()
+
+
+class ComputeNewBomEntriesTests(unittest.TestCase):
+    def _search(self, instances, edges, deployments):
+        """A _search_entities stand-in over (repo_instance, has_deployment, deployment)."""
+
+        def fake_search(url, entity_type, filter_):
+            if entity_type.endswith("repo_instance_has_repo_instance_deployment"):
+                return edges
+            if entity_type.endswith("repo_instance_deployment"):
+                return deployments
+            if entity_type.endswith("repo_instance"):
+                return instances
+            return []
+
+        return fake_search
+
+    def test_filters_deployed(self):
+        bom = [
+            {"repo_instance_name": "local-k3s"},
+            {"repo_instance_name": "vpc"},
+            {"repo_instance_name": "clickhouse"},
+        ]
+        instances = [
+            {"identifier": "i-1", "name": "local-k3s"},
+            {"identifier": "i-2", "name": "vpc"},
+        ]
+        edges = [
+            {"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"},
+            {"ref_from": "i-2", "ref_to": "rid-2", "_created": "2026-01-01"},
+        ]
+        deployments = [
+            {"identifier": "rid-1", "status": "DEPLOYED"},
+            {"identifier": "rid-2", "status": "DEPLOYED"},
+        ]
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, [{"repo_instance_name": "clickhouse"}])
+
+    def test_failed_instance_is_still_new(self):
+        # A RepoInstance can exist (from a prior attempt) without having ever
+        # successfully deployed -- it must stay eligible for a delta-apply retry.
+        bom = [{"repo_instance_name": "clickhouse-user"}]
+        instances = [{"identifier": "i-1", "name": "clickhouse-user"}]
+        edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
+        deployments = [{"identifier": "rid-1", "status": "FAILED"}]
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, bom)
+
+    def test_skipped_instance_is_still_new(self):
+        # SKIPPED (e.g. a dependency failed) is also not a successful deploy.
+        bom = [{"repo_instance_name": "otel-collector"}]
+        instances = [{"identifier": "i-1", "name": "otel-collector"}]
+        edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
+        deployments = [{"identifier": "rid-1", "status": "SKIPPED"}]
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, bom)
+
+    def test_all_new_when_env_empty(self):
+        bom = [{"repo_instance_name": "local-k3s"}, {"repo_instance_name": "vpc"}]
+        with mock.patch.object(
+            b, "_search_entities", side_effect=self._search([], [], [])
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, bom)
+
+    def test_none_when_all_deployed(self):
+        bom = [{"repo_instance_name": "local-k3s"}, {"repo_instance_name": "vpc"}]
+        instances = [
+            {"identifier": "i-1", "name": "local-k3s"},
+            {"identifier": "i-2", "name": "vpc"},
+        ]
+        edges = [
+            {"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"},
+            {"ref_from": "i-2", "ref_to": "rid-2", "_created": "2026-01-01"},
+        ]
+        deployments = [
+            {"identifier": "rid-1", "status": "DEPLOYED"},
+            {"identifier": "rid-2", "status": "DEPLOYED"},
+        ]
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, [])
+
+    def test_picks_most_recent_deployment_status(self):
+        # Redeployed instance: an old FAILED attempt followed by a newer DEPLOYED one.
+        bom = [{"repo_instance_name": "clickhouse"}]
+        instances = [{"identifier": "i-1", "name": "clickhouse"}]
+        edges = [
+            {"ref_from": "i-1", "ref_to": "rid-old", "_created": "2026-01-01"},
+            {"ref_from": "i-1", "ref_to": "rid-new", "_created": "2026-07-01"},
+        ]
+        deployments = [
+            {"identifier": "rid-old", "status": "FAILED"},
+            {"identifier": "rid-new", "status": "DEPLOYED"},
+        ]
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, [])
+
+    def test_search_error_returns_empty(self):
+        bom = [{"repo_instance_name": "clickhouse"}]
+        with mock.patch.object(
+            b, "_search_entities", side_effect=b.requests.RequestException("boom")
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, [])
+
+    def test_defaults_to_resolve_bom(self):
+        sentinel = [{"repo_instance_name": "sentinel"}]
+        with mock.patch.object(
+            b, "_resolve_bom", return_value=sentinel
+        ) as resolve, mock.patch.object(
+            b, "_search_entities", side_effect=self._search([], [], [])
+        ):
+            new = b.compute_new_bom_entries("http://x")
+        resolve.assert_called_once()
+        self.assertEqual(new, sentinel)
+
+    def test_skip_strategy_instance_with_a_record_is_not_new(self):
+        # LocalWorkflowRunner fails fast: a "skip"-strategy node that comes
+        # after an earlier real failure in DAG order never gets visited, so it
+        # sits at ms-deployment's un-visited default ("SKIPPED") forever, even
+        # though it never does real work (it would mark itself DEPLOYED
+        # instantly if it WERE visited -- see local_workflow_runner.SKIP_STRATEGIES).
+        # Re-attempting it is harmless but pure noise; any existing record is
+        # terminal for it.
+        bom = [
+            {
+                "repo_instance_name": "local-k3s",
+                "repo_class_name": "hmd-cli-neuronsphere",
+            }
+        ]
+        instances = [{"identifier": "i-1", "name": "local-k3s"}]
+        edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
+        deployments = [{"identifier": "rid-1", "status": "SKIPPED"}]
+        overrides = {"hmd-cli-neuronsphere": {"strategy": "skip"}}
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
+        self.assertEqual(new, [])
+
+    def test_skip_strategy_instance_with_no_record_is_new(self):
+        bom = [
+            {
+                "repo_instance_name": "local-k3s",
+                "repo_class_name": "hmd-cli-neuronsphere",
+            }
+        ]
+        overrides = {"hmd-cli-neuronsphere": {"strategy": "skip"}}
+        with mock.patch.object(
+            b, "_search_entities", side_effect=self._search([], [], [])
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
+        self.assertEqual(new, bom)
+
+    def test_default_strategy_skipped_instance_is_still_new_even_with_overrides(self):
+        # A "default"-strategy repo that never got reached (SKIPPED) must stay
+        # retry-eligible even when an (unrelated) overrides dict is supplied.
+        bom = [
+            {
+                "repo_instance_name": "otel-collector",
+                "repo_class_name": "hmd-inf-otel-collector",
+            }
+        ]
+        instances = [{"identifier": "i-1", "name": "otel-collector"}]
+        edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
+        deployments = [{"identifier": "rid-1", "status": "SKIPPED"}]
+        overrides = {
+            "hmd-cli-neuronsphere": {"strategy": "skip"},
+            "hmd-inf-otel-collector": {"strategy": "default"},
+        }
+        with mock.patch.object(
+            b,
+            "_search_entities",
+            side_effect=self._search(instances, edges, deployments),
+        ):
+            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
+        self.assertEqual(new, bom)
+
+
+class SeedBomIdempotencyTests(unittest.TestCase):
+    def _run_seed_bom(self, state, bom):
+        """Drive seed_bom against a minimal fake in-memory ms-deployment.
+
+        ``state`` accumulates deployment_set / change_set rows created via
+        _put_entity, so a second call in the same test sees the first call's
+        writes when it does its own find-first search.
+        """
+
+        def fake_search(url, entity_type, filter_):
+            if entity_type.endswith("deployment_set"):
+                return state["deployment_sets"]
+            if entity_type.endswith("change_set"):
+                return state["change_sets"]
+            return []
+
+        def fake_put(url, entity_type, body):
+            if entity_type.endswith("deployment_set"):
+                state["deployment_sets"].append({"name": body["name"]})
+            if entity_type.endswith("change_set"):
+                state["change_sets"].append({"name": body["name"]})
+            return {"identifier": "nid-1", **body}
+
+        def fake_post(url, op, payload=None, **k):
+            if op == "apply_changeset":
+                state["apply_changeset_calls"].append(payload["change_set_name"])
+                return {"csd_nid": f"csd-{len(state['apply_changeset_calls'])}"}
+            if op == "generate_local_deployment":
+                return {"nodes": []}
+            if op.startswith("generate_local_deployment/"):
+                return {"nodes": []}
+            if op == "add_repo_class_version":
+                return {}
+            return {}
+
+        with mock.patch.object(
+            b, "_search_entities", side_effect=fake_search
+        ), mock.patch.object(b, "_put_entity", side_effect=fake_put), mock.patch.object(
+            b, "_post_apiop", side_effect=fake_post
+        ), mock.patch.object(
+            b, "_get_repo_version", return_value="0.1.0"
+        ), mock.patch.object(
+            b, "_get_repo_dependencies", return_value={}
+        ), mock.patch.object(
+            b, "_get_repo_deploy_config", return_value={}
+        ), mock.patch.object(
+            b, "declare_core_produces"
+        ), mock.patch.object(
+            b, "ensure_local_environment"
+        ), mock.patch.object(
+            b, "upsert_repo_resource_definitions"
+        ):
+            return b.seed_bom("http://x", bom=bom)
+
+    def test_deployment_set_created_once(self):
+        state = {
+            "deployment_sets": [],
+            "change_sets": [],
+            "apply_changeset_calls": [],
+        }
+        bom = [
+            {
+                "repo_instance_name": "local-k3s",
+                "repo_class_name": "hmd-cli-neuronsphere",
+            }
+        ]
+        self._run_seed_bom(state, bom)
+        self._run_seed_bom(state, bom)
+        self.assertEqual(len(state["deployment_sets"]), 1)
+
+    def test_change_set_name_unique_per_call(self):
+        state = {
+            "deployment_sets": [],
+            "change_sets": [],
+            "apply_changeset_calls": [],
+        }
+        bom = [
+            {
+                "repo_instance_name": "local-k3s",
+                "repo_class_name": "hmd-cli-neuronsphere",
+            }
+        ]
+        self._run_seed_bom(state, bom)
+        self._run_seed_bom(state, bom)
+
+        change_set_names = [c["name"] for c in state["change_sets"]]
+        self.assertEqual(len(change_set_names), 2)
+        self.assertEqual(len(set(change_set_names)), 2)
+        self.assertEqual(change_set_names[0], "local-changeset")
+
+        # Every apply_changeset call used the name just PUT in that same call.
+        self.assertEqual(state["apply_changeset_calls"], change_set_names)
 
 
 if __name__ == "__main__":

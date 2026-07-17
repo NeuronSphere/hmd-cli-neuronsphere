@@ -278,11 +278,32 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
     """Two install passes for the External Secrets operator.
 
     Pass 1 installs the operator + validating webhook (no ClusterSecretStore).
-    Pass 2 adds the ``aws-secrets-manager`` ClusterSecretStore once the webhook is
-    ready — it can't be created in the same release that first installs the
-    webhook that validates it. Both authenticate to Floci with static creds
-    (no IRSA locally) and point the AWS SDK at Floci via the in-network hostname
-    (resolvable thanks to the CoreDNS record).
+    Pass 2 adds the ``aws-secrets-manager``/``aws-parameter-store`` ClusterSecretStores
+    once the webhook is ready — they can't be created in the same release that first
+    installs the webhook that validates them — and, once those stores exist, the
+    ``dockerRepoSecret`` ClusterExternalSecret that syncs ``hmd-docker-repo-secret``
+    into every namespace (same mechanism cloud uses). ``dockerRepoSecret`` targets
+    ``aws-parameter-store`` specifically: the local CDKTF overlay that provisions the
+    secret's value calls ``hmd_lib_secrets_backend.create_secret()``, which always
+    writes to SSM Parameter Store regardless of its "Secrets Manager" naming — a
+    ClusterSecretStore reading from Secrets Manager would never find it. Both passes
+    authenticate to Floci with static creds (no IRSA locally) and point the AWS SDK at
+    Floci via the in-network hostname (resolvable thanks to the CoreDNS record).
+
+    NOTE: as of the ClickHouse-operator/telemetry work, ``ext-secrets`` is deployed
+    through the real ms-deployment DAG (see ``bom_seeder.EXT_SECRETS_BOM`` /
+    ``_EXT_SECRETS_LOCAL_CONFIG``) whenever it's part of the BOM — which
+    ``bom_includes_repo_class`` makes true any time
+    ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`` is set. This function's multi-pass
+    logic only fires via the legacy hardcoded ``_OPERATORS`` path below, which is
+    skipped in that case (kept in sync for when/if that path is ever exercised again).
+
+    Region: the deploy pipeline auto-injects a top-level ``aws_region: "local"`` value
+    for every local chart, but ``get_deployer_target_session`` -- what CDKTF stacks
+    actually resolve their boto3 region to -- lands on ``"us-west-2"`` regardless
+    (confirmed empirically against existing local credentials). ``aws_region``/
+    ``AWS_REGION`` here override that auto-injected default to match where CDKTF
+    writes actually land, mirroring ``bom_seeder._EXT_SECRETS_LOCAL_CONFIG``.
     """
     base: Dict[str, Any] = {
         "installCRDs": False,  # CRDs come from hmd-inf-ext-secrets-crds (first)
@@ -293,15 +314,25 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
             {"name": "AWS_ENDPOINT_URL", "value": _FLOCI_INTERNAL_ENDPOINT},
             {"name": "AWS_ACCESS_KEY_ID", "value": "test"},
             {"name": "AWS_SECRET_ACCESS_KEY", "value": "test"},
-            {"name": "AWS_REGION", "value": "local"},
+            {"name": "AWS_REGION", "value": "us-west-2"},
         ],
     }
     store = {
         **base,
+        "aws_region": "us-west-2",
         "clusterSecretStore": {
             "enabled": True,
             "local": True,
             "name": "aws-secrets-manager",
+        },
+        "parameterStoreSecretStore": {
+            "enabled": True,
+            "local": True,
+            "name": "aws-parameter-store",
+        },
+        "dockerRepoSecret": {
+            "enabled": True,
+            "secretStoreName": "aws-parameter-store",
         },
     }
     return [base, store]
@@ -366,6 +397,37 @@ def _wait_for_node_ready(timeout: int = 120) -> bool:
         time.sleep(4)
     logger.warning("No k3s node became Ready in time; installing operators anyway")
     return False
+
+
+def _ensure_node_topology_labels() -> None:
+    """Label the k3s node with zone/region topology, best-effort.
+
+    Cloud EKS nodes carry ``topology.kubernetes.io/{zone,region}`` labels;
+    the single local k3s node has none. Charts with a ``topologySpreadConstraints``
+    keyed on zone (e.g. ClickHouse's Keeper StatefulSet) then find "0/1 nodes
+    match" and every replica beyond the first sticks in Pending forever. Since
+    there's only one node locally, any single zone value trivially satisfies
+    max-skew for all such constraints.
+    """
+    result = subprocess.run(
+        ["kubectl", "get", "nodes", "-o", "name"], capture_output=True, text=True
+    )
+    for line in result.stdout.splitlines():
+        node = line.strip()
+        if not node:
+            continue
+        subprocess.run(
+            [
+                "kubectl",
+                "label",
+                node,
+                "topology.kubernetes.io/zone=local",
+                "topology.kubernetes.io/region=local",
+                "--overwrite",
+            ],
+            capture_output=True,
+            text=True,
+        )
 
 
 def _clean_stale_nodes() -> None:
@@ -633,6 +695,7 @@ def provision_k3s_operators() -> None:
     # wait for it before installing (helm --wait would otherwise fail).
     _wait_for_node_ready()
     _clean_stale_nodes()
+    _ensure_node_topology_labels()
 
     # Make the in-network Floci hostname resolvable from pods first, so operators
     # and workload charts alike can reach `neuronsphere:4566` (cloud parity).

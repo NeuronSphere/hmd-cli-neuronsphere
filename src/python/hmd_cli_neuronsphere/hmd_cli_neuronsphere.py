@@ -1270,6 +1270,50 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
             except Exception as e:
                 logger.warning(f"Local resource resync failed (non-fatal): {e}")
                 print(f"  Warning: local resource resync failed: {e}")
+
+            # Non-destructively deploy any newly-available plugin-contributed BOM
+            # entries (e.g. a plugin installed, or an HMD_LOCAL_NEURONSPHERE_ENABLE_*
+            # flag flipped on, after this env was already bootstrapped). The delta
+            # changeset carries ONLY the new instances, so apply_changeset/DAG
+            # generation emit deploy scripts for those alone -- already-deployed
+            # instances (core, ext-secrets, ...) are left untouched (they appear in
+            # the DAG only as dependency-ordering context). Deploying is gated on
+            # --upgrade (the flag that already means "reconcile to current desired
+            # state"); a plain restart just prints a hint so it stays fast.
+            try:
+                from .bom_seeder import compute_new_bom_entries
+
+                new_entries = compute_new_bom_entries(
+                    ms_deployment_url, overrides=overrides
+                )
+                if new_entries and upgrade:
+                    names = ", ".join(e["repo_instance_name"] for e in new_entries)
+                    print_step(
+                        f"Found {len(new_entries)} new plugin resource(s) — "
+                        f"deploying: {names}"
+                    )
+                    from .bom_seeder import seed_bom
+                    from .local_workflow_runner import LocalWorkflowRunner
+
+                    csd_nid, nodes = seed_bom(ms_deployment_url, bom=new_entries)
+                    print_step(f"  {len(nodes)} deployment node(s)")
+                    runner = LocalWorkflowRunner(
+                        ms_deployment_url,
+                        overrides=overrides,
+                        cluster_name=k3s_cluster_name,
+                    )
+                    if not runner.run(csd_nid, nodes):
+                        print("\n  Warning: some new plugin deployments failed")
+                elif new_entries:
+                    names = ", ".join(e["repo_instance_name"] for e in new_entries)
+                    print_step(
+                        f"{len(new_entries)} new plugin resource(s) detected "
+                        f"({names}); run `hmd neuronsphere up --upgrade` to "
+                        "deploy them."
+                    )
+            except Exception as e:
+                logger.warning(f"New-plugin delta deploy failed (non-fatal): {e}")
+                print(f"  Warning: new-plugin delta deploy failed: {e}")
         else:
             # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
             # before the BOM seeder runs (so any BOM references resolve cleanly)
@@ -1358,7 +1402,11 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
 
                 # Execute deployment DAG locally
                 print_step("Running local deployments...")
-                runner = LocalWorkflowRunner(ms_deployment_url, overrides=overrides)
+                runner = LocalWorkflowRunner(
+                    ms_deployment_url,
+                    overrides=overrides,
+                    cluster_name=k3s_cluster_name,
+                )
                 if not runner.run(csd_nid, nodes):
                     print("\n  Warning: Some deployments failed")
             except Exception as e:

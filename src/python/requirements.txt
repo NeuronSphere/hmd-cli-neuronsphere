@@ -60,7 +60,7 @@ google-auth==2.9.1
     #   kubernetes
 hmd-cli-app~=1.2.626
     # via -r requirements.in
-hmd-cli-tools~=1.2.246
+hmd-cli-tools~=1.2.247
     # via hmd-cli-app
 idna==3.10
     # via

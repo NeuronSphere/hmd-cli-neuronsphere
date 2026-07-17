@@ -338,6 +338,20 @@ def _wait_for_cluster_gone(name: str, timeout: int = 60) -> None:
         )
     except (subprocess.SubprocessError, OSError):
         pass
+    # Also drop the persistent /var/lib/rancher/k3s volume. Without this, the
+    # respawned container reuses the old sqlite3-backed cluster state, and
+    # since the k3s node's hostname defaults to the (new, random) container
+    # ID, it registers as a brand-new Node while the previous one lingers
+    # forever as NotReady — breaking EndpointSlice reconciliation for every
+    # Service and orphaning any StatefulSet pods pinned to the dead node.
+    try:
+        subprocess.run(
+            ["docker", "volume", "rm", "-f", f"floci-eks-{name}"],
+            capture_output=True,
+            timeout=15,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass
 
 
 def _k3s_container_logs(name: str) -> str:

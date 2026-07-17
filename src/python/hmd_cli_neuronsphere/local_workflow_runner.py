@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
+import yaml
 from cement import minimal_logger
 
 logger = minimal_logger("local_workflow_runner")
@@ -156,13 +157,18 @@ class LocalWorkflowRunner:
       (the real deploy would call Floci-unsupported APIs).
     """
 
-    def __init__(self, base_url: str, overrides: Dict = None):
+    def __init__(self, base_url: str, overrides: Dict = None, cluster_name: str = None):
         """
         :param base_url: ms-deployment base URL (e.g., http://localhost/hmd_ms_deployment)
         :param overrides: Central local_overrides.json dict (fallback for repos without nsplugin.json)
+        :param cluster_name: The local k3s cluster name, used to rewrite the mounted
+            kubeconfig's server to the in-network Floci EKS alias (see
+            _kubeconfig_for_container). Without it, nodes fall back to the raw
+            kubeconfig's host-only server, which is unreachable from in-container.
         """
         self.base_url = base_url
         self.overrides = overrides or {}
+        self.cluster_name = cluster_name
 
     def _resolve_strategy(self, repo_class_name: str) -> str:
         """Resolve the deploy strategy for a repo class (3-tier lookup).
@@ -425,7 +431,7 @@ class LocalWorkflowRunner:
 
         # Make the local k3s cluster reachable to `hmd helm --local` inside the
         # container. Best-effort: only mount if the kubeconfig exists.
-        kubeconfig = self._local_kubeconfig_path()
+        kubeconfig = self._kubeconfig_for_container()
         if kubeconfig is not None:
             cmd.extend(
                 [
@@ -589,6 +595,44 @@ class LocalWorkflowRunner:
             if c and os.path.isfile(c):
                 return c
         return None
+
+    def _kubeconfig_for_container(self) -> Optional[str]:
+        """Resolve a kubeconfig usable from *inside* the projectbuilder container.
+
+        The mounted kubeconfig's ``server`` is a host-published port
+        (``https://localhost:<port>``, written by ``write_kubeconfig`` for host-side
+        ``kubectl`` use) -- unreachable from inside a container on the
+        ``neuronsphere_default`` network. Rewrites it to the in-network Floci EKS
+        alias (``https://floci-eks-<cluster>:6443``), mirroring hmd-cli-helm's
+        ``_kubeconfig_with_server``. Unlike that helper (which only substitutes the
+        endpoint when a deploying repo's manifest happens to declare a
+        ``kubernetes-cluster`` resource dependency, per NERD0006), this applies
+        unconditionally to every node the runner executes, since the container is
+        always on that network regardless of the target repo's dependencies.
+        Falls back to the raw kubeconfig path if no cluster name is known or the
+        file can't be parsed.
+        """
+        path = self._local_kubeconfig_path()
+        if path is None or not self.cluster_name:
+            return path
+        try:
+            with open(path) as f:
+                cfg = yaml.safe_load(f)
+            for entry in cfg.get("clusters", []):
+                cluster = entry.setdefault("cluster", {})
+                cluster["server"] = f"https://floci-eks-{self.cluster_name}:6443"
+                cluster["insecure-skip-tls-verify"] = True
+                cluster.pop("certificate-authority-data", None)
+                cluster.pop("certificate-authority", None)
+            tmp = tempfile.NamedTemporaryFile(
+                "w", prefix="hmd-workflow-", suffix="-kubeconfig.yaml", delete=False
+            )
+            yaml.safe_dump(cfg, tmp)
+            tmp.close()
+            return tmp.name
+        except (OSError, yaml.YAMLError, AttributeError) as e:
+            logger.warning(f"Could not rewrite kubeconfig for in-container use: {e}")
+            return path
 
     def _set_status(self, rid_nid: str, status: str):
         """Update a RepoInstanceDeployment status."""
