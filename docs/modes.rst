@@ -100,28 +100,28 @@ changing its dependency. Discover the Resources with
 External Secrets local dev-deploy loop
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Setting ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=true`` before
 ``hmd neuronsphere up`` deploys ``hmd-inf-ext-secrets-crds`` then
 ``hmd-inf-ext-secrets`` onto the local k3s cluster through
-``hmd-img-projectbuilder`` — the same tool and ``hmd deploy`` path used in the
-cloud. Their ``eks-cluster`` / ``compute`` dependencies resolve against the
-``local-k3s`` producer via their manifests' SPEC0008 ``resource`` blocks, and
-each repo's produced Resource output (rendered by ``src/helm/templates/
-resource-outputs.yaml`` and submitted by ``hmd deploy``) is tracked in
-``hmd-ms-deployment``:
+``hmd-img-projectbuilder`` by default — the same tool and ``hmd deploy`` path
+used in the cloud. Their ``eks-cluster`` / ``compute`` dependencies resolve
+against the ``local-k3s`` producer via their manifests' SPEC0008 ``resource``
+blocks, and each repo's produced Resource output (rendered by
+``src/helm/templates/resource-outputs.yaml`` and submitted by ``hmd deploy``)
+is tracked in ``hmd-ms-deployment``:
 
 .. code-block:: bash
 
-   HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=true hmd neuronsphere up
+   hmd neuronsphere up
    # then, against http://localhost/hmd_ms_deployment
    #   GET /apiop/get_deployment_resources/<ext-secrets rid>
    #       -> the external-secrets-operator Resource + outputs
    #   GET /apiop/list_resource_definitions?resource_namespace=external-secrets.neuronsphere.io
 
+Opt out with ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false`` before
+``hmd neuronsphere up`` if you don't need the ``ExternalSecret`` stack locally.
+
 ``hmd-inf-ext-secrets`` ships a Floci-safe ``src/local/cdktf`` overlay so its
 AWS-only IRSA/IAM step is a no-op locally while the Helm install still runs.
-This validates a local dev-deploy loop close to cloud parity; the two repos are
-intended to move into the default bootstrap once proven.
 
 Platform Mode
 -------------

@@ -299,8 +299,8 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
     NOTE: as of the ClickHouse-operator/telemetry work, ``ext-secrets`` is deployed
     through the real ms-deployment DAG (see ``bom_seeder.EXT_SECRETS_BOM`` /
     ``_EXT_SECRETS_LOCAL_CONFIG``) whenever it's part of the BOM — which
-    ``bom_includes_repo_class`` makes true any time
-    ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`` is set. This function's multi-pass
+    ``bom_includes_repo_class`` makes true by default now (opt out via
+    ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false``). This function's multi-pass
     logic only fires via the legacy hardcoded ``_OPERATORS`` path below, which is
     skipped in that case (kept in sync for when/if that path is ever exercised again).
 
@@ -708,18 +708,18 @@ def provision_k3s_operators() -> None:
     # Ingress objects are served on the node's :80/:443.
     _ensure_ingress_controller()
 
-    # When the External Secrets stack is opted into the ms-deployment DAG — either
-    # manually (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS) or because an installed
-    # plugin's BOM contribution already brings its own ext-secrets instance (e.g.
-    # hmd-cli-plugin-ns-telemetry, whose ClickHouse chart needs a real
-    # ClusterSecretStore) — the DAG is its sole installer: skip the operators-path
-    # install here so the two don't collide on CRD ownership (different helm release
-    # names for the same CRDs).
+    # The External Secrets stack deploys through the ms-deployment DAG by default now
+    # (opt out via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false) — same as when an
+    # installed plugin's BOM contribution already brings its own ext-secrets instance
+    # (e.g. hmd-cli-plugin-ns-telemetry, whose ClickHouse chart needs a real
+    # ClusterSecretStore). Either way the DAG is its sole installer: skip the
+    # operators-path install here so the two don't collide on CRD ownership (different
+    # helm release names for the same CRDs).
     from .bom_seeder import bom_includes_repo_class
 
     ext_secrets_via_dag = os.environ.get(
         "HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS", ""
-    ).strip().lower() in ("1", "true", "yes", "on") or bom_includes_repo_class(
+    ).strip().lower() not in ("false", "0", "no") or bom_includes_repo_class(
         "hmd-inf-ext-secrets"
     )
     ext_secrets_ops = {"ext-secrets-crds", "ext-secrets"}

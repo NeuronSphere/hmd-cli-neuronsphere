@@ -150,8 +150,8 @@ _FLOCI_INTERNAL_ENDPOINT = os.environ.get(
 # sts.<region>.amazonaws.com, unresolvable locally). k3s_operators._ext_secrets_passes()
 # used to override this for local, but that function only runs via the legacy
 # hardcoded _OPERATORS install path -- dead code once ext-secrets is part of the BOM
-# (see bom_includes_repo_class), which is always true once
-# HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS is set. Without this override, every
+# (see bom_includes_repo_class), which is true by default now (opt out via
+# HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false). Without this override, every
 # ExternalSecret/ClusterExternalSecret (including hmd-docker-repo-secret) never syncs
 # locally -- the store just sits at InvalidProviderConfig.
 #
@@ -191,10 +191,10 @@ _EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
     ],
 }
 
-# Opt-in via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS. crds first (its RepoClass
-# must exist before ext-secrets, which depends on it by class name). The eks-cluster
-# / compute roles are satisfied by the local k3s producer via their manifests'
-# SPEC0008 `resource` blocks.
+# On by default; opt out via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false. crds
+# first (its RepoClass must exist before ext-secrets, which depends on it by class
+# name). The eks-cluster / compute roles are satisfied by the local k3s producer via
+# their manifests' SPEC0008 `resource` blocks.
 EXT_SECRETS_BOM = [
     {
         "repo_instance_name": "ext-secrets-crds",
@@ -222,6 +222,10 @@ EXT_SECRETS_BOM = [
 
 def _is_truthy(value: Optional[str]) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_falsy(value: Optional[str]) -> bool:
+    return (value or "").strip().lower() in {"0", "false", "no"}
 
 
 def load_bom_from_file(path: str) -> List[Dict]:
@@ -965,8 +969,8 @@ def _resolve_bom() -> List[Dict]:
     Augmentation (applied to whichever base was resolved):
     - ``LOCAL_CORE_BOM`` is always **prepended** so the ``local-k3s`` producer
       instance (RepoClass ``hmd-cli-neuronsphere``) exists for resource-type deps.
-    - When ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`` is truthy, ``EXT_SECRETS_BOM``
-      is **appended**.
+    - ``EXT_SECRETS_BOM`` is **appended** by default; set
+      ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false`` to opt out.
     - Entries contributed by installed plugin packages (via ``BOM_ENTRIES_ENTRY_POINT``)
       are **appended** last.
     - Any ``hmd-inf-ext-secrets`` entry present (from either of the above) has the
@@ -986,8 +990,8 @@ def _resolve_bom() -> List[Dict]:
         base = list(LOCAL_BOM)
 
     bom = list(LOCAL_CORE_BOM) + base
-    if _is_truthy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
-        logger.info("ext-secrets opt-in enabled — appending EXT_SECRETS_BOM")
+    if not _is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
+        logger.info("ext-secrets enabled by default — appending EXT_SECRETS_BOM")
         bom = bom + EXT_SECRETS_BOM
 
     plugin_entries = _collect_plugin_bom_entries()

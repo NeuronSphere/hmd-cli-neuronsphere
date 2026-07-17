@@ -3,7 +3,8 @@
 Cover the parts that need no running service or Docker:
 
 * ``_resolve_bom`` always prepends the ``local-k3s`` core entry, appends the
-  ext-secrets add-ons only when opted in, and de-dupes by instance name;
+  ext-secrets add-ons by default (unless explicitly opted out), and de-dupes
+  by instance name;
 * ``build_local_core_resources`` stamps every core Resource with the single
   ``hmd-cli-neuronsphere`` RepoClass / ``local-k3s`` instance;
 * ``submit_local_resources`` submits against the ``local-k3s`` node's rid;
@@ -23,7 +24,7 @@ from hmd_cli_neuronsphere import bom_seeder as b
 
 class ResolveBomTests(unittest.TestCase):
     def setUp(self):
-        # A clean env: no BOM file, ext-secrets off.
+        # A clean env: no BOM file, ext-secrets at its default (on).
         self._env = mock.patch.dict(
             os.environ,
             {
@@ -38,8 +39,27 @@ class ResolveBomTests(unittest.TestCase):
             clear=True,
         )
         self._env.start()
+        # ext-secrets is on by default now, so _resolve_bom() always attempts
+        # docker-credential injection -- mock it so tests don't touch the real
+        # ~/.docker/config.json. Individual tests below layer their own patch of
+        # the same target where they want a specific return value; that's a
+        # harmless nested override, not a conflict.
+        self._docker_creds = mock.patch(
+            "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json",
+            return_value=None,
+        )
+        self._docker_creds.start()
+        # Isolate from whatever hmd-cli-* plugin packages happen to be pip-installed
+        # in the dev environment (e.g. hmd-cli-plugin-ns-telemetry, whose own
+        # EXT_SECRETS_BOM copy would otherwise mask the core opt-out flag below).
+        self._plugin_entries = mock.patch.object(
+            b, "_collect_plugin_bom_entries", return_value=[]
+        )
+        self._plugin_entries.start()
 
     def tearDown(self):
+        self._plugin_entries.stop()
+        self._docker_creds.stop()
         self._env.stop()
 
     def test_core_entry_is_prepended(self):
@@ -48,7 +68,13 @@ class ResolveBomTests(unittest.TestCase):
         entry = b._resolve_bom()[0]
         self.assertEqual(entry["repo_class_name"], b.CORE_REPO_CLASS)
 
-    def test_ext_secrets_off_by_default(self):
+    def test_ext_secrets_on_by_default(self):
+        names = [e["repo_instance_name"] for e in b._resolve_bom()]
+        self.assertIn("ext-secrets", names)
+        self.assertIn("ext-secrets-crds", names)
+
+    def test_ext_secrets_opt_out_removes_entries(self):
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS"] = "false"
         names = [e["repo_instance_name"] for e in b._resolve_bom()]
         self.assertNotIn("ext-secrets", names)
         self.assertNotIn("ext-secrets-crds", names)
@@ -107,6 +133,15 @@ class ResolveBomTests(unittest.TestCase):
         self.assertFalse(b._is_truthy(None))
         self.assertFalse(b._is_truthy("false"))
         self.assertFalse(b._is_truthy(""))
+
+    def test_falsy(self):
+        self.assertTrue(b._is_falsy("false"))
+        self.assertTrue(b._is_falsy("FALSE"))
+        self.assertTrue(b._is_falsy("0"))
+        self.assertTrue(b._is_falsy("no"))
+        self.assertFalse(b._is_falsy(None))
+        self.assertFalse(b._is_falsy(""))
+        self.assertFalse(b._is_falsy("true"))
 
 
 class InjectDockerCredentialsTests(unittest.TestCase):
