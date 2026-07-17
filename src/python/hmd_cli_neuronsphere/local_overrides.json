@@ -104,8 +104,8 @@
         "reason": "Karpenter autoscaler not applicable on k3s"
     },
     "hmd-inf-keda": {
-        "strategy": "skip",
-        "reason": "KEDA operator + CRDs installed onto k3s at `up` time (k3s_operators); DAG re-deploy is a no-op"
+        "strategy": "default",
+        "reason": "Helm deploys to k3s EKS cluster (via the local BOM, when the hmd-cli-plugin-ns-telemetry package is installed); depends on hmd-inf-otel-collector for OTLP scaling-event metrics push"
     },
     "hmd-inf-metrics-server": {
         "strategy": "skip",

@@ -63,8 +63,8 @@ Cluster operators (parity)
 
 Charts render ``ExternalSecret`` / ``ScaledObject`` / ClickHouse operator
 resources that require cluster operators. Those operators are themselves
-NeuronSphere ``hmd-inf-*`` chart repos; ``hmd neuronsphere up`` installs the same
-charts onto the k3s cluster right after it becomes ready
+NeuronSphere ``hmd-inf-*`` chart repos. Only External Secrets is installed
+directly by ``hmd neuronsphere up`` right after the k3s cluster becomes ready
 (``k3s_operators.provision_k3s_operators``), pulled as ``pre_build_artifacts``:
 
 * ``hmd-inf-ext-secrets-crds`` then ``hmd-inf-ext-secrets`` — the External
@@ -73,11 +73,15 @@ charts onto the k3s cluster right after it becomes ready
   ``AWS_ENDPOINT_URL`` points at Floci (``http://neuronsphere:4566``), so
   ``ExternalSecret`` resources sync **for real** from Floci Secrets Manager. The
   store name is identical to cloud, so consuming charts are unchanged.
-* ``hmd-inf-clickhouse-operator`` — the ClickHouse operator (CHOP) + cert-manager.
-* ``hmd-inf-keda`` — KEDA CRDs + operator.
 
-Disable with ``HMD_LOCAL_NEURONSPHERE_ENABLE_K3S_OPERATORS=false``. Installation
-is best-effort and never aborts ``up``.
+The ClickHouse operator (CHOP), cert-manager, and KEDA instead deploy through the
+real ms-deployment DAG as BOM entries contributed by the optional
+``hmd-cli-plugin-ns-telemetry`` package — so they're only installed when that
+plugin is present, not unconditionally.
+
+Disable the directly-installed operators with
+``HMD_LOCAL_NEURONSPHERE_ENABLE_K3S_OPERATORS=false``. Installation is
+best-effort and never aborts ``up``.
 
 Prerequisites for a chart deploy
 --------------------------------

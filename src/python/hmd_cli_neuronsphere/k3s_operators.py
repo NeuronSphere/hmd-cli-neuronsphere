@@ -7,6 +7,12 @@ cloud-parity we install those *same* charts onto the Floci k3s cluster so that
 chart repos deployed with ``hmd helm deploy --local`` render and apply their
 ``ExternalSecret`` / ``ScaledObject`` / ``ClickHouseCluster`` resources unchanged.
 
+Only External Secrets is still installed directly here. KEDA, the ClickHouse
+operator, and cert-manager instead deploy through the real ms-deployment DAG (a
+BOM entry contributed by the optional ``hmd-cli-plugin-ns-telemetry`` package, see
+``bom_seeder.BOM_ENTRIES_ENTRY_POINT``), so they're only installed when that
+plugin is actually installed, instead of unconditionally.
+
 The charts are bundled into this CLI as ``pre_build_artifacts`` (unzipped under
 ``external/<name>``) or resolved from a checked-out repo in ``HMD_REPO_HOME``.
 Each operator chart carries its base values in ``meta-data/manifest.json``'s
@@ -342,10 +348,11 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
 # ``passes`` (or ``passes_builder``) applies successive ``helm upgrade``s where a
 # single release can't converge — e.g. ESO's self-validated ClusterSecretStore.
 #
-# The ClickHouse operator (CHOP) used to be hardcoded here too. It's now deployed
-# through the real DAG (a BOM entry contributed by the optional
-# hmd-cli-plugin-ns-telemetry package, see bom_seeder.BOM_ENTRIES_ENTRY_POINT) so it's
-# only installed when that plugin is actually installed, instead of unconditionally.
+# The ClickHouse operator (CHOP), cert-manager, and KEDA used to be hardcoded here
+# too. They're now deployed through the real DAG (BOM entries contributed by the
+# optional hmd-cli-plugin-ns-telemetry package, see
+# bom_seeder.BOM_ENTRIES_ENTRY_POINT) so they're only installed when that plugin is
+# actually installed, instead of unconditionally.
 _OPERATORS: List[Dict[str, Any]] = [
     {
         "name": "ext-secrets-crds",
@@ -357,11 +364,6 @@ _OPERATORS: List[Dict[str, Any]] = [
         "repo": "hmd-inf-ext-secrets",
         "release": "external-secrets",
         "passes_builder": _ext_secrets_passes,
-    },
-    {
-        "name": "keda",
-        "repo": "hmd-inf-keda",
-        "release": "keda",
     },
 ]
 
