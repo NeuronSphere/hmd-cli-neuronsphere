@@ -2,12 +2,12 @@
 
 Cover the parts that need no running service or Docker:
 
-* ``_resolve_bom`` always prepends the ``local-k3s`` core entry, appends the
+* ``_resolve_bom`` always prepends the ``local-neuronsphere`` core entry, appends the
   ext-secrets add-ons by default (unless explicitly opted out), and de-dupes
   by instance name;
 * ``build_local_core_resources`` stamps every core Resource with the single
-  ``hmd-cli-neuronsphere`` RepoClass / ``local-k3s`` instance;
-* ``submit_local_resources`` submits against the ``local-k3s`` node's rid;
+  ``hmd-cli-neuronsphere`` RepoClass / ``local-neuronsphere`` instance;
+* ``submit_local_resources`` submits against the ``local-neuronsphere`` node's rid;
 * ``declare_core_produces`` declares the three core produced types;
 * ``upsert_repo_resource_definitions`` upserts a repo's declared RDs.
 
@@ -67,6 +67,18 @@ class ResolveBomTests(unittest.TestCase):
         self.assertEqual(names[0], b.CORE_INSTANCE_NAME)
         entry = b._resolve_bom()[0]
         self.assertEqual(entry["repo_class_name"], b.CORE_REPO_CLASS)
+
+    def test_resolve_plugin_bom_excludes_core_entry(self):
+        # Phase B's BOM (resolve_plugin_bom) must never include the core
+        # instance -- Phase A applies that alone, in its own changeset.
+        names = [e["repo_instance_name"] for e in b.resolve_plugin_bom()]
+        self.assertNotIn(b.CORE_INSTANCE_NAME, names)
+
+    def test_resolve_bom_is_core_plus_plugin_bom(self):
+        full_names = [e["repo_instance_name"] for e in b._resolve_bom()]
+        plugin_names = [e["repo_instance_name"] for e in b.resolve_plugin_bom()]
+        self.assertEqual(full_names[0], b.CORE_INSTANCE_NAME)
+        self.assertEqual(full_names[1:], plugin_names)
 
     def test_ext_secrets_on_by_default(self):
         names = [e["repo_instance_name"] for e in b._resolve_bom()]
@@ -207,6 +219,8 @@ class CoreResourceTests(unittest.TestCase):
             types,
             {
                 "docker-network",
+                "postgres",
+                "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
                 "ingress-controller",
@@ -214,11 +228,13 @@ class CoreResourceTests(unittest.TestCase):
         )
 
     def test_network_only_without_cluster(self):
+        # Without a cluster, only the always-on core resources remain: Docker
+        # network, shared Postgres, and JanusGraph (the cluster-conditional
+        # resources -- kubernetes-cluster/compute-node/ingress-controller --
+        # are omitted).
         res = b.build_local_core_resources(cluster_name=None)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(
-            res[0]["resource_definition"]["resource_definition_name"], "docker-network"
-        )
+        types = {r["resource_definition"]["resource_definition_name"] for r in res}
+        self.assertEqual(types, {"docker-network", "postgres", "graph-database"})
 
     def test_service_microservice_resources(self):
         services = [
@@ -251,6 +267,8 @@ class CoreResourceTests(unittest.TestCase):
             types,
             {
                 "docker-network",
+                "postgres",
+                "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
                 "ingress-controller",
@@ -329,7 +347,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 4)
+        self.assertEqual(n, 8)
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -342,6 +360,10 @@ class DeclareCoreProducesTests(unittest.TestCase):
                 "compute-node",
                 "docker-network",
                 "ingress-controller",
+                "postgres",
+                "graph-database",
+                "microservice",
+                "network",
             },
         )
 
@@ -487,12 +509,12 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
 
     def test_filters_deployed(self):
         bom = [
-            {"repo_instance_name": "local-k3s"},
+            {"repo_instance_name": "local-neuronsphere"},
             {"repo_instance_name": "vpc"},
             {"repo_instance_name": "clickhouse"},
         ]
         instances = [
-            {"identifier": "i-1", "name": "local-k3s"},
+            {"identifier": "i-1", "name": "local-neuronsphere"},
             {"identifier": "i-2", "name": "vpc"},
         ]
         edges = [
@@ -541,7 +563,10 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
         self.assertEqual(new, bom)
 
     def test_all_new_when_env_empty(self):
-        bom = [{"repo_instance_name": "local-k3s"}, {"repo_instance_name": "vpc"}]
+        bom = [
+            {"repo_instance_name": "local-neuronsphere"},
+            {"repo_instance_name": "vpc"},
+        ]
         with mock.patch.object(
             b, "_search_entities", side_effect=self._search([], [], [])
         ):
@@ -549,9 +574,12 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
         self.assertEqual(new, bom)
 
     def test_none_when_all_deployed(self):
-        bom = [{"repo_instance_name": "local-k3s"}, {"repo_instance_name": "vpc"}]
+        bom = [
+            {"repo_instance_name": "local-neuronsphere"},
+            {"repo_instance_name": "vpc"},
+        ]
         instances = [
-            {"identifier": "i-1", "name": "local-k3s"},
+            {"identifier": "i-1", "name": "local-neuronsphere"},
             {"identifier": "i-2", "name": "vpc"},
         ]
         edges = [
@@ -609,49 +637,46 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
         resolve.assert_called_once()
         self.assertEqual(new, sentinel)
 
-    def test_skip_strategy_instance_with_a_record_is_not_new(self):
-        # LocalWorkflowRunner fails fast: a "skip"-strategy node that comes
-        # after an earlier real failure in DAG order never gets visited, so it
-        # sits at ms-deployment's un-visited default ("SKIPPED") forever, even
-        # though it never does real work (it would mark itself DEPLOYED
-        # instantly if it WERE visited -- see local_workflow_runner.SKIP_STRATEGIES).
-        # Re-attempting it is harmless but pure noise; any existing record is
-        # terminal for it.
+    def test_core_repo_class_instance_with_non_deployed_record_is_new(self):
+        # LocalWorkflowRunner hardcodes CORE_REPO_CLASS as a no-op node (always
+        # marked DEPLOYED without executing), so even if a prior fail-fast run
+        # left it at some other status ("SKIPPED"), compute_new_bom_entries
+        # doesn't need to special-case it -- treating it as retry-eligible like
+        # any other non-DEPLOYED entry is harmless, since re-including it just
+        # causes the runner to mark it DEPLOYED again on the next pass.
         bom = [
             {
-                "repo_instance_name": "local-k3s",
+                "repo_instance_name": "local-neuronsphere",
                 "repo_class_name": "hmd-cli-neuronsphere",
             }
         ]
-        instances = [{"identifier": "i-1", "name": "local-k3s"}]
+        instances = [{"identifier": "i-1", "name": "local-neuronsphere"}]
         edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
         deployments = [{"identifier": "rid-1", "status": "SKIPPED"}]
-        overrides = {"hmd-cli-neuronsphere": {"strategy": "skip"}}
         with mock.patch.object(
             b,
             "_search_entities",
             side_effect=self._search(instances, edges, deployments),
         ):
-            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
-        self.assertEqual(new, [])
+            new = b.compute_new_bom_entries("http://x", bom=bom)
+        self.assertEqual(new, bom)
 
-    def test_skip_strategy_instance_with_no_record_is_new(self):
+    def test_core_repo_class_instance_with_no_record_is_new(self):
         bom = [
             {
-                "repo_instance_name": "local-k3s",
+                "repo_instance_name": "local-neuronsphere",
                 "repo_class_name": "hmd-cli-neuronsphere",
             }
         ]
-        overrides = {"hmd-cli-neuronsphere": {"strategy": "skip"}}
         with mock.patch.object(
             b, "_search_entities", side_effect=self._search([], [], [])
         ):
-            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
+            new = b.compute_new_bom_entries("http://x", bom=bom)
         self.assertEqual(new, bom)
 
-    def test_default_strategy_skipped_instance_is_still_new_even_with_overrides(self):
-        # A "default"-strategy repo that never got reached (SKIPPED) must stay
-        # retry-eligible even when an (unrelated) overrides dict is supplied.
+    def test_skipped_instance_with_repo_class_is_still_new(self):
+        # A repo that never got reached (SKIPPED) must stay retry-eligible,
+        # regardless of what repo_class_name it carries.
         bom = [
             {
                 "repo_instance_name": "otel-collector",
@@ -661,16 +686,12 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
         instances = [{"identifier": "i-1", "name": "otel-collector"}]
         edges = [{"ref_from": "i-1", "ref_to": "rid-1", "_created": "2026-01-01"}]
         deployments = [{"identifier": "rid-1", "status": "SKIPPED"}]
-        overrides = {
-            "hmd-cli-neuronsphere": {"strategy": "skip"},
-            "hmd-inf-otel-collector": {"strategy": "default"},
-        }
         with mock.patch.object(
             b,
             "_search_entities",
             side_effect=self._search(instances, edges, deployments),
         ):
-            new = b.compute_new_bom_entries("http://x", bom=bom, overrides=overrides)
+            new = b.compute_new_bom_entries("http://x", bom=bom)
         self.assertEqual(new, bom)
 
 
@@ -736,7 +757,7 @@ class SeedBomIdempotencyTests(unittest.TestCase):
         }
         bom = [
             {
-                "repo_instance_name": "local-k3s",
+                "repo_instance_name": "local-neuronsphere",
                 "repo_class_name": "hmd-cli-neuronsphere",
             }
         ]
@@ -752,7 +773,7 @@ class SeedBomIdempotencyTests(unittest.TestCase):
         }
         bom = [
             {
-                "repo_instance_name": "local-k3s",
+                "repo_instance_name": "local-neuronsphere",
                 "repo_class_name": "hmd-cli-neuronsphere",
             }
         ]

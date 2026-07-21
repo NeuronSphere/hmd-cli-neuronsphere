@@ -21,6 +21,7 @@ import yaml
 
 from cement import App, minimal_logger, shell
 
+from .floci_deployer import COMPOSE_PROJECT_NAME, DOCKER_NETWORK_NAME
 from .loaders import LocalPluginLoader
 from .startup_display import (
     print_header,
@@ -54,7 +55,7 @@ def _exec(command, capture=False, quiet=False):
 
 
 _hmd_home = Path(_get_required_env_var("HMD_HOME"))
-_project_name = "local_neuronsphere"
+_project_name = COMPOSE_PROJECT_NAME
 
 
 def _get_base_command(files: List[str], quiet: bool = False):
@@ -800,11 +801,16 @@ def _read_bootstrap_marker() -> Optional[Dict]:
         return None
 
 
-def _write_bootstrap_marker(csd_nid: str, mode: str = "extend") -> None:
+def _write_bootstrap_marker(
+    csd_nid: str, mode: str = "extend", k3s_uid: Optional[str] = None
+) -> None:
     path = _bootstrap_marker_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"mode": mode, "csd_nid": csd_nid}, indent=2))
+        marker = {"mode": mode, "csd_nid": csd_nid}
+        if k3s_uid:
+            marker["k3s_uid"] = k3s_uid
+        path.write_text(json.dumps(marker, indent=2))
     except OSError as e:
         logger.warning(f"Could not write bootstrap marker: {e}")
 
@@ -882,10 +888,6 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
     ms-deployment and ms-naming as Lambda functions behind Floci's API Gateway,
     and starts any compose_substitute overrides (e.g., JanusGraph for Neptune).
     """
-    from .local_storage_provisioner import (
-        load_local_overrides,
-        get_local_storage_overrides,
-    )
     from .floci_deployer import (
         wait_for_floci,
         setup_service,
@@ -914,27 +916,10 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
             logger.warning(f"Image pull failed (non-fatal): {e}")
             print(f"  Warning: image pull failed: {e}")
 
-    # Load override configuration for unsupported cloud services
-    overrides = load_local_overrides()
-    local_storage_entries = get_local_storage_overrides(overrides)
-
-    if local_storage_entries and verbose:
-        print(f"\n  Local storage overrides: {list(local_storage_entries.keys())}")
-
     # Build compose file list
     services_dir = Path(__file__).parent / "services"
     admin_compose = str(services_dir / "docker-compose.admin.yml")
     compose_files = [admin_compose]
-
-    # Collect compose_substitute overrides from local_overrides.json
-    for repo, config in overrides.items():
-        if config.get("strategy") == "compose_substitute":
-            plugin_name = config.get("plugin")
-            if plugin_name:
-                substitute_compose = services_dir / f"docker-compose.{plugin_name}.yml"
-                if substitute_compose.exists():
-                    compose_files.append(str(substitute_compose))
-                    print_step(f"  compose_substitute: {repo} -> {plugin_name}")
 
     # Collect compose_substitute overrides from LocalPluginLoader
     local_loader = LocalPluginLoader()
@@ -986,9 +971,9 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
     print_step("Validating ports...")
     validate_ports(compose_files)
 
-    # Create neuronsphere_default network
+    # Create the (per-HMD_HOME-scoped) Docker network
     _exec(
-        ["docker", "network", "create", "neuronsphere_default"],
+        ["docker", "network", "create", DOCKER_NETWORK_NAME],
         capture=True,
         quiet=not verbose,
     )
@@ -1098,6 +1083,7 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
 
     # Create the k3s cluster on Floci EKS (shared with platform mode behavior)
     k3s_cluster_name = None
+    k3s_uid = None
     if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_K3S", "true").lower() not in (
         "false",
         "0",
@@ -1112,9 +1098,15 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
             os.environ["KUBECONFIG"] = str(kubeconfig_path)
             print_step(f"  k3s ready (kubeconfig: {kubeconfig_path})")
             print_step("Installing cluster operators onto k3s...")
-            from .k3s_operators import provision_k3s_operators
+            from .k3s_operators import cluster_incarnation_id, provision_k3s_operators
 
             provision_k3s_operators()
+            # Fingerprint this cluster incarnation so the restart fast-path below
+            # can tell a genuinely-reused cluster apart from one Floci silently
+            # recreated (e.g. the stale-image recovery in ensure_k3s_cluster) --
+            # a recreated cluster has nothing deployed on it even though
+            # ms-deployment's persisted graph still says otherwise.
+            k3s_uid = cluster_incarnation_id()
         except Exception as e:
             logger.warning(f"k3s cluster creation failed: {e}")
             print(
@@ -1241,12 +1233,23 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
         # Floci/k3s again — exactly what a restart must avoid. The Lambda/proxy
         # wiring above already re-ran (idempotent), so the control plane is live.
         if _is_already_bootstrapped(ms_deployment_url):
+            marker = _read_bootstrap_marker() or {}
+            # A recreated k3s cluster (see cluster_incarnation_id's docstring) has
+            # nothing deployed on it, even though ms-deployment's persisted graph
+            # still says every RepoInstanceDeployment succeeded -- the "skip BOM
+            # seeding and DAG execution" fast-path below would otherwise leave the
+            # new cluster permanently empty. Only trust a mismatch when both UIDs
+            # are known, so a marker written before this feature existed (no
+            # recorded k3s_uid yet) doesn't force a surprise redeploy.
+            cluster_recreated = bool(
+                k3s_uid and marker.get("k3s_uid") and marker["k3s_uid"] != k3s_uid
+            )
             print_step(
                 "Already bootstrapped — restarting existing deployment "
                 "(skipping BOM seeding and DAG execution)."
             )
             # Idempotently re-sync the core Resources against the existing
-            # `local-k3s` deployment so a restart picks up any newly-defined core
+            # `local-neuronsphere` deployment so a restart picks up any newly-defined core
             # Resource (e.g. a new ingress-controller) without a destructive
             # re-bootstrap. seed_base_defs / declare_produces / submit_resources all
             # upsert/dedupe server-side, so this is safe on every `up`. Non-fatal.
@@ -1271,63 +1274,139 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
                 logger.warning(f"Local resource resync failed (non-fatal): {e}")
                 print(f"  Warning: local resource resync failed: {e}")
 
-            # Non-destructively deploy any newly-available plugin-contributed BOM
-            # entries (e.g. a plugin installed, or an HMD_LOCAL_NEURONSPHERE_ENABLE_*
-            # flag flipped on, after this env was already bootstrapped). The delta
-            # changeset carries ONLY the new instances, so apply_changeset/DAG
-            # generation emit deploy scripts for those alone -- already-deployed
-            # instances (core, ext-secrets, ...) are left untouched (they appear in
-            # the DAG only as dependency-ordering context). Deploying is gated on
-            # --upgrade (the flag that already means "reconcile to current desired
-            # state"); a plain restart just prints a hint so it stays fast.
-            try:
-                from .bom_seeder import compute_new_bom_entries
-
-                new_entries = compute_new_bom_entries(
-                    ms_deployment_url, overrides=overrides
-                )
-                if new_entries and upgrade:
-                    names = ", ".join(e["repo_instance_name"] for e in new_entries)
-                    print_step(
-                        f"Found {len(new_entries)} new plugin resource(s) — "
-                        f"deploying: {names}"
-                    )
-                    from .bom_seeder import seed_bom
-                    from .local_workflow_runner import LocalWorkflowRunner
-
-                    csd_nid, nodes = seed_bom(ms_deployment_url, bom=new_entries)
-                    print_step(f"  {len(nodes)} deployment node(s)")
-                    runner = LocalWorkflowRunner(
-                        ms_deployment_url,
-                        overrides=overrides,
-                        cluster_name=k3s_cluster_name,
-                    )
-                    if not runner.run(csd_nid, nodes):
-                        print("\n  Warning: some new plugin deployments failed")
-                elif new_entries:
-                    names = ", ".join(e["repo_instance_name"] for e in new_entries)
-                    print_step(
-                        f"{len(new_entries)} new plugin resource(s) detected "
-                        f"({names}); run `hmd neuronsphere up --upgrade` to "
-                        "deploy them."
-                    )
-            except Exception as e:
-                logger.warning(f"New-plugin delta deploy failed (non-fatal): {e}")
-                print(f"  Warning: new-plugin delta deploy failed: {e}")
-        else:
-            # Seed HMDMS service RepoClasses and DEPLOYED RepoInstanceDeployments
-            # before the BOM seeder runs (so any BOM references resolve cleanly)
-            if hmdms_deployed:
+            if cluster_recreated:
+                # The persisted deployment graph no longer matches reality: redeploy
+                # the FULL resolved BOM (not just the delta) onto the new cluster,
+                # same as a first bootstrap would. CDKTF/Floci-only instances are
+                # unaffected by a k3s-only recreate, but re-applying them is a safe
+                # no-op (state-based). Unlike the delta path below, this isn't gated
+                # on --upgrade -- an empty cluster isn't an optional reconciliation.
                 print_step(
-                    f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
+                    "k3s cluster was recreated since the last bootstrap — the "
+                    "persisted deployment graph no longer matches reality; "
+                    "redeploying the full BOM onto the new cluster."
                 )
                 try:
-                    from .hmdms_seeder import seed_hmdms_services
+                    from .bom_seeder import (
+                        LOCAL_CORE_BOM,
+                        build_local_core_resources,
+                        resolve_plugin_bom,
+                        seed_bom,
+                        submit_local_resources,
+                    )
+                    from .local_workflow_runner import LocalWorkflowRunner
 
-                    seed_hmdms_services(ms_deployment_url, hmdms_deployed)
+                    recreate_service_specs = [
+                        {
+                            "service_name": s.get("function_name"),
+                            "repo_class_name": s.get("repo_class_name"),
+                            "api_base_url": f"http://localhost/{s.get('function_name')}",
+                        }
+                        for s in (hmdms_deployed or [])
+                        if s.get("function_name")
+                    ] + [
+                        {
+                            "service_name": "hmd_ms_deployment",
+                            "repo_class_name": "hmd-ms-deployment",
+                            "api_base_url": "http://localhost/hmd_ms_deployment",
+                        },
+                        {
+                            "service_name": "hmd_ms_naming",
+                            "repo_class_name": "hmd-ms-naming",
+                            "api_base_url": "http://localhost/hmd_ms_naming",
+                        },
+                    ]
+
+                    runner = LocalWorkflowRunner(
+                        ms_deployment_url,
+                        cluster_name=k3s_cluster_name,
+                    )
+
+                    # Phase A: re-visit the core instance and resubmit its
+                    # Resources onto the recreated cluster (same two-phase
+                    # sequence as first bootstrap -- see that branch for why).
+                    csd_nid_a, nodes_a = seed_bom(
+                        ms_deployment_url, bom=list(LOCAL_CORE_BOM)
+                    )
+                    local_resources = build_local_core_resources(
+                        cluster_name=k3s_cluster_name,
+                        services=recreate_service_specs,
+                    )
+                    submit_local_resources(ms_deployment_url, local_resources, nodes_a)
+                    runner.run(csd_nid_a, nodes_a)
+
+                    # Phase B: the rest (ext-secrets + LOCAL_BOM + plugins).
+                    csd_nid, nodes = seed_bom(
+                        ms_deployment_url, bom=resolve_plugin_bom()
+                    )
+                    print_step(f"  {len(nodes)} deployment node(s)")
+                    if not runner.run(csd_nid, nodes):
+                        print(
+                            "\n  Warning: some deployments failed after cluster "
+                            "recreation"
+                        )
+                    _write_bootstrap_marker(
+                        csd_nid or marker.get("csd_nid", "control-plane"),
+                        k3s_uid=k3s_uid,
+                    )
                 except Exception as e:
-                    logger.warning(f"HMDMS service seeding failed: {e}")
-                    print(f"  Warning: HMDMS service seeding failed: {e}")
+                    logger.warning(f"Post-recreation full redeploy failed: {e}")
+                    print(f"  Warning: post-recreation full redeploy failed: {e}")
+            else:
+                # Non-destructively deploy any newly-available plugin-contributed BOM
+                # entries (e.g. a plugin installed, or an HMD_LOCAL_NEURONSPHERE_ENABLE_*
+                # flag flipped on, after this env was already bootstrapped). The delta
+                # changeset carries ONLY the new instances, so apply_changeset/DAG
+                # generation emit deploy scripts for those alone -- already-deployed
+                # instances (core, ext-secrets, ...) are left untouched (they appear
+                # in the DAG only as dependency-ordering context). Deploying is gated
+                # on --upgrade (the flag that already means "reconcile to current
+                # desired state"); a plain restart just prints a hint so it stays
+                # fast.
+                try:
+                    from .bom_seeder import compute_new_bom_entries
+
+                    new_entries = compute_new_bom_entries(ms_deployment_url)
+                    if new_entries and upgrade:
+                        names = ", ".join(e["repo_instance_name"] for e in new_entries)
+                        print_step(
+                            f"Found {len(new_entries)} new plugin resource(s) — "
+                            f"deploying: {names}"
+                        )
+                        from .bom_seeder import seed_bom
+                        from .local_workflow_runner import LocalWorkflowRunner
+
+                        csd_nid, nodes = seed_bom(ms_deployment_url, bom=new_entries)
+                        print_step(f"  {len(nodes)} deployment node(s)")
+                        runner = LocalWorkflowRunner(
+                            ms_deployment_url,
+                            cluster_name=k3s_cluster_name,
+                        )
+                        if not runner.run(csd_nid, nodes):
+                            print("\n  Warning: some new plugin deployments failed")
+                    elif new_entries:
+                        names = ", ".join(e["repo_instance_name"] for e in new_entries)
+                        print_step(
+                            f"{len(new_entries)} new plugin resource(s) detected "
+                            f"({names}); run `hmd neuronsphere up --upgrade` to "
+                            "deploy them."
+                        )
+                except Exception as e:
+                    logger.warning(f"New-plugin delta deploy failed (non-fatal): {e}")
+                    print(f"  Warning: new-plugin delta deploy failed: {e}")
+                # Opportunistically record k3s_uid if the marker predates this
+                # feature, so a future restart can detect recreation.
+                if k3s_uid and not marker.get("k3s_uid"):
+                    _write_bootstrap_marker(
+                        marker.get("csd_nid", "control-plane"), k3s_uid=k3s_uid
+                    )
+        else:
+            # hmd-ms-deployment/hmd-ms-naming/hmd-ms-dbaccount/hmd-ms-artifact-lib
+            # are never registered as RepoClass/RepoInstance entities (their own
+            # manifests' required deps -- base-vpc/argo/datadog-lambda/etc. -- will
+            # never resolve locally). What they provide is represented instead as
+            # `application/microservice` Resources on the core instance (Phase A,
+            # below).
 
             # Seed the standard base ResourceDefinition catalog (NERD0004) so
             # per-repo concrete definitions that parent these supertypes resolve
@@ -1342,71 +1421,103 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
                 logger.warning(f"Base resource definition seeding failed: {e}")
                 print(f"  Warning: base resource definition seeding failed: {e}")
 
-            # Best-effort starter-BOM seeding + DAG execution. This is NOT
-            # required for the control plane to function (the deployment tests
-            # seed their own data); it only pre-populates a starter graph. Any
-            # failure here is non-fatal.
-            bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
-            if bom_file:
-                print_step(f"Seeding deployment graph from {bom_file}...")
-            else:
-                print_step("Seeding deployment graph (built-in BOM)...")
-
-            from .bom_seeder import seed_bom
+            # Best-effort starter-BOM seeding + DAG execution, in two phases. This
+            # is NOT required for the control plane to function (the deployment
+            # tests seed their own data); it only pre-populates a starter graph.
+            # Any failure here is non-fatal.
+            from .bom_seeder import (
+                LOCAL_CORE_BOM,
+                build_local_core_resources,
+                resolve_plugin_bom,
+                seed_bom,
+                submit_local_resources,
+            )
             from .local_workflow_runner import LocalWorkflowRunner
+
+            # microservice Resources for each seeded HMDMS service so a dev
+            # `hmd deploy --local` config -- and any manifest resource-typed
+            # dependency, e.g. hmd-database-account.create-service -- can bind
+            # service-backed roles by tag.
+            service_specs = [
+                {
+                    "service_name": s.get("function_name"),
+                    "repo_class_name": s.get("repo_class_name"),
+                    "api_base_url": f"http://localhost/{s.get('function_name')}",
+                }
+                for s in (hmdms_deployed or [])
+                if s.get("function_name")
+            ] + [
+                {
+                    "service_name": "hmd_ms_deployment",
+                    "repo_class_name": "hmd-ms-deployment",
+                    "api_base_url": "http://localhost/hmd_ms_deployment",
+                },
+                {
+                    "service_name": "hmd_ms_naming",
+                    "repo_class_name": "hmd-ms-naming",
+                    "api_base_url": "http://localhost/hmd_ms_naming",
+                },
+            ]
 
             csd_nid = None
             nodes = []
             try:
-                csd_nid, nodes = seed_bom(ms_deployment_url)
-                print_step(f"  {len(nodes)} deployment nodes")
+                # Phase A: apply a changeset containing ONLY the core instance
+                # (`local-neuronsphere`), then submit its concrete Resources (Docker
+                # network, k3s cluster + compute pool, shared Postgres, JanusGraph,
+                # and the HMDMS microservice Resources above). This must run BEFORE
+                # Phase B's changeset: a repo that depends on one of these
+                # Resources (e.g. ext-secrets on the kubernetes-cluster, or
+                # hmd-database-account on the microservice type via tag_selector)
+                # needs the concrete Resource to already exist for selector
+                # matching to find it (NERD0006).
+                print_step("Seeding core control-plane changeset (Phase A)...")
+                csd_nid_a, nodes_a = seed_bom(
+                    ms_deployment_url, bom=list(LOCAL_CORE_BOM)
+                )
+                print_step(f"  {len(nodes_a)} deployment node(s)")
 
-                # Submit the concrete Resources the local core created (Docker
-                # network, k3s cluster + compute pool) as NERD0004 Resources tagged
-                # environment=local, attached to the `local-k3s`
-                # (hmd-cli-neuronsphere) instance the changeset created. This must
-                # run BEFORE the DAG: a repo that depends on the kubernetes-cluster
-                # Resource (e.g. ext-secrets) resolves its endpoint from this
-                # Resource at deploy time (NERD0006), so the cluster Resource — with
-                # its in-network endpoint — has to exist first. Non-fatal.
                 print_step("Submitting local core resources...")
                 try:
-                    from .bom_seeder import (
-                        build_local_core_resources,
-                        submit_local_resources,
-                    )
-
-                    # microservice Resources for each seeded HMDMS service so a
-                    # dev `hmd deploy --local` config can bind service-backed roles
-                    # (e.g. deployment-service -> hmd-ms-deployment) by tag.
-                    service_specs = [
-                        {
-                            "service_name": s.get("function_name"),
-                            "repo_class_name": s.get("repo_class_name"),
-                            "api_base_url": f"http://localhost/{s.get('function_name')}",
-                        }
-                        for s in (hmdms_deployed or [])
-                        if s.get("function_name")
-                    ]
                     local_resources = build_local_core_resources(
                         cluster_name=k3s_cluster_name,
                         services=service_specs,
                     )
                     count = submit_local_resources(
-                        ms_deployment_url, local_resources, nodes
+                        ms_deployment_url, local_resources, nodes_a
                     )
                     print_step(f"  {count} local resource(s) submitted")
                 except Exception as e:
                     logger.warning(f"Local resource submission failed (non-fatal): {e}")
                     print(f"  Warning: local resource submission failed: {e}")
 
-                # Execute deployment DAG locally
-                print_step("Running local deployments...")
+                # Phase A must still run through the local runner -- even though
+                # its one node (CORE_REPO_CLASS) is a hardcoded no-op -- so the RID
+                # transitions DEPLOY_NEXT -> DEPLOYED (see LocalWorkflowRunner.run).
+                # Skipping this would leave `local-neuronsphere` permanently
+                # DEPLOY_NEXT, breaking the restart fast-path.
                 runner = LocalWorkflowRunner(
                     ms_deployment_url,
-                    overrides=overrides,
                     cluster_name=k3s_cluster_name,
                 )
+                runner.run(csd_nid_a, nodes_a)
+
+                # Phase B: apply a second changeset with everything else
+                # (ext-secrets + LOCAL_BOM + plugin-contributed entries). Entries
+                # here that reference the core instance by name (e.g. ext-secrets'
+                # eks-cluster/compute roles) resolve fine -- it already exists in
+                # the "local" environment from Phase A.
+                bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
+                if bom_file:
+                    print_step(f"Seeding deployment graph from {bom_file} (Phase B)...")
+                else:
+                    print_step("Seeding deployment graph (built-in BOM, Phase B)...")
+
+                csd_nid, nodes = seed_bom(ms_deployment_url, bom=resolve_plugin_bom())
+                print_step(f"  {len(nodes)} deployment node(s)")
+
+                # Execute Phase B's deployment DAG locally
+                print_step("Running local deployments...")
                 if not runner.run(csd_nid, nodes):
                     print("\n  Warning: Some deployments failed")
             except Exception as e:
@@ -1417,7 +1528,7 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
             # routing) is up. Record the bootstrap independent of the best-effort
             # starter BOM so subsequent `up`s take the restart fast-path and skip
             # the expensive Lambda/DAG setup above.
-            _write_bootstrap_marker(csd_nid or "control-plane")
+            _write_bootstrap_marker(csd_nid or "control-plane", k3s_uid=k3s_uid)
     else:
         print_step("Skipping ms-deployment readiness/seeding (Lambda not deployed)")
 
@@ -1629,7 +1740,12 @@ def start_neuronsphere_platform(
     if db_init_services:
         db_init_compose = {
             "services": db_init_services,
-            "networks": {"neuronsphere_default": {"external": True}},
+            "networks": {
+                "neuronsphere_default": {
+                    "external": True,
+                    "name": DOCKER_NETWORK_NAME,
+                }
+            },
         }
         db_init_path = _hmd_home / ".cache" / "docker-compose.db-init.yml"
         with open(db_init_path, "w") as f:
@@ -1646,9 +1762,9 @@ def start_neuronsphere_platform(
     # Check for port conflicts before starting containers
     validate_ports(compose_files)
 
-    # Create neuronsphere_default network (some compose files declare it as external)
+    # Create the (per-HMD_HOME-scoped) Docker network (some compose files declare it as external)
     _exec(
-        ["docker", "network", "create", "neuronsphere_default"],
+        ["docker", "network", "create", DOCKER_NETWORK_NAME],
         capture=True,
         quiet=not verbose,
     )
@@ -1843,21 +1959,13 @@ def start_neuronsphere_platform(
             quiet=True,
         )
 
-        # Seed HMDMS services into ms-deployment (single source of truth in both modes)
+        # Platform mode has no BOM/changeset flow, and hmd-ms-deployment/
+        # hmd-ms-naming/hmd-ms-dbaccount are never registered as RepoClass/
+        # RepoInstance entities (see extend mode's Phase A) -- just wait for
+        # ms-deployment to come up so routing/proxying works.
         if ms_deployment_url and (hmdms_deployed or "hmd_ms_deployment" in svc_names):
             print_step("Waiting for ms-deployment...")
             _wait_for_ms_deployment(ms_deployment_url)
-            if hmdms_deployed:
-                print_step(
-                    f"Seeding {len(hmdms_deployed)} HMDMS service(s) into ms-deployment..."
-                )
-                try:
-                    from .hmdms_seeder import seed_hmdms_services
-
-                    seed_hmdms_services(ms_deployment_url, hmdms_deployed)
-                except Exception as e:
-                    logger.warning(f"HMDMS service seeding failed: {e}")
-                    print(f"  Warning: HMDMS service seeding failed: {e}")
 
     print_step("Registering services...")
     logger.info("Upserting local services to Naming Service...")
@@ -1967,8 +2075,6 @@ def stop_neuronsphere_extend(verbose: bool = False, purge: bool = False):
     When ``purge`` is set, also removes the persisted Floci/PostgreSQL state and
     the bootstrap marker so the next ``up`` re-runs the full deployment workflow.
     """
-    from .local_storage_provisioner import load_local_overrides
-
     load_hmd_env()
     print_header("Stopping")
 
@@ -1977,14 +2083,15 @@ def stop_neuronsphere_extend(verbose: bool = False, purge: bool = False):
     admin_compose = str(services_dir / "docker-compose.admin.yml")
     compose_files = [admin_compose]
 
-    overrides = load_local_overrides()
-    for repo, config in overrides.items():
-        if config.get("strategy") == "compose_substitute":
-            plugin_name = config.get("plugin")
-            if plugin_name:
-                substitute_compose = services_dir / f"docker-compose.{plugin_name}.yml"
-                if substitute_compose.exists():
-                    compose_files.append(str(substitute_compose))
+    # Graph (Neptune/JanusGraph) — same gating as start_neuronsphere_extend.
+    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH", "true").lower() not in (
+        "false",
+        "0",
+        "no",
+    ):
+        graph_compose = services_dir / "docker-compose.graph.yml"
+        if graph_compose.exists() and str(graph_compose) not in compose_files:
+            compose_files.append(str(graph_compose))
 
     local_loader = LocalPluginLoader()
     for plugin_name in local_loader.get_enabled_plugins():
@@ -2014,7 +2121,7 @@ def stop_neuronsphere_extend(verbose: bool = False, purge: bool = False):
 
     print_step("Removing network...")
     _exec(
-        ["docker", "network", "rm", "neuronsphere_default"],
+        ["docker", "network", "rm", DOCKER_NETWORK_NAME],
         capture=True,
         quiet=not verbose,
     )
@@ -2056,7 +2163,7 @@ def stop_neuronsphere_platform(verbose: bool = False):
     print_step("Removing network...")
     # Clean up the neuronsphere_default network
     _exec(
-        ["docker", "network", "rm", "neuronsphere_default"],
+        ["docker", "network", "rm", DOCKER_NETWORK_NAME],
         capture=True,
         quiet=not verbose,
     )

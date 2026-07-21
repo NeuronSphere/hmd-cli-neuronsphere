@@ -19,6 +19,8 @@ from typing import Dict, List, Optional, Set, Tuple
 import yaml
 from cement import minimal_logger
 
+from ..floci_deployer import COMPOSE_PROJECT_NAME
+
 logger = minimal_logger("port_validator")
 
 # Ports reserved by non-Docker CLI tools that should not be mapped in compose files.
@@ -146,7 +148,7 @@ def check_ports_in_use(ports: Set[int]) -> Dict[int, bool]:
 
 
 def get_neuronsphere_container_ports(
-    project_name: str = "local_neuronsphere",
+    project_name: str = COMPOSE_PROJECT_NAME,
 ) -> Set[int]:
     """Return host ports currently bound by containers in the given compose project.
 

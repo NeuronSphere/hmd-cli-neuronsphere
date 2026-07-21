@@ -4,9 +4,12 @@ Developing Helm Chart Repos Against Local k3s
 NeuronSphere "Helm repo class" projects (``hmd-inf-*``, ``hmd-app-*``) deploy a
 chart from ``src/helm`` onto an EKS cluster. Locally, **Floci** runs a real k3s
 cluster (its EKS service with ``FLOCI_SERVICES_EKS_MOCK=false`` spawns a
-privileged ``floci-eks-neuronsphere`` container), so you can iterate on chart
-templates against a real Kubernetes API with close cloud parity **before**
-building and deploying to the cloud.
+privileged ``floci-eks-<cluster-name>`` container -- ``<cluster-name>``
+defaults to a hash of ``$HMD_HOME`` so distinct HMD_HOMEs never share the same
+persistent k3s container/volume; override it via
+``HMD_LOCAL_K3S_CLUSTER_NAME``), so you can iterate on chart templates against
+a real Kubernetes API with close cloud parity **before** building and
+deploying to the cloud.
 
 The loop is::
 
@@ -30,7 +33,7 @@ How the local path works
    own containerd, not the host docker daemon. The chart is rendered with
    ``helm template`` and any referenced image that exists in the host docker
    cache is imported via
-   ``docker save <img> | docker exec floci-eks-neuronsphere ctr -n k8s.io images import -``.
+   ``docker save <img> | docker exec floci-eks-<cluster-name> ctr -n k8s.io images import -``.
    Reference locally-built images by their ``<repo_name>:<version>`` tag and set
    ``image.pullPolicy: IfNotPresent`` (the CLI also ``--set``\ s this).
 3. **Injects dummy standard values** (``account``, ``aws_region``, ALB/ACM/WAF

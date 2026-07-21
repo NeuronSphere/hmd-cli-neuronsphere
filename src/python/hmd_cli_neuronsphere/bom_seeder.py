@@ -26,6 +26,7 @@ except ImportError:
     from importlib_metadata import entry_points
 
 from .docker_credentials import local_docker_config_json
+from .floci_deployer import DOCKER_NETWORK_NAME
 
 logger = minimal_logger("bom_seeder")
 
@@ -69,13 +70,6 @@ def credentials_bom_entry(instance_name: str) -> Dict[str, Any]:
 
 
 LOCAL_BOM = [
-    {
-        "repo_instance_name": "vpc",
-        "repo_class_name": "hmd-vpc",
-        "deployment_id": "local",
-        "instance_configuration": {},
-        "dependencies": {},
-    },
     s3_bucket_bom_entry("project-bucket"),
 ]
 
@@ -88,7 +82,7 @@ CORE_REPO_CLASS = "hmd-cli-neuronsphere"
 
 # The single core instance name that produces the local core resource types. Repos
 # with resource-type deps name this instance in their BOM `dependencies` map.
-CORE_INSTANCE_NAME = "local-k3s"
+CORE_INSTANCE_NAME = "local-neuronsphere"
 
 # The base ResourceDefinition types the core RepoClass produces. Declared (via
 # declare_produces_resource_definition) after the RCV is registered and before the
@@ -122,12 +116,65 @@ CORE_PRODUCED_DEFINITIONS = [
         "version": "0.1.0",
         "role": "ingress-controller",
     },
+    {
+        # hmd-postgres-rds already declares producing (parenting from) this exact
+        # type (see its meta-data/resources/aurora-postgres.yaml). Declaring the
+        # same identity here lets any repo's resource-typed dependency on it (e.g.
+        # hmd-database-account.database-instance) resolve against the always-on
+        # shared local Postgres (the `hmd_db` container) instead of requiring a
+        # real hmd-postgres-rds CDKTF deploy (which would stand up a separate
+        # Floci RDS instance nothing local actually needs).
+        "resource_namespace": "database.neuronsphere.io",
+        "resource_definition_name": "postgres",
+        "version": "0.1.0",
+        "role": "database",
+    },
+    {
+        # hmd-inf-neptune declares producing this exact type (see its
+        # meta-data/manifest.json deploy.resources). JanusGraph -- already part of
+        # core, running unconditionally via docker-compose.graph.yml -- substitutes
+        # for Neptune locally, so any repo's resource-typed dependency on a
+        # graph-database (e.g. hmd-inf-trino.graph-db) resolves here instead of
+        # requiring an (impossible) local Neptune deploy.
+        "resource_namespace": "database.neuronsphere.io",
+        "resource_definition_name": "graph-database",
+        "version": "0.1.0",
+        "role": "graph",
+    },
+    {
+        # hmd-ms-deployment/hmd-ms-naming/hmd-ms-dbaccount/hmd-ms-artifact-lib are
+        # bootstrapped-before-ms-deployment-exists Lambdas the CLI owns directly --
+        # never registered as RepoClass/RepoInstance entities (their own manifests'
+        # required deps, e.g. base-vpc/argo/datadog-lambda, will never resolve
+        # locally). What they provide is represented purely as concrete
+        # `application/microservice` Resources (see build_service_resources),
+        # produced type-level by this same core instance so a resource-typed
+        # dependency (e.g. hmd-database-account.create-service) can resolve against
+        # them without needing those services to exist as RepoInstances.
+        "resource_namespace": "application.neuronsphere.io",
+        "resource_definition_name": "microservice",
+        "version": "0.1.0",
+        "role": "microservice",
+    },
+    {
+        # Generic stand-in for "some network the instance lives in" -- satisfies a
+        # repo's resource-typed dependency on a base network (e.g.
+        # hmd-inf-hive-metastore.base-vpc) without requiring an actual hmd-vpc
+        # deploy, which is never applicable locally (Docker networking replaces
+        # it). Distinct from the concrete `network.neuronsphere.io/docker-network`
+        # type above, which types the actual submitted Resource.
+        "resource_namespace": "network.neuronsphere.io",
+        "resource_definition_name": "network",
+        "version": "0.1.0",
+        "role": "network",
+    },
 ]
 
-# BOM entry #0 — always prepended. Deployed via the `skip` strategy (see
-# local_overrides.json), so `apply_changeset` creates `local-k3s` as a proper
-# DEPLOY_NEXT environment instance of `hmd-cli-neuronsphere` (with all the
-# env/instance/deployment/RCV edges) without the runner executing anything.
+# BOM entry #0 — always prepended for Phase A (see seed_bom's two-phase callers in
+# hmd_cli_neuronsphere.py). `apply_changeset` creates `local-neuronsphere` as a
+# proper DEPLOY_NEXT environment instance of `hmd-cli-neuronsphere` (with all the
+# env/instance/deployment/RCV edges); LocalWorkflowRunner hardcodes CORE_REPO_CLASS
+# as a no-op node, so it's marked DEPLOYED without the runner executing anything.
 LOCAL_CORE_BOM = [
     {
         "repo_instance_name": CORE_INSTANCE_NAME,
@@ -455,7 +502,7 @@ def build_service_resources(services: Optional[List[Dict]]) -> List[Dict]:
 
     Each entry is ``{"service_name", "repo_class_name", "api_base_url"}`` (derived
     from the HMDMS-service specs). The Resource is owned by the core
-    ``hmd-cli-neuronsphere`` / ``local-k3s`` instance, typed by the base
+    ``hmd-cli-neuronsphere`` / ``local-neuronsphere`` instance, typed by the base
     ``application.neuronsphere.io/microservice`` definition, and tagged
     ``environment=local`` plus ``repo_class=<name>`` so a consumer's dependency role
     (e.g. ``deployment-service`` -> ``hmd-ms-deployment``) can select the right one
@@ -497,7 +544,7 @@ def build_service_resources(services: Optional[List[Dict]]) -> List[Dict]:
 
 def build_local_core_resources(
     *,
-    network_name: str = "neuronsphere_default",
+    network_name: str = DOCKER_NETWORK_NAME,
     cluster_name: Optional[str] = None,
     cluster_endpoint: Optional[str] = None,
     services: Optional[List[Dict]] = None,
@@ -521,7 +568,7 @@ def build_local_core_resources(
     """
     common_tags = [{"key": "environment", "value": "local"}]
     # Every core Resource is owned by the single `hmd-cli-neuronsphere` RepoClass /
-    # `local-k3s` instance (created as BOM entry #0), so they all attach to that
+    # `local-neuronsphere` instance (created as BOM entry #0), so they all attach to that
     # instance's RepoInstanceDeployment (see submit_local_resources).
     resources: List[Dict] = [
         {
@@ -535,6 +582,41 @@ def build_local_core_resources(
             },
             "output": {"network_name": network_name, "driver": "bridge"},
             "tags": common_tags + [{"key": "platform", "value": "local"}],
+        },
+        {
+            # The shared local Postgres (`hmd_db` container) that
+            # ensure_core_databases_direct/provision_plugin_databases already
+            # provision core/plugin databases against. Satisfies any repo's
+            # resource-typed dependency on database.neuronsphere.io/postgres (e.g.
+            # hmd-database-account.database-instance) without a real
+            # hmd-postgres-rds deploy -- see CORE_PRODUCED_DEFINITIONS.
+            "instance_name": CORE_INSTANCE_NAME,
+            "repo_class_name": CORE_REPO_CLASS,
+            "resource_name": "hmd_db",
+            "resource_definition": {
+                "resource_namespace": "database.neuronsphere.io",
+                "resource_definition_name": "postgres",
+                "version": "0.1.0",
+            },
+            "output": {"host": "hmd_db", "port": 5432},
+            "tags": common_tags,
+        },
+        {
+            # JanusGraph (container_name `global-graph`, see
+            # services/docker-compose.graph.yml), already part of core, substitutes
+            # for Amazon Neptune locally. Satisfies any repo's resource-typed
+            # dependency on database.neuronsphere.io/graph-database (e.g.
+            # hmd-inf-trino.graph-db) -- see CORE_PRODUCED_DEFINITIONS.
+            "instance_name": CORE_INSTANCE_NAME,
+            "repo_class_name": CORE_REPO_CLASS,
+            "resource_name": "global-graph",
+            "resource_definition": {
+                "resource_namespace": "database.neuronsphere.io",
+                "resource_definition_name": "graph-database",
+                "version": "0.1.0",
+            },
+            "output": {"endpoint": "ws://global-graph:8182/gremlin"},
+            "tags": common_tags,
         },
     ]
     if cluster_name:
@@ -621,7 +703,7 @@ def submit_local_resources(
 ) -> int:
     """Submit the concrete local core Resources into ms-deployment (NERD0004).
 
-    The owning RepoInstanceDeployment is the ``local-k3s`` node created by the
+    The owning RepoInstanceDeployment is the ``local-neuronsphere`` node created by the
     changeset as an instance of the ``hmd-cli-neuronsphere`` RepoClass (BOM entry
     #0); its nid is looked up from the deployed ``nodes``. Each Resource from
     :func:`build_local_core_resources` is POSTed (typed by its base definition,
@@ -692,7 +774,7 @@ def declare_core_produces(base_url: str) -> int:
     Run after the ``hmd-cli-neuronsphere`` RepoClassVersion is registered and
     **before** ``apply_changeset`` so that resource-type dependencies (e.g. an
     ext-secrets repo requiring a ``kubernetes-cluster``) validate against the
-    ``local-k3s`` producing instance. Idempotent (``declare_produces`` is deduped
+    ``local-neuronsphere`` producing instance. Idempotent (``declare_produces`` is deduped
     server-side) and best-effort.
 
     :returns: The number of produce declarations recorded.
@@ -732,15 +814,15 @@ def declare_core_produces(base_url: str) -> int:
 
 
 def find_core_deployment_node(base_url: str) -> List[Dict]:
-    """Return the ``nodes`` shape for the existing ``local-k3s`` deployment, or [].
+    """Return the ``nodes`` shape for the existing ``local-neuronsphere`` deployment, or [].
 
-    On a restart (the deployment graph already bootstrapped), the ``local-k3s``
+    On a restart (the deployment graph already bootstrapped), the ``local-neuronsphere``
     RepoInstanceDeployment persists in ms-deployment, but we no longer have the
     ``nodes`` list :func:`seed_bom` returns. This looks that deployment up so
     :func:`submit_local_resources` can attach Resources to it *without* re-running
     ``seed_bom`` (which would create duplicate changesets):
 
-        repo_instance(name == local-k3s) --has--> repo_instance_deployment
+        repo_instance(name == local-neuronsphere) --has--> repo_instance_deployment
 
     Returns ``[{"instance_name": CORE_INSTANCE_NAME, "rid_nid": <nid>}]`` (the shape
     :func:`_rid_for_instance` expects), or ``[]`` when the env isn't bootstrapped.
@@ -786,10 +868,10 @@ def resync_local_resources(
 
     1. :func:`seed_base_resource_definitions` — refresh the base ResourceDefinition
        catalog (registers any new base types).
-    2. :func:`declare_core_produces` — refresh the ``local-k3s`` producer's
+    2. :func:`declare_core_produces` — refresh the ``local-neuronsphere`` producer's
        produced-type declarations.
     3. :func:`build_local_core_resources` + :func:`submit_local_resources` against
-       the *existing* ``local-k3s`` deployment (found via
+       the *existing* ``local-neuronsphere`` deployment (found via
        :func:`find_core_deployment_node`).
 
     :returns: The number of Resources (re)submitted; 0 if the env isn't bootstrapped.
@@ -841,43 +923,22 @@ def _repo_instance_status(base_url: str) -> Dict[str, Optional[str]]:
     return status_by_name
 
 
-# Strategies LocalWorkflowRunner never runs a real deploy script for -- it marks
-# them DEPLOYED the instant it visits them (see local_workflow_runner.py). If
-# LocalWorkflowRunner fails fast on an earlier node, though, one of these can be
-# left at ms-deployment's un-visited default status ("SKIPPED") forever, even
-# though re-attempting it would be a pure no-op. Mirrored here (not imported)
-# because only the central-overrides tier is checked -- the per-repo
-# nsplugin.json tier isn't worth a filesystem lookup just for this comparison.
-_NO_OP_STRATEGIES = {"skip", "local_storage", "compose_substitute"}
-
-
 def compute_new_bom_entries(
     base_url: str,
     bom: Optional[List[Dict]] = None,
-    overrides: Optional[Dict] = None,
 ) -> List[Dict]:
-    """Resolved BOM entries not yet done in the local env.
+    """Resolved BOM entries not yet deployed in the local env.
 
-    "Done" means either a real deploy succeeded (status ``DEPLOYED``), or the
-    entry's repo_class is configured with a no-op strategy (``_NO_OP_STRATEGIES``,
-    matching ``local_workflow_runner.SKIP_STRATEGIES`` plus ``compose_substitute``)
-    -- those never run a real deploy script, so any existing record for one is
-    terminal even if it's stuck at "SKIPPED" from an earlier fail-fast run.
-    Everything else -- no record yet, or FAILED/SKIPPED for a repo that IS meant
-    to really deploy -- stays eligible for a delta-apply retry.
-
-    Lets a restart pick up entries newly contributed by a plugin installed or
-    enabled after bootstrap, or retry one left unfinished by a prior attempt,
-    without touching anything already deployed. Fail-safe: a query error returns
-    ``[]`` (deploy nothing) rather than risking a redeploy of already-bootstrapped
-    instances. ``overrides`` should be the central ``local_overrides.json`` dict
-    (e.g. from ``load_local_overrides()``) -- omitting it treats every entry as
-    "default" strategy, which is conservative but will keep re-offering a true
-    no-op entry that a fail-fast run left at "SKIPPED".
+    "Done" means a real deploy succeeded (status ``DEPLOYED``); everything else
+    -- no record yet, or FAILED/SKIPPED -- stays eligible for a delta-apply
+    retry. Lets a restart pick up entries newly contributed by a plugin
+    installed or enabled after bootstrap, or retry one left unfinished by a
+    prior attempt, without touching anything already deployed. Fail-safe: a
+    query error returns ``[]`` (deploy nothing) rather than risking a redeploy
+    of already-bootstrapped instances.
     """
     if bom is None:
         bom = _resolve_bom()
-    overrides = overrides or {}
     try:
         status_by_name = _repo_instance_status(base_url)
     except (requests.RequestException, ValueError, KeyError) as e:
@@ -888,11 +949,7 @@ def compute_new_bom_entries(
     for entry in bom:
         name = entry.get("repo_instance_name")
         status = status_by_name.get(name)
-        strategy = overrides.get(entry.get("repo_class_name"), {}).get("strategy")
-        if strategy in _NO_OP_STRATEGIES:
-            if status is not None:
-                continue
-        elif status == "DEPLOYED":
+        if status == "DEPLOYED":
             continue
         new_entries.append(entry)
     return new_entries
@@ -938,6 +995,58 @@ def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     return result
 
 
+def _topo_sort_bom(bom: List[Dict]) -> List[Dict]:
+    """Order ``bom`` so every entry appears after every other entry it depends on.
+
+    ``apply_changeset_to_environment`` (ms-deployment) processes changeset entries
+    in list order and resolves each entry's ``dependencies`` values against
+    ``repo_instance``s already added earlier in the *same* call -- it does not
+    itself topologically sort. A single plugin's own BOM list is naturally
+    written in dependency order, but ``_collect_plugin_bom_entries`` concatenates
+    *different* plugins' contributions in whatever order ``entry_points()``
+    happens to scan them, with no awareness of cross-plugin dependency edges
+    (e.g. telemetry's ``otel-collector`` referencing analytics-engines'
+    ``clickhouse``) -- if the referencing entry lands earlier in the merged list
+    than the entry it points to, ``apply_changeset`` 500s with "No repo instance
+    found for name, X". A stable topological sort (Kahn's algorithm, preserving
+    input order among entries with no ordering constraint between them) fixes
+    this generically for any current or future cross-plugin dependency, rather
+    than requiring every plugin to guess at a safe concatenation order.
+    """
+    by_name = {e["repo_instance_name"]: e for e in bom if e.get("repo_instance_name")}
+    indegree = {name: 0 for name in by_name}
+    dependents: Dict[str, List[str]] = {name: [] for name in by_name}
+    for name, entry in by_name.items():
+        for dep_target in (entry.get("dependencies") or {}).values():
+            if dep_target in by_name and dep_target != name:
+                dependents[dep_target].append(name)
+                indegree[name] += 1
+
+    # Stable Kahn's algorithm: always pick the earliest-in-original-order
+    # ready node, so entries with no ordering constraint keep their relative
+    # input order (a plain sort key on original index, not a queue/heap).
+    order = {name: i for i, name in enumerate(by_name)}
+    ready = sorted([name for name, deg in indegree.items() if deg == 0], key=order.get)
+    sorted_names: List[str] = []
+    while ready:
+        ready.sort(key=order.get)
+        name = ready.pop(0)
+        sorted_names.append(name)
+        for dependent in dependents[name]:
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                ready.append(dependent)
+
+    if len(sorted_names) != len(by_name):
+        # A real cycle (or a self-referential edge missed above) -- fall back to
+        # the original order rather than dropping entries; apply_changeset will
+        # surface the same "not found" error, at least no worse than today.
+        logger.warning("BOM dependency graph has a cycle; deploying in unsorted order")
+        return bom
+
+    return [by_name[name] for name in sorted_names]
+
+
 def _collect_plugin_bom_entries() -> List[Dict]:
     """Collect BOM entries contributed by installed plugin packages.
 
@@ -959,16 +1068,20 @@ def _collect_plugin_bom_entries() -> List[Dict]:
     return entries
 
 
-def _resolve_bom() -> List[Dict]:
-    """Resolve the BOM source and augment it with the local core + opt-in add-ons.
+def resolve_plugin_bom() -> List[Dict]:
+    """Resolve the Phase B BOM: everything except the core ``LOCAL_CORE_BOM`` entry.
+
+    This is what ``seed_bom`` applies as the second of the two changesets a bootstrap
+    submits (see the Phase A / Phase B split in ``hmd_cli_neuronsphere.py``) — the
+    core ``local-neuronsphere`` instance (Phase A) already exists by the time this
+    resolves, so entries here that reference ``CORE_INSTANCE_NAME`` by name (e.g.
+    ext-secrets' ``eks-cluster``/``compute`` roles) resolve against it directly.
 
     Base source priority:
     1. HMD_LOCAL_BOM_FILE env var → load from file
     2. LOCAL_BOM constant (backward compat)
 
     Augmentation (applied to whichever base was resolved):
-    - ``LOCAL_CORE_BOM`` is always **prepended** so the ``local-k3s`` producer
-      instance (RepoClass ``hmd-cli-neuronsphere``) exists for resource-type deps.
     - ``EXT_SECRETS_BOM`` is **appended** by default; set
       ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false`` to opt out.
     - Entries contributed by installed plugin packages (via ``BOM_ENTRIES_ENTRY_POINT``)
@@ -978,8 +1091,10 @@ def _resolve_bom() -> List[Dict]:
       :func:`_inject_docker_credentials`), so its local CDKTF overlay can seed the
       ``hmd-docker-repo-secret`` k3s uses to pull private images.
 
-    The result is de-duped by ``repo_instance_name`` so an explicit BOM file that
-    already lists these entries stays idempotent.
+    The result is de-duped by ``repo_instance_name`` (so an explicit BOM file that
+    already lists these entries stays idempotent) and topologically sorted (see
+    :func:`_topo_sort_bom`) so cross-plugin dependency edges resolve regardless of
+    entry_points() scan order.
     """
     bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
     if bom_file:
@@ -989,7 +1104,7 @@ def _resolve_bom() -> List[Dict]:
         logger.info("Using built-in LOCAL_BOM (2 entries)")
         base = list(LOCAL_BOM)
 
-    bom = list(LOCAL_CORE_BOM) + base
+    bom = list(base)
     if not _is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
         logger.info("ext-secrets enabled by default — appending EXT_SECRETS_BOM")
         bom = bom + EXT_SECRETS_BOM
@@ -1002,7 +1117,17 @@ def _resolve_bom() -> List[Dict]:
         bom = bom + plugin_entries
 
     _inject_docker_credentials(bom)
-    return _dedupe_bom(bom)
+    return _topo_sort_bom(_dedupe_bom(bom))
+
+
+def _resolve_bom() -> List[Dict]:
+    """The full resolved BOM: ``LOCAL_CORE_BOM`` (Phase A) + :func:`resolve_plugin_bom`
+    (Phase B), combined. Used where callers need the complete desired-state list
+    rather than a single phase (e.g. :func:`bom_includes_repo_class`,
+    :func:`compute_new_bom_entries`'s delta detection).
+    """
+    bom = list(LOCAL_CORE_BOM) + resolve_plugin_bom()
+    return _topo_sort_bom(_dedupe_bom(bom))
 
 
 def bom_includes_repo_class(repo_class_name: str) -> bool:
@@ -1117,7 +1242,7 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
 
     # 1b. Declare that the core RepoClass (hmd-cli-neuronsphere) produces the local
     # core resource types, before the changeset applies, so resource-type
-    # dependency validation resolves against the local-k3s producing instance.
+    # dependency validation resolves against the local-neuronsphere producing instance.
     declare_core_produces(base_url)
 
     # 2. Create Environment

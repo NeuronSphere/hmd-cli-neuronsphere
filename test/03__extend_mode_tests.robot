@@ -139,8 +139,9 @@ Extend Mode Submits Local Core Resources
     Should Not Be Empty    ${resources}
     ...    msg=Expected local Resources tagged environment=local
     ${names}=    Resource Names From    ${resources}
-    Should Contain    ${names}    neuronsphere_default
-    ...    msg=Docker network Resource should be discoverable
+    ${found}=    Evaluate    any(n.startswith('neuronsphere_default') for n in $names)
+    Should Be True    ${found}
+    ...    msg=Docker network Resource should be discoverable (name is HMD_HOME-scoped, e.g. neuronsphere_default-<hash>)
 
 Extend Mode Submits k3s Cluster Resource
     [Tags]    integration    extend-mode    phase2    nerd0004    k3s

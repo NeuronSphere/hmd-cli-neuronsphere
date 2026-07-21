@@ -21,7 +21,6 @@ setup(
     include_package_data=True,
     package_data={
         "": [
-            "local_overrides.json",
             # AI Skills (file-based and directory-based)
             "skills/*.md",
             "skills/*/*.md",

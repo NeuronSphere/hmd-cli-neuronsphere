@@ -32,7 +32,7 @@ from cement import minimal_logger
 from hmd_cli_tools.hmd_cli_tools import make_standard_name
 
 from . import k3s_operators as ko
-from .floci_deployer import FLOCI_ENDPOINT
+from .floci_deployer import DOCKER_NETWORK_NAME, FLOCI_ENDPOINT
 
 logger = minimal_logger("ns_k3s_charts")
 
@@ -256,7 +256,7 @@ def _container_ip(container: str) -> Optional[str]:
     """IP of a compose container on the k3s Docker network (reachable from pods)."""
     fmt = (
         '{{with index .NetworkSettings.Networks "'
-        + os.environ.get("FLOCI_SERVICES_EKS_DOCKER_NETWORK", "neuronsphere_default")
+        + DOCKER_NETWORK_NAME
         + '"}}{{.IPAddress}}{{end}}'
     )
     result = subprocess.run(

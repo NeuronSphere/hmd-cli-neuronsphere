@@ -4,13 +4,11 @@ Local storage provisioner for Extend mode.
 Creates static Kubernetes PersistentVolumes in k3s backed by ${HMD_HOME}
 directories, using volume declarations from plugins' nsplugin.json files.
 
-This module implements the ``local_storage`` override strategy defined in
-NERD001 SPEC003/SPEC013. It replaces EFS/EBS infrastructure repos that
+Per NERD001 SPEC003/SPEC013, this replaces EFS/EBS infrastructure repos that
 cannot run on k3s with hostPath-backed PVs pointing to the same ${HMD_HOME}
 directories used by Legacy mode's Docker Compose bind mounts.
 """
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -27,22 +25,6 @@ K3S_HMD_HOME_MOUNT = "/hmd_home"
 
 # Default PV capacity (informational; hostPath has no real limit)
 DEFAULT_CAPACITY = "10Gi"
-
-
-def load_local_overrides() -> Dict[str, Any]:
-    """Load the local_overrides.json configuration."""
-    overrides_path = Path(__file__).parent / "local_overrides.json"
-    with open(overrides_path, "r") as f:
-        return json.load(f)
-
-
-def get_local_storage_overrides(overrides: Dict[str, Any]) -> Dict[str, Any]:
-    """Return only the entries with strategy 'local_storage'."""
-    return {
-        repo: config
-        for repo, config in overrides.items()
-        if config.get("strategy") == "local_storage"
-    }
 
 
 def collect_plugin_volumes(

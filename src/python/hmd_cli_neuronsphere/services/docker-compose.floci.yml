@@ -13,8 +13,8 @@ services:
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
       FLOCI_DEFAULT_ACCOUNT_ID: "000000000000"
       FLOCI_HOSTNAME: floci
-      FLOCI_SERVICES_DOCKER_NETWORK: neuronsphere_default
-      FLOCI_SERVICES_EKS_DOCKER_NETWORK: neuronsphere_default
+      FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Floci 1.5.8 hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
       # spawning k3s, but kube-apiserver only accepts etcd3 (kine speaks etcd3

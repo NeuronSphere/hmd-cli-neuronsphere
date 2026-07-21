@@ -80,12 +80,12 @@ base catalog (``network.neuronsphere.io/docker-network``,
 
 All local default/core Resources are owned by a single RepoClass —
 ``hmd-cli-neuronsphere`` itself, the thing that bootstraps them. It is seeded as
-BOM entry #0: a ``local-k3s`` instance (deployed via the ``skip`` strategy) that
+a ``local-neuronsphere`` instance (deployed via the ``skip`` strategy) that
 ``apply_changeset`` creates as a real environment **producer**, declared to
-produce the three core types before the changeset applies. A cloud repo whose
+produce the core types before the changeset applies. A cloud repo whose
 ``manifest.json`` declares a ``resource`` dependency on those supertypes then
-resolves against ``local-k3s`` — the same RepoClass deploys against a real
-VPC/EKS in the cloud and against the Docker network / k3s locally without
+resolves against ``local-neuronsphere`` — the same RepoClass deploys against a
+real VPC/EKS in the cloud and against the Docker network / k3s locally without
 changing its dependency. Discover the Resources with
 ``GET /apiop/find_resources_by_tag/environment/local``.
 
@@ -97,6 +97,29 @@ changing its dependency. Discover the Resources with
    silently ignores the suggestion and resolves the ``resource`` against the
    local producer — so one shared manifest works in both environments.
 
+Two-phase changeset bootstrap
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``hmd neuronsphere up`` applies **two** separate ChangeSets rather than one:
+
+- **Phase A** — a changeset containing only the ``local-neuronsphere`` instance.
+  Once applied, its concrete Resources are submitted: the Docker network, k3s
+  cluster/compute/ingress-controller, the shared Postgres, JanusGraph, and an
+  ``application.neuronsphere.io/microservice`` Resource for each of the
+  bootstrapped-before-ms-deployment-exists HMDMS Lambdas
+  (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-dbaccount``,
+  ``hmd-ms-artifact-lib``) — these four are never registered as
+  ``RepoClass``/``RepoInstance`` entities themselves (their own manifests'
+  required deps, e.g. a real VPC/Argo/Datadog, will never resolve locally); what
+  they *provide* is represented purely as this shared Resource type.
+- **Phase B** — a second changeset with everything else: ext-secrets, the
+  built-in/custom BOM, and every plugin-contributed entry.
+
+Submitting Phase A's Resources *before* Phase B's changeset validates means a
+Phase-B dependency on one of those Resources can use a real
+``tag_selector`` (e.g. ``"repo_class=hmd-ms-dbaccount"``) to pick the specific
+microservice it needs, instead of accepting any producer of the shared type.
+
 External Secrets local dev-deploy loop
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -104,7 +127,7 @@ External Secrets local dev-deploy loop
 ``hmd-inf-ext-secrets`` onto the local k3s cluster through
 ``hmd-img-projectbuilder`` by default — the same tool and ``hmd deploy`` path
 used in the cloud. Their ``eks-cluster`` / ``compute`` dependencies resolve
-against the ``local-k3s`` producer via their manifests' SPEC0008 ``resource``
+against the ``local-neuronsphere`` producer via their manifests' SPEC0008 ``resource``
 blocks, and each repo's produced Resource output (rendered by
 ``src/helm/templates/resource-outputs.yaml`` and submitted by ``hmd deploy``)
 is tracked in ``hmd-ms-deployment``:

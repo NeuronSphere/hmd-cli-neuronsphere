@@ -6,6 +6,7 @@ configuring API Gateway routes in Floci for the local NeuronSphere environment.
 """
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -136,10 +137,72 @@ def wait_for_floci(timeout: int = 300, endpoint: str = None):
 
 
 # ---------------------------------------------------------------------------
+# Per-HMD_HOME Docker resource naming
+# ---------------------------------------------------------------------------
+# The Docker Compose project, the shared Docker network, and the Floci-spawned
+# k3s cluster (container + data volume) are all named from a single shared
+# hash of the resolved HMD_HOME path, so two different HMD_HOME environments
+# on the same machine (e.g. a temp HMD_HOME used for testing, or two customer
+# sandboxes) never collide on the same containers/volumes/network -- each
+# gets its own persistent state, and the same HMD_HOME always resolves back
+# to the same names across `up`/`down` cycles. Falls back to the historical
+# fixed names when HMD_HOME isn't set.
+
+
+def _hmd_home_hash() -> str:
+    hmd_home = os.environ.get("HMD_HOME")
+    if not hmd_home:
+        return ""
+    return hashlib.sha256(os.path.abspath(hmd_home).encode()).hexdigest()[:8]
+
+
+_HMD_HOME_HASH = _hmd_home_hash()
+
+# The Docker Compose project name (`docker compose --project-name`), used for
+# container-name prefixing and `com.docker.compose.project` label filtering
+# (see port_validator.get_neuronsphere_container_ports).
+COMPOSE_PROJECT_NAME = os.environ.get("HMD_LOCAL_COMPOSE_PROJECT_NAME") or (
+    f"local_neuronsphere-{_HMD_HOME_HASH}" if _HMD_HOME_HASH else "local_neuronsphere"
+)
+
+# The shared Docker network every local NeuronSphere container attaches to.
+# Declared `external: true` in the compose files (so Compose requires it to
+# pre-exist rather than auto-creating it), with its real name templated via
+# `${NEURONSPHERE_DOCKER_NETWORK}` -- exported below so every `docker compose`
+# invocation and any non-compose-managed container (Floci's spawned k3s,
+# projectbuilder) attach to the same, correctly-scoped network. The Compose
+# *key* every service-level `networks:` list references stays the fixed
+# `neuronsphere_default` string across all files -- only this one's `name:`
+# mapping (in the two files that own the top-level `networks:` block) changes.
+DOCKER_NETWORK_NAME = os.environ.get("HMD_LOCAL_DOCKER_NETWORK") or (
+    f"neuronsphere_default-{_HMD_HOME_HASH}"
+    if _HMD_HOME_HASH
+    else "neuronsphere_default"
+)
+os.environ.setdefault("NEURONSPHERE_DOCKER_NETWORK", DOCKER_NETWORK_NAME)
+
+
+# ---------------------------------------------------------------------------
 # EKS / k3s cluster management
 # ---------------------------------------------------------------------------
 
-K3S_CLUSTER_NAME = os.environ.get("HMD_LOCAL_K3S_CLUSTER_NAME", "neuronsphere")
+
+def _default_k3s_cluster_name() -> str:
+    """Per-HMD_HOME-unique default k3s cluster name.
+
+    Floci names the k3s container/volume it spawns (``floci-eks-<name>``)
+    purely from the cluster ``name`` given to its EKS ``create_cluster`` API
+    -- it has no other identifying context. See the "Per-HMD_HOME Docker
+    resource naming" note above.
+    """
+    if not _HMD_HOME_HASH:
+        return "neuronsphere"
+    return f"neuronsphere-{_HMD_HOME_HASH}"
+
+
+K3S_CLUSTER_NAME = (
+    os.environ.get("HMD_LOCAL_K3S_CLUSTER_NAME") or _default_k3s_cluster_name()
+)
 K3S_KUBECONFIG_PATH = Path(
     os.environ.get(
         "HMD_LOCAL_K3S_KUBECONFIG",

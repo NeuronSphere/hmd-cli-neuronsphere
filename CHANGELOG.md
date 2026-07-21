@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-07-21
+
+- refactor: replace the strategy-based `local_overrides.json` mechanism with a two-phase BOM/changeset bootstrap for the local control plane. `hmd neuronsphere up` now applies **Phase A** (just the core producer instance, so its Resources — Docker network, k3s cluster/compute/ingress-controller, shared Postgres, JanusGraph, and a `microservice` Resource per bootstrapped-before-ms-deployment-exists HMDMS Lambda) submit before **Phase B** (ext-secrets, built-in/custom BOM, plugin-contributed entries) validates its changeset — letting Phase-B dependencies use a real `tag_selector` against a specific producer instead of accepting any producer of the shared type. Deletes `hmdms_seeder.py` and `local_overrides.json`; the removed per-instance `strategy`/`skip` bookkeeping is superseded by the phased changeset split.
+- refactor: rename the core local producer instance `local-k3s` → `local-neuronsphere`, and give it a hashed, per-`HMD_HOME` name so multiple local environments on the same host no longer collide on a single shared instance identity.
+- feat: detect k3s cluster recreation (vs. a plain restart) and re-run the affected bootstrap phase instead of assuming an existing environment is still valid.
+- feat: add new resource-definition types backing the expanded Phase A core-producer output (see `docs/modes.rst`).
+- Updated `bom_seeder.py`, `floci_deployer.py`, `hmd_cli_neuronsphere.py`, `k3s_operators.py`, `local_workflow_runner.py`, and `docs/modes.rst`/`docs/helm_chart_dev_loop.rst` accordingly; test coverage updated in `test_bom_seeder.py`/`test_k3s_operators.py`/`03__extend_mode_tests.robot`.
+
 ## 2026-07-17
 
 - feat: enable the External Secrets local dev-deploy loop (`hmd-inf-ext-secrets-crds` + `hmd-inf-ext-secrets`, deployed through the real ms-deployment DAG) by default, per the "intended to move into the default bootstrap once proven" note in `docs/modes.rst`. `HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS` flips from opt-in to opt-out (`=false`/`0`/`no` disables it) — added `bom_seeder._is_falsy` for the new default-on/opt-out check, mirroring the pattern `k3s_operators._enabled()` already uses for `HMD_LOCAL_NEURONSPHERE_ENABLE_K3S_OPERATORS`. Updated `local_overrides.json` reasons and `docs/modes.rst` accordingly.

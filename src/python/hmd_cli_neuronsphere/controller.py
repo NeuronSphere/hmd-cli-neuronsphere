@@ -636,6 +636,7 @@ class LocalController(Controller):
 networks:
   neuronsphere_default:
     external: true
+    name: ${{NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}}
 """
             with open(compose_path, "w") as f:
                 f.write(compose_template)

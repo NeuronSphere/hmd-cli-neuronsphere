@@ -1,6 +1,5 @@
 """Shared REST helpers for ms-deployment CRUD/apiop calls.
 
-Used by both bom_seeder (extend mode) and hmdms_seeder (HMDMS service plugins).
 Always uses hmd-ms-base CRUD endpoints (PUT /api/<entity>) — never GraphQL.
 """
 

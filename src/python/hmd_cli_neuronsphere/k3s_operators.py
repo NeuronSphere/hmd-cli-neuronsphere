@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from cement import minimal_logger
 
+from .floci_deployer import DOCKER_NETWORK_NAME
 from .plugins.base import _external_dir
 
 logger = minimal_logger("ns_k3s_operators")
@@ -70,9 +71,11 @@ _DB_CONTAINER = os.environ.get("HMD_LOCAL_DB_CONTAINER", "hmd_db")
 # boot -- this module just waits for/tears down that baked-in install (see
 # ``_ensure_ingress_controller``), it doesn't install Traefik itself.
 _INGRESS_ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS"
-_FLOCI_EKS_NETWORK = os.environ.get(
-    "FLOCI_SERVICES_EKS_DOCKER_NETWORK", "neuronsphere_default"
-)
+# The per-HMD_HOME-scoped Docker network (see floci_deployer.DOCKER_NETWORK_NAME).
+# FLOCI_SERVICES_EKS_DOCKER_NETWORK is only set inside the `floci` container's own
+# environment (via docker-compose.admin.yml), not this CLI process's, so it's not
+# a usable override here.
+_FLOCI_EKS_NETWORK = DOCKER_NETWORK_NAME
 # In-network Floci endpoint (resolvable from pods once the CoreDNS record exists).
 _FLOCI_INTERNAL_ENDPOINT = os.environ.get(
     "FLOCI_INTERNAL_ENDPOINT", "http://neuronsphere:4566"
@@ -375,6 +378,39 @@ def _namespace(op: Dict[str, Any]) -> str:
 
 def _enabled() -> bool:
     return os.environ.get(_ENABLE_ENV, "true").lower() not in ("false", "0", "no")
+
+
+def cluster_incarnation_id() -> Optional[str]:
+    """Fingerprint the running k3s cluster's identity.
+
+    The ``kube-system`` Namespace is created fresh the moment a cluster comes
+    up and never recreated for the cluster's lifetime, so its UID is a cheap,
+    reliable stand-in for "which cluster incarnation is this" -- a
+    delete+recreate (see ``floci_deployer.ensure_k3s_cluster``'s stale-image
+    recovery) always yields a new UID, while a plain container restart of the
+    same cluster keeps it. Callers use this to detect "the k3s cluster was
+    recreated since our last successful deploy" and force a redeploy instead
+    of trusting a stale ms-deployment bootstrap marker. Returns ``None`` on
+    any kubectl failure (e.g. cluster not reachable yet).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                "namespace",
+                "kube-system",
+                "-o",
+                "jsonpath={.metadata.uid}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    uid = result.stdout.strip()
+    return uid if result.returncode == 0 and uid else None
 
 
 def _wait_for_node_ready(timeout: int = 120) -> bool:

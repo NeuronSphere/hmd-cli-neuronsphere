@@ -59,8 +59,8 @@ services:
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
       FLOCI_DEFAULT_ACCOUNT_ID: "000000000000"
       FLOCI_HOSTNAME: floci
-      FLOCI_SERVICES_DOCKER_NETWORK: neuronsphere_default
-      FLOCI_SERVICES_EKS_DOCKER_NETWORK: neuronsphere_default
+      FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
       # two broken kube-apiserver overrides Floci injects
@@ -87,3 +87,4 @@ services:
 networks:
   neuronsphere_default:
     external: true
+    name: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
