@@ -438,7 +438,7 @@ def _wait_for_node_ready(timeout: int = 120) -> bool:
 
 
 def _ensure_node_topology_labels() -> None:
-    """Label the k3s node with zone/region topology, best-effort.
+    """Label the k3s node with zone/region topology + the core compute identity.
 
     Cloud EKS nodes carry ``topology.kubernetes.io/{zone,region}`` labels;
     the single local k3s node has none. Charts with a ``topologySpreadConstraints``
@@ -446,7 +446,16 @@ def _ensure_node_topology_labels() -> None:
     match" and every replica beyond the first sticks in Pending forever. Since
     there's only one node locally, any single zone value trivially satisfies
     max-skew for all such constraints.
+
+    Cloud node groups are also labelled ``hmdlabs.io/repo-instance-name=<node
+    group>`` and workload charts pin to their ``compute``/``worker-compute``
+    dependency with a *required* ``nodeAffinity`` on that key (e.g. Hive
+    Metastore, Trino). Locally those dependencies resolve to the core instance
+    (``CORE_INSTANCE_NAME``), so label the single node with it — otherwise every
+    such pod is ``FailedScheduling: didn't match Pod's node affinity/selector``.
     """
+    from .bom_seeder import CORE_INSTANCE_NAME
+
     result = subprocess.run(
         ["kubectl", "get", "nodes", "-o", "name"], capture_output=True, text=True
     )
@@ -461,6 +470,7 @@ def _ensure_node_topology_labels() -> None:
                 node,
                 "topology.kubernetes.io/zone=local",
                 "topology.kubernetes.io/region=local",
+                f"hmdlabs.io/repo-instance-name={CORE_INSTANCE_NAME}",
                 "--overwrite",
             ],
             capture_output=True,

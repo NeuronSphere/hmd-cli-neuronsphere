@@ -572,22 +572,33 @@ def _store_local_admin_db_secret() -> None:
     `hmd-ms-dbaccount`'s `do_create_db_account` reads its admin DB credentials
     from a SecretsManager secret named `{secret_base}_db-secret`, where
     `secret_base = make_standard_name(instance_name, repo_class, did, env,
-    region, customer_code)`. For local NS, `instance_name=hmd_db` and
-    `repo_class=hmd-postgres-base` (matches the container/image identity).
+    region, customer_code)`.
 
-    Idempotent: uses put_secret_value to overwrite if the secret already
-    exists.
+    We store the admin secret under TWO identities, both pointing at the same
+    shared `hmd_db` Postgres:
+
+    1. `hmd_db` / `hmd-postgres-base` / `did` — the container/image identity,
+       the convention every local *service compose* (and core DB provisioning)
+       expects.
+    2. `CORE_INSTANCE_NAME` / `CORE_REPO_CLASS` / `local` — the identity a
+       *resource-typed* `database.neuronsphere.io/postgres` dependency resolves
+       to locally (the core instance produces that resource; see
+       `bom_seeder.CORE_PRODUCED_DEFINITIONS`). A consumer chart derives its DB
+       secret name from *this* identity (e.g. hive-metastore's `awsDbSecretName`),
+       and `hmd-cli-dbaccount._deploy_local` now names the user secret from the
+       same resolved `database-instance` identity — so producer and consumer
+       agree. Without this second admin secret, `ms-dbaccount` couldn't find the
+       admin creds when a plugin's db-account deploys under the core identity.
+
+    Idempotent: put_secret_value overwrites if the secret already exists.
     """
     from hmd_cli_tools.hmd_cli_tools import make_standard_name
+    from .bom_seeder import CORE_INSTANCE_NAME, CORE_REPO_CLASS
 
     did = os.environ.get("HMD_DID", "aaa")
     region = os.environ.get("HMD_REGION", "reg1")
     customer_code = os.environ.get("HMD_CUSTOMER_CODE", "hmd")
 
-    secret_base = make_standard_name(
-        "hmd_db", "hmd-postgres-base", did, "local", region, customer_code
-    )
-    secret_name = f"{secret_base}_db-secret"
     secret_value = json.dumps(
         {
             "username": "postgres",
@@ -599,15 +610,29 @@ def _store_local_admin_db_secret() -> None:
     )
 
     sm = _get_client("secretsmanager")
-    try:
-        sm.create_secret(Name=secret_name, SecretString=secret_value)
-        logger.info(f"Stored local admin DB secret: {secret_name}")
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceExistsException":
-            sm.put_secret_value(SecretId=secret_name, SecretString=secret_value)
-            logger.info(f"Updated local admin DB secret: {secret_name}")
-        else:
-            raise
+
+    def _put(secret_base: str) -> None:
+        secret_name = f"{secret_base}_db-secret"
+        try:
+            sm.create_secret(Name=secret_name, SecretString=secret_value)
+            logger.info(f"Stored local admin DB secret: {secret_name}")
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ResourceExistsException":
+                sm.put_secret_value(SecretId=secret_name, SecretString=secret_value)
+                logger.info(f"Updated local admin DB secret: {secret_name}")
+            else:
+                raise
+
+    _put(
+        make_standard_name(
+            "hmd_db", "hmd-postgres-base", did, "local", region, customer_code
+        )
+    )
+    _put(
+        make_standard_name(
+            CORE_INSTANCE_NAME, CORE_REPO_CLASS, "local", "local", region, customer_code
+        )
+    )
 
 
 def provision_resources(resources: Dict[str, List[Dict[str, Any]]], local_loader=None):

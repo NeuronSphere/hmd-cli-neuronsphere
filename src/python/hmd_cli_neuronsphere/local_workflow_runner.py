@@ -24,7 +24,7 @@ import yaml
 from cement import minimal_logger
 
 from .bom_seeder import CORE_REPO_CLASS
-from .floci_deployer import DOCKER_NETWORK_NAME
+from .floci_deployer import DOCKER_NETWORK_NAME, K3S_CLUSTER_NAME
 
 logger = minimal_logger("local_workflow_runner")
 
@@ -251,6 +251,19 @@ class LocalWorkflowRunner:
                 "127.0.0.1", "hmd_proxy"
             ),
         )
+        # Generic container-reachable root of the local proxy (nginx / `hmd_proxy`)
+        # that fronts *every* local ms-* service's API Gateway route. Unlike
+        # HMD_DEPLOYMENT_SERVICE_URL (ms-deployment-specific), this is the shared
+        # base a deploy tool joins its own `/hmd_ms_<svc>/...` path onto — e.g.
+        # hmd-cli-dbaccount's local branch POSTs to
+        # `{NS_LOCAL_PROXY}/hmd_ms_dbaccount/api/create_db_account`. Host-side that
+        # nginx is `localhost`; in-container it's the `hmd_proxy` container.
+        ns_local_proxy = os.environ.get(
+            "NS_LOCAL_PROXY",
+            self.base_url.split("/hmd_ms_deployment")[0]
+            .replace("localhost", "hmd_proxy")
+            .replace("127.0.0.1", "hmd_proxy"),
+        )
         # In-container submit is opt-in: it requires a projectbuilder whose
         # `hmd-cli-deploy` understands the local endpoint (HMD_DEPLOYMENT_SERVICE_URL).
         # Older projectbuilder images would try the cloud API Gateway and fail the
@@ -337,6 +350,13 @@ class LocalWorkflowRunner:
             "-e",
             f"HMD_DEPLOYMENT_SERVICE_URL={deployment_service_url}",
             "-e",
+            f"NS_LOCAL_PROXY={ns_local_proxy}",
+            # Scoped k3s cluster/container name so hmd-cli-helm's in-container
+            # `_import_images_into_k3s` (`_k3s_container_name()`) targets THIS
+            # HMD_HOME's `floci-eks-<cluster>` node, not the unscoped default.
+            "-e",
+            f"HMD_LOCAL_K3S_CLUSTER_NAME={K3S_CLUSTER_NAME}",
+            "-e",
             f"HMD_CUSTOMER_CODE={os.environ.get('HMD_CUSTOMER_CODE', 'none')}",
             "-e",
             f"HMD_DID={os.environ.get('HMD_DID', 'aaa')}",
@@ -384,10 +404,26 @@ class LocalWorkflowRunner:
         if workspace:
             cmd.extend(["-v", f"{workspace}:/workspace", "-w", "/workspace"])
 
-        # The projectbuilder image's ENTRYPOINT is `hmd`, so the deploy script
-        # must be run under an explicit bash entrypoint (otherwise the args land
-        # as `hmd bash -c ...` -> "invalid choice: 'bash'").
-        cmd.extend([image, "-c", script])
+        # Pass the deploy script as a mounted file rather than `bash -c <script>`.
+        # A node with many resolved dependencies (e.g. trino -> metastore +
+        # clickhouse + graph-db + users + ...) generates a script whose inlined
+        # config exceeds ARG_MAX, so `bash -c <script>` fails before it runs with
+        # "exec /bin/bash: argument list too long". The projectbuilder ENTRYPOINT is
+        # already overridden to bash above, and the working dir is /workspace, so the
+        # script's relative paths (./src/helm etc.) still resolve.
+        script_file = tempfile.NamedTemporaryFile(
+            "w", suffix=".sh", prefix="hmd-deploy-", delete=False
+        )
+        script_file.write(script)
+        script_file.close()
+        cmd.extend(
+            [
+                "-v",
+                f"{script_file.name}:/tmp/hmd-deploy-node.sh:ro",
+                image,
+                "/tmp/hmd-deploy-node.sh",
+            ]
+        )
 
         logger.info(f"Running projectbuilder for {node['instance_name']}")
         try:
@@ -399,6 +435,7 @@ class LocalWorkflowRunner:
             if result.returncode == 0 and not incontainer_submit:
                 self._submit_produced_resources(workspace, node)
         finally:
+            os.unlink(script_file.name)
             if tmp_workspace is not None:
                 shutil.rmtree(os.path.dirname(tmp_workspace), ignore_errors=True)
 
