@@ -1532,6 +1532,19 @@ def start_neuronsphere_extend(verbose: bool = False, upgrade: bool = False):
     else:
         print_step("Skipping ms-deployment readiness/seeding (Lambda not deployed)")
 
+    # Expose the k3s Trino coordinator on a host port (NodePort + hmd_proxy nginx
+    # stream) when it's deployed, so integration tests reach it at
+    # host.docker.internal:<port> without a kubectl port-forward. Runs on both the
+    # cold (post-DAG) and restart fast-path, and is a no-op when Trino is absent.
+    try:
+        from .floci_deployer import configure_trino_host_route, _TRINO_HOST_PORT
+
+        if configure_trino_host_route(placeholder_nginx):
+            _reload_nginx()
+            print_step(f"  Trino exposed on host :{_TRINO_HOST_PORT}")
+    except Exception as e:
+        logger.warning(f"Trino host route setup skipped (non-fatal): {e}")
+
     print_header("Ready")
     print(f"\n  ms-deployment:    http://localhost/hmd_ms_deployment/")
     print(f"  ms-naming:        http://localhost/hmd_ms_naming/")

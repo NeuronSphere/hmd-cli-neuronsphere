@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      # Durable host route to the k3s Trino coordinator: nginx streams this port
+      # to the Trino NodePort on floci-eks (see configure_trino_host_route), so
+      # integration tests reach Trino without a kubectl port-forward.
+      - "${HMD_LOCAL_TRINO_HOST_PORT:-18080}:${HMD_LOCAL_TRINO_HOST_PORT:-18080}"
     networks:
       - neuronsphere_default
     volumes:

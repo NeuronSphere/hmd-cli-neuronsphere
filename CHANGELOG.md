@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-07-24
+
+- feat: add a `global-graph` CoreDNS record in the local k3s cluster so Trino's `graph` catalog (connector `nsgraph`) resolves the JanusGraph container by name from inside pods.
+- fix: align the local admin/user DB-secret `customer_code` default to `none` (was `hmd`), now sourced from `$HMD_HOME/.config/hmd.env` via `local_customer_code()`. The old mismatch seeded the admin secret under a name `ms-dbaccount` never looked up, so every `hmd-database-account` deploy failed with `ResourceNotFoundException`, blocking hive-metastore and Trino.
+- fix: drop the `floci-eks-<name>` k3s container + volume on `down --purge` (`purge_k3s_container_and_volume`). Leaving the volume made the next `up` reuse stale k3s state, registering a new Node while the old one lingered `NotReady` and orphaning StatefulSet pods (hive-metastore `FailedScheduling`).
+- feat: expose the k3s Trino coordinator on host `:18080` via a NodePort (`configure_trino_host_route`) + an `hmd_proxy` nginx `stream` block, wired on both cold and restart-fast-path `up`. Integration tests reach Trino at `host.docker.internal:18080` with no `kubectl port-forward`.
+
 ## 2026-07-21
 
 - refactor: replace the strategy-based `local_overrides.json` mechanism with a two-phase BOM/changeset bootstrap for the local control plane. `hmd neuronsphere up` now applies **Phase A** (just the core producer instance, so its Resources — Docker network, k3s cluster/compute/ingress-controller, shared Postgres, JanusGraph, and a `microservice` Resource per bootstrapped-before-ms-deployment-exists HMDMS Lambda) submit before **Phase B** (ext-secrets, built-in/custom BOM, plugin-contributed entries) validates its changeset — letting Phase-B dependencies use a real `tag_selector` against a specific producer instead of accepting any producer of the shared type. Deletes `hmdms_seeder.py` and `local_overrides.json`; the removed per-instance `strategy`/`skip` bookkeeping is superseded by the phased changeset split.

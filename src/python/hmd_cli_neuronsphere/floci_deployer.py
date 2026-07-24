@@ -1355,3 +1355,162 @@ http {{
     with open(config_path, "w") as f:
         f.write(config)
     logger.info(f"Wrote nginx config to {config_path}")
+
+
+# --- Trino local host route -------------------------------------------------
+# The k3s Trino coordinator is a ClusterIP, unreachable from the host or the
+# bender test container. Expose it as a NodePort and L4-stream-proxy a host port
+# through hmd_proxy to floci-eks:<nodePort>, so tests reach it at
+# host.docker.internal:<port> without a `kubectl port-forward`. hmd_proxy and the
+# floci-eks k3s container share the local Docker network, so the NodePort is
+# reachable at the floci-eks container's IP; hmd_proxy publishes the host port.
+_TRINO_NODEPORT = int(os.environ.get("HMD_LOCAL_TRINO_NODEPORT", "31880"))
+_TRINO_HOST_PORT = int(os.environ.get("HMD_LOCAL_TRINO_HOST_PORT", "18080"))
+_TRINO_NODEPORT_SVC = "trino-local-nodeport"
+_NGINX_STREAM_BEGIN = "# >>> neuronsphere trino stream (managed) >>>"
+_NGINX_STREAM_END = "# <<< neuronsphere trino stream (managed) <<<"
+
+
+def _floci_eks_ip(name: str = K3S_CLUSTER_NAME) -> Optional[str]:
+    """IP of the floci-eks k3s container on the local Docker network, where its
+    NodePorts are reachable from sibling containers such as hmd_proxy."""
+    fmt = (
+        '{{with index .NetworkSettings.Networks "'
+        + DOCKER_NETWORK_NAME
+        + '"}}{{.IPAddress}}{{end}}'
+    )
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", f"floci-eks-{name}", "--format", fmt],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return r.stdout.strip() or None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _find_trino_coordinator_service():
+    """Return ``(namespace, selector, port, target_port)`` for the deployed Trino
+    coordinator ClusterIP service, or ``None`` when Trino isn't deployed."""
+    try:
+        r = subprocess.run(
+            ["kubectl", "get", "svc", "-A", "-o", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        items = json.loads(r.stdout).get("items", [])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    for it in items:
+        if not it["metadata"]["name"].endswith("hmd-inf-trino"):
+            continue
+        spec = it.get("spec", {})
+        selector = spec.get("selector")
+        ports = spec.get("ports") or []
+        if not selector or not ports:
+            continue
+        return (
+            it["metadata"]["namespace"],
+            selector,
+            ports[0].get("port", 8080),
+            ports[0].get("targetPort", "http-coord"),
+        )
+    return None
+
+
+def _ensure_trino_nodeport(namespace, selector, port, target_port) -> bool:
+    """Idempotently apply a NodePort service exposing the Trino coordinator."""
+    svc = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {
+            "name": _TRINO_NODEPORT_SVC,
+            "namespace": namespace,
+            "labels": {"app.kubernetes.io/managed-by": "hmd-cli-neuronsphere"},
+        },
+        "spec": {
+            "type": "NodePort",
+            "selector": selector,
+            "ports": [
+                {
+                    "name": "http",
+                    "port": port,
+                    "targetPort": target_port,
+                    "nodePort": _TRINO_NODEPORT,
+                    "protocol": "TCP",
+                }
+            ],
+        },
+    }
+    try:
+        r = subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=json.dumps(svc),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not apply Trino NodePort service: {e}")
+        return False
+    if r.returncode != 0:
+        logger.warning(f"Could not apply Trino NodePort service: {r.stderr.strip()}")
+        return False
+    return True
+
+
+def _inject_nginx_stream(config_path: Path, host_port: int, upstream: str) -> None:
+    """Append (or replace) a managed top-level ``stream{}`` block that L4-proxies
+    ``host_port`` to ``upstream``. Idempotent via marker comments; composes with
+    whatever ``write_nginx_config`` wrote (stream is a sibling of http/events)."""
+    import re
+
+    block = (
+        f"{_NGINX_STREAM_BEGIN}\n"
+        "stream {\n"
+        "    server {\n"
+        f"        listen {host_port};\n"
+        f"        proxy_pass {upstream};\n"
+        "    }\n"
+        "}\n"
+        f"{_NGINX_STREAM_END}\n"
+    )
+    text = config_path.read_text() if config_path.exists() else ""
+    pat = re.compile(
+        re.escape(_NGINX_STREAM_BEGIN) + r".*?" + re.escape(_NGINX_STREAM_END) + r"\n?",
+        re.DOTALL,
+    )
+    text = pat.sub(block, text) if pat.search(text) else text.rstrip() + "\n" + block
+    config_path.write_text(text)
+
+
+def configure_trino_host_route(nginx_config_path: Path) -> bool:
+    """Expose the k3s Trino coordinator to the host via a NodePort + hmd_proxy
+    nginx stream, so integration tests reach it at ``host.docker.internal:<port>``
+    without a ``kubectl port-forward``. No-op when Trino isn't deployed. Caller
+    reloads nginx when this returns True."""
+    found = _find_trino_coordinator_service()
+    if not found:
+        logger.debug("Trino coordinator service not found; skipping host route.")
+        return False
+    namespace, selector, port, target_port = found
+    if not _ensure_trino_nodeport(namespace, selector, port, target_port):
+        return False
+    ip = _floci_eks_ip()
+    if not ip:
+        logger.warning("Could not resolve floci-eks IP; Trino host route not wired.")
+        return False
+    _inject_nginx_stream(nginx_config_path, _TRINO_HOST_PORT, f"{ip}:{_TRINO_NODEPORT}")
+    logger.info(
+        f"Wired Trino host route: :{_TRINO_HOST_PORT} -> {ip}:{_TRINO_NODEPORT} "
+        f"(NodePort {_TRINO_NODEPORT_SVC} in {namespace})"
+    )
+    return True
