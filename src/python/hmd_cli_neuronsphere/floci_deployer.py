@@ -584,6 +584,30 @@ def delete_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> None:
             logger.warning(f"Failed to delete k3s cluster {name}: {e}")
 
 
+def purge_k3s_container_and_volume(name: str = K3S_CLUSTER_NAME) -> None:
+    """Force-remove the Floci-spawned k3s container AND its persistent volume.
+
+    `delete_k3s_cluster` only asks Floci to delete the cluster; the
+    `/var/lib/rancher/k3s` docker volume (``floci-eks-<name>``) survives. A
+    subsequent `up` respawns a container that reuses that stale sqlite-backed
+    state: the new container gets a fresh random hostname and registers as a
+    brand-new Node while the previous one lingers forever as NotReady, so
+    StatefulSet pods pinned (via node affinity) to the dead node's
+    ``hmdlabs.io/repo-instance-name`` label can never schedule.
+
+    `down --purge` promises a clean slate, so it must drop the volume too.
+    Mirrors the belt-and-suspenders cleanup in `_wait_for_cluster_gone`.
+    """
+    for args in (
+        ["docker", "rm", "-f", f"floci-eks-{name}"],
+        ["docker", "volume", "rm", "-f", f"floci-eks-{name}"],
+    ):
+        try:
+            subprocess.run(args, capture_output=True, timeout=15)
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug(f"k3s purge step {args} skipped: {e}")
+
+
 def _store_local_admin_db_secret() -> None:
     """Bootstrap the local postgres admin secret in Floci Secrets Manager.
 

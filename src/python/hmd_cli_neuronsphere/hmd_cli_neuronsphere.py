@@ -2056,6 +2056,16 @@ def _purge_persistent_state(verbose: bool = False) -> None:
     """
     print_step("Purging persistent state (Floci data, PostgreSQL data, marker)...")
     _clear_bootstrap_marker()
+    # Also drop the k3s container + its persistent volume. delete_k3s_cluster()
+    # (run earlier in stop) leaves the floci-eks-<name> volume behind; reusing it
+    # on the next `up` orphans the old Node and breaks StatefulSet scheduling.
+    # Purge means a clean slate, so the cluster state must go too.
+    try:
+        from .floci_deployer import purge_k3s_container_and_volume
+
+        purge_k3s_container_and_volume()
+    except Exception as e:
+        logger.warning(f"Could not purge k3s container/volume: {e}")
     for rel in ("floci/data", "postgresql/data"):
         target = _hmd_home / rel
         try:
