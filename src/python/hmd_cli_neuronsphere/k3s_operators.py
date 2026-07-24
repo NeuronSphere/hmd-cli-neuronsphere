@@ -61,6 +61,10 @@ _FLOCI_WORKLOAD_CONTAINER = os.environ.get(
 # name instead of a churny container IP baked into config.
 _PROXY_CONTAINER = os.environ.get("HMD_LOCAL_PROXY_CONTAINER", "hmd_proxy")
 _DB_CONTAINER = os.environ.get("HMD_LOCAL_DB_CONTAINER", "hmd_db")
+# Local JanusGraph (Gremlin server, substitutes for Neptune). Trino's graph catalog
+# (connector nsgraph) connects to it by name from inside k3s, so it needs a CoreDNS
+# record just like the proxy/db above.
+_GRAPH_CONTAINER = os.environ.get("HMD_LOCAL_GRAPH_CONTAINER", "global-graph")
 
 # Floci disables k3s's own packaged ingress controller (--disable=traefik, to
 # emulate a raw EKS control plane), but the local BOM seeds a
@@ -130,7 +134,7 @@ def _ensure_coredns_floci_entry() -> None:
         ("neuronsphere", floci_ip),
         ("neuronsphere-workload", workload_ip),
     ]
-    for name in (_PROXY_CONTAINER, _DB_CONTAINER):
+    for name in (_PROXY_CONTAINER, _DB_CONTAINER, _GRAPH_CONTAINER):
         ip = _resolve_floci_ip(name)
         if ip:
             entries.append((name, ip))
