@@ -48,6 +48,24 @@ ACCOUNT_ID = "000000000000"
 # Single-account local: workload deployments share the control-plane account.
 WORKLOAD_ACCOUNT_ID = ACCOUNT_ID
 
+# Local default when HMD_CUSTOMER_CODE is not configured. Must match the value
+# the ms-dbaccount Lambda + workflow runner deploy with, or admin/user DB
+# secrets get seeded under a name the consumer never looks up.
+_DEFAULT_CUSTOMER_CODE = "none"
+
+
+def local_customer_code() -> str:
+    """Resolve the local ``HMD_CUSTOMER_CODE``.
+
+    Sourced from ``$HMD_HOME/.config/hmd.env`` -- ``load_hmd_env()`` (called at
+    every CLI command entry, override=True) loads it into the environment -- and
+    falls back to the local default ``"none"`` when it is not configured there.
+    Reading it in one place keeps producer (secret seeding) and consumer
+    (ms-dbaccount ``make_standard_name`` lookups) in agreement.
+    """
+    return os.environ.get("HMD_CUSTOMER_CODE") or _DEFAULT_CUSTOMER_CODE
+
+
 # Hostnames the host machine must resolve to a loopback address so it can
 # consume URLs (e.g. presigned S3 URLs) returned by services running inside
 # the Floci Docker network. The same names are registered as Docker network
@@ -597,7 +615,11 @@ def _store_local_admin_db_secret() -> None:
 
     did = os.environ.get("HMD_DID", "aaa")
     region = os.environ.get("HMD_REGION", "reg1")
-    customer_code = os.environ.get("HMD_CUSTOMER_CODE", "hmd")
+    # From hmd.env, falling back to "none". Must match the customer code the
+    # ms-dbaccount Lambda + workflow runner deploy with, or the admin secret is
+    # seeded under a name the consumer never looks up and every
+    # hmd-database-account deploy fails with ResourceNotFoundException.
+    customer_code = local_customer_code()
 
     secret_value = json.dumps(
         {
@@ -701,7 +723,8 @@ def _local_db_secret_base() -> str:
         os.environ.get("HMD_DID", "aaa"),
         "local",
         os.environ.get("HMD_REGION", "reg1"),
-        os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+        # From hmd.env, fallback "none"; see local_customer_code / _store_local_admin_db_secret.
+        local_customer_code(),
     )
 
 
