@@ -30,7 +30,7 @@ GENERATED = (
     "export HMD_REPO_INSTANCE_DEPLOYMENT_ID=rid-123\n"
     "hmd --debug  --repo-name hmd-inf-ext-secrets-crds --repo-version 0.1 "
     "--hmd-region reg1 deploy  --instance-name ext-secrets-crds "
-    "--environment local --deployment-id local --config-file STDIN <<EOF\n"
+    "--environment local --deployment-id local --config-file STDIN <<'EOF'\n"
     '{"deploy": "value", "nested": {"deploy": true}}\n'
     "EOF"
 )
