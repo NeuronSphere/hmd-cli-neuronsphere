@@ -140,3 +140,5 @@ target/bartleby/
 # Test artifacts
 test/hmd_home/
 bender/
+.hmd-build-status.json
+.hmd-deploy-status.json
