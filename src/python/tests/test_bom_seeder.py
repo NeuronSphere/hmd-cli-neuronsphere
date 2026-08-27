@@ -712,11 +712,16 @@ class SeedBomIdempotencyTests(unittest.TestCase):
             return []
 
         def fake_put(url, entity_type, body):
+            # Record the whole body, definition included: seed_bom re-reads the
+            # deployment set's definition to check it targets this environment,
+            # so a fake that dropped it would make every restart look like a
+            # stale row in need of repair.
+            row = {"identifier": body.get("identifier", "nid-1"), **body}
             if entity_type.endswith("deployment_set"):
-                state["deployment_sets"].append({"name": body["name"]})
+                state["deployment_sets"].append(row)
             if entity_type.endswith("change_set"):
-                state["change_sets"].append({"name": body["name"]})
-            return {"identifier": "nid-1", **body}
+                state["change_sets"].append(row)
+            return row
 
         def fake_post(url, op, payload=None, **k):
             if op == "apply_changeset":
@@ -735,7 +740,9 @@ class SeedBomIdempotencyTests(unittest.TestCase):
         ), mock.patch.object(b, "_put_entity", side_effect=fake_put), mock.patch.object(
             b, "_post_apiop", side_effect=fake_post
         ), mock.patch.object(
-            b, "_get_repo_version", return_value="0.1.0"
+            b,
+            "resolve_repo_version",
+            return_value=b.VersionResolution("0.1.0", "declared", None),
         ), mock.patch.object(
             b, "_get_repo_dependencies", return_value={}
         ), mock.patch.object(
@@ -743,7 +750,7 @@ class SeedBomIdempotencyTests(unittest.TestCase):
         ), mock.patch.object(
             b, "declare_core_produces"
         ), mock.patch.object(
-            b, "ensure_local_environment"
+            b, "ensure_environment"
         ), mock.patch.object(
             b, "upsert_repo_resource_definitions"
         ):

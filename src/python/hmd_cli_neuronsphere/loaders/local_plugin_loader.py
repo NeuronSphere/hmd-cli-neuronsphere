@@ -496,7 +496,14 @@ class LocalPluginLoader:
         return profiles
 
     def get_repo_version(self, plugin_name: str) -> Optional[str]:
-        """Read meta-data/VERSION from the plugin's repo, stripped."""
+        """Read meta-data/VERSION from the plugin's repo, stripped.
+
+        This is a *container image tag*: the tag `hmd docker build` gave the
+        image built from this tree. It is deliberately not
+        ``bom_seeder.resolve_repo_version``, which resolves the deployed
+        ``repo_class_version`` artifact-first — so the image tag and the
+        registered version may legitimately differ.
+        """
         info = self.get_plugin_info(plugin_name)
         if not info:
             return None

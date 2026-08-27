@@ -44,14 +44,20 @@ def _ms_deployment_url() -> str:
     )
 
 
-def _ensure_db_owner_rid(base_url: str) -> str:
+def _ensure_db_owner_rid(base_url: str, env=None) -> str:
     """Ensure the env-linked ``local-databases`` owner instance and return its RID id.
 
     Owned by the core ``hmd-cli-neuronsphere`` RepoClass (all local default Resources
     are owned by one RepoClass). Idempotent: the RCV registration tolerates an existing
     version and ``register_deployed_instance`` reuses the instance if present.
+
+    The instance name stays ``local-databases`` in every environment --
+    repo_instance is unique by name *per Environment* -- so the environment
+    and deployment id are what disambiguate it.
     """
     version = _get_repo_version(CORE_REPO_CLASS)
+    environment = env.slug if env is not None else "local"
+    deployment_id = env.deployment_id if env is not None else "local"
     # Guarantee the RCV exists so register_deployed_instance can resolve it. Empty deps
     # is a no-op when `up` already registered this version (tolerate_exists).
     _rest.post_apiop_idempotent(
@@ -68,11 +74,11 @@ def _ensure_db_owner_rid(base_url: str) -> str:
         base_url,
         "register_deployed_instance",
         {
-            "environment": "local",
+            "environment": environment,
             "repo_class_name": CORE_REPO_CLASS,
             "version": version,
             "instance_name": DB_OWNER_INSTANCE,
-            "deployment_id": "local",
+            "deployment_id": deployment_id,
             "instance_configuration": {},
         },
     )
@@ -80,11 +86,17 @@ def _ensure_db_owner_rid(base_url: str) -> str:
 
 
 def _postgres_resource(
-    db_name: str, username: str, host: str, port: int, secret_name: Optional[str]
+    db_name: str,
+    username: str,
+    host: str,
+    port: int,
+    secret_name: Optional[str],
+    did: Optional[str] = None,
+    environment_name: str = "local",
 ) -> Dict:
     """Build the ``postgres`` Resource dict (effective output = postgres + database)."""
     if not secret_name:
-        secret_name = f"{_local_db_secret_base()}_{username}"
+        secret_name = f"{_local_db_secret_base(did, environment_name)}_{username}"
     return {
         "resource_name": f"local-db-{db_name}",
         "resource_definition": POSTGRES_RESOURCE_DEFINITION,
@@ -96,7 +108,7 @@ def _postgres_resource(
             "engine_version": "15",
         },
         "tags": [
-            {"key": "environment", "value": "local"},
+            {"key": "environment", "value": environment_name},
             {"key": "database", "value": db_name},
             {"key": "role", "value": "db-credentials"},
         ],
@@ -106,14 +118,23 @@ def _postgres_resource(
 def register_db_resource(
     db_name: str,
     username: str,
-    host: str = "hmd_db",
+    host: str = None,
     port: int = 5432,
     secret_name: Optional[str] = None,
+    env=None,
 ) -> Dict:
-    """Register (only) a Postgres DB as a local NERD Resource. No dbaccount call."""
+    """Register (only) a Postgres DB as a local NERD Resource. No dbaccount call.
+
+    ``host`` defaults to the environment's own Postgres container.
+    """
     base_url = _ms_deployment_url()
-    rid = _ensure_db_owner_rid(base_url)
-    resource = _postgres_resource(db_name, username, host, port, secret_name)
+    host = host or (env.db_container if env is not None else "hmd_db")
+    did = env.deployment_id if env is not None else None
+    environment_name = env.slug if env is not None else "local"
+    rid = _ensure_db_owner_rid(base_url, env)
+    resource = _postgres_resource(
+        db_name, username, host, port, secret_name, did, environment_name
+    )
     logger.info(f"Registering local postgres Resource for database '{db_name}'")
     return _rest.post_apiop(
         base_url,
@@ -125,11 +146,25 @@ def register_db_resource(
 def provision_and_register_db(
     db_name: str,
     username: str,
-    host: str = "hmd_db",
+    host: str = None,
     port: int = 5432,
+    env=None,
 ) -> Dict:
-    """Provision a DB/user via hmd_ms_dbaccount, then register it as a Resource."""
-    did = os.environ.get("HMD_DID", "aaa")
+    """Provision a DB/user via hmd_ms_dbaccount, then register it as a Resource.
+
+    dbaccount is per-environment, so this targets the environment's own
+    ``/<slug>/hmd_ms_dbaccount/`` route and its own Postgres.
+
+    Every environment is prefixed, legacy layout included: ``write_env_routes``
+    prefixes on ``env.slug`` unconditionally, and a legacy environment shares the
+    control plane's *containers*, not its unprefixed routes. Excepting it here
+    sent the call to a control-plane path where ms-dbaccount is not routed, and
+    it 404'd.
+    """
+    did = env.deployment_id if env is not None else os.environ.get("HMD_DID", "aaa")
+    route_prefix = env.slug if env is not None else ""
     logger.info(f"Provisioning database '{db_name}' via hmd_ms_dbaccount")
-    _post_create_db_account(did, db_name, username, origin="dev")
-    return register_db_resource(db_name, username, host, port)
+    _post_create_db_account(
+        did, db_name, username, origin="dev", route_prefix=route_prefix
+    )
+    return register_db_resource(db_name, username, host, port, env=env)

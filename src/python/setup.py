@@ -57,6 +57,7 @@ setup(
     entry_points={
         "hmd_cli.controllers": [
             "neuronsphere=hmd_cli_neuronsphere.controller:LocalController",
+            "neuronsphere_env=hmd_cli_neuronsphere.controller:EnvController",
         ],
         "hmd_cli_neuronsphere.enabled": [
             "main=hmd_cli_neuronsphere.plugins.main:enabled",

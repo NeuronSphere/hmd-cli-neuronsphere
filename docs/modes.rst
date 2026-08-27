@@ -8,22 +8,42 @@ Operating Modes
 Extend Mode (Default)
 ---------------------
 
-Extend mode is the default. It brings up a **minimal core** that mirrors the
-cloud control plane and deploys services through a DAG-based workflow, rather
-than starting the whole platform as Docker Compose containers.
+Extend mode is the default. It brings up a shared **control plane** plus one or
+more named **environments**, and deploys services through a DAG-based workflow
+rather than starting the whole platform as Docker Compose containers.
 
-**The minimal core** — everything ``hmd neuronsphere up`` starts by default:
+**The control plane** (one per ``$HMD_HOME``):
 
 - a Docker network (``neuronsphere_default``);
-- a single **Floci** instance emulating the AWS account (S3, DynamoDB, SQS,
-  Lambda, API Gateway, IAM, ECR, EKS, Secrets Manager, RDS on port 4566);
-- the core databases (PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment``
-  created directly);
-- a **k3s** cluster on Floci's EKS emulation;
-- the **deployment control plane** — ``hmd-ms-deployment``, ``hmd-ms-naming``,
-  and ``hmd-ms-dbaccount`` as Floci Lambdas behind the nginx proxy;
-- the **graph database** (Neptune/JanusGraph), treated as foundational infra
-  (opt out with ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false``).
+- a **Floci** instance emulating the control-plane AWS account
+  (``000000000000``);
+- PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment`` created directly;
+- **JanusGraph**;
+- ``hmd-ms-deployment``, ``hmd-ms-naming`` and ``hmd-ms-artifact-lib`` as Floci
+  Lambdas behind the nginx proxy;
+- ``hmd_proxy`` — the only container that publishes host ports.
+
+**Each named environment** is a self-contained emulated AWS account:
+
+- its own **Floci** (its own account id and state);
+- its own **k3s** cluster on that Floci's EKS emulation;
+- its own **PostgreSQL** and **JanusGraph**;
+- its own ``hmd-ms-dbaccount``, matching the cloud, where every account carries
+  its own dbaccount, RDS and Neptune;
+- the Local BOM deployed into it.
+
+``hmd neuronsphere up`` brings up the control plane and the default environment
+(``local``); ``--env <name>`` selects another. See :doc:`environments` for the
+full model, the port map and the URL scheme. In short: control-plane services
+stay at ``http://localhost/<service>/`` and an environment's services are at
+``http://localhost/<env>/<service>/``.
+
+.. note::
+
+   Databases no longer publish host ports — neither the control plane's nor an
+   environment's. Use ``docker exec hmd_db psql -U postgres`` (or
+   ``hmd_db-<env>``). The control-plane Floci is still reachable at
+   ``localhost:4566``, now streamed through ``hmd_proxy``.
 
 Everything else — Airflow, Trino, Superset, ``hmd-ms-transform``, Jupyter,
 ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
@@ -31,9 +51,12 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 
 **How it works:**
 
-1. The core containers (``db``, ``floci``, ``proxy``, plus ``graph``) start.
-2. Floci provisions the core databases; the control-plane Lambdas deploy behind
-   the API Gateway proxy.
+1. The control-plane containers (``db``, ``floci``, ``proxy``, ``graph``) start,
+   followed by the selected environment's (``floci-<env>``, ``hmd_db-<env>``,
+   ``global-graph-<env>``).
+2. The control-plane databases are created directly via ``psql``; the
+   control-plane Lambdas deploy behind the API Gateway proxy. The environment's
+   own ``ms-dbaccount`` then provisions that environment's databases.
 3. On the **first** ``up`` (bootstrap), the base NERD0004 ResourceDefinition
    catalog is seeded (``seed_base_resource_definitions``) and the concrete local
    Resources — the Docker network and the k3s cluster — are submitted, tagged

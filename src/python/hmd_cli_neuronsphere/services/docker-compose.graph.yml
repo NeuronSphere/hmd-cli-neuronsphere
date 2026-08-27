@@ -11,8 +11,8 @@ services:
       interval: 30s
       timeout: 1m30s
       retries: 5
-    ports:
-      - "8182:8182"
+    # No host port: databases are not reachable from the host. In-network
+    # consumers use `global-graph:8182`; k3s pods resolve it via CoreDNS.
     volumes:
       - "${HMD_HOME}/graph_db:/var/lib/janusgraph"
     networks:

@@ -11,19 +11,23 @@ Supports loading the BOM from:
 """
 
 import base64
+import binascii
+import importlib.util
 import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import requests
 from cement import minimal_logger
 
 try:
     from importlib.metadata import entry_points
+    from importlib.metadata import version as distribution_version
 except ImportError:
     from importlib_metadata import entry_points
+    from importlib_metadata import version as distribution_version
 
 from .docker_credentials import local_docker_config_json
 from .floci_deployer import DOCKER_NETWORK_NAME
@@ -33,6 +37,43 @@ logger = minimal_logger("bom_seeder")
 # Entry-point group any installed plugin package (e.g. hmd-cli-plugin-ns-telemetry) can
 # populate to contribute additional local BOM entries -- see `_collect_plugin_bom_entries`.
 BOM_ENTRIES_ENTRY_POINT = "hmd_cli_neuronsphere.get_local_bom_entries"
+
+# Set truthy to resolve every repo class's version from its local working tree
+# instead of from the artifact bundled with its plugin package. Per-repo, use
+# `HMD_LOCAL_VERSION_<REPO_CLASS>` -- see `_version_override`.
+PREFER_LOCAL_VERSIONS_ENV = "HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS"
+LOCAL_VERSION_ENV_PREFIX = "HMD_LOCAL_VERSION_"
+
+# Extra `external/` directories to search for bundled artifacts, os.pathsep-separated.
+# The escape hatch for plugin packages `_artifact_roots` cannot discover on its own.
+ARTIFACT_ROOTS_ENV = "HMD_LOCAL_NEURONSPHERE_ARTIFACT_ROOTS"
+
+# The entry-point groups a plugin package may register. Any one of them identifies
+# the package as ours, and therefore its `external/` as an artifact root.
+ARTIFACT_ENTRY_POINT_GROUPS = (
+    "hmd_cli_neuronsphere.enabled",
+    "hmd_cli_neuronsphere.prepare_hmd_home",
+    "hmd_cli_neuronsphere.get_resources",
+    "hmd_cli_neuronsphere.render_compose_yaml",
+    BOM_ENTRIES_ENTRY_POINT,
+)
+
+
+class VersionResolution(NamedTuple):
+    """A resolved repo class version and where it came from.
+
+    ``source`` is one of ``pin``, ``local``, ``bundled``, ``declared``,
+    ``local-fallback`` or ``default``; ``root`` is the directory holding the
+    ``meta-data/`` the version was read from, when there is one.
+    """
+
+    version: str
+    source: str
+    root: Optional[str]
+
+
+# repo_class_name -> (version, artifact_dir); built lazily by `_artifact_version_index`.
+_ARTIFACT_VERSION_INDEX: Optional[Dict[str, Tuple[str, str]]] = None
 
 
 def s3_bucket_bom_entry(instance_name: str) -> Dict[str, Any]:
@@ -71,6 +112,12 @@ def credentials_bom_entry(instance_name: str) -> Dict[str, Any]:
 
 LOCAL_BOM = [
     s3_bucket_bom_entry("project-bucket"),
+    # hmd_cli_opa.deploy() uploads any repo's `src/opa-bundles/` to a bucket named
+    # opa-bucket-hmd-inf-s3bucket-<deployment_id>-<environment>-<region>-<customer_code>
+    # unconditionally when the opa CLI is installed (e.g. in the projectbuilder image);
+    # without this entry that upload fails locally with "OPA Deploy Failed" (e.g.
+    # deploying hmd-ms-transform).
+    s3_bucket_bom_entry("opa-bucket"),
 ]
 
 # The CLI itself is the RepoClass that owns every local default/core Resource
@@ -300,66 +347,412 @@ def load_bom_from_file(path: str) -> List[Dict]:
     return filtered
 
 
-def _get_repo_version(repo_class_name: str, bom_version: Optional[str] = None) -> str:
-    """Read VERSION from the repo in HMD_REPO_HOME, falling back to BOM version.
+def _repo_dir(repo_class_name: str, repo_path: Optional[str] = None) -> Optional[str]:
+    """The working tree to read a repo's metadata from.
+
+    ``repo_path`` (a manifest ``source.path``) wins over the
+    ``$HMD_REPO_HOME/<repo_class_name>`` convention, so a repo instance declared
+    from a tree outside HMD_REPO_HOME still resolves its own VERSION and
+    manifest.json rather than silently falling back to a same-named repo that
+    happens to sit in HMD_REPO_HOME.
+    """
+    if repo_path:
+        return repo_path
+    repo_home = os.environ.get("HMD_REPO_HOME", "")
+    if not repo_home or not repo_class_name:
+        return None
+    return os.path.join(repo_home, repo_class_name)
+
+
+def _local_tree_version(
+    repo_class_name: str, repo_path: Optional[str] = None
+) -> Optional[str]:
+    """The ``meta-data/VERSION`` of the repo's working tree, or None."""
+    repo_dir = _repo_dir(repo_class_name, repo_path)
+    if not repo_dir:
+        return None
+    try:
+        with open(os.path.join(repo_dir, "meta-data", "VERSION")) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def _local_version_env_var(repo_class_name: str) -> str:
+    """The per-repo version-override variable name for ``repo_class_name``.
+
+    ``hmd-inf-ext-secrets`` -> ``HMD_LOCAL_VERSION_HMD_INF_EXT_SECRETS``. Mirrors
+    the per-plugin variable construction in
+    :meth:`loaders.local_plugin_loader.LocalPluginLoader.is_plugin_enabled`.
+    """
+    normalized = (repo_class_name or "").upper().replace("-", "_").replace(".", "_")
+    return f"{LOCAL_VERSION_ENV_PREFIX}{normalized}"
+
+
+def _version_override(repo_class_name: str) -> Tuple[bool, Optional[str]]:
+    """Resolve the version-override configuration for one repo class.
+
+    :returns: ``(prefer_local, pinned_version)``.
+
+    The per-repo variable carries both a *mode* and an optional literal pin, so
+    the value is interpreted in this order:
+
+    ``local``
+        Use the working tree's VERSION.
+    ``true``/``1``/``yes``/``on``
+        Same as ``local`` -- these are not plausible version strings.
+    ``false``/``0``/``no``/``bundled``/``artifact``
+        Opt this one repo *out* of a global prefer-local. Without this the
+        "prefer local everywhere except this repo" case is unexpressible.
+    anything else
+        A literal version pin, which wins over every other source.
+
+    With the per-repo variable unset, the global
+    ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS`` decides.
+    """
+    raw = (os.environ.get(_local_version_env_var(repo_class_name)) or "").strip()
+    if raw:
+        lowered = raw.lower()
+        if lowered == "local" or _is_truthy(raw):
+            return True, None
+        if _is_falsy(raw) or lowered in {"bundled", "artifact"}:
+            return False, None
+        return False, raw
+    return _is_truthy(os.environ.get(PREFER_LOCAL_VERSIONS_ENV)), None
+
+
+def _artifact_roots() -> List[str]:
+    """Every installed package's bundled ``external/`` artifact root.
+
+    Ordered so the first root holding a given repo class wins:
+
+    1. This package's own ``external/`` (the ``pre_build_artifacts`` unpacked at
+       build time -- see ``meta-data/manifest.json``).
+    2. The ``external/`` directory of every package registering a
+       ``hmd_cli_neuronsphere.*`` entry point, sorted by package name. The
+       owning module is located with :func:`importlib.util.find_spec` rather
+       than ``entrypoint.load()`` on purpose: resolving a version must not
+       execute third-party module bodies.
+    3. Anything listed in ``HMD_LOCAL_NEURONSPHERE_ARTIFACT_ROOTS``
+       (``os.pathsep``-separated).
+
+    Step 2 does **not** find a plugin package that bundles artifacts without
+    registering any ``hmd_cli_neuronsphere.*`` entry point, nor one that keeps
+    its artifacts somewhere other than ``<package>/external`` (which is exactly
+    why :func:`plugins.base.load_nsplugin_config` takes an ``external_dir``
+    argument). Both cases are served by the environment variable.
+    """
+    roots: List[str] = [os.path.join(os.path.dirname(__file__), "external")]
+
+    discovered: Dict[str, str] = {}
+    for group in ARTIFACT_ENTRY_POINT_GROUPS:
+        try:
+            eps = entry_points(group=group)
+        except Exception:  # pragma: no cover - importlib backport differences
+            continue
+        for ep in eps:
+            root_pkg = (ep.value or "").split(":")[0].split(".")[0]
+            if not root_pkg or root_pkg in discovered:
+                continue
+            try:
+                spec = importlib.util.find_spec(root_pkg)
+                locations = list(
+                    getattr(spec, "submodule_search_locations", None) or []
+                )
+            except Exception as e:
+                logger.debug(
+                    f"Could not locate package '{root_pkg}' for artifacts: {e}"
+                )
+                continue
+            if locations:
+                discovered[root_pkg] = os.path.join(locations[0], "external")
+    roots.extend(discovered[pkg] for pkg in sorted(discovered))
+
+    extra = os.environ.get(ARTIFACT_ROOTS_ENV, "")
+    roots.extend(p for p in (part.strip() for part in extra.split(os.pathsep)) if p)
+
+    seen = set()
+    unique = []
+    for root in roots:
+        resolved = os.path.realpath(root)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(root)
+    return unique
+
+
+def _artifact_version_index() -> Dict[str, Tuple[str, str]]:
+    """Map ``repo_class_name`` -> ``(version, artifact_dir)`` for bundled artifacts.
+
+    Each child of an :func:`_artifact_roots` directory is a repo's unpacked
+    build output, keyed by the ``name`` in its ``meta-data/manifest.json``.
+    That name -- not the directory name -- is the repo class: the directories
+    are named after the *plugin* (``ext-secrets``, ``apache_superset``) while
+    the repo classes are ``hmd-inf-ext-secrets``, ``hmd-inf-superset``.
+
+    An empty index is legitimate: ``external/`` is only populated by
+    ``hmd build``, so a source checkout has none.
+    """
+    global _ARTIFACT_VERSION_INDEX
+    if _ARTIFACT_VERSION_INDEX is not None:
+        return _ARTIFACT_VERSION_INDEX
+
+    index: Dict[str, Tuple[str, str]] = {}
+    for root in _artifact_roots():
+        try:
+            children = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for child in children:
+            artifact_dir = os.path.join(root, child)
+            meta_dir = os.path.join(artifact_dir, "meta-data")
+            try:
+                with open(os.path.join(meta_dir, "VERSION")) as f:
+                    version = f.read().strip()
+            except OSError:
+                continue
+            if not version:
+                continue
+
+            key = None
+            try:
+                with open(os.path.join(meta_dir, "manifest.json")) as f:
+                    key = (json.load(f) or {}).get("name")
+            except (OSError, json.JSONDecodeError):
+                pass
+            if not key:
+                key = child
+                logger.debug(
+                    f"Bundled artifact '{artifact_dir}' has no manifest.json name; "
+                    f"indexing it under its directory name"
+                )
+
+            if key in index:
+                existing_version, existing_dir = index[key]
+                if existing_version != version:
+                    logger.warning(
+                        f"Bundled artifact '{key}' found twice: {existing_version} in "
+                        f"{existing_dir} (used) and {version} in {artifact_dir} (ignored)"
+                    )
+                continue
+            index[key] = (version, artifact_dir)
+
+    _ARTIFACT_VERSION_INDEX = index
+    return index
+
+
+def _reset_artifact_version_index() -> None:
+    """Drop the cached bundled-artifact index (roots are partly env-derived)."""
+    global _ARTIFACT_VERSION_INDEX
+    _ARTIFACT_VERSION_INDEX = None
+
+
+def _core_distribution_version() -> Optional[str]:
+    """This CLI's own installed distribution version.
+
+    ``hmd-cli-neuronsphere`` *is* the installed package, so its distribution
+    version is its artifact version -- there is no ``external/`` entry for it.
+    """
+    try:
+        return distribution_version("hmd-cli-neuronsphere")
+    except Exception:
+        return None
+
+
+def resolve_repo_version(
+    repo_class_name: str,
+    bom_version: Optional[str] = None,
+    repo_path: Optional[str] = None,
+) -> "VersionResolution":
+    """Resolve a repo class's deployed version, artifact-first.
 
     Priority:
-    1. Local VERSION file (developer may have a newer version)
-    2. bom_version (from the snapshot file)
-    3. "0.1.0" as last resort
+
+    0. ``HMD_LOCAL_VERSION_<REPO_CLASS>`` set to a literal version -- an
+       explicit pin wins over everything.
+    1. The working tree's ``meta-data/VERSION``, **only** when a local override
+       is set (``HMD_LOCAL_VERSION_<REPO_CLASS>=local`` or
+       ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS=true``).
+    2. The bundled artifact shipped with the plugin package
+       (``external/<dir>/meta-data/VERSION``, keyed by the manifest ``name``).
+    3. ``bom_version`` -- the version declared by an environment manifest or a
+       plugin's BOM contributor.
+    4. The working tree's VERSION as a last resort, with a warning: a repo with
+       neither a bundled artifact nor a declared version is better identified by
+       its own tree than by the ``0.1.0`` sentinel.
+    5. ``"0.1.0"``.
+
+    A published artifact is a reproducible, resolvable version; a working tree
+    is a work in progress. That is why the artifact wins by default and a
+    developer must ask for their tree's version explicitly.
+
+    :returns: the chosen version, which tier produced it, and the directory it
+        came from (``None`` for a pin, a declared version or the sentinel), so
+        callers can read the rest of the repo's metadata from the same place.
     """
-    repo_home = os.environ.get("HMD_REPO_HOME", "")
-    if repo_home:
-        version_path = os.path.join(repo_home, repo_class_name, "meta-data", "VERSION")
-        try:
-            with open(version_path) as f:
-                return f.read().strip()
-        except FileNotFoundError:
-            pass
+    prefer_local, pinned = _version_override(repo_class_name)
+    local_version = _local_tree_version(repo_class_name, repo_path)
+    repo_dir = _repo_dir(repo_class_name, repo_path)
+
+    if pinned:
+        logger.info(
+            f"{repo_class_name}: pinned to {pinned} by "
+            f"{_local_version_env_var(repo_class_name)}"
+        )
+        return VersionResolution(pinned, "pin", None)
+
+    if prefer_local:
+        if local_version:
+            logger.info(
+                f"{repo_class_name}: using working-tree version {local_version} from "
+                f"{repo_dir} (local version override)"
+            )
+            return VersionResolution(local_version, "local", repo_dir)
+        logger.warning(
+            f"{repo_class_name}: a local version override is set but no "
+            f"meta-data/VERSION was found under {repo_dir}; falling back to the "
+            f"bundled artifact"
+        )
+
+    if repo_class_name == CORE_REPO_CLASS:
+        core_version = _core_distribution_version()
+        if core_version:
+            return VersionResolution(core_version, "bundled", None)
+
+    bundled = _artifact_version_index().get(repo_class_name)
+    if bundled:
+        version, artifact_dir = bundled
+        _warn_shadowed_local(
+            repo_class_name, version, "bundled artifact", local_version, repo_dir
+        )
+        return VersionResolution(version, "bundled", artifact_dir)
 
     if bom_version:
-        return bom_version
+        _warn_shadowed_local(
+            repo_class_name, bom_version, "declared", local_version, repo_dir
+        )
+        return VersionResolution(bom_version, "declared", None)
+
+    if local_version:
+        logger.warning(
+            f"{repo_class_name}: no bundled artifact and no declared version; falling "
+            f"back to the working tree's {local_version} from {repo_dir}"
+        )
+        return VersionResolution(local_version, "local-fallback", repo_dir)
 
     logger.warning(f"VERSION not found for {repo_class_name}, using 0.1.0")
-    return "0.1.0"
+    return VersionResolution("0.1.0", "default", None)
 
 
-def _get_repo_deploy_config(repo_class_name: str) -> Optional[Dict]:
+def _warn_shadowed_local(
+    repo_class_name: str,
+    chosen: str,
+    source: str,
+    local_version: Optional[str],
+    repo_dir: Optional[str],
+) -> None:
+    """Warn when the artifact version differs from a checked-out working tree.
+
+    This is the case whose behaviour changed -- the tree used to win -- so it
+    stays a warning, and names the way back, until the developer opts in.
+    """
+    if not local_version or local_version == chosen:
+        return
+    logger.warning(
+        f"{repo_class_name}: deploying version {chosen} ({source}); the working tree "
+        f"at {repo_dir} is {local_version}. Set "
+        f"{_local_version_env_var(repo_class_name)}=local (or "
+        f"{PREFER_LOCAL_VERSIONS_ENV}=true) to use the working-tree version."
+    )
+
+
+def _get_repo_version(
+    repo_class_name: str,
+    bom_version: Optional[str] = None,
+    repo_path: Optional[str] = None,
+) -> str:
+    """The version :func:`resolve_repo_version` chose for this repo class."""
+    return resolve_repo_version(repo_class_name, bom_version, repo_path).version
+
+
+def repo_root_candidates(
+    repo_class_name: str, repo_path: Optional[str] = None
+) -> List[str]:
+    """Directories a repo's code may deploy from, most-preferred first.
+
+    The same rule that decides the version decides the code, so a deploy runs
+    the build it is registered as: the bundled artifact first, and the working
+    tree only under a local version override
+    (``HMD_LOCAL_VERSION_<REPO_CLASS>=local`` or
+    ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS``). Otherwise a developer's
+    checkout would deploy under the artifact's version number, and the
+    registered version would be a label rather than a fact.
+
+    A *list* rather than one directory because callers need different things
+    from a root -- Helm charts, a deploy script, a mountable workspace -- and
+    the preferred root is not guaranteed to carry all of them. Each caller
+    takes the first candidate that satisfies it.
+    """
+    prefer_local, _ = _version_override(repo_class_name)
+    tree = _repo_dir(repo_class_name, repo_path)
+    bundled = _artifact_version_index().get(repo_class_name)
+    bundle_dir = bundled[1] if bundled else None
+    order = [tree, bundle_dir] if prefer_local else [bundle_dir, tree]
+    return [d for d in order if d and os.path.isdir(d)]
+
+
+def _read_repo_manifest(
+    repo_class_name: str,
+    repo_path: Optional[str] = None,
+    metadata_root: Optional[str] = None,
+) -> Optional[Dict]:
+    """Parse a repo's ``meta-data/manifest.json``, or None when unreadable.
+
+    :param metadata_root: Read from this directory instead of the working tree
+        -- the bundled artifact the version was resolved from, so a repo's
+        dependencies and default_configuration describe the same build as its
+        registered version.
+    """
+    repo_dir = metadata_root or _repo_dir(repo_class_name, repo_path)
+    if not repo_dir:
+        return None
+    manifest_path = os.path.join(repo_dir, "meta-data", "manifest.json")
+    try:
+        with open(manifest_path) as f:
+            return json.load(f)
+    except (FileNotFoundError, NotADirectoryError, json.JSONDecodeError):
+        return None
+
+
+def _get_repo_deploy_config(
+    repo_class_name: str,
+    repo_path: Optional[str] = None,
+    metadata_root: Optional[str] = None,
+) -> Optional[Dict]:
     """Read default_configuration from the repo's manifest.json.
 
     Returns None if not found (caller should use BOM fallback).
     """
-    repo_home = os.environ.get("HMD_REPO_HOME", "")
-    if not repo_home:
+    manifest = _read_repo_manifest(repo_class_name, repo_path, metadata_root)
+    if manifest is None:
         return None
-    manifest_path = os.path.join(
-        repo_home, repo_class_name, "meta-data", "manifest.json"
-    )
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        return manifest.get("deploy", {}).get("default_configuration", {})
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+    return manifest.get("deploy", {}).get("default_configuration", {})
 
 
-def _get_repo_dependencies(repo_class_name: str) -> Optional[Dict]:
+def _get_repo_dependencies(
+    repo_class_name: str,
+    repo_path: Optional[str] = None,
+    metadata_root: Optional[str] = None,
+) -> Optional[Dict]:
     """Read deploy dependencies from the repo's manifest.json.
 
     Returns None if not found (caller should use BOM fallback).
     """
-    repo_home = os.environ.get("HMD_REPO_HOME", "")
-    if not repo_home:
+    manifest = _read_repo_manifest(repo_class_name, repo_path, metadata_root)
+    if manifest is None:
         return None
-    manifest_path = os.path.join(
-        repo_home, repo_class_name, "meta-data", "manifest.json"
-    )
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-        return manifest.get("deploy", {}).get("dependencies", {})
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
+    return manifest.get("deploy", {}).get("dependencies", {})
 
 
 def _encode_collection(value) -> str:
@@ -373,6 +766,30 @@ def _encode_collection(value) -> str:
     both ``collection`` attributes.
     """
     return base64.b64encode(json.dumps(value).encode()).decode()
+
+
+def _decode_collection(value) -> List:
+    """Read back a ``collection`` attribute, however the CRUD layer served it.
+
+    The inverse of :func:`_encode_collection`, tolerant of both shapes: ms-base
+    transmits collections as base64-encoded JSON strings, but a native list is
+    accepted too so this keeps working if that ever changes (and so tests can
+    hand it a plain list).
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(base64.b64decode(value).decode())
+        except (ValueError, TypeError, binascii.Error):
+            try:
+                return json.loads(value)
+            except ValueError:
+                logger.warning("Could not decode a collection attribute")
+                return []
+    return []
 
 
 def _put_entity(base_url: str, entity_type: str, data: Dict) -> Dict:
@@ -497,19 +914,31 @@ def seed_base_resource_definitions(base_url: str) -> List[Dict]:
     return seeded
 
 
-def build_service_resources(services: Optional[List[Dict]]) -> List[Dict]:
+def build_service_resources(services: Optional[List[Dict]], env=None) -> List[Dict]:
     """Build ``application/microservice`` Resources for the seeded local services.
 
     Each entry is ``{"service_name", "repo_class_name", "api_base_url"}`` (derived
     from the HMDMS-service specs). The Resource is owned by the core
     ``hmd-cli-neuronsphere`` / ``local-neuronsphere`` instance, typed by the base
     ``application.neuronsphere.io/microservice`` definition, and tagged
-    ``environment=local`` plus ``repo_class=<name>`` so a consumer's dependency role
+    ``environment=<slug>`` plus ``repo_class=<name>`` so a consumer's dependency role
     (e.g. ``deployment-service`` -> ``hmd-ms-deployment``) can select the right one
     via ``find_resources_by_selector``. This is how a service-backed role resolves in
     a dev ``hmd deploy --local`` config -- the same tag-based path as the cluster/DB.
     """
-    common_tags = [{"key": "environment", "value": "local"}]
+    # `environment` carries the environment's slug -- its Environment.type, and
+    # what a consumer's deploy is invoked with as `--environment`. Resource
+    # queries scope by environment through `find_resources_by_selector`'s
+    # separate `environment_type` argument, so this tag is descriptive; it is
+    # kept accurate so a hand-written selector reads the same locally as in the
+    # cloud.
+    common_tags = [
+        {"key": "environment", "value": env.slug if env is not None else "local"}
+    ]
+    if env is not None:
+        common_tags = common_tags + [
+            {"key": "deployment_id", "value": env.deployment_id}
+        ]
     resources: List[Dict] = []
     for svc in services or []:
         service_name = svc.get("service_name")
@@ -548,6 +977,7 @@ def build_local_core_resources(
     cluster_name: Optional[str] = None,
     cluster_endpoint: Optional[str] = None,
     services: Optional[List[Dict]] = None,
+    env=None,
 ) -> List[Dict]:
     """The registry of concrete Resources the local core actually provides.
 
@@ -565,8 +995,30 @@ def build_local_core_resources(
     The registry starts with the Docker network and (when present) the k3s
     cluster — the two with the biggest parity win; DBs / buckets / services can be
     added incrementally.
+
+    When ``env`` is given, the Postgres and graph Resources point at *that*
+    environment's own containers (each environment runs its own Postgres and
+    JanusGraph, matching the cloud), and every Resource carries an extra
+    ``deployment_id`` tag so selectors can target one environment. The instance
+    name stays ``local-neuronsphere`` in every environment -- repo_instance is
+    unique by name per Environment, so it is not ambiguous.
     """
-    common_tags = [{"key": "environment", "value": "local"}]
+    db_host = env.db_container if env is not None else "hmd_db"
+    graph_host = env.graph_container if env is not None else "global-graph"
+
+    # `environment` carries the environment's slug -- its Environment.type, and
+    # what a consumer's deploy is invoked with as `--environment`. Resource
+    # queries scope by environment through `find_resources_by_selector`'s
+    # separate `environment_type` argument, so this tag is descriptive; it is
+    # kept accurate so a hand-written selector reads the same locally as in the
+    # cloud.
+    common_tags = [
+        {"key": "environment", "value": env.slug if env is not None else "local"}
+    ]
+    if env is not None:
+        common_tags = common_tags + [
+            {"key": "deployment_id", "value": env.deployment_id}
+        ]
     # Every core Resource is owned by the single `hmd-cli-neuronsphere` RepoClass /
     # `local-neuronsphere` instance (created as BOM entry #0), so they all attach to that
     # instance's RepoInstanceDeployment (see submit_local_resources).
@@ -584,12 +1036,13 @@ def build_local_core_resources(
             "tags": common_tags + [{"key": "platform", "value": "local"}],
         },
         {
-            # The shared local Postgres (`hmd_db` container) that
-            # ensure_core_databases_direct/provision_plugin_databases already
-            # provision core/plugin databases against. Satisfies any repo's
+            # This environment's own Postgres, which its ms-dbaccount Lambda
+            # provisions plugin databases against. Satisfies any repo's
             # resource-typed dependency on database.neuronsphere.io/postgres (e.g.
             # hmd-database-account.database-instance) without a real
-            # hmd-postgres-rds deploy -- see CORE_PRODUCED_DEFINITIONS.
+            # hmd-postgres-rds deploy -- see CORE_PRODUCED_DEFINITIONS. The
+            # Resource *name* stays `hmd_db` in every environment; only the host
+            # differs, because each environment runs its own container.
             "instance_name": CORE_INSTANCE_NAME,
             "repo_class_name": CORE_REPO_CLASS,
             "resource_name": "hmd_db",
@@ -598,15 +1051,15 @@ def build_local_core_resources(
                 "resource_definition_name": "postgres",
                 "version": "0.1.0",
             },
-            "output": {"host": "hmd_db", "port": 5432},
+            "output": {"host": db_host, "port": 5432},
             "tags": common_tags,
         },
         {
-            # JanusGraph (container_name `global-graph`, see
-            # services/docker-compose.graph.yml), already part of core, substitutes
-            # for Amazon Neptune locally. Satisfies any repo's resource-typed
-            # dependency on database.neuronsphere.io/graph-database (e.g.
-            # hmd-inf-trino.graph-db) -- see CORE_PRODUCED_DEFINITIONS.
+            # JanusGraph substitutes for Amazon Neptune locally. Satisfies any
+            # repo's resource-typed dependency on
+            # database.neuronsphere.io/graph-database (e.g. hmd-inf-trino.graph-db)
+            # -- see CORE_PRODUCED_DEFINITIONS. Like Postgres, each environment
+            # runs its own.
             "instance_name": CORE_INSTANCE_NAME,
             "repo_class_name": CORE_REPO_CLASS,
             "resource_name": "global-graph",
@@ -615,7 +1068,7 @@ def build_local_core_resources(
                 "resource_definition_name": "graph-database",
                 "version": "0.1.0",
             },
-            "output": {"endpoint": "ws://global-graph:8182/gremlin"},
+            "output": {"endpoint": f"ws://{graph_host}:8182/gremlin"},
             "tags": common_tags,
         },
     ]
@@ -686,7 +1139,7 @@ def build_local_core_resources(
             }
         )
     # microservice Resources for the seeded HMDMS services (deployment-service etc.)
-    resources.extend(build_service_resources(services))
+    resources.extend(build_service_resources(services, env))
     return resources
 
 
@@ -813,7 +1266,25 @@ def declare_core_produces(base_url: str) -> int:
     return declared
 
 
-def find_core_deployment_node(base_url: str) -> List[Dict]:
+def _deployment_matches_env(deployment: Dict, env) -> bool:
+    """Whether a RepoInstanceDeployment belongs to ``env``.
+
+    Instance names are identical across environments (repo_instance is unique by
+    name *per Environment*), so a name-only lookup is ambiguous once more than
+    one environment exists -- it would resolve to an arbitrary environment's
+    instance and attach Resources to the wrong cluster. ``deployment_id`` is the
+    discriminator we set on every BOM entry.
+
+    Deployments that carry no ``deployment_id`` at all are treated as matching,
+    so a graph seeded before this field was populated still resolves.
+    """
+    if env is None:
+        return True
+    did = deployment.get("deployment_id")
+    return did is None or did == env.deployment_id
+
+
+def find_core_deployment_node(base_url: str, env=None) -> List[Dict]:
     """Return the ``nodes`` shape for the existing ``local-neuronsphere`` deployment, or [].
 
     On a restart (the deployment graph already bootstrapped), the ``local-neuronsphere``
@@ -837,7 +1308,7 @@ def find_core_deployment_node(base_url: str) -> List[Dict]:
         )
         if not instances:
             return []
-        instance_nid = instances[0]["identifier"]
+        instance_nids = {i["identifier"] for i in instances}
         # The relationship search isn't assumed to filter by ref_from, so fetch all
         # has-deployment edges and filter client-side (the local graph is tiny).
         edges = _search_entities(
@@ -845,11 +1316,22 @@ def find_core_deployment_node(base_url: str) -> List[Dict]:
             "hmd_lang_deployment.repo_instance_has_repo_instance_deployment",
             {},
         )
+        deployments = _search_entities(
+            base_url, "hmd_lang_deployment.repo_instance_deployment", {}
+        )
     except (requests.RequestException, ValueError, KeyError) as e:
         logger.warning(f"Could not resolve the '{CORE_INSTANCE_NAME}' deployment: {e}")
         return []
 
-    owned = [e for e in edges if e.get("ref_from") == instance_nid]
+    # Every environment has its own `local-neuronsphere` instance, so narrow to
+    # the deployments belonging to this one before picking the most recent.
+    by_nid = {d.get("identifier"): d for d in deployments}
+    owned = [
+        e
+        for e in edges
+        if e.get("ref_from") in instance_nids
+        and _deployment_matches_env(by_nid.get(e.get("ref_to"), {}), env)
+    ]
     if not owned:
         return []
     # If the instance was redeployed, prefer the most-recent deployment.
@@ -858,7 +1340,10 @@ def find_core_deployment_node(base_url: str) -> List[Dict]:
 
 
 def resync_local_resources(
-    base_url: str, cluster_name: Optional[str], services: Optional[List[Dict]] = None
+    base_url: str,
+    cluster_name: Optional[str],
+    services: Optional[List[Dict]] = None,
+    env=None,
 ) -> int:
     """Idempotently refresh the bootstrapped core Resources — no DAG, no re-seed.
 
@@ -878,22 +1363,27 @@ def resync_local_resources(
     """
     seed_base_resource_definitions(base_url)
     declare_core_produces(base_url)
-    nodes = find_core_deployment_node(base_url)
+    nodes = find_core_deployment_node(base_url, env)
     if not nodes:
         logger.info(
             f"No existing '{CORE_INSTANCE_NAME}' deployment found; skipping local "
             "resource resync (run a full `up` first)."
         )
         return 0
-    resources = build_local_core_resources(cluster_name=cluster_name, services=services)
+    resources = build_local_core_resources(
+        cluster_name=cluster_name, services=services, env=env
+    )
     return submit_local_resources(base_url, resources, nodes)
 
 
-def _repo_instance_status(base_url: str) -> Dict[str, Optional[str]]:
+def _repo_instance_status(base_url: str, env=None) -> Dict[str, Optional[str]]:
     """Map each RepoInstance's name to its most recent deployment's status.
 
     Mirrors :func:`find_core_deployment_node`'s most-recent-edge-by-``_created``
-    pattern, generalized across every instance instead of just the core one.
+    pattern, generalized across every instance instead of just the core one, and
+    scoped to ``env`` for the same reason: identical instance names exist in
+    every environment, so an unscoped map would report another environment's
+    deployment status.
     """
     instances = _search_entities(base_url, "hmd_lang_deployment.repo_instance", {})
     edges = _search_entities(
@@ -902,30 +1392,43 @@ def _repo_instance_status(base_url: str) -> Dict[str, Optional[str]]:
     deployments = _search_entities(
         base_url, "hmd_lang_deployment.repo_instance_deployment", {}
     )
-    status_by_rid = {d.get("identifier"): d.get("status") for d in deployments}
+    by_nid = {d.get("identifier"): d for d in deployments}
+    name_by_instance = {
+        i.get("identifier"): i.get("name") for i in instances if i.get("name")
+    }
 
-    latest_rid_by_instance: Dict[str, str] = {}
-    latest_created_by_instance: Dict[str, str] = {}
+    # Resolve per *name*, not per instance id. Every environment has its own
+    # RepoInstance row under the same name, so a per-instance map would be
+    # collapsed by name afterwards and the last row scanned would win --
+    # including a sibling environment's row that this env-scoped pass correctly
+    # found no deployment for, clobbering a real status with None.
+    latest: Dict[str, Tuple[str, Optional[str]]] = {}
     for e in edges:
-        inst = e.get("ref_from")
-        created = e.get("_created", "")
-        if created >= latest_created_by_instance.get(inst, ""):
-            latest_created_by_instance[inst] = created
-            latest_rid_by_instance[inst] = e.get("ref_to")
-
-    status_by_name: Dict[str, Optional[str]] = {}
-    for i in instances:
-        name, nid = i.get("name"), i.get("identifier")
+        deployment = by_nid.get(e.get("ref_to"), {})
+        if not _deployment_matches_env(deployment, env):
+            continue
+        name = name_by_instance.get(e.get("ref_from"))
         if not name:
             continue
-        rid = latest_rid_by_instance.get(nid)
-        status_by_name[name] = status_by_rid.get(rid) if rid else None
+        created = e.get("_created", "")
+        if name not in latest or created >= latest[name][0]:
+            latest[name] = (created, deployment.get("status"))
+
+    # Known instance names with no deployment in this environment stay present
+    # with a None status, so callers can distinguish "never deployed here" from
+    # "no such instance".
+    status_by_name: Dict[str, Optional[str]] = {
+        name: None for name in name_by_instance.values()
+    }
+    status_by_name.update({name: status for name, (_, status) in latest.items()})
     return status_by_name
 
 
 def compute_new_bom_entries(
     base_url: str,
     bom: Optional[List[Dict]] = None,
+    env=None,
+    manifest=None,
 ) -> List[Dict]:
     """Resolved BOM entries not yet deployed in the local env.
 
@@ -938,9 +1441,9 @@ def compute_new_bom_entries(
     of already-bootstrapped instances.
     """
     if bom is None:
-        bom = _resolve_bom()
+        bom = _resolve_bom(env=env, manifest=manifest)
     try:
-        status_by_name = _repo_instance_status(base_url)
+        status_by_name = _repo_instance_status(base_url, env)
     except (requests.RequestException, ValueError, KeyError) as e:
         logger.warning(f"Could not compute new BOM entries: {e}")
         return []
@@ -1047,29 +1550,114 @@ def _topo_sort_bom(bom: List[Dict]) -> List[Dict]:
     return [by_name[name] for name in sorted_names]
 
 
-def _collect_plugin_bom_entries() -> List[Dict]:
+def _call_bom_contributor(entrypoint, config: Optional[Dict]) -> List[Dict]:
+    """Invoke one plugin's BOM contributor, with or without configuration.
+
+    The historical contract is a **zero-arg** callable, and every plugin written
+    against it must keep working. A contributor that wants the manifest's
+    ``plugin_config`` block simply declares matching keyword parameters; if the
+    call raises ``TypeError`` for an unexpected keyword we retry with no
+    arguments, so passing config to a plugin that does not accept it is a no-op
+    rather than an error.
+    """
+    fn = entrypoint.load()
+    if config:
+        try:
+            return fn(**config) or []
+        except TypeError as e:
+            logger.info(
+                f"Plugin '{entrypoint.name}' does not accept configuration "
+                f"({e}); calling it with no arguments"
+            )
+    return fn() or []
+
+
+def available_bom_plugins() -> List[str]:
+    """The entry-point names of every installed BOM-contributing plugin."""
+    return sorted(ep.name for ep in entry_points(group=BOM_ENTRIES_ENTRY_POINT))
+
+
+def _collect_plugin_bom_entries(
+    enabled: Optional[set] = None,
+    config: Optional[Dict[str, Dict]] = None,
+) -> List[Dict]:
     """Collect BOM entries contributed by installed plugin packages.
 
-    Each entry point in ``BOM_ENTRIES_ENTRY_POINT`` is a zero-arg callable returning a
-    list of BOM-entry dicts (see ``hmd_cli_plugin_ns_telemetry.bom`` for an example).
+    Each entry point in ``BOM_ENTRIES_ENTRY_POINT`` is a callable returning a list of
+    BOM-entry dicts (see ``hmd_cli_plugin_ns_telemetry.bom`` for an example).
     Best-effort per contributor: a broken/misbehaving plugin package logs a warning and
     is skipped rather than blocking BOM resolution for everyone else.
+
+    :param enabled: When given, only entry points whose name is in this set may
+        contribute -- the manifest's ``plugins`` allow-list. ``None`` keeps the
+        historical behaviour of accepting every installed contributor.
+    :param config: Optional per-plugin configuration keyed by entry-point name.
+    :raises ValueError: if ``enabled`` names a plugin that is not installed.
+        Silently ignoring the typo would quietly shrink the desired state, and
+        under ``--prune`` that means quietly destroying what it dropped.
     """
+    config = config or {}
     entries: List[Dict] = []
+    seen_names = set()
+
     for entrypoint in entry_points(group=BOM_ENTRIES_ENTRY_POINT):
+        seen_names.add(entrypoint.name)
+        if enabled is not None and entrypoint.name not in enabled:
+            logger.info(
+                f"Plugin '{entrypoint.name}' is installed but not enabled for this "
+                "environment; skipping its BOM entries"
+            )
+            continue
         try:
-            contributed = entrypoint.load()()
+            contributed = _call_bom_contributor(entrypoint, config.get(entrypoint.name))
             if contributed:
                 entries.extend(contributed)
         except Exception as e:
             logger.warning(
                 f"Could not load local BOM entries from plugin '{entrypoint.name}': {e}"
             )
+
+    if enabled is not None:
+        missing = sorted(set(enabled) - seen_names)
+        if missing:
+            installed = ", ".join(sorted(seen_names)) or "(none)"
+            raise ValueError(
+                f"Environment manifest enables plugin(s) that are not installed: "
+                f"{', '.join(missing)}. Installed BOM plugins: {installed}"
+            )
     return entries
 
 
-def resolve_plugin_bom() -> List[Dict]:
+def scope_bom_entries(bom: List[Dict], env=None) -> List[Dict]:
+    """Stamp every entry with the environment's ``deployment_id``.
+
+    That is the *only* rewrite needed. Instance names and dependency targets are
+    deliberately left alone: ``repo_instance`` is unique by name **per
+    Environment**, and each named local environment owns its own Environment
+    entity, so ``project-bucket`` in ``dev2`` is already a different instance
+    than ``project-bucket`` in ``local``. Keeping the names identical is what
+    gives cloud parity -- a repo's BOM entry reads the same in every
+    environment.
+
+    Returns copies; the module-level BOM constants are never mutated.
+    """
+    if env is None:
+        return list(bom)
+    scoped = []
+    for entry in bom:
+        item = dict(entry)
+        item["deployment_id"] = env.deployment_id
+        scoped.append(item)
+    return scoped
+
+
+def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
     """Resolve the Phase B BOM: everything except the core ``LOCAL_CORE_BOM`` entry.
+
+    When ``manifest`` is given (an :class:`env_manifest.EnvManifest`), resolution is
+    delegated to :func:`change_set_builder.build_definition`, which additionally
+    honours the manifest's plugin allow-list and its declared repo instances. With
+    ``manifest=None`` this behaves exactly as it did before manifests existed.
 
     This is what ``seed_bom`` applies as the second of the two changesets a bootstrap
     submits (see the Phase A / Phase B split in ``hmd_cli_neuronsphere.py``) — the
@@ -1077,11 +1665,15 @@ def resolve_plugin_bom() -> List[Dict]:
     resolves, so entries here that reference ``CORE_INSTANCE_NAME`` by name (e.g.
     ext-secrets' ``eks-cluster``/``compute`` roles) resolve against it directly.
 
-    Base source priority:
-    1. HMD_LOCAL_BOM_FILE env var → load from file
-    2. LOCAL_BOM constant (backward compat)
+    Base source:
+    - The built-in ``LOCAL_BOM`` constant is always the base.
+    - If ``HMD_LOCAL_BOM_FILE`` is set, its entries are **merged into** ``LOCAL_BOM``
+      (not replacing it): the file's entries are placed first so that, after the
+      de-dupe below (keep-first by ``repo_instance_name``), a file entry overrides a
+      built-in entry of the same instance name while every built-in entry the file
+      does not mention (e.g. ``project-bucket``) is still retained.
 
-    Augmentation (applied to whichever base was resolved):
+    Augmentation (applied to the resolved base):
     - ``EXT_SECRETS_BOM`` is **appended** by default; set
       ``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false`` to opt out.
     - Entries contributed by installed plugin packages (via ``BOM_ENTRIES_ENTRY_POINT``)
@@ -1096,13 +1688,21 @@ def resolve_plugin_bom() -> List[Dict]:
     :func:`_topo_sort_bom`) so cross-plugin dependency edges resolve regardless of
     entry_points() scan order.
     """
+    if manifest is not None:
+        from .change_set_builder import build_definition
+
+        return build_definition(env=env, manifest=manifest)
+
+    base = list(LOCAL_BOM)
     bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
     if bom_file:
-        logger.info(f"Loading BOM from file: {bom_file}")
-        base = load_bom_from_file(bom_file)
+        logger.info(f"Merging BOM file into built-in LOCAL_BOM: {bom_file}")
+        # File entries first so they win on repo_instance_name collision (the
+        # keep-first _dedupe_bom below), while built-in entries the file omits
+        # (e.g. project-bucket) are still retained -- a merge, not a replace.
+        base = load_bom_from_file(bom_file) + base
     else:
-        logger.info("Using built-in LOCAL_BOM (2 entries)")
-        base = list(LOCAL_BOM)
+        logger.info("Using built-in LOCAL_BOM")
 
     bom = list(base)
     if not _is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
@@ -1117,17 +1717,18 @@ def resolve_plugin_bom() -> List[Dict]:
         bom = bom + plugin_entries
 
     _inject_docker_credentials(bom)
-    return _topo_sort_bom(_dedupe_bom(bom))
+    return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
 
-def _resolve_bom() -> List[Dict]:
+def _resolve_bom(env=None, manifest=None) -> List[Dict]:
     """The full resolved BOM: ``LOCAL_CORE_BOM`` (Phase A) + :func:`resolve_plugin_bom`
     (Phase B), combined. Used where callers need the complete desired-state list
     rather than a single phase (e.g. :func:`bom_includes_repo_class`,
-    :func:`compute_new_bom_entries`'s delta detection).
+    :func:`compute_new_bom_entries`'s delta detection, and the reconcile plan in
+    :mod:`env_reconcile`).
     """
-    bom = list(LOCAL_CORE_BOM) + resolve_plugin_bom()
-    return _topo_sort_bom(_dedupe_bom(bom))
+    bom = list(LOCAL_CORE_BOM) + resolve_plugin_bom(env=env, manifest=manifest)
+    return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
 
 def bom_includes_repo_class(repo_class_name: str) -> bool:
@@ -1140,45 +1741,164 @@ def bom_includes_repo_class(repo_class_name: str) -> bool:
     return any(e.get("repo_class_name") == repo_class_name for e in _resolve_bom())
 
 
-def ensure_local_environment(base_url: str) -> Dict:
-    """Idempotently create the ``local`` Environment.
+def ensure_environment(base_url: str, env=None) -> Dict:
+    """Idempotently create the Environment entity for a named local environment.
 
-    Called early in ``up`` (before ``seed_hmdms_services``) so seeded services can be
-    registered as env-linked instances, and again by :func:`seed_bom`. ms-base ``PUT``
-    always takes the create branch (no upsert on business key), so find-first: reuse an
-    existing ``type=local`` env and only PUT when none exists. Without the guard, each
-    call adds another ``local`` env (two per bootstrap) and ``get_valid_environment``
-    (which asserts exactly one) 500s.
+    Each named local environment gets its **own** ``hmd_lang_deployment.environment``
+    row. That is what makes identical instance names safe across environments:
+    ``repo_instance`` is unique by name *per Environment*, so ``project-bucket``
+    in ``dev2`` is a different instance than the one in ``local``, and no BOM
+    entry needs renaming.
+
+    ``type`` **is** the environment's name -- it is the Environment's
+    ``business_id`` and the only field ms-deployment resolves an environment by
+    (``get_valid_environment``, ``apply_changeset``, ``destroy_deploymentset``
+    all match on it, and the first two assert or index a single result). So a
+    named local environment is typed by its slug, exactly as a cloud environment
+    is typed ``dev`` or ``prod``. The default environment keeps ``type=local``
+    because its slug *is* ``local``.
+
+    ms-base ``PUT`` always takes the create branch (no upsert on business key),
+    so find-first: reuse the matching env and only PUT when none exists. Without
+    the guard, each call adds another row and ``get_valid_environment`` 500s.
     """
-    logger.info("Ensuring 'local' environment exists")
+    slug = env.slug if env is not None else "local"
+    account_number = env.account_id if env is not None else "000000000000"
+    logger.info(f"Ensuring '{slug}' environment exists")
+
     existing = _search_entities(
         base_url,
         "hmd_lang_deployment.environment",
-        {"attribute": "type", "operator": "=", "value": "local"},
+        {"attribute": "type", "operator": "=", "value": slug},
     )
     if existing:
         return existing[0]
-    return _put_entity(
-        base_url,
-        "hmd_lang_deployment.environment",
+
+    payload = {
+        "type": slug,
+        "account_number": account_number,
+        "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
+    }
+    return _put_entity(base_url, "hmd_lang_deployment.environment", payload)
+
+
+def ensure_local_environment(base_url: str) -> Dict:
+    """Backwards-compatible alias for :func:`ensure_environment` (default env)."""
+    return ensure_environment(base_url)
+
+
+def _deployment_set_definition(env_slug: str) -> List[Dict]:
+    """The one-environment deployment set definition for ``env_slug``.
+
+    A deployment set names its environments by ``Environment.type``, which for a
+    local environment is its slug (see :func:`ensure_environment`). Hardcoding
+    ``"local"`` here would make every named environment's changeset resolve to
+    the default environment's graph.
+    """
+    return [
         {
-            "type": "local",
-            "account_number": "000000000000",
-            "hmd_region": os.environ.get("HMD_REGION", "us-west-2"),
+            "environment": env_slug,
+            "deployment_gate": {"transforms": [], "approval": False},
         },
+    ]
+
+
+def ensure_deployment_set(base_url: str, name: str, env_slug: str) -> Dict:
+    """Idempotently create -- or repair -- an environment's DeploymentSet.
+
+    The repair path exists because deployment sets written before environments
+    were typed by name all say ``environment: "local"``. Such a row survives
+    ``env delete``/``env create`` (the deployment graph lives in the shared
+    control-plane Postgres, not in the environment's own state), so without this
+    a recreated environment would keep applying its changesets to the default
+    environment's graph -- silently, and with ``--prune`` destructively.
+
+    :raises RuntimeError: if the row names the wrong environment and cannot be
+        repaired, rather than proceeding against the wrong graph.
+    """
+    existing = _search_entities(
+        base_url,
+        "hmd_lang_deployment.deployment_set",
+        {"attribute": "name", "operator": "=", "value": name},
     )
+    definition = _deployment_set_definition(env_slug)
+
+    if not existing:
+        logger.info(f"Creating '{name}' deployment set")
+        return _put_entity(
+            base_url,
+            "hmd_lang_deployment.deployment_set",
+            {"name": name, "definition": _encode_collection(definition)},
+        )
+
+    row = existing[0]
+    environments = {
+        d.get("environment")
+        for d in _decode_collection(row.get("definition"))
+        if isinstance(d, dict)
+    }
+    if environments == {env_slug}:
+        return row
+
+    logger.warning(
+        f"Deployment set '{name}' targets {sorted(environments) or '(nothing)'} "
+        f"but this environment is '{env_slug}'; repairing it."
+    )
+    payload = {
+        "identifier": row.get("identifier"),
+        "name": name,
+        "definition": _encode_collection(definition),
+    }
+    try:
+        _put_entity(base_url, "hmd_lang_deployment.deployment_set", payload)
+    except requests.RequestException as e:
+        raise RuntimeError(
+            f"Deployment set '{name}' targets environment(s) "
+            f"{sorted(environments)} instead of '{env_slug}', and could not be "
+            f"updated ({e}). It predates environments being typed by name. "
+            f"Recreate the local deployment graph with `hmd neuronsphere down "
+            f"--purge` before starting '{env_slug}' again."
+        ) from e
+
+    # Re-read: a CRUD layer that ignored the identifier would have created a
+    # second row instead of updating, which is worse than not trying.
+    after = _search_entities(
+        base_url,
+        "hmd_lang_deployment.deployment_set",
+        {"attribute": "name", "operator": "=", "value": name},
+    )
+    repaired = [
+        r
+        for r in after
+        if {
+            d.get("environment")
+            for d in _decode_collection(r.get("definition"))
+            if isinstance(d, dict)
+        }
+        == {env_slug}
+    ]
+    if len(after) != 1 or not repaired:
+        raise RuntimeError(
+            f"Deployment set '{name}' still does not target environment "
+            f"'{env_slug}' after a repair attempt ({len(after)} row(s) found). "
+            f"It predates environments being typed by name. Recreate the local "
+            f"deployment graph with `hmd neuronsphere down --purge` before "
+            f"starting '{env_slug}' again."
+        )
+    return repaired[0]
 
 
-def _new_change_set_name(base_url: str) -> str:
+def _new_change_set_name(base_url: str, env_slug: str = "local") -> str:
     """A changeset name not already in use.
 
     ms-base PUT never upserts on business key, and ``apply_changeset`` asserts
     exactly one changeset matches the given name, so every :func:`seed_bom`
-    invocation needs a name distinct from any prior one. Keeps the readable
-    ``"local-changeset"`` base name on first use; later calls (e.g. a
+    invocation needs a name distinct from any prior one -- including one from a
+    different environment, which is why the slug is part of the base name. Keeps
+    the readable ``"<slug>-changeset"`` name on first use; later calls (e.g. a
     delta-apply on restart) get a unique suffix.
     """
-    base = "local-changeset"
+    base = f"{env_slug}-changeset"
     existing = {
         c.get("name")
         for c in _search_entities(base_url, "hmd_lang_deployment.change_set", {})
@@ -1188,7 +1908,12 @@ def _new_change_set_name(base_url: str) -> str:
     return f"{base}-{uuid.uuid4().hex[:8]}"
 
 
-def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
+def seed_bom(
+    base_url: str,
+    bom: List[Dict] = None,
+    env=None,
+    repo_paths: Optional[Dict[str, str]] = None,
+) -> Tuple[str, List[Dict]]:
     """Seed the deployment graph and return (csd_nid, nodes) for local execution.
 
     Steps:
@@ -1199,25 +1924,46 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
 
     :param base_url: ms-deployment base URL (e.g., http://localhost/hmd_ms_deployment)
     :param bom: Optional BOM override; defaults to HMD_LOCAL_BOM_FILE or LOCAL_BOM
+    :param env: The named local environment being seeded. Selects the Environment
+        entity, the deployment set and the changeset name, and stamps each entry's
+        ``deployment_id``.
+    :param repo_paths: Optional ``repo_class_name`` -> working-tree overrides for
+        repos declared in a manifest with an explicit ``source.path``, so the
+        tree consulted is the declared one rather than a same-named repo in
+        ``HMD_REPO_HOME``. It selects *which* tree, not whether the tree wins:
+        see :func:`resolve_repo_version`.
     :returns: Tuple of (csd_nid, nodes list from generate_local_deployment)
     """
     if bom is None:
-        bom = _resolve_bom()
+        bom = _resolve_bom(env=env)
+    else:
+        bom = scope_bom_entries(bom, env)
+    repo_paths = repo_paths or {}
 
-    logger.info(f"Seeding BOM with {len(bom)} entries")
+    env_slug = env.slug if env is not None else "local"
+    deployment_set_name = env_slug
+    logger.info(f"Seeding BOM with {len(bom)} entries for environment '{env_slug}'")
 
     # 1. Register repo class versions
     for entry in bom:
         repo_name = entry["repo_class_name"]
         bom_version = entry.get("repo_class_version")
-        version = _get_repo_version(repo_name, bom_version=bom_version)
+        repo_path = repo_paths.get(repo_name)
+        resolution = resolve_repo_version(
+            repo_name, bom_version=bom_version, repo_path=repo_path
+        )
+        version = resolution.version
+        # Read the rest of the repo's metadata from wherever the version came
+        # from: registering a bundled artifact's version alongside a working
+        # tree's dependencies would describe a build that never existed.
+        metadata_root = resolution.root if resolution.source == "bundled" else None
 
-        # Use local manifest data if available, fall back to BOM entry
-        dependencies = _get_repo_dependencies(repo_name)
+        # Use the resolved manifest data if available, fall back to BOM entry
+        dependencies = _get_repo_dependencies(repo_name, repo_path, metadata_root)
         if dependencies is None:
             dependencies = entry.get("dependencies", {})
 
-        default_config = _get_repo_deploy_config(repo_name)
+        default_config = _get_repo_deploy_config(repo_name, repo_path, metadata_root)
         if default_config is None:
             default_config = entry.get("instance_configuration", {})
 
@@ -1245,43 +1991,22 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
     # dependency validation resolves against the local-neuronsphere producing instance.
     declare_core_produces(base_url)
 
-    # 2. Create Environment
-    ensure_local_environment(base_url)
+    # 2. Create this environment's Environment entity
+    ensure_environment(base_url, env)
 
-    # 3. Create DeploymentSet (find-first — ms-base PUT never upserts on business
-    # key, so a second seed_bom call, e.g. a delta-apply on restart, must not
-    # create a duplicate "local" row).
-    existing_ds = _search_entities(
-        base_url,
-        "hmd_lang_deployment.deployment_set",
-        {"attribute": "name", "operator": "=", "value": "local"},
-    )
-    if not existing_ds:
-        logger.info("Creating 'local' deployment set")
-        _put_entity(
-            base_url,
-            "hmd_lang_deployment.deployment_set",
-            {
-                "name": "local",
-                "definition": _encode_collection(
-                    [
-                        {
-                            "environment": "local",
-                            "deployment_gate": {"transforms": [], "approval": False},
-                        },
-                    ]
-                ),
-            },
-        )
+    # 3. Create DeploymentSet, one per named environment (find-first — ms-base
+    # PUT never upserts on business key, so a second seed_bom call, e.g. a
+    # delta-apply on restart, must not create a duplicate row).
+    ensure_deployment_set(base_url, deployment_set_name, env_slug)
 
     # 4. Create ChangeSet. apply_changeset asserts exactly one changeset row with
     # the given name, so every call needs a name not already in use (a repeat
     # seed_bom call, e.g. a delta-apply on restart, would otherwise collide with
     # the first call's "local-changeset" row and fail that assertion).
-    change_set_name = _new_change_set_name(base_url)
+    change_set_name = _new_change_set_name(base_url, env_slug)
     changeset_def = [
         {
-            "deployment_id": entry.get("deployment_id", "local"),
+            "deployment_id": entry.get("deployment_id", env_slug),
             "repo_instance_name": entry["repo_instance_name"],
             "repo_class_name": entry["repo_class_name"],
             "repo_class_version": entry["repo_class_version"],
@@ -1309,7 +2034,7 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
         "apply_changeset",
         {
             "change_set_name": change_set_name,
-            "deployment_set_name": "local",
+            "deployment_set_name": deployment_set_name,
             "skip_async": True,
         },
     )
@@ -1322,4 +2047,108 @@ def seed_bom(base_url: str, bom: List[Dict] = None) -> Tuple[str, List[Dict]]:
     nodes = manifest.get("nodes", [])
     logger.info(f"Got {len(nodes)} deployment nodes")
 
+    return csd_nid, nodes
+
+
+class DestroyCascadeError(RuntimeError):
+    """A requested destroy would also take instances that are still declared."""
+
+
+def plan_destroy(
+    base_url: str, env=None, instance_names: List[str] = None
+) -> List[str]:
+    """The full set of instances a destroy of ``instance_names`` would remove.
+
+    ``destroy_from`` is a *starting point*, not a list: ms-deployment walks the
+    deployment DAG downwards from each named instance and destroys everything
+    that depends on it (``DeploymentManager.destroy_from_instance``). Asking for
+    the closure up front is what makes the cascade guard in
+    :func:`destroy_instances` possible.
+
+    :returns: The sorted instance names in this environment's destroy closure.
+    """
+    env_slug = env.slug if env is not None else "local"
+    result = _post_apiop(
+        base_url,
+        "destroy_deploymentset",
+        {
+            "deployment_set_name": env_slug,
+            "destroy_from": list(instance_names or []),
+            "dry_run": True,
+        },
+    )
+    # The dry run answers per environment type, which for a local environment is
+    # its slug (see ensure_environment).
+    if isinstance(result, dict):
+        return sorted(result.get(env_slug, []))
+    return sorted(result or [])
+
+
+def destroy_instances(
+    base_url: str,
+    env=None,
+    instance_names: List[str] = None,
+    keep: Optional[set] = None,
+) -> Tuple[Optional[str], List[Dict]]:
+    """Prepare a local destroy and return ``(csd_nid, nodes)`` to execute.
+
+    Mirrors :func:`seed_bom` for the teardown direction: prepare the graph
+    server-side, then hand back the ordered nodes for
+    :class:`local_workflow_runner.LocalWorkflowRunner` to run. The nodes come
+    back in reverse dependency order with ``deploy --destroy`` scripts.
+
+    :param instance_names: The instances to destroy from.
+    :param keep: Instance names that must survive. If the destroy closure
+        includes any of them, nothing is destroyed and
+        :class:`DestroyCascadeError` is raised instead -- destroying a
+        still-declared instance because something else was removed is exactly
+        the surprise a reconcile must never spring on a developer.
+    :returns: ``(csd_nid, nodes)``, or ``(None, [])`` when there is nothing to do.
+    :raises DestroyCascadeError: if the closure would take a kept instance.
+    """
+    instance_names = [n for n in (instance_names or []) if n]
+    if not instance_names:
+        return None, []
+
+    env_slug = env.slug if env is not None else "local"
+
+    closure = plan_destroy(base_url, env, instance_names)
+    if not closure:
+        logger.info("Destroy dry run reported nothing to destroy")
+        return None, []
+
+    collateral = sorted(set(closure) & set(keep or ()))
+    if collateral:
+        raise DestroyCascadeError(
+            "Destroying "
+            + ", ".join(sorted(instance_names))
+            + " would also destroy "
+            + ", ".join(collateral)
+            + ", which the environment still declares. Remove those from the "
+            "environment first, or keep the instance they depend on."
+        )
+
+    logger.info(
+        f"Destroying {len(closure)} instance(s) in '{env_slug}': {', '.join(closure)}"
+    )
+    result = _post_apiop(
+        base_url,
+        "destroy_deploymentset",
+        {
+            "deployment_set_name": env_slug,
+            "destroy_from": instance_names,
+            "dry_run": False,
+            "skip_async": True,
+        },
+    )
+    csd_nid = result.get("csd_nid")
+    if not csd_nid:
+        logger.warning(f"Destroy did not produce a ChangeSetDeployment: {result}")
+        return None, []
+    if result.get("message") == "No instances to destroy":
+        return None, []
+
+    manifest = _post_apiop(base_url, f"generate_local_deployment/{csd_nid}")
+    nodes = manifest.get("nodes", [])
+    logger.info(f"Got {len(nodes)} destroy node(s)")
     return csd_nid, nodes

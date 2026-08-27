@@ -38,12 +38,15 @@ logger = minimal_logger("ns_k3s_charts")
 
 _ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_K3S_CHARTS"
 
-# Fixed local identity used for every chart deploy (matches k3s_operators._standard_values
+# Local identity used for every chart deploy (matches k3s_operators._standard_values
 # and hmd_cli_helm._set_local_standard_values, and the ClusterSecretStore's region).
+# Region and customer code come from hmd.env so this agrees with every other
+# producer/consumer of make_standard_name -- a hardcoded value here would name
+# secrets nothing else looks up (the failure mode commit b160612 fixed).
 _DID = "local"
 _ENV = "local"
-_HMD_REGION = "reg1"
-_CUSTOMER = "hmd"
+_HMD_REGION = os.environ.get("HMD_REGION", "reg1")
+_CUSTOMER = os.environ.get("HMD_CUSTOMER_CODE") or "none"
 # The ClusterSecretStore (installed by k3s_operators with aws_region=local) queries this
 # region, so every secret a chart's ExternalSecret reads MUST be seeded here.
 _SEED_REGION = "local"

@@ -23,10 +23,34 @@ from ..floci_deployer import COMPOSE_PROJECT_NAME
 
 logger = minimal_logger("port_validator")
 
+# The one container allowed to publish host ports. Everything else is reached
+# through it (see nginx_router); that invariant is what lets multiple named
+# environments coexist on one machine.
+PROXY_SERVICE_NAMES = frozenset({"proxy"})
+
 # Ports reserved by non-Docker CLI tools that should not be mapped in compose files.
 RESERVED_PORTS: Dict[int, str] = {
     8082: "hmd login (Okta OAuth2 callback)",
+    80: "hmd_proxy (NeuronSphere HTTP routes)",
+    4566: "hmd_proxy (control-plane Floci stream)",
 }
+
+
+def _env_port_range() -> Tuple[int, int]:
+    """The contiguous host range hmd_proxy publishes for per-environment streams."""
+    try:
+        from ..env_registry import env_port_range
+
+        lo, hi = env_port_range().split("-")
+        return int(lo), int(hi)
+    except Exception:
+        return (19000, 19063)
+
+
+# Host port *ranges* reserved by the proxy, as (low, high, owner).
+def reserved_port_ranges() -> List[Tuple[int, int, str]]:
+    lo, hi = _env_port_range()
+    return [(lo, hi, "hmd_proxy (NeuronSphere per-environment routing)")]
 
 
 def parse_host_port(port_spec) -> Optional[int]:
@@ -116,15 +140,52 @@ def find_port_conflicts(
 def check_reserved_port_conflicts(
     port_map: Dict[int, List[Tuple[str, str]]],
 ) -> Dict[int, Tuple[str, List[Tuple[str, str]]]]:
-    """Return services that map to a reserved port.
+    """Return services that map to a reserved port or reserved range.
+
+    A service owned by the proxy itself is not a conflict -- the proxy is who
+    the reservation is *for*.
 
     Returns dict of port -> (reserved_reason, [(service, file), ...]).
     """
     conflicts: Dict[int, Tuple[str, List[Tuple[str, str]]]] = {}
+
+    def _offenders(port: int) -> List[Tuple[str, str]]:
+        return [
+            (svc, f)
+            for svc, f in port_map.get(port, [])
+            if svc not in PROXY_SERVICE_NAMES
+        ]
+
     for port, reason in RESERVED_PORTS.items():
-        if port in port_map:
-            conflicts[port] = (reason, port_map[port])
+        offenders = _offenders(port)
+        if offenders:
+            conflicts[port] = (reason, offenders)
+
+    for low, high, owner in reserved_port_ranges():
+        for port in port_map:
+            if low <= port <= high and port not in conflicts:
+                offenders = _offenders(port)
+                if offenders:
+                    conflicts[port] = (f"{owner} (range {low}-{high})", offenders)
+
     return conflicts
+
+
+def find_published_non_proxy_ports(
+    port_map: Dict[int, List[Tuple[str, str]]],
+) -> Dict[int, List[Tuple[str, str]]]:
+    """Return every published host port owned by a service other than the proxy.
+
+    In the control-plane/environment layout that set must be empty: databases
+    are unreachable from the host and every service is addressed through
+    ``hmd_proxy``.
+    """
+    offenders: Dict[int, List[Tuple[str, str]]] = {}
+    for port, owners in port_map.items():
+        non_proxy = [(svc, f) for svc, f in owners if svc not in PROXY_SERVICE_NAMES]
+        if non_proxy:
+            offenders[port] = non_proxy
+    return offenders
 
 
 def check_ports_in_use(ports: Set[int]) -> Dict[int, bool]:
@@ -147,53 +208,98 @@ def check_ports_in_use(ports: Set[int]) -> Dict[int, bool]:
     return in_use
 
 
-def get_neuronsphere_container_ports(
-    project_name: str = COMPOSE_PROJECT_NAME,
-) -> Set[int]:
-    """Return host ports currently bound by containers in the given compose project.
+def _known_project_names() -> List[str]:
+    """The control-plane project plus every registered environment's project.
 
-    Queries ``docker ps`` for running containers with the compose project label
+    A port bound by one of our own running projects is not a conflict, so the
+    "already in use" check must know about all of them -- otherwise every
+    running environment reports its own ports as taken.
+    """
+    names = [COMPOSE_PROJECT_NAME]
+    try:
+        from ..env_registry import list_envs
+
+        names.extend(
+            e.compose_project for e in list_envs() if e.compose_project not in names
+        )
+    except Exception as exc:
+        logger.debug(f"Could not enumerate environment compose projects: {exc}")
+    return names
+
+
+def get_neuronsphere_container_ports(
+    project_name: str = None,
+    project_names: List[str] = None,
+) -> Set[int]:
+    """Return host ports currently bound by containers in our compose projects.
+
+    Queries ``docker ps`` for running containers with each compose project label
     and parses the Ports column to extract host port numbers.
 
     Returns an empty set on any error (Docker not running, timeout, etc.).
     """
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "ps",
-                "--filter",
-                f"label=com.docker.compose.project={project_name}",
-                "--format",
-                "{{.Ports}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return set()
+    if project_names is None:
+        project_names = [project_name] if project_name else _known_project_names()
 
-        ports: Set[int] = set()
-        # Each line contains port mappings like "0.0.0.0:8080->8080/tcp, :::8080->8080/tcp"
-        for line in result.stdout.strip().splitlines():
-            for match in re.finditer(r"(?:\d+\.){3}\d+:(\d+)->", line):
-                ports.add(int(match.group(1)))
-        return ports
-    except Exception:
-        return set()
+    ports: Set[int] = set()
+    for name in project_names:
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    f"label=com.docker.compose.project={name}",
+                    "--format",
+                    "{{.Ports}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                continue
+            # Each line contains mappings like "0.0.0.0:8080->8080/tcp, :::8080->8080/tcp"
+            for line in result.stdout.strip().splitlines():
+                for match in re.finditer(r"(?:\d+\.){3}\d+:(\d+)->", line):
+                    ports.add(int(match.group(1)))
+        except Exception:
+            continue
+    return ports
 
 
-def validate_ports(compose_files: List[str]) -> None:
+def validate_ports(compose_files: List[str], strict: bool = False) -> None:
     """Run all port checks and print actionable warnings.
 
     This is the main entry point called from start_neuronsphere().
-    It never raises or blocks startup.
+
+    In the default (warn-only) mode it never raises or blocks startup, which is
+    what platform/legacy mode wants. With ``strict=True`` -- used by the
+    control-plane and environment paths -- a published host port on any service
+    other than the proxy is an error, because that layout guarantees
+    ``hmd_proxy`` is the sole publisher.
     """
     try:
         port_map = extract_host_ports(compose_files)
         if not port_map:
             return
+
+        if strict:
+            offenders = find_published_non_proxy_ports(port_map)
+            if offenders:
+                lines = [
+                    f"    {port}: " + ", ".join(f"{svc} ({f})" for svc, f in owners)
+                    for port, owners in sorted(offenders.items())
+                ]
+                raise SystemExit(
+                    "\n  ERROR: only hmd_proxy may publish host ports in this "
+                    "layout, but these services do:\n"
+                    + "\n".join(lines)
+                    + "\n\n  Remove their `ports:` entries and route them through "
+                    "hmd_proxy instead -- HTTP services at "
+                    "http://localhost/<env>/<service>/, other protocols via an "
+                    "nginx stream listener.\n"
+                )
 
         warnings: List[str] = []
 

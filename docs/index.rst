@@ -9,6 +9,7 @@ Welcome to hmd-cli-neuronsphere's documentation
 
    readme
    modes
+   environments
    helm_chart_dev_loop
    plugins/index
    proposals/index

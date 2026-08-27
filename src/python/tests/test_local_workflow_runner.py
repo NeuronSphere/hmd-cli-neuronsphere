@@ -20,6 +20,7 @@ from unittest import mock
 
 import yaml
 
+from hmd_cli_neuronsphere import bom_seeder as b
 from hmd_cli_neuronsphere.local_workflow_runner import (
     LocalWorkflowRunner,
     _localize_deploy_script,
@@ -165,6 +166,285 @@ class KubeconfigForContainerTests(unittest.TestCase):
             runner = LocalWorkflowRunner("http://x", cluster_name="neuronsphere")
             with mock.patch.object(runner, "_local_kubeconfig_path", return_value=path):
                 self.assertEqual(runner._kubeconfig_for_container(), path)
+
+
+class RunStatusTests(unittest.TestCase):
+    """A destroy run settles nodes into DESTROYED, not DEPLOYED.
+
+    Getting this backwards would mark torn-down instances as deployed, so the
+    next reconcile would keep proposing to destroy them forever.
+    """
+
+    NODES = [
+        {
+            "instance_name": "local-neuronsphere",
+            "repo_class_name": "hmd-cli-neuronsphere",
+            "rid_nid": "rid-core",
+        },
+        {
+            "instance_name": "my-api",
+            "repo_class_name": "hmd-ms-myapi",
+            "rid_nid": "rid-api",
+        },
+    ]
+
+    def _runner(self, execute_returns=True):
+        runner = LocalWorkflowRunner("http://x")
+        self.statuses = []
+        self.csd_statuses = []
+        mock.patch.object(
+            runner,
+            "_set_status",
+            side_effect=lambda rid, status: self.statuses.append((rid, status)),
+        ).start()
+        mock.patch.object(
+            runner,
+            "_set_csd_status",
+            side_effect=lambda csd, status: self.csd_statuses.append(status),
+        ).start()
+        mock.patch.object(
+            runner, "_execute_in_projectbuilder", return_value=execute_returns
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+        return runner
+
+    def test_deploy_marks_nodes_deployed(self):
+        runner = self._runner()
+        self.assertTrue(runner.run("csd-1", self.NODES))
+        self.assertEqual(
+            self.statuses, [("rid-core", "DEPLOYED"), ("rid-api", "DEPLOYED")]
+        )
+        self.assertEqual(self.csd_statuses, ["STARTED", "COMPLETED"])
+
+    def test_destroy_marks_nodes_destroyed(self):
+        runner = self._runner()
+        self.assertTrue(runner.run("csd-1", self.NODES, destroy=True))
+        self.assertEqual(
+            self.statuses, [("rid-core", "DESTROYED"), ("rid-api", "DESTROYED")]
+        )
+        self.assertEqual(self.csd_statuses, ["STARTED", "DESTROYED"])
+
+    def test_last_succeeded_tracks_what_landed(self):
+        runner = self._runner()
+        runner.run("csd-1", self.NODES)
+        self.assertEqual(runner.last_succeeded, ["local-neuronsphere", "my-api"])
+
+    def test_a_failure_stops_the_run_and_is_not_recorded(self):
+        runner = self._runner(execute_returns=False)
+        self.assertFalse(runner.run("csd-1", self.NODES))
+        # The core no-op still landed; the real node did not.
+        self.assertEqual(runner.last_succeeded, ["local-neuronsphere"])
+        self.assertIn(("rid-api", "FAILED"), self.statuses)
+
+
+class EnvRoutePrefixTests(unittest.TestCase):
+    """In-container deploys must address the environment's own services.
+
+    Only the control plane is served unprefixed. ms-dbaccount is per-environment
+    and routed at ``/<slug>/hmd_ms_dbaccount/``, so a deploy tool that joins its
+    path onto a bare ``http://hmd_proxy`` hits a control-plane path where that
+    service does not exist -- which is a 404 on ``create_db_account`` and a
+    failed ``hmd-database-account`` node.
+    """
+
+    class _Env:
+        def __init__(self, slug, legacy=False):
+            self.slug = slug
+            self.deployment_id = slug
+            self.k3s_cluster = f"ns-{slug}"
+            self.floci_container = f"floci-{slug}"
+            self.legacy_layout = legacy
+
+    def test_prefix_is_the_environment_slug(self):
+        runner = LocalWorkflowRunner("http://x", env=self._Env("dev2"))
+        self.assertEqual(runner.env_route_prefix(), "/dev2")
+
+    def test_a_legacy_environment_is_prefixed_too(self):
+        # A legacy environment shares the control plane's containers, not its
+        # unprefixed routes -- write_env_routes prefixes on slug regardless.
+        runner = LocalWorkflowRunner("http://x", env=self._Env("local", legacy=True))
+        self.assertEqual(runner.env_route_prefix(), "/local")
+
+    def test_no_environment_means_no_prefix(self):
+        self.assertEqual(LocalWorkflowRunner("http://x").env_route_prefix(), "")
+
+    def test_proxy_url_points_at_the_environments_dbaccount(self):
+        runner = LocalWorkflowRunner(
+            "http://localhost/hmd_ms_deployment", env=self._Env("dev2")
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            proxy = runner.ns_local_proxy()
+        self.assertEqual(proxy, "http://hmd_proxy/dev2")
+        # The join hmd-cli-dbaccount performs must match the nginx location.
+        self.assertEqual(
+            f"{proxy}/hmd_ms_dbaccount/api/create_db_account",
+            "http://hmd_proxy/dev2/hmd_ms_dbaccount/api/create_db_account",
+        )
+
+    def test_proxy_url_rewrites_the_host_for_in_container_use(self):
+        runner = LocalWorkflowRunner(
+            "http://127.0.0.1/hmd_ms_deployment", env=self._Env("local")
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(runner.ns_local_proxy(), "http://hmd_proxy/local")
+
+    def test_proxy_url_is_overridable(self):
+        runner = LocalWorkflowRunner("http://x", env=self._Env("dev2"))
+        with mock.patch.dict(
+            os.environ, {"NS_LOCAL_PROXY": "http://elsewhere:8080"}, clear=True
+        ):
+            self.assertEqual(runner.ns_local_proxy(), "http://elsewhere:8080")
+
+
+class RepoPathOverrideTests(unittest.TestCase):
+    """A manifest may declare a repo outside HMD_REPO_HOME."""
+
+    def setUp(self):
+        # No bundled artifacts unless a test makes one: the real external/ dir
+        # is populated by a build, so leaving it in scope would make these
+        # assertions depend on how the tree was prepared.
+        self._roots = mock.patch.object(b, "_artifact_roots", return_value=[])
+        self._roots.start()
+        b._reset_artifact_version_index()
+
+    def tearDown(self):
+        self._roots.stop()
+        b._reset_artifact_version_index()
+
+    def test_declared_path_wins_when_it_exists(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = LocalWorkflowRunner("http://x", repo_paths={"hmd-ms-myapi": d})
+            self.assertEqual(runner._repo_path("hmd-ms-myapi"), d)
+
+    def test_falls_back_to_repo_home_when_the_declared_path_is_gone(self):
+        runner = LocalWorkflowRunner(
+            "http://x", repo_paths={"hmd-ms-myapi": "/nonexistent/path"}
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(runner._repo_path("hmd-ms-myapi"))
+
+    def test_undeclared_repo_uses_repo_home(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "hmd-ms-other"))
+            runner = LocalWorkflowRunner("http://x", repo_paths={})
+            with mock.patch.dict(os.environ, {"HMD_REPO_HOME": d}, clear=True):
+                self.assertEqual(
+                    runner._repo_path("hmd-ms-other"),
+                    os.path.join(d, "hmd-ms-other"),
+                )
+
+
+class UnresolvedWorkspaceTests(unittest.TestCase):
+    """An unmountable repo must fail the node, not run docker from '/'.
+
+    Without a resolvable workspace, the projectbuilder container falls back
+    to its image's default WORKDIR and any relative-path tool inside the
+    deploy script (e.g. hmd-cli-cdktf's ``os.chdir("src/cdktf")``) blows up
+    with a confusing downstream FileNotFoundError. The runner must catch the
+    unresolved workspace itself and fail clearly before touching docker.
+    """
+
+    def setUp(self):
+        self._roots = mock.patch.object(b, "_artifact_roots", return_value=[])
+        self._roots.start()
+        b._reset_artifact_version_index()
+
+    def tearDown(self):
+        self._roots.stop()
+        b._reset_artifact_version_index()
+
+    def test_fails_without_invoking_docker(self):
+        runner = LocalWorkflowRunner("http://x", repo_paths={})
+        node = {
+            "instance_name": "hive-metastore",
+            "repo_class_name": "hmd-inf-hive-metastore",
+            "rid_nid": "rid-1",
+            "script": "hmd deploy --local",
+        }
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch(
+                "hmd_cli_neuronsphere.local_workflow_runner.subprocess.run"
+            ) as mock_run:
+                result = runner._execute_in_projectbuilder(node)
+
+        self.assertFalse(result)
+        mock_run.assert_not_called()
+
+
+class BundledArtifactSourceTests(unittest.TestCase):
+    """The code deployed is the build the node is registered as.
+
+    A checkout used to be mounted unconditionally, so a developer's tree
+    deployed under the bundled artifact's version number. Now the artifact wins
+    and the tree is mounted only under a local version override.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        self.repo_home = os.path.join(self.root, "repos")
+        os.makedirs(os.path.join(self.repo_home, "hmd-ms-myapi"))
+
+        artifacts = os.path.join(self.root, "external")
+        self.bundle = os.path.join(artifacts, "myapi")
+        os.makedirs(os.path.join(self.bundle, "meta-data"))
+        with open(os.path.join(self.bundle, "meta-data", "VERSION"), "w") as f:
+            f.write("1.0.0\n")
+        with open(os.path.join(self.bundle, "meta-data", "manifest.json"), "w") as f:
+            f.write('{"name": "hmd-ms-myapi"}')
+
+        self._roots = mock.patch.object(b, "_artifact_roots", return_value=[artifacts])
+        self._roots.start()
+        b._reset_artifact_version_index()
+        self._env = mock.patch.dict(
+            os.environ, {"HMD_REPO_HOME": self.repo_home}, clear=True
+        )
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        self._roots.stop()
+        b._reset_artifact_version_index()
+        self._tmp.cleanup()
+
+    def test_the_bundled_artifact_is_mounted_over_a_checkout(self):
+        runner = LocalWorkflowRunner("http://x", repo_paths={})
+        self.assertEqual(runner._repo_path("hmd-ms-myapi"), self.bundle)
+
+    def test_a_local_override_mounts_the_checkout(self):
+        runner = LocalWorkflowRunner("http://x", repo_paths={})
+        with mock.patch.dict(
+            os.environ,
+            {b._local_version_env_var("hmd-ms-myapi"): "local"},
+            clear=False,
+        ):
+            self.assertEqual(
+                runner._repo_path("hmd-ms-myapi"),
+                os.path.join(self.repo_home, "hmd-ms-myapi"),
+            )
+
+    def test_a_declared_source_path_still_loses_to_the_artifact(self):
+        declared = os.path.join(self.root, "elsewhere")
+        os.makedirs(declared)
+        runner = LocalWorkflowRunner("http://x", repo_paths={"hmd-ms-myapi": declared})
+        self.assertEqual(runner._repo_path("hmd-ms-myapi"), self.bundle)
+
+    def test_a_declared_source_path_is_used_under_an_override(self):
+        declared = os.path.join(self.root, "elsewhere")
+        os.makedirs(declared)
+        runner = LocalWorkflowRunner("http://x", repo_paths={"hmd-ms-myapi": declared})
+        with mock.patch.dict(
+            os.environ, {b.PREFER_LOCAL_VERSIONS_ENV: "true"}, clear=False
+        ):
+            self.assertEqual(runner._repo_path("hmd-ms-myapi"), declared)
+
+    def test_a_repo_with_no_artifact_still_uses_its_checkout(self):
+        os.makedirs(os.path.join(self.repo_home, "hmd-ms-unbundled"))
+        runner = LocalWorkflowRunner("http://x", repo_paths={})
+        self.assertEqual(
+            runner._repo_path("hmd-ms-unbundled"),
+            os.path.join(self.repo_home, "hmd-ms-unbundled"),
+        )
 
 
 if __name__ == "__main__":

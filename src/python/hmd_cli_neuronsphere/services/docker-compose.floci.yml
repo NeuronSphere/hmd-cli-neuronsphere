@@ -2,12 +2,19 @@ version: "3.7"
 
 services:
   floci:
-    image: floci/floci:1.5.8
+    image: floci/floci:1.5.34
     container_name: floci
     ports:
       - "4566:4566"
     environment:
       FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,ecr,eks,secretsmanager
+      # Persistent state lives in ${HMD_HOME}/floci/data. Caveat: Floci writes
+      # every API Gateway *v1* entity (apigateway-*.json) with all-null fields
+      # and, as of 1.5.34, rehydrates those records on start -- so a restart
+      # serves back nameless, undeletable gateways. `clear_apigateway_state`
+      # drops those files on every `up`; gateways are recreated from scratch
+      # anyway. Every other service (lambda, s3, secretsmanager, iam, eks,
+      # apigatewayv2) persists correctly.
       FLOCI_STORAGE_MODE: persistent
       FLOCI_LAMBDA_EXECUTOR: docker
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
@@ -16,10 +23,11 @@ services:
       FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
-      # Floci 1.5.8 hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
+      # Floci hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
       # spawning k3s, but kube-apiserver only accepts etcd3 (kine speaks etcd3
       # regardless of the underlying SQLite store), so the node exits on startup.
-      # The hmd-img-k3s-floci image's entrypoint drops the bad flag.
+      # Still present as of 1.5.34 (unfixed upstream). The hmd-img-k3s-floci
+      # image's entrypoint drops the bad flag.
       FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}

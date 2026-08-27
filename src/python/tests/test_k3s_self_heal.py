@@ -40,6 +40,21 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
         eks.describe_cluster.return_value = {"cluster": {"status": "ACTIVE"}}
         return eks
 
+    def _assert_recreated(self, delete, eks, name="neuronsphere", target=None):
+        """The stale cluster was deleted from the right account, then recreated.
+
+        ``target`` is load-bearing, not incidental: each named environment owns
+        a cluster in its *own* Floci account, so a delete that defaulted to the
+        control plane would leave the stale cluster running and try to remove
+        someone else's. It must be the same target the create was issued
+        against -- omitted here means the control plane, which is what
+        ``ensure_k3s_cluster`` resolves when given no target.
+        """
+        delete.assert_called_once_with(
+            name, target=target if target is not None else fd.control_plane_target()
+        )
+        self.assertEqual(eks.create_cluster.call_count, 2)
+
     def test_fresh_cluster_created(self):
         """No existing cluster -> single create_cluster, no delete."""
         eks = self._eks(create_side_effect=[None])
@@ -82,8 +97,7 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
-        delete.assert_called_once_with("neuronsphere")
-        self.assertEqual(eks.create_cluster.call_count, 2)
+        self._assert_recreated(delete, eks)
 
     def test_stale_stopped_container_is_recreated(self):
         """Existing cluster whose container crashed/stopped -> delete + recreate."""
@@ -100,8 +114,7 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
-        delete.assert_called_once_with("neuronsphere")
-        self.assertEqual(eks.create_cluster.call_count, 2)
+        self._assert_recreated(delete, eks)
 
     def test_missing_container_is_recreated(self):
         """Cluster record exists but no container spawned -> delete + recreate."""
@@ -118,8 +131,37 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
-        delete.assert_called_once_with("neuronsphere")
-        self.assertEqual(eks.create_cluster.call_count, 2)
+        self._assert_recreated(delete, eks)
+
+    def test_recreate_deletes_from_the_same_account_it_creates_in(self):
+        """A named environment's stale cluster is deleted from *its* Floci.
+
+        The delete and the create must address the same account. Defaulting the
+        delete to the control plane would leave the environment's broken cluster
+        running while the recreate hit ``ResourceInUseException`` forever.
+        """
+        target = fd.FlociTarget(
+            name="dev2",
+            endpoint="http://localhost:19004",
+            internal_endpoint="http://floci-dev2:4566",
+            account_id="000000000002",
+            container="floci-dev2",
+            region="us-west-2",
+        )
+        eks = self._eks(create_side_effect=[_in_use_error(), None])
+        with mock.patch.object(fd, "ensure_k3s_wrapper_image"), mock.patch.object(
+            fd, "_get_client", return_value=eks
+        ), mock.patch.object(
+            fd, "_k3s_container_image", return_value="rancher/k3s:latest"
+        ), mock.patch.object(
+            fd, "_k3s_container_running", return_value=True
+        ), mock.patch.object(
+            fd, "_wait_for_cluster_gone"
+        ), mock.patch.object(
+            fd, "delete_k3s_cluster"
+        ) as delete:
+            fd.ensure_k3s_cluster(name="ns-dev2-abc", target=target)
+        self._assert_recreated(delete, eks, name="ns-dev2-abc", target=target)
 
     def test_unexpected_client_error_propagates(self):
         """A non-InUse error from create_cluster is not swallowed."""

@@ -52,9 +52,6 @@ _DID = "local"
 # to Floci's IP — then charts use the exact same in-network hostname as the cloud
 # (full parity), and pods reach Floci by egressing through the k3s node.
 _FLOCI_CONTAINER = os.environ.get("HMD_LOCAL_FLOCI_CONTAINER", "floci")
-_FLOCI_WORKLOAD_CONTAINER = os.environ.get(
-    "HMD_LOCAL_FLOCI_WORKLOAD_CONTAINER", "floci-workload"
-)
 # Core docker-network services charts reach by name from inside k3s (same as the
 # cloud in-network hostnames): the nginx edge proxy fronting the microservice
 # Lambdas, and the shared Postgres. Registered in CoreDNS so pods resolve them by
@@ -77,7 +74,7 @@ _GRAPH_CONTAINER = os.environ.get("HMD_LOCAL_GRAPH_CONTAINER", "global-graph")
 _INGRESS_ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS"
 # The per-HMD_HOME-scoped Docker network (see floci_deployer.DOCKER_NETWORK_NAME).
 # FLOCI_SERVICES_EKS_DOCKER_NETWORK is only set inside the `floci` container's own
-# environment (via docker-compose.admin.yml), not this CLI process's, so it's not
+# environment (via the compose files), not this CLI process's, so it's not
 # a usable override here.
 _FLOCI_EKS_NETWORK = DOCKER_NETWORK_NAME
 # In-network Floci endpoint (resolvable from pods once the CoreDNS record exists).
@@ -86,8 +83,26 @@ _FLOCI_INTERNAL_ENDPOINT = os.environ.get(
 )
 
 
+def _run(args: List[str], env=None, **kwargs) -> subprocess.CompletedProcess:
+    """Run a kubectl/helm command against a specific environment's cluster.
+
+    Every environment has its own k3s cluster, so the cluster a command lands on
+    must come from the environment being operated on -- never from an ambient
+    process-wide ``KUBECONFIG``. Passing the kubeconfig explicitly per call is
+    what keeps two concurrent environments from stepping on each other; a call
+    that skips this helper silently targets whichever cluster the process
+    happens to point at.
+    """
+    proc_env = dict(os.environ)
+    if env is not None:
+        proc_env["KUBECONFIG"] = str(env.kubeconfig)
+    kwargs.setdefault("capture_output", True)
+    kwargs.setdefault("text", True)
+    return subprocess.run(args, env=proc_env, **kwargs)
+
+
 def _resolve_floci_ip(container: str) -> Optional[str]:
-    """Return the given Floci container's IP on the k3s Docker network."""
+    """Return the given container's IP on the k3s Docker network."""
     fmt = (
         '{{with index .NetworkSettings.Networks "' + _FLOCI_EKS_NETWORK + '"}}'
         "{{.IPAddress}}{{end}}"
@@ -107,20 +122,45 @@ def _resolve_floci_ip(container: str) -> Optional[str]:
     return None
 
 
-def _ensure_coredns_floci_entry() -> None:
-    """Make ``neuronsphere``/``neuronsphere-workload`` resolvable from k3s pods.
+def _ensure_coredns_floci_entry(env=None) -> None:
+    """Map the canonical NeuronSphere hostnames to this environment's containers.
 
     Applies a ``coredns-custom`` ConfigMap (the k3s-supported extension point,
     imported via ``import /etc/coredns/custom/*.server``) with a per-hostname
-    server block pointing at the Floci container IP(s). Uses separate server
-    blocks (not a second ``hosts`` plugin in ``.:53``, which would crash CoreDNS).
-    Best-effort; logs and returns on any failure.
+    server block. Uses separate server blocks (not a second ``hosts`` plugin in
+    ``.:53``, which would crash CoreDNS). Best-effort; logs and returns on any
+    failure.
+
+    This is what lets cloud Helm charts run unmodified in every environment.
+    Inside environment ``<slug>``'s cluster:
+
+    ==========================  =========================
+    name in-cluster             resolves to
+    ==========================  =========================
+    neuronsphere                floci-<slug>
+    neuronsphere-workload       floci-<slug>
+    hmd_db                      hmd_db-<slug>
+    global-graph                global-graph-<slug>
+    neuronsphere-control        the control-plane floci
+    hmd_proxy                   the control-plane proxy
+    ==========================  =========================
+
+    So a chart's unmodified ``AWS_ENDPOINT_URL=http://neuronsphere:4566``, its
+    JDBC URL against ``hmd_db``, and its Gremlin endpoint on ``global-graph`` are
+    all automatically scoped to that environment's own account and databases.
     """
-    floci_ip = _resolve_floci_ip(_FLOCI_CONTAINER)
+    # Canonical name -> the container that should answer it in this environment.
+    if env is not None and not getattr(env, "legacy_layout", False):
+        env_floci = env.floci_container
+        env_db = env.db_container
+        env_graph = env.graph_container
+    else:
+        env_floci, env_db, env_graph = _FLOCI_CONTAINER, _DB_CONTAINER, _GRAPH_CONTAINER
+
+    floci_ip = _resolve_floci_ip(env_floci)
     if not floci_ip:
-        logger.warning("Could not resolve Floci IP; skipping CoreDNS record")
+        logger.warning(f"Could not resolve IP for {env_floci}; skipping CoreDNS record")
         return
-    workload_ip = _resolve_floci_ip(_FLOCI_WORKLOAD_CONTAINER) or floci_ip
 
     def _block(host: str, ip: str) -> str:
         return (
@@ -128,16 +168,29 @@ def _ensure_coredns_floci_entry() -> None:
             f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n}}\n"
         )
 
-    # Floci endpoints plus the core docker-network services (best-effort: a name
-    # that doesn't resolve on the k3s Docker network is simply skipped).
     entries = [
         ("neuronsphere", floci_ip),
-        ("neuronsphere-workload", workload_ip),
+        ("neuronsphere-workload", floci_ip),
     ]
-    for name in (_PROXY_CONTAINER, _DB_CONTAINER, _GRAPH_CONTAINER):
-        ip = _resolve_floci_ip(name)
+    # Canonical name -> this environment's container (best-effort: a name that
+    # doesn't resolve on the Docker network is simply skipped).
+    aliased = [
+        (_DB_CONTAINER, env_db),
+        (_GRAPH_CONTAINER, env_graph),
+        # The control plane is shared; charts that need it address it explicitly.
+        ("neuronsphere-control", _FLOCI_CONTAINER),
+        (_PROXY_CONTAINER, _PROXY_CONTAINER),
+    ]
+    for canonical, container in aliased:
+        ip = _resolve_floci_ip(container)
         if ip:
-            entries.append((name, ip))
+            entries.append((canonical, ip))
+    # Also register the real container name so in-network clients that address
+    # it directly (rather than via the canonical alias) resolve too.
+    if env_db != _DB_CONTAINER:
+        ip = _resolve_floci_ip(env_db)
+        if ip:
+            entries.append((env_db, ip))
 
     server = "".join(_block(host, ip) for host, ip in entries)
     configmap = {
@@ -150,19 +203,16 @@ def _ensure_coredns_floci_entry() -> None:
         yaml.safe_dump(configmap, cf)
         cm_path = cf.name
     try:
-        apply = subprocess.run(
-            ["kubectl", "apply", "-f", cm_path], capture_output=True, text=True
-        )
+        apply = _run(["kubectl", "apply", "-f", cm_path], env)
         if apply.returncode != 0:
             logger.warning(f"CoreDNS record apply failed: {apply.stderr}")
             return
         # Roll CoreDNS so it reloads the custom config immediately.
-        subprocess.run(
+        _run(
             ["kubectl", "-n", "kube-system", "rollout", "restart", "deploy", "coredns"],
-            capture_output=True,
-            text=True,
+            env,
         )
-        subprocess.run(
+        _run(
             [
                 "kubectl",
                 "-n",
@@ -173,8 +223,7 @@ def _ensure_coredns_floci_entry() -> None:
                 "coredns",
                 "--timeout=60s",
             ],
-            capture_output=True,
-            text=True,
+            env,
         )
         logger.info("CoreDNS: " + ", ".join(f"{host}->{ip}" for host, ip in entries))
     finally:
@@ -194,7 +243,7 @@ _TRAEFIK_MANIFEST_PATH = (
 )
 
 
-def _ensure_ingress_controller(timeout: int = 120) -> None:
+def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     """Wait for the image-baked ingress controller (Traefik), or remove it.
 
     The k3s image (hmd-img-k3s-floci) renders the Traefik chart at build time
@@ -211,11 +260,7 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
     # into the image may still carry the Helm release this used to install at
     # runtime, under the same `traefik` name/namespace the baked-in plain
     # manifest now also uses -- clear it so the two don't collide.
-    migrated = subprocess.run(
-        ["helm", "uninstall", "traefik", "--namespace", "kube-system"],
-        capture_output=True,
-        text=True,
-    )
+    migrated = _run(["helm", "uninstall", "traefik", "--namespace", "kube-system"], env)
     if migrated.returncode == 0:
         logger.info(
             "Removed legacy runtime-installed Traefik release "
@@ -228,7 +273,7 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
             + _INGRESS_ENABLE_ENV
             + "; removing baked-in Traefik"
         )
-        subprocess.run(
+        _run(
             [
                 "kubectl",
                 "-n",
@@ -239,8 +284,7 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
                 _TRAEFIK_LABEL_SELECTOR,
                 "--ignore-not-found",
             ],
-            capture_output=True,
-            text=True,
+            env,
         )
         return
 
@@ -251,11 +295,12 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
     # reconcile resources deleted out-of-band.
     from .floci_deployer import K3S_CLUSTER_NAME
 
+    cluster = env.k3s_cluster if env is not None else K3S_CLUSTER_NAME
     subprocess.run(
         [
             "docker",
             "exec",
-            f"floci-eks-{K3S_CLUSTER_NAME}",
+            f"floci-eks-{cluster}",
             "kubectl",
             "apply",
             "-f",
@@ -267,7 +312,7 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
 
     deadline = time.time() + timeout
     while time.time() < deadline:
-        result = subprocess.run(
+        result = _run(
             [
                 "kubectl",
                 "-n",
@@ -277,8 +322,7 @@ def _ensure_ingress_controller(timeout: int = 120) -> None:
                 "deploy/traefik",
                 "--timeout=10s",
             ],
-            capture_output=True,
-            text=True,
+            env,
         )
         if result.returncode == 0:
             logger.info("Ingress controller (Traefik) ready")
@@ -384,7 +428,7 @@ def _enabled() -> bool:
     return os.environ.get(_ENABLE_ENV, "true").lower() not in ("false", "0", "no")
 
 
-def cluster_incarnation_id() -> Optional[str]:
+def cluster_incarnation_id(env=None) -> Optional[str]:
     """Fingerprint the running k3s cluster's identity.
 
     The ``kube-system`` Namespace is created fresh the moment a cluster comes
@@ -398,7 +442,7 @@ def cluster_incarnation_id() -> Optional[str]:
     any kubectl failure (e.g. cluster not reachable yet).
     """
     try:
-        result = subprocess.run(
+        result = _run(
             [
                 "kubectl",
                 "get",
@@ -407,8 +451,7 @@ def cluster_incarnation_id() -> Optional[str]:
                 "-o",
                 "jsonpath={.metadata.uid}",
             ],
-            capture_output=True,
-            text=True,
+            env,
             timeout=10,
         )
     except (subprocess.SubprocessError, OSError):
@@ -417,7 +460,7 @@ def cluster_incarnation_id() -> Optional[str]:
     return uid if result.returncode == 0 and uid else None
 
 
-def _wait_for_node_ready(timeout: int = 120) -> bool:
+def _wait_for_node_ready(timeout: int = 120, env=None) -> bool:
     """Wait for at least one k3s node to report Ready.
 
     ``wait_for_k3s_ready`` only confirms the Floci EKS API status is ACTIVE; the
@@ -427,11 +470,7 @@ def _wait_for_node_ready(timeout: int = 120) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        result = subprocess.run(
-            ["kubectl", "get", "nodes", "--no-headers"],
-            capture_output=True,
-            text=True,
-        )
+        result = _run(["kubectl", "get", "nodes", "--no-headers"], env)
         for line in result.stdout.splitlines():
             cols = line.split()
             if len(cols) >= 2 and cols[1] == "Ready":
@@ -441,7 +480,7 @@ def _wait_for_node_ready(timeout: int = 120) -> bool:
     return False
 
 
-def _ensure_node_topology_labels() -> None:
+def _ensure_node_topology_labels(env=None) -> None:
     """Label the k3s node with zone/region topology + the core compute identity.
 
     Cloud EKS nodes carry ``topology.kubernetes.io/{zone,region}`` labels;
@@ -460,29 +499,30 @@ def _ensure_node_topology_labels() -> None:
     """
     from .bom_seeder import CORE_INSTANCE_NAME
 
-    result = subprocess.run(
-        ["kubectl", "get", "nodes", "-o", "name"], capture_output=True, text=True
-    )
+    # The instance name is identical in every environment (repo_instance is
+    # unique by name per Environment), so the affinity label is too.
+    instance_name = env.core_instance_name if env is not None else CORE_INSTANCE_NAME
+
+    result = _run(["kubectl", "get", "nodes", "-o", "name"], env)
     for line in result.stdout.splitlines():
         node = line.strip()
         if not node:
             continue
-        subprocess.run(
+        _run(
             [
                 "kubectl",
                 "label",
                 node,
                 "topology.kubernetes.io/zone=local",
                 "topology.kubernetes.io/region=local",
-                f"hmdlabs.io/repo-instance-name={CORE_INSTANCE_NAME}",
+                f"hmdlabs.io/repo-instance-name={instance_name}",
                 "--overwrite",
             ],
-            capture_output=True,
-            text=True,
+            env,
         )
 
 
-def _clean_stale_nodes() -> None:
+def _clean_stale_nodes(env=None) -> None:
     """Delete ``NotReady`` ghost node registrations left in the k3s datastore.
 
     Floci reuses the k3s data volume across cluster delete/recreate, so each
@@ -491,9 +531,7 @@ def _clean_stale_nodes() -> None:
     pods ("didn't match PersistentVolume's node affinity"). Remove them, and the
     orphaned PVs whose node no longer exists, so fresh PVCs bind to the live node.
     """
-    result = subprocess.run(
-        ["kubectl", "get", "nodes", "--no-headers"], capture_output=True, text=True
-    )
+    result = _run(["kubectl", "get", "nodes", "--no-headers"], env)
     live = set()
     for line in result.stdout.splitlines():
         cols = line.split()
@@ -501,14 +539,13 @@ def _clean_stale_nodes() -> None:
             if cols[1] == "Ready":
                 live.add(cols[0])
             else:
-                subprocess.run(
+                _run(
                     ["kubectl", "delete", "node", cols[0], "--ignore-not-found"],
-                    capture_output=True,
-                    text=True,
+                    env,
                 )
     # Release PVs pinned (node affinity) to a node that no longer exists so their
     # PVCs can re-provision on the live node.
-    pvs = subprocess.run(
+    pvs = _run(
         [
             "kubectl",
             "get",
@@ -517,15 +554,14 @@ def _clean_stale_nodes() -> None:
             'jsonpath={range .items[*]}{.metadata.name}{"|"}'
             '{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}{"\\n"}{end}',
         ],
-        capture_output=True,
-        text=True,
+        env,
     )
     for line in pvs.stdout.splitlines():
         if "|" not in line:
             continue
         pv_name, node = line.split("|", 1)
         if node and node not in live:
-            subprocess.run(
+            _run(
                 [
                     "kubectl",
                     "delete",
@@ -534,12 +570,13 @@ def _clean_stale_nodes() -> None:
                     "--ignore-not-found",
                     "--wait=false",
                 ],
-                capture_output=True,
-                text=True,
+                env,
             )
 
 
-def _wait_namespace_not_terminating(namespace: str, timeout: int = 60) -> None:
+def _wait_namespace_not_terminating(
+    namespace: str, timeout: int = 60, env=None
+) -> None:
     """If ``namespace`` is stuck Terminating, wait (bounded) for it to clear.
 
     Floci's k3s datastore persists across cluster delete/recreate, so a namespace
@@ -548,7 +585,7 @@ def _wait_namespace_not_terminating(namespace: str, timeout: int = 60) -> None:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        result = subprocess.run(
+        result = _run(
             [
                 "kubectl",
                 "get",
@@ -557,8 +594,7 @@ def _wait_namespace_not_terminating(namespace: str, timeout: int = 60) -> None:
                 "-o",
                 "jsonpath={.status.phase}",
             ],
-            capture_output=True,
-            text=True,
+            env,
         )
         if result.returncode != 0 or result.stdout.strip() != "Terminating":
             return
@@ -566,7 +602,7 @@ def _wait_namespace_not_terminating(namespace: str, timeout: int = 60) -> None:
         time.sleep(4)
 
 
-def _standard_values(op: Dict[str, Any]) -> Dict[str, Any]:
+def _standard_values(op: Dict[str, Any], env=None) -> Dict[str, Any]:
     """The standard NeuronSphere values every chart expects.
 
     In the cloud these are injected as ``--set`` flags by ``hmd helm deploy``
@@ -574,38 +610,51 @@ def _standard_values(op: Dict[str, Any]) -> Dict[str, Any]:
     local equivalents here (dummy AWS values; ALB/ACM/WAF are not emulated).
     Namespace-derived values match the ``<instance>-<did>`` the charts assume.
     """
+    from .floci_deployer import local_customer_code
+
     instance = op["release"]
     namespace = _namespace(op)
+    did = env.deployment_id if env is not None else _DID
+    account = env.account_id if env is not None else "000000000000"
     return {
         "instance_name": instance,
-        "deployment_id": _DID,
+        "deployment_id": did,
         "namespace_name": namespace,
-        "account": "000000000000",
+        "account": account,
         "aws_region": "local",
         "standard_name": namespace,
         "env": {
             "HMD_INSTANCE_NAME": instance,
             "HMD_REPO_NAME": op["repo"],
-            "HMD_DID": _DID,
+            "HMD_DID": did,
             "HMD_ENVIRONMENT": "local",
-            "HMD_REGION": "reg1",
+            "HMD_REGION": os.environ.get("HMD_REGION", "reg1"),
             "HMD_REPO_VERSION": "local",
-            "HMD_CUSTOMER_CODE": "hmd",
+            # Sourced from hmd.env like every other producer/consumer of
+            # make_standard_name; a hardcoded value here would name secrets
+            # nothing else looks up.
+            "HMD_CUSTOMER_CODE": local_customer_code(),
         },
     }
 
 
 def _resolve_repo_root(op: Dict[str, Any]) -> Optional[Path]:
-    """Resolve an operator's repo root, preferring a checked-out HMD_REPO_HOME copy.
+    """Resolve an operator's repo root -- the chart it installs.
 
     Returns a directory containing ``src/helm`` and ``meta-data/manifest.json``.
+    The bundled pre-build artifact (the unzipped ``build/`` output of the repo)
+    wins over a checked-out ``HMD_REPO_HOME`` copy, so the chart installed is
+    the one the operator's registered version names; a checkout is used only
+    under a local version override. See :func:`bom_seeder.repo_root_candidates`.
     """
-    repo_home = os.environ.get("HMD_REPO_HOME")
-    if repo_home:
-        candidate = Path(repo_home) / op["repo"]
-        if (candidate / "src" / "helm" / "Chart.yaml").exists():
-            return candidate
-    # Bundled pre-build artifact (unzipped build/ output of the repo).
+    from .bom_seeder import repo_root_candidates
+
+    for candidate in repo_root_candidates(op["repo"]):
+        if (Path(candidate) / "src" / "helm" / "Chart.yaml").exists():
+            return Path(candidate)
+    # `repo_root_candidates` keys bundled artifacts by their manifest `name`;
+    # fall back to this module's own name table for an artifact that ships no
+    # manifest.json, so an operator chart is never lost to a missing key.
     bundled = (_external_dir / op["name"]).resolve()
     if (bundled / "src" / "helm" / "Chart.yaml").exists():
         return bundled
@@ -660,10 +709,12 @@ def _ensure_chart_dependencies(chart_dir: Path) -> None:
     )
 
 
-def _helm_upgrade(op: Dict[str, Any], chart_dir: Path, overlay: Dict[str, Any]) -> bool:
+def _helm_upgrade(
+    op: Dict[str, Any], chart_dir: Path, overlay: Dict[str, Any], env=None
+) -> bool:
     """Run a single ``helm upgrade --install`` pass for an operator."""
     values = _load_default_configuration(chart_dir.parent.parent)
-    values = _deep_merge(values, _standard_values(op))
+    values = _deep_merge(values, _standard_values(op, env))
     if overlay:
         values = _deep_merge(values, overlay)
 
@@ -689,9 +740,9 @@ def _helm_upgrade(op: Dict[str, Any], chart_dir: Path, overlay: Dict[str, Any]) 
             "--values",
             values_path,
         ]
-        _wait_namespace_not_terminating(_namespace(op))
+        _wait_namespace_not_terminating(_namespace(op), env=env)
         logger.info(f"Installing operator '{op['name']}': {' '.join(command)}")
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = _run(command, env)
         if result.returncode != 0:
             logger.warning(
                 f"Operator '{op['name']}' install failed (exit={result.returncode}):\n"
@@ -706,7 +757,7 @@ def _helm_upgrade(op: Dict[str, Any], chart_dir: Path, overlay: Dict[str, Any]) 
             pass
 
 
-def _install_operator(op: Dict[str, Any]) -> bool:
+def _install_operator(op: Dict[str, Any], env=None) -> bool:
     repo_root = _resolve_repo_root(op)
     if not repo_root:
         logger.warning(
@@ -725,38 +776,40 @@ def _install_operator(op: Dict[str, Any]) -> bool:
     else:
         passes = op.get("passes", [op.get("overlay") or {}])
     for overlay in passes:
-        if not _helm_upgrade(op, chart_dir, overlay):
+        if not _helm_upgrade(op, chart_dir, overlay, env):
             return False
     return True
 
 
-def provision_k3s_operators() -> None:
-    """Install all cluster operators onto the running k3s cluster (best-effort).
+def provision_k3s_operators(env=None) -> None:
+    """Install all cluster operators onto an environment's k3s cluster.
 
-    Requires ``KUBECONFIG`` to already point at the Floci k3s cluster. Safe to
-    call repeatedly (each install is ``helm upgrade --install``).
+    Best-effort. ``env`` selects which cluster: every command below is issued
+    with that environment's kubeconfig, never an ambient ``KUBECONFIG``, so two
+    environments provisioned in the same process cannot cross-contaminate. Safe
+    to call repeatedly (each install is ``helm upgrade --install``).
     """
     if not _enabled():
         logger.info("k3s operator provisioning disabled via " + _ENABLE_ENV)
         return
-    if not os.environ.get("KUBECONFIG"):
+    if env is None and not os.environ.get("KUBECONFIG"):
         logger.info("KUBECONFIG not set; skipping k3s operator provisioning")
         return
 
     # The cluster's EKS status is ACTIVE, but the node may still be warming up;
     # wait for it before installing (helm --wait would otherwise fail).
-    _wait_for_node_ready()
-    _clean_stale_nodes()
-    _ensure_node_topology_labels()
+    _wait_for_node_ready(env=env)
+    _clean_stale_nodes(env)
+    _ensure_node_topology_labels(env)
 
-    # Make the in-network Floci hostname resolvable from pods first, so operators
-    # and workload charts alike can reach `neuronsphere:4566` (cloud parity).
-    _ensure_coredns_floci_entry()
+    # Map the canonical hostnames (neuronsphere, hmd_db, global-graph) to this
+    # environment's own containers so cloud charts run unmodified.
+    _ensure_coredns_floci_entry(env)
 
     # Confirm the image-baked ingress controller (Traefik) is up (or tear it
     # down if disabled) so the seeded ingress-controller Resource is real and
     # Ingress objects are served on the node's :80/:443.
-    _ensure_ingress_controller()
+    _ensure_ingress_controller(env=env)
 
     # The External Secrets stack deploys through the ms-deployment DAG by default now
     # (opt out via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false) — same as when an
@@ -782,7 +835,7 @@ def provision_k3s_operators() -> None:
                 "DAG (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS)"
             )
             continue
-        if _install_operator(op):
+        if _install_operator(op, env):
             installed.append(op["name"])
     if installed:
         logger.info(f"Installed k3s operators: {', '.join(installed)}")

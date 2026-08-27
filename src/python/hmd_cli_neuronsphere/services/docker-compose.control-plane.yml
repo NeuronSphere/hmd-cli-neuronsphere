@@ -1,20 +1,36 @@
 version: "3.7"
 
 services:
+  # The ONLY container in the whole local stack that publishes host ports.
+  # Everything else -- the control-plane Floci, every environment's Floci,
+  # Postgres, JanusGraph, Trino -- is reached through here, either as an HTTP
+  # location or an L4 stream. That is what lets several environments coexist on
+  # one machine without colliding.
   proxy:
     container_name: hmd_proxy
     image: nginx:stable-alpine
     restart: unless-stopped
     ports:
       - "80:80"
-      # Durable host route to the k3s Trino coordinator: nginx streams this port
-      # to the Trino NodePort on floci-eks (see configure_trino_host_route), so
-      # integration tests reach Trino without a kubectl port-forward.
+      # Streamed to the control-plane floci container. Keeps `neuronsphere:4566`
+      # (the hostname baked into presigned S3/API URLs, mapped to 127.0.0.1 in
+      # the host's /etc/hosts) working now that Floci publishes nothing itself.
+      - "4566:4566"
+      # Durable host route to the default environment's k3s Trino coordinator,
+      # kept at its historical port so existing integration tests are unaffected.
       - "${HMD_LOCAL_TRINO_HOST_PORT:-18080}:${HMD_LOCAL_TRINO_HOST_PORT:-18080}"
+      # Per-environment stream listeners. A compose `ports:` list is static, so
+      # the whole range is published up front and individual listeners inside it
+      # are added/removed at runtime with an nginx reload -- no restart. See
+      # env_registry.env_port_range().
+      - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19063}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19063}"
     networks:
       - neuronsphere_default
     volumes:
       - "${HMD_HOME}/.cache/nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
+      # Directory bind so route fragments added/removed at runtime are visible
+      # without recreating the container (see nginx_router).
+      - "${HMD_HOME}/.cache/nginx:/etc/nginx/ns:ro"
 
   db:
     container_name: hmd_db
@@ -29,8 +45,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    ports:
-      - "5432:5432"
+    # No host port: databases are not reachable from the host. Use
+    # `docker exec hmd_db psql -U postgres` for a shell.
     networks:
       - neuronsphere_default
     volumes:
@@ -51,13 +67,20 @@ services:
   # `neuronsphere-workload` network alias is retained so in-network consumers
   # that still address `neuronsphere-workload:4566` resolve to this instance.
   floci:
-    image: floci/floci:1.5.8
+    image: floci/floci:1.5.34
     container_name: floci
-    ports:
-      - "4566:4566"
+    # No host port: reached from the host via hmd_proxy's :4566 stream, so that
+    # every published port on this machine belongs to exactly one container.
     environment:
       # Union of the former admin (eks) and workload (rds) service sets.
       FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager,rds
+      # Persistent state lives in ${HMD_HOME}/floci/data. Caveat: Floci writes
+      # every API Gateway *v1* entity (apigateway-*.json) with all-null fields
+      # and, as of 1.5.34, rehydrates those records on start -- so a restart
+      # serves back nameless, undeletable gateways. `clear_apigateway_state`
+      # drops those files on every `up`; gateways are recreated from scratch
+      # anyway. Every other service (lambda, s3, secretsmanager, iam, eks,
+      # apigatewayv2) persists correctly.
       FLOCI_STORAGE_MODE: persistent
       FLOCI_LAMBDA_EXECUTOR: docker
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}

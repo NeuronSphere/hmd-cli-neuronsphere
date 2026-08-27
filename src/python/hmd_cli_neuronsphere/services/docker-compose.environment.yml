@@ -1,0 +1,107 @@
+version: "3.7"
+
+# One named local environment: a self-contained emulated AWS account.
+#
+# Each environment gets its own Floci (its own account id and state), its own
+# Postgres and its own JanusGraph -- mirroring the cloud, where every account
+# carries its own RDS and Neptune. Its k3s/EKS cluster is spawned by *this*
+# Floci, and `hmd-ms-dbaccount` is deployed into it.
+#
+# NO service here publishes a host port. Everything is reached through
+# `hmd_proxy`: HTTP at http://localhost/<slug>/<service>/, and the environment's
+# Floci through an nginx stream on its allocated port. That is what allows
+# several environments to run side by side.
+#
+# Every NS_ENV_* value comes from the environment registry
+# (env_registry.LocalEnvironment.compose_env) and is exported by
+# `environments.py` before compose is invoked. Container names are
+# slug-suffixed because a Docker network alias must be unique on the shared
+# network; inside each cluster CoreDNS maps the canonical names
+# (hmd_db, global-graph, neuronsphere) back to that environment's containers,
+# so cloud Helm charts work unmodified.
+
+services:
+  floci:
+    image: floci/floci:1.5.34
+    container_name: ${NS_ENV_FLOCI_CONTAINER}
+    environment:
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager,rds
+      # Persistent state lives in this environment's own data dir. Floci writes
+      # API Gateway *v1* entities with all-null fields and rehydrates them on
+      # start, so `clear_apigateway_state` drops those files on every `up`;
+      # every other service persists correctly.
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_LAMBDA_EXECUTOR: docker
+      FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
+      # This environment's emulated AWS account -- distinct from the control
+      # plane's 000000000000 and from every other environment's.
+      FLOCI_DEFAULT_ACCOUNT_ID: ${NS_ENV_ACCOUNT_ID}
+      FLOCI_HOSTNAME: ${NS_ENV_FLOCI_CONTAINER}
+      FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      FLOCI_SERVICES_EKS_MOCK: "false"
+      # Floci hardcodes two broken kube-apiserver overrides when spawning k3s
+      # (--kube-apiserver-arg=storage-backend=sqlite3 and
+      # etcd-servers=unix:///tmp/kine.sock) that crash-loop the apiserver. The
+      # hmd-img-k3s-floci wrapper entrypoint drops them.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.2}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
+    volumes:
+      - "${NS_ENV_STATE_DIR}/floci/data:/app/data"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_floci/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      neuronsphere_default:
+        aliases:
+          - ${NS_ENV_FLOCI_ALIAS}
+
+  db:
+    container_name: ${NS_ENV_DB_CONTAINER}
+    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+    environment:
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-none}
+      HMD_DID: ${NS_ENV_DEPLOYMENT_ID}
+      HMD_ENVIRONMENT: local
+      HMD_REGION: ${HMD_REGION:-reg1}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - neuronsphere_default
+    volumes:
+      - type: bind
+        source: ${NS_ENV_STATE_DIR}/postgresql/data
+        target: /var/lib/postgresql/data
+      # Deliberately no docker-entrypoint-initdb.d mount, matching the control
+      # plane: databases are created the cloud-parity way, by this
+      # environment's own ms-dbaccount Lambda. Mounting the shared
+      # always-initdb.d dir pulled in stale scripts that aborted the init chain
+      # and stalled postgres startup for minutes on a fresh boot.
+
+  graph:
+    container_name: ${NS_ENV_GRAPH_CONTAINER}
+    image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
+    environment:
+      - gremlinserver.scriptEngines.gremlin-groovy.plugins[org.apache.tinkerpop.gremlin.jsr223.ScriptFileGremlinPlugin].files[0]=scripts/init.groovy
+    healthcheck:
+      test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
+      interval: 30s
+      timeout: 1m30s
+      retries: 5
+    volumes:
+      - "${NS_ENV_STATE_DIR}/graph_db:/var/lib/janusgraph"
+    networks:
+      - neuronsphere_default
+
+networks:
+  neuronsphere_default:
+    external: true
+    name: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}

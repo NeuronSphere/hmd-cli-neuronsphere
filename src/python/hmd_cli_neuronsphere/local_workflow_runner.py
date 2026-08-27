@@ -127,30 +127,117 @@ class LocalWorkflowRunner:
     ``bom_seeder.LOCAL_CORE_BOM``) and has nothing to actually deploy.
     """
 
-    def __init__(self, base_url: str, cluster_name: str = None):
+    def __init__(
+        self, base_url: str, cluster_name: str = None, env=None, repo_paths=None
+    ):
         """
         :param base_url: ms-deployment base URL (e.g., http://localhost/hmd_ms_deployment)
         :param cluster_name: The local k3s cluster name, used to rewrite the mounted
             kubeconfig's server to the in-network Floci EKS alias (see
             _kubeconfig_for_container). Without it, nodes fall back to the raw
             kubeconfig's host-only server, which is unreachable from in-container.
+        :param env: The named local environment being deployed into. Selects the
+            Floci account the deploy targets, the deployment id, and the
+            kubeconfig -- all of which differ per environment.
+        :param repo_paths: Optional ``repo_class_name`` -> working-tree overrides
+            for repo instances an environment manifest declares with an explicit
+            ``source.path``, which by definition are not under ``HMD_REPO_HOME``
+            where :func:`_repo_path_for` would find them.
         """
         self.base_url = base_url
-        self.cluster_name = cluster_name
+        self.env = env
+        self.cluster_name = cluster_name or (env.k3s_cluster if env else None)
+        self.repo_paths = dict(repo_paths or {})
+        # Instance names the most recent run() settled successfully. A partial
+        # run is normal (the DAG stops at the first failure), and the reconcile
+        # snapshot must record exactly what landed -- no more, so a failed entry
+        # stays eligible for retry, and no less, so a succeeded one is not
+        # redeployed on every subsequent `up`.
+        self.last_succeeded: List[str] = []
 
-    def run(self, csd_nid: str, nodes: List[Dict]) -> bool:
+    def env_route_prefix(self) -> str:
+        """The nginx path prefix this environment's services are routed under.
+
+        Only the control plane (ms-deployment, ms-naming, artifact-lib) is served
+        unprefixed. Everything belonging to an environment -- ms-dbaccount above
+        all, since it is per-environment exactly as in the cloud -- lives at
+        ``/<slug>/<service>/``; ``nginx_router.write_env_routes`` prefixes every
+        environment, legacy layout included.
+        """
+        if self.env is None:
+            return ""
+        return f"/{self.env.slug}"
+
+    def ns_local_proxy(self) -> str:
+        """Container-reachable root a deploy tool joins ``/hmd_ms_<svc>/…`` onto.
+
+        Host-side the local nginx is ``localhost``; inside the projectbuilder
+        container it is the ``hmd_proxy`` container on the NeuronSphere network.
+        The environment's route prefix is included because the services reached
+        this way are the environment's own -- ``hmd-cli-dbaccount``'s local
+        branch POSTs to ``{NS_LOCAL_PROXY}/hmd_ms_dbaccount/api/create_db_account``,
+        and without the prefix that is a control-plane path where ms-dbaccount is
+        not routed at all.
+
+        Distinct from ``HMD_DEPLOYMENT_SERVICE_URL``, which addresses
+        ms-deployment: that one *is* control-plane, and stays unprefixed.
+        """
+        override = os.environ.get("NS_LOCAL_PROXY")
+        if override:
+            return override
+        root = (
+            self.base_url.split("/hmd_ms_deployment")[0]
+            .replace("localhost", "hmd_proxy")
+            .replace("127.0.0.1", "hmd_proxy")
+            .rstrip("/")
+        )
+        return f"{root}{self.env_route_prefix()}"
+
+    def _repo_path(self, repo_class_name: str) -> Optional[str]:
+        """The directory to mount and deploy ``repo_class_name`` from.
+
+        The artifact bundled with the plugin package wins, so the code that
+        deploys is the build the node is registered as; a working tree is
+        mounted only under a local version override. See
+        :func:`bom_seeder.repo_root_candidates`.
+        """
+        from .bom_seeder import repo_root_candidates
+
+        declared = self.repo_paths.get(repo_class_name)
+        candidates = repo_root_candidates(
+            repo_class_name,
+            repo_path=declared if declared and os.path.isdir(declared) else None,
+        )
+        return candidates[0] if candidates else None
+
+    def run(self, csd_nid: str, nodes: List[Dict], destroy: bool = False) -> bool:
         """Execute deployment nodes in DAG order.
 
         :param csd_nid: The ChangeSetDeployment identifier
         :param nodes: Ordered list of node descriptors from generate_local_deployment
+        :param destroy: Whether this is a destroy manifest. ms-deployment already
+            emitted ``deploy --destroy`` scripts and ordered the DAG in reverse
+            dependency order; what changes here is the status each node settles
+            into (``DESTROYED``, not ``DEPLOYED``) and the fact that a teardown
+            produces no Resources to submit.
         :returns: True if all nodes succeeded
         """
+        verb = "DESTROY" if destroy else "DEPLOY"
+        success_status = "DESTROYED" if destroy else "DEPLOYED"
+        final_csd_status = "DESTROYED" if destroy else "COMPLETED"
+        succeeded: List[str] = []
+        self.last_succeeded = succeeded
+
         self._set_csd_status(csd_nid, "STARTED")
 
         core_count = sum(1 for n in nodes if n["repo_class_name"] == CORE_REPO_CLASS)
-        deploy_count = len(nodes) - core_count
-        logger.info(f"Node summary: {core_count} core (no-op), {deploy_count} deploy")
-        print(f"  Node summary: {core_count} core (no-op), {deploy_count} deploy")
+        other_count = len(nodes) - core_count
+        logger.info(
+            f"Node summary: {core_count} core (no-op), {other_count} {verb.lower()}"
+        )
+        print(
+            f"  Node summary: {core_count} core (no-op), {other_count} {verb.lower()}"
+        )
 
         for node in nodes:
             instance_name = node["instance_name"]
@@ -158,17 +245,22 @@ class LocalWorkflowRunner:
             rid_nid = node["rid_nid"]
 
             if repo_class_name == CORE_REPO_CLASS:
+                # The core instance anchors the local Resource graph and is never
+                # torn down by a reconcile, so a core node in a destroy manifest
+                # is still just a status flip.
                 logger.info(f"CORE: {instance_name} ({repo_class_name})")
                 print(f"  CORE: {instance_name} ({repo_class_name})")
-                self._set_status(rid_nid, "DEPLOYED")
+                self._set_status(rid_nid, success_status)
+                succeeded.append(instance_name)
                 continue
 
-            logger.info(f"DEPLOY: {instance_name} ({repo_class_name})")
-            print(f"  DEPLOY: {instance_name} ({repo_class_name})")
+            logger.info(f"{verb}: {instance_name} ({repo_class_name})")
+            print(f"  {verb}: {instance_name} ({repo_class_name})")
 
-            success = self._execute_in_projectbuilder(node)
+            success = self._execute_in_projectbuilder(node, destroy=destroy)
             if success:
-                self._set_status(rid_nid, "DEPLOYED")
+                self._set_status(rid_nid, success_status)
+                succeeded.append(instance_name)
             else:
                 self._set_status(rid_nid, "FAILED")
                 self._set_csd_status(csd_nid, "FAILED")
@@ -176,7 +268,7 @@ class LocalWorkflowRunner:
                 print(f"  FAILED: {instance_name}")
                 return False
 
-        self._set_csd_status(csd_nid, "COMPLETED")
+        self._set_csd_status(csd_nid, final_csd_status)
         return True
 
     def _prepare_overlay_workspace(self, repo_path: str, overlay_dir: Path) -> str:
@@ -214,7 +306,7 @@ class LocalWorkflowRunner:
             logger.info(f"Applied src/local overlay: {', '.join(applied)}")
         return workspace
 
-    def _execute_in_projectbuilder(self, node: Dict) -> bool:
+    def _execute_in_projectbuilder(self, node: Dict, destroy: bool = False) -> bool:
         """Run a deploy script in an hmd-img-projectbuilder container.
 
         The container runs on the neuronsphere_default network with
@@ -253,17 +345,14 @@ class LocalWorkflowRunner:
         )
         # Generic container-reachable root of the local proxy (nginx / `hmd_proxy`)
         # that fronts *every* local ms-* service's API Gateway route. Unlike
-        # HMD_DEPLOYMENT_SERVICE_URL (ms-deployment-specific), this is the shared
-        # base a deploy tool joins its own `/hmd_ms_<svc>/...` path onto — e.g.
-        # hmd-cli-dbaccount's local branch POSTs to
-        # `{NS_LOCAL_PROXY}/hmd_ms_dbaccount/api/create_db_account`. Host-side that
-        # nginx is `localhost`; in-container it's the `hmd_proxy` container.
-        ns_local_proxy = os.environ.get(
-            "NS_LOCAL_PROXY",
-            self.base_url.split("/hmd_ms_deployment")[0]
-            .replace("localhost", "hmd_proxy")
-            .replace("127.0.0.1", "hmd_proxy"),
-        )
+        # HMD_DEPLOYMENT_SERVICE_URL (ms-deployment-specific, and control-plane so
+        # unprefixed), this is the shared base a deploy tool joins its own
+        # `/hmd_ms_<svc>/...` path onto — e.g. hmd-cli-dbaccount's local branch
+        # POSTs to `{NS_LOCAL_PROXY}/hmd_ms_dbaccount/api/create_db_account`.
+        # Host-side that nginx is `localhost`; in-container it's `hmd_proxy`.
+        #
+        # It must carry the environment's route prefix — see ns_local_proxy().
+        ns_local_proxy = self.ns_local_proxy()
         # In-container submit is opt-in: it requires a projectbuilder whose
         # `hmd-cli-deploy` understands the local endpoint (HMD_DEPLOYMENT_SERVICE_URL).
         # Older projectbuilder images would try the cloud API Gateway and fail the
@@ -273,16 +362,24 @@ class LocalWorkflowRunner:
             os.environ.get("HMD_LOCAL_INCONTAINER_RESOURCE_SUBMIT")
         )
 
-        # Single Floci endpoint (control plane == workload account); resolved
-        # via the `neuronsphere` Docker network alias. FLOCI_WORKLOAD_ENDPOINT_DOCKER
-        # is still honored for backward compatibility but now points here too.
+        # The Floci account this deploy targets: the environment's own, resolved
+        # by its real container name. NOT the `neuronsphere` alias -- that is a
+        # network alias on the *control-plane* Floci, so using it here would
+        # silently create the environment's CDKTF resources in the wrong account.
+        # (Inside the k3s cluster, CoreDNS does point `neuronsphere` at this
+        # environment's Floci; the projectbuilder container is not in the
+        # cluster, so it must address the container directly.)
+        if self.env is not None and not getattr(self.env, "legacy_layout", False):
+            default_endpoint = f"http://{self.env.floci_container}:4566"
+        else:
+            default_endpoint = "http://neuronsphere:4566"
         floci_endpoint = os.environ.get(
-            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", "http://neuronsphere:4566"
+            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", default_endpoint
         )
 
         # Resolve the repo path and any src/local overlay, then decide the
         # workspace to mount and the script to run.
-        repo_path = _repo_path_for(repo_class_name)
+        repo_path = self._repo_path(repo_class_name)
         overlay_dir = _overlay_dir_for(repo_path)
         workspace = repo_path
         tmp_workspace: Optional[str] = None
@@ -299,6 +396,26 @@ class LocalWorkflowRunner:
             elif _overlay_has_tool_files(overlay_dir):
                 tmp_workspace = self._prepare_overlay_workspace(repo_path, overlay_dir)
                 workspace = tmp_workspace
+
+        # There is no bundled-in-image fallback for a repo's own deploy source
+        # (unlike the best-effort sibling-repo mounts elsewhere in the local
+        # platform) -- the projectbuilder image is a generic build toolchain,
+        # not a per-repo artifact. Without a workspace the container falls
+        # back to the image's default WORKDIR (`/`), and the deploy script's
+        # relative paths (e.g. hmd-cli-cdktf's `os.chdir("src/cdktf")`) fail
+        # with a confusing downstream FileNotFoundError instead of this.
+        if not workspace:
+            message = (
+                f"Could not resolve a working tree for {repo_class_name}: no "
+                f"bundled build artifact, no source.path declared in the "
+                f"environment manifest, and $HMD_REPO_HOME/{repo_class_name} "
+                f"was not found. Set HMD_REPO_HOME to a directory containing "
+                f"this repo, or declare source.path for it in the environment "
+                f"manifest."
+            )
+            logger.error(message)
+            print(f"  FAILED: {message}")
+            return False
 
         # A local NeuronSphere has no Artifact Librarian, so `hmd deploy` must take
         # its code from a local source instead of pulling the build bundle. Prefer a
@@ -355,11 +472,11 @@ class LocalWorkflowRunner:
             # `_import_images_into_k3s` (`_k3s_container_name()`) targets THIS
             # HMD_HOME's `floci-eks-<cluster>` node, not the unscoped default.
             "-e",
-            f"HMD_LOCAL_K3S_CLUSTER_NAME={K3S_CLUSTER_NAME}",
+            f"HMD_LOCAL_K3S_CLUSTER_NAME={self.cluster_name or K3S_CLUSTER_NAME}",
             "-e",
             f"HMD_CUSTOMER_CODE={os.environ.get('HMD_CUSTOMER_CODE', 'none')}",
             "-e",
-            f"HMD_DID={os.environ.get('HMD_DID', 'aaa')}",
+            f"HMD_DID={self.env.deployment_id if self.env else os.environ.get('HMD_DID', 'aaa')}",
             "-e",
             f"HMD_REGION={os.environ.get('HMD_REGION', 'reg1')}",
             "-e",
@@ -431,8 +548,11 @@ class LocalWorkflowRunner:
             # Submit produced Resources from the runner while the (possibly
             # temp) workspace still exists — hmd-cli-helm renders them under
             # meta-data/resources_output/ during the deploy. Skipped when the
-            # in-container path already handled submission.
-            if result.returncode == 0 and not incontainer_submit:
+            # in-container path already handled submission, and on a destroy,
+            # which tears Resources down rather than producing them (any
+            # resources_output/ left over from the prior deploy would otherwise
+            # be re-submitted for an instance that no longer exists).
+            if result.returncode == 0 and not incontainer_submit and not destroy:
                 self._submit_produced_resources(workspace, node)
         finally:
             os.unlink(script_file.name)
@@ -537,10 +657,14 @@ class LocalWorkflowRunner:
             )
             return 0
 
-    @staticmethod
-    def _local_kubeconfig_path() -> Optional[str]:
-        """Resolve the local k3s kubeconfig, mirroring hmd-cli-helm's lookup."""
+    def _local_kubeconfig_path(self) -> Optional[str]:
+        """Resolve the k3s kubeconfig, mirroring hmd-cli-helm's lookup.
+
+        The environment's own kubeconfig wins: every environment has its own
+        cluster, so an ambient ``KUBECONFIG`` may well point at a different one.
+        """
         candidates = [
+            str(self.env.kubeconfig) if self.env is not None else None,
             os.environ.get("HMD_LOCAL_K3S_KUBECONFIG"),
             os.environ.get("KUBECONFIG"),
         ]

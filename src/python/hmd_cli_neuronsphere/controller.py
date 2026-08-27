@@ -20,6 +20,25 @@ CONFIG_VALUES = {
     }
 }
 
+# Selects which named local environment a command acts on. Added to every
+# command whose effect is environment-scoped; omitting it uses HMD_LOCAL_ENV, or
+# the registry's default environment.
+ENV_ARG = (
+    ["--env"],
+    {
+        "help": (
+            "Named local environment to act on "
+            "(default: $HMD_LOCAL_ENV, else the registry default, else 'local')"
+        ),
+        "dest": "env_name",
+        "default": None,
+    },
+)
+
+
+def _env_name(pargs):
+    return getattr(pargs, "env_name", None)
+
 
 class LocalController(Controller):
     class Meta:
@@ -68,6 +87,19 @@ class LocalController(Controller):
                     "dest": "upgrade",
                 },
             ),
+            (
+                ["--prune"],
+                {
+                    "help": (
+                        "Destroy instances that are still deployed but no longer "
+                        "declared by the environment (a disabled plugin, a removed "
+                        "repo instance). Without this, `up` only reports them."
+                    ),
+                    "action": "store_true",
+                    "dest": "prune",
+                },
+            ),
+            ENV_ARG,
         ],
     )
     def up(self):
@@ -76,6 +108,8 @@ class LocalController(Controller):
         start_neuronsphere(
             verbose=self.app.pargs.verbose,
             upgrade=getattr(self.app.pargs, "upgrade", False),
+            env_name=_env_name(self.app.pargs),
+            prune=getattr(self.app.pargs, "prune", False),
         )
 
     @ex(
@@ -93,23 +127,65 @@ class LocalController(Controller):
                 ["--purge"],
                 {
                     "help": (
-                        "Also delete persisted Floci/PostgreSQL state and the "
-                        "bootstrap marker so the next `up` re-runs the full "
-                        "deployment workflow (extend mode)."
+                        "Also delete persisted Floci/PostgreSQL/graph state so the "
+                        "next `up` re-runs the full deployment workflow. Without "
+                        "--env this destroys the deployment graph for EVERY "
+                        "environment."
                     ),
                     "action": "store_true",
                     "dest": "purge",
                 },
             ),
+            (
+                ["--yes", "-y"],
+                {
+                    "help": "Skip the confirmation prompt for a full --purge.",
+                    "action": "store_true",
+                    "dest": "assume_yes",
+                },
+            ),
+            ENV_ARG,
         ],
     )
     def down(self):
         from .hmd_cli_neuronsphere import stop_neuronsphere
 
+        p = self.app.pargs
+        purge = getattr(p, "purge", False)
+        env_name = _env_name(p)
+
+        # A whole-stack purge wipes the control-plane database, and with it
+        # ms-deployment's graph for every environment -- which "--purge" alone
+        # does not convey. Name what will be destroyed before doing it.
+        if purge and not env_name and not getattr(p, "assume_yes", False):
+            if not self._confirm_full_purge():
+                print("Aborted.")
+                return
+
         stop_neuronsphere(
-            verbose=self.app.pargs.verbose,
-            purge=getattr(self.app.pargs, "purge", False),
+            verbose=p.verbose,
+            purge=purge,
+            env_name=env_name,
         )
+
+    @staticmethod
+    def _confirm_full_purge() -> bool:
+        from . import env_registry
+
+        try:
+            envs = [e.slug for e in env_registry.list_envs()]
+        except Exception:
+            envs = []
+        print("\n  `down --purge` will permanently delete:")
+        print("    - the control plane's Floci, PostgreSQL and graph state")
+        print("    - ms-deployment's deployment graph for ALL environments")
+        if envs:
+            print(f"    - all state for environment(s): {', '.join(envs)}")
+        print("\n  To purge a single environment instead, use --env <name>.")
+        try:
+            return input("  Type 'yes' to continue: ").strip().lower() == "yes"
+        except (EOFError, KeyboardInterrupt):
+            return False
 
     @ex(
         help="Restart the local NeuronSphere",
@@ -336,12 +412,16 @@ class LocalController(Controller):
                     "dest": "json_mode",
                 },
             ),
+            ENV_ARG,
         ],
     )
     def status(self):
         from .hmd_cli_neuronsphere import print_status
 
-        print_status(json_mode=self.app.pargs.json_mode)
+        print_status(
+            json_mode=self.app.pargs.json_mode,
+            env_name=_env_name(self.app.pargs),
+        )
 
     @ex(
         help="Configure local NeuronSphere plugins and settings",
@@ -730,18 +810,30 @@ networks:
                 ["-u", "--username"],
                 {"help": "Login role (defaults to db_name)", "dest": "username"},
             ),
-            (["--host"], {"help": "DB host", "dest": "host", "default": "hmd_db"}),
+            (
+                ["--host"],
+                {
+                    "help": "DB host (default: the environment's own Postgres)",
+                    "dest": "host",
+                    "default": None,
+                },
+            ),
             (
                 ["--port"],
                 {"help": "DB port", "dest": "port", "type": int, "default": 5432},
             ),
+            ENV_ARG,
         ],
     )
     def db_provision(self):
+        from . import env_registry
         from .dev_db import provision_and_register_db
 
         p = self.app.pargs
-        provision_and_register_db(p.db_name, p.username or p.db_name, p.host, p.port)
+        env = env_registry.resolve_env(_env_name(p))
+        provision_and_register_db(
+            p.db_name, p.username or p.db_name, p.host, p.port, env=env
+        )
 
     @ex(
         help="Register an existing DB (created without dbaccount) as a NERD Resource",
@@ -760,9 +852,11 @@ networks:
                 ["--secret-name"],
                 {"help": "Connection-credentials secret name", "dest": "secret_name"},
             ),
+            ENV_ARG,
         ],
     )
     def db_register(self):
+        from . import env_registry
         from .dev_db import register_db_resource
 
         p = self.app.pargs
@@ -772,6 +866,7 @@ networks:
             p.host,
             p.port,
             secret_name=p.secret_name,
+            env=env_registry.resolve_env(_env_name(p)),
         )
 
     @ex(
@@ -808,3 +903,375 @@ networks:
             },
         )
         print(json.dumps(config, indent=2))
+
+    @ex(
+        help="Route a DAG-deployed service (`hmd deploy --local`) through the "
+        "hmd_proxy nginx at http://localhost/<route>/. Discovers the service's "
+        "CDKTF-managed API Gateway in Floci by repo name; safe to re-run after "
+        "every redeploy.",
+        arguments=[
+            (
+                ["repo_name"],
+                {"help": "Repo name to search for, e.g. hmd-ms-device-lib"},
+            ),
+            (
+                ["--route"],
+                {
+                    "help": "Path segment to route under (default: repo_name)",
+                    "dest": "route",
+                    "default": None,
+                },
+            ),
+            ENV_ARG,
+        ],
+    )
+    def route_service(self):
+        from . import env_registry
+        from .floci_deployer import env_target, find_deployed_rest_api
+        from .nginx_router import add_service_route
+
+        p = self.app.pargs
+        route = p.route or p.repo_name
+        env = env_registry.resolve_env(_env_name(p))
+
+        # A DAG-deployed service lives in its environment's Floci account, so
+        # that is where its gateway must be discovered.
+        match = find_deployed_rest_api(p.repo_name, target=env_target(env))
+        if not match:
+            print(
+                f"No deployed API Gateway found in environment '{env.slug}' "
+                f"matching '{p.repo_name}'."
+            )
+            return
+
+        add_service_route(route, match["rest_api_id"], match["stage_name"], env=env)
+        print(
+            f"Routed http://localhost/{env.slug}/{route}/ -> {match['name']} "
+            f"({match['rest_api_id']}/{match['stage_name']})"
+        )
+
+
+class EnvController(Controller):
+    """Manage named local environments.
+
+    A local NeuronSphere is one shared **control plane** (ms-deployment,
+    ms-naming, artifact-lib, plus the supporting Floci, nginx, Postgres and
+    JanusGraph) and N **environments**. Each environment is a self-contained
+    emulated AWS account with its own Floci, EKS/k3s cluster, Postgres,
+    JanusGraph and ms-dbaccount -- matching the cloud, where every account
+    carries its own dbaccount, RDS and Neptune.
+
+    Only ``hmd_proxy`` publishes host ports, so environments coexist without
+    colliding: HTTP is served at ``http://localhost/<name>/<service>/`` and
+    non-HTTP protocols get their own stream ports.
+    """
+
+    class Meta:
+        label = "env"
+        stacked_type = "nested"
+        stacked_on = "neuronsphere"
+        description = "Manage named local NeuronSphere environments"
+
+    def _default(self):
+        self._parser.print_help()
+
+    @ex(
+        help="Create a named local environment: a Floci account with its own EKS "
+        "cluster, Postgres and JanusGraph, with the Local BOM deployed into it",
+        arguments=[
+            (["name"], {"help": "Environment name (lowercase, e.g. dev2)"}),
+            (
+                ["--no-deploy"],
+                {
+                    "help": "Register and start the environment but skip BOM deployment",
+                    "action": "store_true",
+                    "dest": "no_deploy",
+                },
+            ),
+            (
+                ["--manifest"],
+                {
+                    "help": (
+                        "Environment manifest (YAML or JSON) declaring which "
+                        "plugins to enable and which repo instances to deploy"
+                    ),
+                    "dest": "manifest_file",
+                    "default": None,
+                },
+            ),
+            (
+                ["--bom-file"],
+                {
+                    "help": (
+                        "Deprecated: flat BOM JSON array to merge into the "
+                        "built-in Local BOM. Prefer --manifest."
+                    ),
+                    "dest": "bom_file",
+                    "default": None,
+                },
+            ),
+            (
+                ["--verbose", "-V"],
+                {
+                    "help": "Show full Docker Compose output",
+                    "action": "store_true",
+                    "dest": "verbose",
+                },
+            ),
+        ],
+    )
+    def create(self):
+        from .environments import create_environment
+
+        p = self.app.pargs
+        create_environment(
+            p.name,
+            deploy=not getattr(p, "no_deploy", False),
+            verbose=p.verbose,
+            bom_file=p.bom_file,
+            manifest_file=getattr(p, "manifest_file", None),
+        )
+
+    @ex(
+        help="Show what `up` would add, redeploy or destroy for an environment",
+        arguments=[
+            ENV_ARG,
+            (
+                ["--json"],
+                {"help": "Output JSON", "action": "store_true", "dest": "json_mode"},
+            ),
+        ],
+    )
+    def plan(self):
+        import json
+
+        from . import env_registry
+        from .environments import environment_plan
+        from .hmd_cli_neuronsphere import load_hmd_env
+
+        load_hmd_env()
+        env = env_registry.resolve_env(_env_name(self.app.pargs))
+        plan = environment_plan(env)
+
+        if getattr(self.app.pargs, "json_mode", False):
+            print(
+                json.dumps(
+                    {
+                        "environment": env.slug,
+                        "degraded": plan.degraded,
+                        "add": [e["repo_instance_name"] for e in plan.add],
+                        "change": [e["repo_instance_name"] for e in plan.change],
+                        "remove": plan.remove,
+                        "unchanged": plan.unchanged,
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        if plan.degraded:
+            print(
+                "\n  Could not read the deployment graph — is the local "
+                "NeuronSphere running?\n"
+            )
+            return
+        print(f"\n  Environment '{env.slug}': {plan.summary()}\n")
+        for line in plan.render(indent="    "):
+            print(line)
+        if plan.is_empty:
+            print("    (already matches its declared state)")
+        else:
+            flags = []
+            if plan.add or plan.change:
+                flags.append("--upgrade")
+            if plan.remove:
+                flags.append("--prune")
+            print(
+                f"\n    Apply with `hmd neuronsphere up --env {env.slug} "
+                f"{' '.join(flags)}`"
+            )
+        print()
+
+    @ex(
+        help="Print an environment's fully resolved change_set definition",
+        arguments=[
+            ENV_ARG,
+            (
+                ["--json"],
+                {"help": "Output JSON", "action": "store_true", "dest": "json_mode"},
+            ),
+        ],
+    )
+    def show(self):
+        import json
+
+        from . import env_registry
+        from .environments import environment_definition
+        from .hmd_cli_neuronsphere import load_hmd_env
+
+        load_hmd_env()
+        env = env_registry.resolve_env(_env_name(self.app.pargs))
+        definition = environment_definition(env)
+
+        if getattr(self.app.pargs, "json_mode", False):
+            print(json.dumps(definition, indent=2))
+            return
+
+        print(f"\n  Environment '{env.slug}' — {len(definition)} instance(s)\n")
+        print(f"    {'INSTANCE':<28} {'REPO CLASS':<34} VERSION")
+        for entry in definition:
+            print(
+                f"    {entry['repo_instance_name']:<28} "
+                f"{entry['repo_class_name']:<34} {entry['repo_class_version']}"
+            )
+        print("\n    (deploy order; dependencies first)\n")
+
+    @ex(
+        help="List local environments",
+        arguments=[
+            (
+                ["--json"],
+                {"help": "Output JSON", "action": "store_true", "dest": "json_mode"},
+            ),
+        ],
+    )
+    def list(self):
+        import json
+
+        from . import env_registry
+
+        reg = env_registry.load()
+        envs = env_registry.list_envs(reg)
+
+        if getattr(self.app.pargs, "json_mode", False):
+            print(
+                json.dumps(
+                    {
+                        "default_env": reg.default_env,
+                        "environments": [
+                            {
+                                "name": e.slug,
+                                "default": e.slug == reg.default_env,
+                                "account_id": e.account_id,
+                                "deployment_id": e.deployment_id,
+                                "k3s_cluster": e.k3s_cluster,
+                                "floci_port": e.floci_port,
+                                "trino_port": e.trino_port,
+                                "legacy_layout": e.legacy_layout,
+                                "bootstrapped": bool(e.bootstrap.get("csd_nid")),
+                            }
+                            for e in envs
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        if not envs:
+            print("\n  No local environments yet. Create one with:")
+            print("      hmd neuronsphere env create <name>\n")
+            return
+
+        print(
+            f"\n  {'':1} {'NAME':<16} {'ACCOUNT':<14} {'FLOCI':<7} {'TRINO':<7} ROUTES"
+        )
+        for e in envs:
+            marker = "*" if e.slug == reg.default_env else " "
+            print(
+                f"  {marker} {e.slug:<16} {e.account_id:<14} "
+                f"{e.floci_port:<7} {e.trino_port:<7} http://localhost/{e.slug}/"
+            )
+        print("\n  * = default (used when --env is omitted)\n")
+
+    @ex(
+        help="Stop a local environment and remove it from the registry",
+        arguments=[
+            (["name"], {"help": "Environment name"}),
+            (
+                ["--keep-state"],
+                {
+                    "help": "Leave the environment's persisted state on disk",
+                    "action": "store_true",
+                    "dest": "keep_state",
+                },
+            ),
+            (
+                ["--force"],
+                {
+                    "help": "Delete even if it is the default environment",
+                    "action": "store_true",
+                    "dest": "force",
+                },
+            ),
+            (
+                ["--verbose", "-V"],
+                {
+                    "help": "Show full Docker Compose output",
+                    "action": "store_true",
+                    "dest": "verbose",
+                },
+            ),
+        ],
+    )
+    def delete(self):
+        from .environments import delete_environment
+
+        p = self.app.pargs
+        delete_environment(
+            p.name,
+            purge=not getattr(p, "keep_state", False),
+            force=getattr(p, "force", False),
+        )
+
+    @ex(
+        help="Set the default environment used when --env is omitted",
+        arguments=[(["name"], {"help": "Environment name"})],
+    )
+    def use(self):
+        from . import env_registry
+
+        env = env_registry.set_default(self.app.pargs.name)
+        print(f"Default local environment is now '{env.slug}'.")
+
+    @ex(
+        help="Show one environment's containers, routes and bootstrap state",
+        arguments=[
+            (
+                ["name"],
+                {"help": "Environment name (default: the current one)", "nargs": "?"},
+            ),
+            (
+                ["--json"],
+                {"help": "Output JSON", "action": "store_true", "dest": "json_mode"},
+            ),
+        ],
+    )
+    def status(self):
+        import json
+
+        from . import env_registry
+        from .environments import environment_status
+
+        env = env_registry.resolve_env(self.app.pargs.name)
+        info = environment_status(env)
+
+        if getattr(self.app.pargs, "json_mode", False):
+            print(json.dumps(info, indent=2))
+            return
+
+        print(f"\n  Environment '{info['name']}'")
+        print(f"    account:       {info['account_id']}")
+        print(f"    deployment id: {info['deployment_id']}")
+        print(f"    k3s cluster:   {info['k3s_cluster']}")
+        print(f"    bootstrapped:  {'yes' if info['bootstrapped'] else 'no'}")
+        if info["legacy_layout"]:
+            print("    layout:        legacy (shares the control-plane containers)")
+        print("\n    Containers")
+        for role, c in info["containers"].items():
+            state = "running" if c["running"] else "stopped"
+            print(f"      {role:<7} {c['name']:<28} {state}")
+        print("\n    Routes")
+        for label, url in info["routes"].items():
+            print(f"      {label:<9} {url}")
+        print()

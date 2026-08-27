@@ -1,0 +1,350 @@
+"""nginx fragment assembly (``nginx_router``).
+
+The control plane and every environment each own exactly one HTTP fragment and
+one stream fragment, so adding or removing an environment cannot disturb any
+other owner. These tests cover that isolation, the idempotency of single-route
+edits, and the invariant that databases are never streamed to the host.
+
+Run directly: ``python -m pytest src/python/tests/test_nginx_router.py``
+"""
+
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from hmd_cli_neuronsphere import nginx_router as nr
+
+
+class _Env:
+    def __init__(self, slug, port_base=19000, slot=0):
+        self.slug = slug
+        self.floci_container = f"floci-{slug}"
+        self.db_container = f"hmd_db-{slug}"
+        self.graph_container = f"global-graph-{slug}"
+        self.k3s_cluster = f"ns-{slug}-abc"
+        self.kubeconfig = f"/tmp/{slug}/kubeconfig"
+        self.port_base = port_base
+        self.port_slot = slot
+        self.legacy_layout = False
+
+    @property
+    def floci_port(self):
+        return self.port_base + self.port_slot * 4
+
+    @property
+    def trino_port(self):
+        return self.floci_port + 1
+
+    @property
+    def is_default(self):
+        return self.slug == "local"
+
+
+class _TempHome(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = mock.patch.dict(
+            os.environ, {"HMD_HOME": self._tmp.name}, clear=False
+        )
+        self._env.start()
+        # Every one of these changes what gets rendered, so a developer (or CI
+        # box) that exports one would otherwise silently flip an assertion --
+        # `HMD_LOCAL_NEURONSPHERE_ENABLE_ARGO=false` in the shell turns
+        # `test_argo_route_on_by_default` into a failure about a default that is
+        # in fact still correct. patch.dict restores them on stop.
+        for var in (
+            "HMD_LOCAL_NEURONSPHERE_ENABLE_ARGO",
+            "HMD_LOCAL_ARGO_UPSTREAM",
+            "HMD_LOCAL_TRINO_HOST_PORT",
+            "HMD_LOCAL_ENV_PORT_BASE",
+            "HMD_LOCAL_ENV_PORT_RANGE",
+        ):
+            os.environ.pop(var, None)
+
+    def tearDown(self):
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def http_dir(self):
+        return Path(self._tmp.name) / ".cache" / "nginx" / "http.d"
+
+    def stream_dir(self):
+        return Path(self._tmp.name) / ".cache" / "nginx" / "stream.d"
+
+
+class BaseConfigTests(_TempHome):
+    def test_includes_both_fragment_dirs(self):
+        text = nr.render_base_config().read_text()
+        self.assertIn("include /etc/nginx/ns/http.d/*.conf;", text)
+        self.assertIn("include /etc/nginx/ns/stream.d/*.conf;", text)
+
+    def test_creates_fragment_dirs_so_the_glob_is_valid(self):
+        nr.render_base_config()
+        self.assertTrue(self.http_dir().is_dir())
+        self.assertTrue(self.stream_dir().is_dir())
+
+    def test_has_a_catch_all_404(self):
+        self.assertIn("no route defined", nr.render_base_config().read_text())
+
+    def test_bootstrap_config_is_self_contained(self):
+        # Written before the container starts, when the fragment dir may not be
+        # mounted yet -- an include would fail nginx's config test.
+        text = nr.write_bootstrap_config().read_text()
+        self.assertNotIn("include", text)
+        self.assertIn("503", text)
+
+    def test_bootstrap_config_streams_floci(self):
+        """The placeholder must already serve :4566.
+
+        Floci publishes no host port; `localhost:4566` is this stream and
+        nothing else. `up` polls that address to decide whether Floci came up,
+        so a placeholder without it makes a fresh bootstrap wait out the full
+        timeout and report "Ready (degraded)" however healthy Floci is.
+        """
+        text = nr.write_bootstrap_config(floci_container="floci").read_text()
+        self.assertIn("listen 4566;", text)
+        self.assertIn("floci:4566", text)
+
+    def test_bootstrap_config_names_the_control_plane_floci_container(self):
+        text = nr.write_bootstrap_config(floci_container="floci-legacy").read_text()
+        self.assertIn("floci-legacy:4566", text)
+
+    def test_bootstrap_config_does_not_clobber_a_working_config(self):
+        nr.render_base_config()
+        nr.write_control_plane_streams("floci")
+        nr.write_bootstrap_config()
+        self.assertIn("include", nr.base_config_path().read_text())
+
+    def test_bootstrap_config_replaces_one_that_cannot_serve_floci(self):
+        """A pre-multi-environment single-file config has no :4566 listener.
+
+        Leaving it in place is what makes `up` hang for 300s polling a port
+        nothing is listening on, so it is overwritten despite existing.
+        """
+        nr.base_config_path().parent.mkdir(parents=True, exist_ok=True)
+        nr.base_config_path().write_text(
+            "events {}\nhttp { server { listen 80; location / { return 404; } } }\n"
+        )
+        nr.write_bootstrap_config()
+        self.assertIn("listen 4566;", nr.base_config_path().read_text())
+
+    def test_an_include_config_without_its_fragment_is_not_serving_floci(self):
+        # The shell looks complete, but the fragment carrying the listener is
+        # gone, so nothing is on 4566.
+        nr.render_base_config()
+        self.assertFalse(nr.config_serves_floci(nr.base_config_path()))
+        nr.write_control_plane_streams("floci")
+        self.assertTrue(nr.config_serves_floci(nr.base_config_path()))
+
+
+class StreamResolutionTests(_TempHome):
+    """Stream upstreams resolve per connection, not at config load.
+
+    nginx resolves a literal ``proxy_pass host:port`` once, when the config
+    loads, and refuses to start if the name does not resolve. Every stream
+    upstream here is a container that can legitimately be down at that moment,
+    so a literal would let one stopped environment stop the whole proxy from
+    starting -- taking every other environment's routes with it.
+    """
+
+    def test_base_config_declares_a_resolver(self):
+        text = nr.render_base_config().read_text()
+        self.assertIn("resolver 127.0.0.11", text)
+
+    def test_control_plane_stream_uses_a_variable(self):
+        text = nr.write_control_plane_streams("floci").read_text()
+        self.assertIn('set $ns_floci "floci:4566";', text)
+        self.assertIn("proxy_pass $ns_floci;", text)
+
+    def test_env_streams_use_distinct_variables(self):
+        env = _Env("dev2", slot=1)
+        text = nr.write_env_streams(
+            env, [(19004, "floci-dev2:4566"), (19005, "10.0.0.5:31880")]
+        ).read_text()
+        self.assertIn("proxy_pass $ns_dev2_19004;", text)
+        self.assertIn("proxy_pass $ns_dev2_19005;", text)
+
+    def test_a_hyphenated_slug_yields_a_valid_variable_name(self):
+        # nginx variable names allow only [0-9a-zA-Z_].
+        text = nr.write_env_streams(
+            _Env("my-env"), [(19008, "floci-my-env:4566")]
+        ).read_text()
+        self.assertIn("proxy_pass $ns_my_env_19008;", text)
+        self.assertNotIn("$ns_my-env", text)
+
+    def test_resolver_is_overridable(self):
+        with mock.patch.dict(
+            os.environ, {"HMD_LOCAL_NGINX_RESOLVER": "10.1.2.3"}, clear=False
+        ):
+            self.assertIn("resolver 10.1.2.3", nr.render_base_config().read_text())
+
+
+class ControlPlaneRouteTests(_TempHome):
+    def test_routes_are_unprefixed(self):
+        nr.write_control_plane_routes({"hmd_ms_deployment": "gw1"})
+        text = (self.http_dir() / "00-control-plane.conf").read_text()
+        self.assertIn("location /hmd_ms_deployment/ {", text)
+        self.assertIn("http://neuronsphere:4566/restapis/gw1/local/", text)
+
+    def test_service_aliases_are_emitted(self):
+        nr.write_control_plane_routes({"hmd_ms_deployment": "gw1"})
+        text = (self.http_dir() / "00-control-plane.conf").read_text()
+        for alias in ("ms-deployment", "ms_deployment", "hmd-ms-deployment"):
+            self.assertIn(f"location /{alias}/ {{", text)
+
+    def test_streams_expose_floci_but_never_a_database(self):
+        nr.write_control_plane_streams()
+        text = (self.stream_dir() / "00-control-plane.conf").read_text()
+        self.assertIn("listen 4566;", text)
+        # The upstream is carried by a variable so it resolves per connection
+        # (see StreamResolutionTests); what matters here is that it is Floci.
+        self.assertIn("floci:4566", text)
+        # Databases must not be reachable from the host.
+        self.assertNotIn("5432", text)
+        self.assertNotIn("8182", text)
+
+
+class EnvRouteTests(_TempHome):
+    def test_routes_are_prefixed_and_target_the_env_floci(self):
+        env = _Env("dev2", slot=1)
+        nr.write_env_routes(env, {"hmd_ms_transform": "gw9"})
+        text = (self.http_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn("location /dev2/hmd_ms_transform/ {", text)
+        self.assertIn("http://floci-dev2:4566/restapis/gw9/local/", text)
+
+    def test_env_streams_use_the_allocated_port(self):
+        env = _Env("dev2", slot=1)
+        nr.write_env_streams(env)
+        text = (self.stream_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn(f"listen {env.floci_port};", text)
+        self.assertIn("floci-dev2:4566", text)
+
+    def test_environments_do_not_share_fragments(self):
+        a, bb = _Env("alpha", slot=0), _Env("beta", slot=1)
+        nr.write_env_routes(a, {"svc": "gwa"})
+        nr.write_env_routes(bb, {"svc": "gwb"})
+        self.assertIn("gwa", (self.http_dir() / "10-env-alpha.conf").read_text())
+        self.assertIn("gwb", (self.http_dir() / "10-env-beta.conf").read_text())
+        self.assertNotIn("gwb", (self.http_dir() / "10-env-alpha.conf").read_text())
+
+    def test_removing_one_env_leaves_the_others_and_the_control_plane(self):
+        a, bb = _Env("alpha", slot=0), _Env("beta", slot=1)
+        nr.write_control_plane_routes({"hmd_ms_deployment": "gw1"})
+        nr.write_env_routes(a, {"svc": "gwa"})
+        nr.write_env_routes(bb, {"svc": "gwb"})
+        nr.write_env_streams(a)
+        nr.write_env_streams(bb)
+
+        nr.remove_env_routes(a)
+
+        self.assertFalse((self.http_dir() / "10-env-alpha.conf").exists())
+        self.assertFalse((self.stream_dir() / "10-env-alpha.conf").exists())
+        self.assertTrue((self.http_dir() / "10-env-beta.conf").exists())
+        self.assertTrue((self.http_dir() / "00-control-plane.conf").exists())
+
+    def test_remove_is_idempotent(self):
+        nr.render_base_config()
+        nr.remove_env_routes(_Env("never-created"))  # must not raise
+
+    def test_trino_stream_adds_legacy_port_only_for_the_default_env(self):
+        default_entries = nr.env_stream_entries(
+            _Env("local"), trino_upstream="1.2.3.4:31880"
+        )
+        ports = [p for p, _ in default_entries]
+        self.assertIn(nr.LEGACY_TRINO_HOST_PORT, ports)
+
+        other_entries = nr.env_stream_entries(
+            _Env("dev2", slot=1), trino_upstream="1.2.3.4:31880"
+        )
+        self.assertNotIn(nr.LEGACY_TRINO_HOST_PORT, [p for p, _ in other_entries])
+
+
+class AddServiceRouteTests(_TempHome):
+    def setUp(self):
+        super().setUp()
+        self._reload = mock.patch.object(nr, "reload", return_value=True)
+        self._reload.start()
+
+    def tearDown(self):
+        self._reload.stop()
+        super().tearDown()
+
+    def test_adds_a_route_into_the_env_fragment(self):
+        env = _Env("dev2", slot=1)
+        nr.write_env_routes(env, {})
+        nr.add_service_route("device", "rest1", "local", env=env)
+        text = (self.http_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn("location /dev2/device/ {", text)
+        self.assertIn("restapis/rest1/local/", text)
+
+    def test_rerunning_replaces_rather_than_duplicates(self):
+        env = _Env("dev2", slot=1)
+        nr.write_env_routes(env, {})
+        nr.add_service_route("device", "rest1", "local", env=env)
+        nr.add_service_route("device", "rest2", "local", env=env)
+        text = (self.http_dir() / "10-env-dev2.conf").read_text()
+        self.assertEqual(text.count("location /dev2/device/ {"), 1)
+        self.assertIn("rest2", text)
+        self.assertNotIn("rest1", text)
+
+    def test_control_plane_route_when_no_env_given(self):
+        nr.write_control_plane_routes({})
+        nr.add_service_route("device", "rest1", "local")
+        text = (self.http_dir() / "00-control-plane.conf").read_text()
+        self.assertIn("location /device/ {", text)
+
+
+class SingleStackConfigTests(_TempHome):
+    """Platform (legacy) mode mounts only one file, so it must not use include."""
+
+    def test_is_self_contained(self):
+        path = nr.write_nginx_config({"hmd_ms_naming": "gw1"})
+        text = path.read_text()
+        self.assertNotIn("include", text)
+        self.assertIn("location /hmd_ms_naming/ {", text)
+        self.assertIn("no route defined", text)
+
+    def test_api_id_overrides_every_service(self):
+        text = nr.write_nginx_config({"a": "x", "b": "y"}, api_id="shared").read_text()
+        self.assertIn("restapis/shared/", text)
+        self.assertNotIn("restapis/x/", text)
+
+    def test_argo_route_on_by_default(self):
+        text = nr.write_nginx_config({"a": "x"}).read_text()
+        self.assertIn("location /argo/ {", text)
+
+    def test_argo_route_can_be_disabled(self):
+        with mock.patch.dict(
+            os.environ, {"HMD_LOCAL_NEURONSPHERE_ENABLE_ARGO": "false"}
+        ):
+            text = nr.write_nginx_config({"a": "x"}).read_text()
+        self.assertNotIn("location /argo/ {", text)
+
+
+class ReloadTests(_TempHome):
+    def test_config_is_tested_before_reloading(self):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return mock.Mock(returncode=0, stderr="", stdout="")
+
+        with mock.patch.object(nr.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(nr.reload())
+        self.assertIn("-t", calls[0])
+        self.assertIn("reload", calls[1])
+
+    def test_a_bad_config_does_not_reload(self):
+        def fake_run(args, **kwargs):
+            if "-t" in args:
+                return mock.Mock(returncode=1, stderr="bad config", stdout="")
+            raise AssertionError("reload must not run after a failed config test")
+
+        with mock.patch.object(nr.subprocess, "run", side_effect=fake_run):
+            self.assertFalse(nr.reload())
+
+
+if __name__ == "__main__":
+    unittest.main()
