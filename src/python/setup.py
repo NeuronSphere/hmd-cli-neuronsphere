@@ -44,6 +44,8 @@ setup(
             "external/*/meta-data/*",
             "external/*/src/helm/*",
             "external/*/src/helm/**/*",
+            "external/*/src/local/cdktf/*",
+            "external/*/src/local/cdktf/**/*",
         ]
     },
     entry_points={
