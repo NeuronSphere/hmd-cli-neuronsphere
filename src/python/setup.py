@@ -46,6 +46,8 @@ setup(
             "external/*/src/helm/**/*",
             "external/*/src/local/cdktf/*",
             "external/*/src/local/cdktf/**/*",
+            "external/*/src/cdktf/*",
+            "external/*/src/cdktf/**/*",
         ]
     },
     entry_points={
