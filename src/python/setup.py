@@ -24,22 +24,14 @@ setup(
             # AI Skills (file-based and directory-based)
             "skills/*.md",
             "skills/*/*.md",
-            # Core services (bundled in this repo)
+            # Core services (bundled in this repo). Recursive, deliberately:
+            # the per-directory list this replaced silently dropped any
+            # subdirectory nobody remembered to add, so `services/deployment/`
+            # was tracked in git and missing from every wheel. A file that only
+            # exists in an editable install is the hardest kind of bug to see.
             "services/*",
-            "services/postgres/*",
-            "services/postgres/always-initdb.d/*",
-            "services/superset/*",
-            "services/superset/.*",
-            "services/superset/pythonpath_dev/*",
-            "services/trino/config/*",
-            "services/trino/config/catalog/*",
-            "services/hive/*",
-            "services/hadoop/*",
-            "services/nginx/*",
-            "services/queues/*",
-            "services/transform/*",
-            "services/naming/*",
-            "services/docker-compose.floci.yml",
+            "services/**/*",
+            "services/**/.*",
             # External artifacts (populated by pre_build_artifacts during hmd build)
             "external/*/src/local/*",
             "external/*/src/local/config/*",

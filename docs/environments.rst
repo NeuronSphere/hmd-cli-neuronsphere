@@ -191,6 +191,13 @@ and of every installed plugin package, keyed by the ``name`` in each artifact's
 ``meta-data/manifest.json``. A plugin that keeps its artifacts elsewhere can
 point at them with ``HMD_LOCAL_NEURONSPHERE_ARTIFACT_ROOTS`` (``:``-separated).
 
+When two packages bundle the same repo class, **the higher version wins** and
+``up`` warns, naming the copy it shadowed. Ownership of a repo class moves
+between packages, and until the old owner drops its ``pre_build_artifacts``
+pin both copies ship; resolving to the older one would register a
+``RepoClassVersion`` whose ``manifest.json`` dependencies no longer match the
+BOM entry naming its roles, which ``apply_changeset`` rejects outright.
+
 Reconciling
 -----------
 

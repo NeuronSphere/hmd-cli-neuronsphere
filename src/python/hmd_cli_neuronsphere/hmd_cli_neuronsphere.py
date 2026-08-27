@@ -946,7 +946,7 @@ def start_neuronsphere(
     upgrade: bool = False,
     env_name: str = None,
     prune: bool = False,
-):
+) -> bool:
     # Verify the host can resolve `neuronsphere`/`neuronsphere-workload` to
     # loopback before doing anything else. Without this, presigned URLs
     # returned by in-network services would be unreachable from the host
@@ -958,7 +958,7 @@ def start_neuronsphere(
 
     mode = _resolve_mode()
     if mode == "extend":
-        start_neuronsphere_extend(
+        return start_neuronsphere_extend(
             verbose=verbose, upgrade=upgrade, env_name=env_name, prune=prune
         )
     else:
@@ -976,6 +976,7 @@ def start_neuronsphere(
         start_neuronsphere_platform(
             config_overrides=config_overrides, verbose=verbose, upgrade=upgrade
         )
+        return True
 
 
 def _naming_lambda_env():
@@ -1048,8 +1049,12 @@ def start_neuronsphere_extend(
     upgrade: bool = False,
     env_name: str = None,
     prune: bool = False,
-):
+) -> bool:
     """Start the control plane, then one named environment.
+
+    :returns: whether everything reached its declared state. `up` reports
+        "Ready" only for a True; anything else is degraded and exits non-zero,
+        so a failed bootstrap is not buried above a success banner.
 
     The control plane (ms-deployment, ms-naming, artifact-lib, plus the
     supporting Floci, nginx, Postgres and JanusGraph) is shared. Each named
@@ -1073,11 +1078,11 @@ def start_neuronsphere_extend(
         print_header("Ready (degraded)")
         print("\n  The control plane is up but ms-deployment is unavailable;")
         print("  environment bootstrap was skipped.\n")
-        return
+        return False
 
-    start_environment(env, verbose=verbose, upgrade=upgrade, prune=prune)
+    ok = start_environment(env, verbose=verbose, upgrade=upgrade, prune=prune)
 
-    print_header("Ready")
+    print_header("Ready" if ok else "Ready (degraded)")
     print("\n  Control plane")
     print("    ms-deployment:  http://localhost/hmd_ms_deployment/")
     print("    ms-naming:      http://localhost/hmd_ms_naming/")
@@ -1090,7 +1095,11 @@ def start_neuronsphere_extend(
     others = [e.slug for e in env_registry.list_envs(reg) if e.slug != env.slug]
     if others:
         print(f"\n  Other environments: {', '.join(others)}")
+    if not ok:
+        print(f"\n  Environment '{env.slug}' did not reach its declared state —")
+        print("  see the errors above. The endpoints listed are still routed.")
     print()
+    return ok
 
 
 def start_neuronsphere_platform(

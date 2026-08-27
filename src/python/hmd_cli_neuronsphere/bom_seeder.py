@@ -424,7 +424,8 @@ def _version_override(repo_class_name: str) -> Tuple[bool, Optional[str]]:
 def _artifact_roots() -> List[str]:
     """Every installed package's bundled ``external/`` artifact root.
 
-    Ordered so the first root holding a given repo class wins:
+    Discovery order (which root a duplicate is *reported* against; the winner
+    is chosen by version -- see :func:`_artifact_version_index`):
 
     1. This package's own ``external/`` (the ``pre_build_artifacts`` unpacked at
        build time -- see ``meta-data/manifest.json``).
@@ -482,6 +483,20 @@ def _artifact_roots() -> List[str]:
     return unique
 
 
+def _version_sort_key(version: str) -> Tuple:
+    """Order two bundled versions of the same repo class.
+
+    A bundled version is a build number appended to a repo's MAJOR.MINOR
+    (``0.2.70``, ``3.44.117``), so a component-wise numeric compare is the whole
+    job. A non-numeric component sorts below any number rather than raising: an
+    artifact nobody can order is not a reason to fail `up`.
+    """
+    return tuple(
+        (1, int(part), "") if part.isdigit() else (0, 0, part)
+        for part in (version or "").split(".")
+    )
+
+
 def _artifact_version_index() -> Dict[str, Tuple[str, str]]:
     """Map ``repo_class_name`` -> ``(version, artifact_dir)`` for bundled artifacts.
 
@@ -490,6 +505,15 @@ def _artifact_version_index() -> Dict[str, Tuple[str, str]]:
     That name -- not the directory name -- is the repo class: the directories
     are named after the *plugin* (``ext-secrets``, ``apache_superset``) while
     the repo classes are ``hmd-inf-ext-secrets``, ``hmd-inf-superset``.
+
+    When two roots bundle the same repo class, **the higher version wins**, not
+    the earlier root. Ownership moves: a repo class this package once bundled
+    can be handed to a plugin package, and until this package's own
+    ``pre_build_artifacts`` pin is dropped it would otherwise keep serving a
+    stale copy -- registering a RepoClassVersion whose ``manifest.json``
+    dependencies no longer match the BOM entry that names its roles, which
+    ``apply_changeset`` rejects. Only a checkout can shadow a newer artifact,
+    and only when explicitly asked for (see :func:`resolve_repo_version`).
 
     An empty index is legitimate: ``external/`` is only populated by
     ``hmd build``, so a source checkout has none.
@@ -530,11 +554,19 @@ def _artifact_version_index() -> Dict[str, Tuple[str, str]]:
 
             if key in index:
                 existing_version, existing_dir = index[key]
-                if existing_version != version:
-                    logger.warning(
-                        f"Bundled artifact '{key}' found twice: {existing_version} in "
-                        f"{existing_dir} (used) and {version} in {artifact_dir} (ignored)"
-                    )
+                if existing_version == version:
+                    continue
+                found = (version, artifact_dir)
+                existing = (existing_version, existing_dir)
+                if _version_sort_key(version) > _version_sort_key(existing_version):
+                    used, shadowed = found, existing
+                else:
+                    used, shadowed = existing, found
+                logger.warning(
+                    f"Bundled artifact '{key}' found twice: {used[0]} in "
+                    f"{used[1]} (used) and {shadowed[0]} in {shadowed[1]} (shadowed)"
+                )
+                index[key] = used
                 continue
             index[key] = (version, artifact_dir)
 
@@ -792,11 +824,29 @@ def _decode_collection(value) -> List:
     return []
 
 
+def _raise_for_status(resp, what: str) -> None:
+    """`raise_for_status`, but keep the body.
+
+    ms-deployment reports *why* it refused in the response body (ms-base turns a
+    ServiceException into ``{"message": ...}``), and `raise_for_status` throws
+    all of it away -- so a changeset rejected for e.g. a role the registered
+    RepoClassVersion does not declare surfaces as a bare "400 Client Error",
+    which names neither the entry nor the role.
+    """
+    if resp.status_code < 400:
+        return
+    body = (resp.text or "").strip()
+    raise requests.HTTPError(
+        f"{what}: HTTP {resp.status_code}" + (f" - {body}" if body else ""),
+        response=resp,
+    )
+
+
 def _put_entity(base_url: str, entity_type: str, data: Dict) -> Dict:
     """Create an entity via the CRUD PUT endpoint."""
     url = f"{base_url}/api/{entity_type}"
     resp = requests.put(url, json=data, timeout=30)
-    resp.raise_for_status()
+    _raise_for_status(resp, f"PUT {entity_type}")
     return resp.json()
 
 
@@ -804,7 +854,7 @@ def _search_entities(base_url: str, entity_type: str, filter_: Dict) -> List[Dic
     """Search entities via the ms-base CRUD POST (filter is the top-level body)."""
     url = f"{base_url}/api/{entity_type}"
     resp = requests.post(url, json=filter_, timeout=30)
-    resp.raise_for_status()
+    _raise_for_status(resp, f"search {entity_type}")
     return resp.json()
 
 
@@ -828,7 +878,7 @@ def _post_apiop(
     if tolerate_exists and resp.status_code == 400 and "already" in resp.text.lower():
         logger.info(f"{operation} idempotent skip: {resp.text}")
         return {}
-    resp.raise_for_status()
+    _raise_for_status(resp, operation)
     return resp.json()
 
 

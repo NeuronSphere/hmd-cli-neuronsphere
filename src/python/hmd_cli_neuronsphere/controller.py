@@ -105,12 +105,15 @@ class LocalController(Controller):
     def up(self):
         from .hmd_cli_neuronsphere import start_neuronsphere
 
-        start_neuronsphere(
+        if not start_neuronsphere(
             verbose=self.app.pargs.verbose,
             upgrade=getattr(self.app.pargs, "upgrade", False),
             env_name=_env_name(self.app.pargs),
             prune=getattr(self.app.pargs, "prune", False),
-        )
+        ):
+            # `up` prints "Ready (degraded)" in this case; the exit code is what
+            # a script or CI run sees.
+            self.app.exit_code = 1
 
     @ex(
         help="Stop the local NeuronSphere",

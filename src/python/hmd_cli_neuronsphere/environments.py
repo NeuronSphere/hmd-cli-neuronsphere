@@ -346,8 +346,10 @@ def start_environment(
     verbose: bool = False,
     upgrade: bool = False,
     prune: bool = False,
-) -> None:
+) -> bool:
     """Start (or reconcile) one named environment.
+
+    :returns: whether the environment reached its declared state.
 
     Assumes the control plane is already up.
 
@@ -430,7 +432,7 @@ def start_environment(
         except RuntimeError as e:
             logger.warning(f"{e} — environment '{env.slug}' is degraded")
             print(f"  Warning: {e}")
-            return
+            return False
 
         clear_apigateway_state(env.floci_data_dir)
 
@@ -528,7 +530,7 @@ def start_environment(
     nginx_router.write_env_routes(env, service_api_ids)
     nginx_router.reload()
 
-    _bootstrap_environment(
+    ok = _bootstrap_environment(
         env, hmdms_deployed, cluster_name, k3s_uid, upgrade, prune=prune
     )
 
@@ -539,6 +541,8 @@ def start_environment(
             print_step(f"  Trino exposed on host :{env.trino_port}")
     except Exception as e:
         logger.warning(f"Trino host route setup skipped (non-fatal): {e}")
+
+    return ok
 
 
 def _service_specs(env: LocalEnvironment, hmdms_deployed: List[Dict]) -> List[Dict]:
@@ -578,8 +582,12 @@ def _bootstrap_environment(
     k3s_uid: Optional[str],
     upgrade: bool,
     prune: bool = False,
-) -> None:
-    """Seed and deploy this environment's BOM, or reconcile an existing one."""
+) -> bool:
+    """Seed and deploy this environment's BOM, or reconcile an existing one.
+
+    :returns: whether the environment reached its declared state. A False here
+        is what keeps `up` from printing "Ready" over a broken bootstrap.
+    """
     from .bom_seeder import (
         ensure_environment,
         resync_local_resources,
@@ -596,8 +604,8 @@ def _bootstrap_environment(
         ensure_environment(base_url, env)
     except Exception as e:
         logger.warning(f"Could not ensure environment entity: {e}")
-        print(f"  Warning: could not register environment '{env.slug}': {e}")
-        return
+        print(f"  Error: could not register environment '{env.slug}': {e}")
+        return False
 
     # The manifest is this environment's declared desired state. None means the
     # environment has none, in which case the desired state is resolved the way
@@ -607,7 +615,7 @@ def _bootstrap_environment(
     except Exception as e:
         logger.warning(f"Could not load the manifest for '{env.slug}': {e}")
         print(f"\n  Error: {e}\n")
-        return
+        return False
     if manifest is not None:
         print_step(f"Using environment manifest: {manifest.path}")
 
@@ -644,12 +652,11 @@ def _bootstrap_environment(
                 "persisted deployment graph no longer matches reality; "
                 "redeploying the full BOM onto the new cluster."
             )
-            _run_full_bootstrap(
+            return _run_full_bootstrap(
                 env, runner, specs, cluster_name, k3s_uid, base_url, manifest=manifest
             )
-            return
 
-        _reconcile_environment(
+        ok = _reconcile_environment(
             env, runner, base_url, manifest, upgrade=upgrade, prune=prune
         )
 
@@ -657,7 +664,7 @@ def _bootstrap_environment(
             env_registry.record_bootstrap(
                 env, env.bootstrap.get("csd_nid", "control-plane"), k3s_uid=k3s_uid
             )
-        return
+        return ok
 
     print_step("Seeding base resource definitions...")
     try:
@@ -666,7 +673,7 @@ def _bootstrap_environment(
     except Exception as e:
         logger.warning(f"Base resource definition seeding failed: {e}")
 
-    _run_full_bootstrap(
+    return _run_full_bootstrap(
         env, runner, specs, cluster_name, k3s_uid, base_url, manifest=manifest
     )
 
@@ -678,7 +685,7 @@ def _reconcile_environment(
     manifest,
     upgrade: bool,
     prune: bool,
-) -> None:
+) -> bool:
     """Converge an already-bootstrapped environment on its declared state.
 
     The plan is always printed, whatever the flags: seeing what ``up`` *would*
@@ -702,23 +709,24 @@ def _reconcile_environment(
     try:
         plan = env_reconcile.compute_plan(base_url, env=env, manifest=manifest)
     except Exception as e:
-        logger.warning(f"Could not compute the reconcile plan (non-fatal): {e}")
-        print(f"  Warning: could not compute the reconcile plan: {e}")
-        return
+        logger.warning(f"Could not compute the reconcile plan: {e}")
+        print(f"  Error: could not compute the reconcile plan: {e}")
+        return False
 
     if plan.degraded:
         print_step("Could not read the deployment graph; skipping reconcile this run.")
-        return
+        return True
 
     if plan.is_empty:
         print_step(f"Environment matches its declared state ({plan.summary()}).")
-        return
+        return True
 
     print_step(f"Reconcile plan: {plan.summary()}")
     for line in plan.render():
         print(line)
 
     repo_paths = declared_repo_paths(manifest)
+    ok = True
 
     # --- removals -------------------------------------------------------
     if plan.remove and not prune:
@@ -739,41 +747,42 @@ def _reconcile_environment(
             print(f"\n  Refusing to prune: {e}\n")
             csd_nid, nodes = None, []
         except Exception as e:
-            logger.warning(f"Destroy preparation failed (non-fatal): {e}")
-            print(f"  Warning: could not prepare the destroy: {e}")
+            logger.warning(f"Destroy preparation failed: {e}")
+            print(f"  Error: could not prepare the destroy: {e}")
             csd_nid, nodes = None, []
+            ok = False
         if csd_nid:
             print_step(f"Destroying {len(nodes)} instance(s)...")
             if not runner.run(csd_nid, nodes, destroy=True):
                 # A half-torn-down environment must not get new deploys layered
                 # on top of it: the surviving instances' state is unknown.
                 print("\n  Warning: some destroys failed; skipping deployments")
-                return
+                return False
 
     # --- additions and redeploys ----------------------------------------
     pending = plan.add + plan.change
     if not pending:
         env_reconcile.write_snapshot(env, plan.desired)
-        return
+        return ok
     if not upgrade:
         print_step(
             f"{len(pending)} entrie(s) to deploy; run "
             f"`hmd neuronsphere up --env {env.slug} --upgrade` to apply them."
         )
-        return
+        return ok
 
     names = ", ".join(e["repo_instance_name"] for e in pending)
     print_step(f"Deploying {len(pending)} entrie(s): {names}")
     try:
         csd_nid, nodes = seed_bom(base_url, bom=pending, env=env, repo_paths=repo_paths)
     except Exception as e:
-        logger.warning(f"Delta changeset seeding failed (non-fatal): {e}")
-        print(f"  Warning: could not seed the delta changeset: {e}")
-        return
+        logger.warning(f"Delta changeset seeding failed: {e}")
+        print(f"  Error: could not seed the delta changeset: {e}")
+        return False
 
     print_step(f"  {len(nodes)} deployment node(s)")
-    ok = runner.run(csd_nid, nodes)
-    if not ok:
+    ok_run = runner.run(csd_nid, nodes)
+    if not ok_run:
         print("\n  Warning: some deployments failed")
     # Record only what actually landed, so a failed entry stays eligible for
     # retry on the next `up --upgrade` while a succeeded one is not redeployed.
@@ -781,6 +790,7 @@ def _reconcile_environment(
         e for e in pending if e["repo_instance_name"] in set(runner.last_succeeded)
     ]
     env_reconcile.merge_snapshot(env, plan.desired, settled)
+    return ok and bool(ok_run)
 
 
 def _run_full_bootstrap(
@@ -791,7 +801,7 @@ def _run_full_bootstrap(
     k3s_uid: Optional[str],
     base_url: str,
     manifest=None,
-) -> None:
+) -> bool:
     """The two-phase changeset bootstrap for one environment.
 
     Phase A applies a changeset containing only the core instance and submits
@@ -811,6 +821,7 @@ def _run_full_bootstrap(
 
     repo_paths = declared_repo_paths(manifest)
     csd_nid = None
+    ok = True
     try:
         print_step("Seeding core changeset (Phase A)...")
         csd_nid_a, nodes_a = seed_bom(base_url, bom=list(LOCAL_CORE_BOM), env=env)
@@ -841,6 +852,7 @@ def _run_full_bootstrap(
         print_step("Running local deployments...")
         if not runner.run(csd_nid, nodes):
             print("\n  Warning: some deployments failed")
+            ok = False
 
         # Seed the drift snapshot from what actually deployed across both
         # phases, so the next `up` reports real changes rather than treating
@@ -856,10 +868,12 @@ def _run_full_bootstrap(
             [e for e in definition if e["repo_instance_name"] in settled],
         )
     except Exception as e:
-        logger.warning(f"BOM seeding failed (non-fatal): {e}")
-        print(f"\n  Warning: BOM seeding failed (non-fatal): {e}")
+        logger.warning(f"BOM seeding failed: {e}")
+        print(f"\n  Error: BOM seeding failed: {e}")
+        ok = False
 
     env_registry.record_bootstrap(env, csd_nid or "control-plane", k3s_uid=k3s_uid)
+    return ok
 
 
 # ---------------------------------------------------------------------------

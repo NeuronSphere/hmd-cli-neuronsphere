@@ -296,14 +296,64 @@ class ArtifactIndexTests(_VersionTest):
         (meta / "manifest.json").write_text("{not json")
         self.assertIn("hmd-ms-myapi", b._artifact_version_index())
 
-    def test_the_first_root_wins_a_duplicate_and_warns(self):
+    def _duplicate_across_two_roots(self, first_version, second_version):
+        """Index the same repo class bundled at two versions in two roots."""
         second = self.root / "external2"
-        second.mkdir()
-        self._make_artifact("myapi", "1.0.0", manifest_name="hmd-ms-myapi")
-        self._make_artifact("myapi", "2.0.0", manifest_name="hmd-ms-myapi", root=second)
-        with mock.patch.object(
+        second.mkdir(exist_ok=True)
+        self._make_artifact("myapi", first_version, manifest_name="hmd-ms-myapi")
+        self._make_artifact(
+            "myapi", second_version, manifest_name="hmd-ms-myapi", root=second
+        )
+        return second, mock.patch.object(
             b, "_artifact_roots", return_value=[str(self.artifacts), str(second)]
-        ):
+        )
+
+    def test_the_highest_version_wins_a_duplicate_and_warns(self):
+        # Ownership of a repo class moves between packages. Whichever root a
+        # stale copy sits in, it must not shadow a newer one: its manifest's
+        # dependencies would be registered against a version nobody built.
+        second, roots = self._duplicate_across_two_roots("1.0.0", "2.0.0")
+        with roots:
+            b._reset_artifact_version_index()
+            with self.assertWarned("found twice", "2.0.0", "1.0.0"):
+                index = b._artifact_version_index()
+        self.assertEqual(index["hmd-ms-myapi"], ("2.0.0", str(second / "myapi")))
+
+    def test_the_highest_version_wins_from_the_first_root_too(self):
+        # The assertion is about the version, not the root order.
+        _, roots = self._duplicate_across_two_roots("2.0.0", "1.0.0")
+        with roots:
+            b._reset_artifact_version_index()
+            with self.assertWarned("found twice"):
+                index = b._artifact_version_index()
+        self.assertEqual(
+            index["hmd-ms-myapi"], ("2.0.0", str(self.artifacts / "myapi"))
+        )
+
+    def test_build_numbers_compare_numerically_not_lexically(self):
+        # "0.2.9" > "0.2.70" as strings; these are build numbers, not text.
+        second, roots = self._duplicate_across_two_roots("0.2.9", "0.2.70")
+        with roots:
+            b._reset_artifact_version_index()
+            index = b._artifact_version_index()
+        self.assertEqual(index["hmd-ms-myapi"], ("0.2.70", str(second / "myapi")))
+
+    def test_the_same_version_in_two_roots_is_not_a_conflict(self):
+        _, roots = self._duplicate_across_two_roots("1.0.0", "1.0.0")
+        with roots:
+            b._reset_artifact_version_index()
+            with mock.patch.object(b.logger, "warning") as warned:
+                index = b._artifact_version_index()
+        self.assertFalse(warned.called)
+        self.assertEqual(
+            index["hmd-ms-myapi"], ("1.0.0", str(self.artifacts / "myapi"))
+        )
+
+    def test_a_non_numeric_component_does_not_raise(self):
+        # A version nobody can order is not a reason to fail `up`; it just
+        # loses to any numbered one.
+        _, roots = self._duplicate_across_two_roots("1.0.0", "1.0.0rc1")
+        with roots:
             b._reset_artifact_version_index()
             with self.assertWarned("found twice"):
                 index = b._artifact_version_index()
