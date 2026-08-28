@@ -72,11 +72,52 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}) -> None:
         # Fallback to legacy implementation
         _prepare_hmd_home_legacy(HMD_HOME, configs)
 
+    _repair_hive_metastore_host(HMD_HOME)
+
     # Handle conditional graph catalog removal (applies to both modes)
     if not configs.get("graph", True):
         graph_catalog_path = HMD_HOME / "trino" / "config" / "catalog" / "local-graph"
         if graph_catalog_path.exists():
             os.unlink(graph_catalog_path)
+
+
+def _repair_hive_metastore_host(hmd_home: Path) -> None:
+    """Repoint an already-copied Hive config off the ambiguous ``db`` hostname.
+
+    The bundled XML used ``jdbc:postgresql://db/metastore``. ``db`` is a Compose
+    *service key* in both docker-compose.control-plane.yml and
+    docker-compose.environment.yml, and Compose registers every service key as a
+    network alias in every project sharing the network -- so with any
+    environment up, ``db`` resolves round-robin to ``hmd_db`` *or*
+    ``hmd_db-<slug>`` and the metastore schema lands in whichever Postgres wins
+    the coin flip.
+
+    The bundled file is fixed, but the copies above only run when the target
+    directory is empty, so existing installs keep the stale value. Rewrite that
+    one exact substring in place; idempotent, and a no-op once repaired.
+    """
+    for name in ("metastore-site.xml", "hive-site.xml"):
+        path = hmd_home / "hive" / "config" / name
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        if "jdbc:postgresql://db/metastore" not in text:
+            continue
+        try:
+            path.write_text(
+                text.replace(
+                    "jdbc:postgresql://db/metastore",
+                    "jdbc:postgresql://hmd_db/metastore",
+                )
+            )
+        except OSError as e:
+            print(f"Warning: could not repair the metastore host in {path}: {e}")
+            continue
+        print(
+            f"Repaired {path}: the Hive metastore now addresses hmd_db instead "
+            f"of the ambiguous `db` compose service key"
+        )
 
 
 def _prepare_from_nsplugin(

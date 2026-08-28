@@ -202,7 +202,7 @@ stream {{
     return path
 
 
-def bootstrap_config_text(floci_container: str = "floci") -> str:
+def bootstrap_config_text(floci_host: str = "neuronsphere") -> str:
     """The self-contained config hmd_proxy starts on, before any route exists.
 
     It must not ``include`` the fragment dirs -- the bind-mounted directory may
@@ -214,6 +214,9 @@ def bootstrap_config_text(floci_container: str = "floci") -> str:
     that address to decide whether Floci came up, so a placeholder without it
     guarantees a 300-second timeout and a "Ready (degraded)" bootstrap no matter
     how healthy Floci actually is.
+
+    ``floci_host`` must be an explicit network *alias*, never a Compose service
+    key -- see :func:`_env_floci_host`.
     """
     return f"""events {{}}
 http {{
@@ -225,7 +228,7 @@ http {{
 }}
 stream {{
     {_resolver_directive()}
-{_indent(_stream_server(4566, f"{floci_container}:4566", "ns_floci"), 4)}
+{_indent(_stream_server(4566, f"{floci_host}:4566", "ns_floci"), 4)}
 }}
 """
 
@@ -255,7 +258,7 @@ def config_serves_floci(path: Path) -> bool:
 
 
 def write_bootstrap_config(
-    config_path: Optional[Path] = None, floci_container: str = "floci"
+    config_path: Optional[Path] = None, floci_host: str = "neuronsphere"
 ) -> Path:
     """Write the 503-plus-Floci-stream placeholder so hmd_proxy can start.
 
@@ -271,7 +274,7 @@ def write_bootstrap_config(
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and config_serves_floci(path):
         return path
-    path.write_text(bootstrap_config_text(floci_container))
+    path.write_text(bootstrap_config_text(floci_host))
     logger.info(f"Wrote nginx bootstrap config (with the :4566 stream) to {path}")
     return path
 
@@ -279,6 +282,25 @@ def write_bootstrap_config(
 # ---------------------------------------------------------------------------
 # Location blocks
 # ---------------------------------------------------------------------------
+
+
+def _env_floci_host(env) -> str:
+    """The environment Floci's DNS name -- its explicit network alias.
+
+    Never its Compose *service key*. Compose registers each service key as a
+    network alias in every project sharing the network, and both
+    docker-compose.control-plane.yml and docker-compose.environment.yml key
+    their Floci service ``floci``, so ``floci`` resolves round-robin to the
+    control-plane Floci *and* every environment's. A route built on it reaches
+    the wrong emulated AWS account roughly half the time, which surfaces as
+    Floci answering ``{"message":"Invalid API id specified"}`` for a gateway
+    that was created in the other account.
+
+    A legacy-layout environment shares the control-plane Floci, and its
+    ``floci_alias`` is ``neuronsphere`` -- correct, and the reason this must
+    read the alias rather than ``floci_container`` (which is ``floci`` there).
+    """
+    return getattr(env, "floci_alias", None) or env.floci_container
 
 
 def _api_location(path: str, upstream_host: str, gw_id: str, stage: str) -> str:
@@ -455,7 +477,7 @@ def _indent(block: str, spaces: int) -> str:
     return "\n".join(pad + line if line else line for line in block.splitlines())
 
 
-def write_control_plane_streams(floci_container: str = "floci") -> Path:
+def write_control_plane_streams(floci_host: str = "neuronsphere") -> Path:
     """Write the control-plane stream fragment.
 
     Only Floci is streamed. It carries :4566 for the control-plane Floci so
@@ -468,7 +490,7 @@ def write_control_plane_streams(floci_container: str = "floci") -> Path:
     """
     block = _wrap(
         "floci",
-        _stream_server(4566, f"{floci_container}:4566", "ns_floci"),
+        _stream_server(4566, f"{floci_host}:4566", "ns_floci"),
     )
     return _write_fragment(
         _stream_dir() / _CONTROL_PLANE_FRAGMENT, [block], "control-plane streams"
@@ -487,7 +509,7 @@ def write_env_routes(
     extra_locations: Optional[Dict[str, str]] = None,
 ) -> Path:
     """Write an environment's HTTP fragment: ``/<slug>/<service>/`` per service."""
-    upstream_host = f"http://{env.floci_container}:4566"
+    upstream_host = f"http://{_env_floci_host(env)}:4566"
     blocks: List[str] = []
 
     for service_name, gw_id in services.items():
@@ -514,7 +536,7 @@ def write_env_streams(env, entries: Optional[List[Tuple[int, str]]] = None) -> P
         listener outside it is unreachable from the host.
     """
     if entries is None:
-        entries = [(env.floci_port, f"{env.floci_container}:4566")]
+        entries = [(env.floci_port, f"{_env_floci_host(env)}:4566")]
 
     blocks = [
         _wrap(
@@ -534,7 +556,7 @@ def env_stream_entries(
     env, trino_upstream: Optional[str] = None
 ) -> List[Tuple[int, str]]:
     """Assemble an environment's full stream listener list."""
-    entries = [(env.floci_port, f"{env.floci_container}:4566")]
+    entries = [(env.floci_port, f"{_env_floci_host(env)}:4566")]
     if trino_upstream:
         entries.append((env.trino_port, trino_upstream))
         # The default env additionally keeps the historical fixed Trino port so
@@ -638,7 +660,7 @@ def _upsert_service_route(
     route_path = route_path.strip("/")
     if env is not None:
         fragment = _http_dir() / _env_fragment_name(env.slug)
-        upstream_host = f"http://{env.floci_container}:4566"
+        upstream_host = f"http://{_env_floci_host(env)}:4566"
         route = f"{env.slug}/{route_path}"
     else:
         fragment = _http_dir() / _CONTROL_PLANE_FRAGMENT

@@ -32,6 +32,7 @@ class _Env:
         self.db_container = f"hmd_db-{slug}"
         self.graph_container = f"global-graph-{slug}"
         self.floci_container = f"floci-{slug}"
+        self.floci_alias = f"neuronsphere-{slug}"
         self.k3s_cluster = f"ns-{slug}-abc123"
         self.legacy_layout = False
 

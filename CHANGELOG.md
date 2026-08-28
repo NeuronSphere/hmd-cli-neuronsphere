@@ -1,205 +1,134 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
 ## 2026-08-28
 
-- fix: **the container CLI the image cache drives is resolved, not hardcoded.** `image_cache` shelled out to a literal `docker` and gated on `shutil.which("docker")`, which broke the unit tests in cloud CI: the builders run nerdctl and ship no `docker` binary, so the guard raised `ImageUnavailable` before the fully-mocked `subprocess.run` was ever reached, failing five tests that never touch a container runtime. `image_cache.container_cli()` now picks the client the way `hmd_lib_containers.get_client` does — `HMD_DOCKER_USE_NERDCTL` states a preference, `PATH` settles it — and a host with neither client gets that as the stated reason instead of a misleading "no image available". The tests stub `shutil.which` per case, so the suite no longer depends on what the machine running it happens to have installed.
-- refactor: `floci_deployer`'s private `_image_cached` was a byte-for-byte copy of `image_cache`'s; `resolve_image_uri` now calls the shared `image_cache.image_cached`, so lookup follows the same client resolution as staging.
-- feat: **local Lambda images are staged on the host before a node deploys.** The image reference `hmd-lib-cdktf-factories` hands Floci for a local deploy is a bare `<repo>:<version>` tag — Floci runs Lambdas off the host Docker cache through the mounted `docker.sock`, not from an ECR. But a bare reference is unpullable by construction: Docker resolves an unqualified name against Docker Hub, so a missing tag surfaced as `pull access denied for hmd-ms-transform` from inside Floci, at container-start time, long after the node reported success. Nothing in the deploy path could fix it — the DAG runs `hmd deploy` in an `hmd-img-projectbuilder` container with no Docker CLI, so `hmd docker deploy`'s staging step and `hmd-cli-helm`'s k3s image import both log and return — which left `hmd build` on the host as the only way an image ever reached the cache. `LocalWorkflowRunner` now stages it in the one place a real Docker CLI exists: before each node whose manifest lists `docker` in `deploy.commands`, a cached image is tagged under the bare ref (a local build always beating a published one), or the published image is pulled using the host's own `docker login` and then tagged. An image that can be neither found nor pulled fails the node with the refs it tried and the two fixes, instead of deferring the failure to Lambda start; `HMD_LOCAL_SKIP_IMAGE_PREPULL=true` downgrades that to a warning, and `HMD_LOCAL_IMAGE_PULL_REGISTRIES` adds registries to the search.
-- refactor: the registry-candidate ordering `floci_deployer.resolve_image_uri` resolves against moved into the new `image_cache.image_candidates`, so resolution and staging read from one list rather than two copies that can drift.
-- fix: **services the deployment DAG deploys are now routed through `hmd_proxy` automatically.** `write_env_routes` only ever saw the Lambdas this CLI deploys itself, so a DAG-deployed service like `hmd-ms-transform` got no nginx location at all and `http://localhost/local/transform/api/...` returned the catch-all `{"error": "no route defined"}`. A second fault sat behind it: `_api_location` hardcodes `stage="local"`, but CDKTF names its stage after the stack (`transform_hmd-ms-transform_local_local_reg1_hmdtr1_api_gateway_stage`), so even a hand-added route would have answered `{"message": "Stage not found"}`. `refresh_deployed_service_routes` now discovers those gateways from the environment's Floci *after* the DAG has run — the only point at which both the gateway id and its real stage name exist — and upserts one marker-delimited route each, reloading once. Routes are keyed on the repo **instance** name (`/local/transform/`), and the run is unconditional because `write_env_routes` rewrites the whole fragment on every `up`, including reconciles that deploy nothing.
-- fix: **Ingress-exposed UIs (Airflow, Argo) are reachable again, through the same Ingress the cloud uses.** Three independent faults, all of which had to go: (1) Traefik could not schedule — k3s ServiceLB creates `system-node-critical` `svclb-*` pods for every `type: LoadBalancer` service, and the OTEL collector gateway's port 443 *preempted* Traefik (priority 0) off host port 443 permanently, leaving it `Pending` with `didn't have free ports for the requested pod ports`; (2) every chart renders its Ingress for the AWS ALB controller (`ingressClassName: alb`, or the legacy `kubernetes.io/ingress.class: alb` annotation), and no `alb` class existed locally — the default `traefik` class does not help, since a default only applies to Ingresses that declare *no* class; (3) the Traefik Service is ClusterIP, so `hmd_proxy` could not reach it even once it ran. Traefik's `hostPort: 80`/`443` are now stripped from the baked-in k3s Addon manifest (it needs neither), Traefik is configured to answer to the `alb` class so cloud charts deploy unmodified, and it is fronted by a NodePort that `hmd_proxy` Host-routes `*.<env>.neuronsphere.io` to. The manifest is edited rather than the live Deployment because a k3s Addon reverts out-of-band patches.
-- fix: the local `ingress-controller` Resource advertised `ingress_class: traefik`, a class nothing served. It now advertises `alb`, matching both what the local cluster answers to and what the cloud actually uses.
-- fix: the `transform` plugin advertised itself at the unprefixed `http://hmd_proxy/hmd_ms_transform/`, a control-plane path it has never been served on in Extend mode.
-- refactor: `nginx_router` gained a `vhost.d` fragment directory included at the `http {}` level, since Host-routed UIs need whole `server {}` blocks and `http.d` fragments are `location`s inside the one path-routed server. `_ensure_trino_nodeport` collapsed into a general `_ensure_nodeport` now that Traefik needs the same treatment, and `add_service_route` delegates to a no-reload helper so the single-route and bulk paths cannot drift.
-- refactor: dropped `k3s_chart_plugins.nginx_routes()` and the orphaned static `services/nginx/neuronsphere.conf`. Nothing called either; the function's stated consumer never read it and all its entries were `None`.
+- fix: Address Floci by its network alias, never the `floci` compose service key
+
+  Docker Compose registers every *service key* as a network alias, so the `floci`
+  key shared by the control-plane and environment compose files resolved
+  round-robin to both containers. Control-plane API Gateway and Lambda calls
+  landed in environment accounts at random, and `hmd neuronsphere up --upgrade`
+  on a running platform failed with `Invalid API id specified`. The same
+  collision on `db` pointed the Hive metastore at whichever Postgres won the
+  coin flip.
+
+  **On upgrade:** the control-plane Floci container is recreated on the next `up`
+  (~30s) so its gateway table starts clean. An environment that was bootstrapped
+  before this fix also ran its BOM/DAG through the ambiguous route, so its
+  deployment records may be inconsistent; `hmd neuronsphere env delete <slug>
+  --purge && hmd neuronsphere up` is the clean path. That also destroys the
+  environment's Postgres and JanusGraph data, so it is not done automatically.
+- fix: Resolve container CLI dynamically instead of hardcoding; improve image caching logic
+- feat: Implement host-side staging for local Lambda images and enhance image resolution logic
+- feat: Update ingress routing for local environments
+- fix: Update version of ext-secrets dependency in manifest.json
+- fix: Scope `up --upgrade` image pulls to Extend mode's own compose files
 
 ## 2026-08-27
 
-- fix: **a stale bundled artifact no longer shadows a newer one, so `up` behaves the same from a wheel as from `-e`.** `_artifact_roots` puts this package's own `external/` first and `_artifact_version_index` was first-root-wins, so the four repo classes this package still pinned in `pre_build_artifacts` — `hmd-inf-hive-metastore`, `hmd-inf-trino`, `hmd-app-airflow`, `hmd-ms-transform` — beat the newer copies shipped by `hmd-cli-plugin-ns-analytics-engines` and `hmd-cli-plugin-ns-orchestration`. `seed_bom` registers a RepoClassVersion from *the resolved artifact's* `manifest.json`, so the stale hive-metastore 0.2.70 registered a dependency set with no `base-vpc` role while the plugin's BOM entry supplied one, and the whole 26-entry changeset died on `For RepoInstance, hive-metastore, role with name, base-vpc, not in RepoClassVersion dependencies`. None of this showed in an editable install, where `external/` is empty (it is only populated by `pre_build_artifacts` during `hmd build`) and the plugin packages' current artifacts win by default. **The higher version now wins a duplicate, whichever root it sits in**, and the warning names the shadowed copy rather than claiming the first one was used. Ownership of a repo class moves between packages; version resolution should not depend on which package remembered to drop its pin first.
-- fix: this package stopped bundling artifacts the plugin packages own. `hmd-ms-transform`, `hmd-inf-trino`, `hmd-inf-hive-metastore` and `hmd-app-airflow` are gone from `meta-data/manifest.json` `pre_build_artifacts` — `hmd-cli-plugin-ns-analytics-engines` and `hmd-cli-plugin-ns-orchestration` ship them, and the built-in `LOCAL_BOM` has referenced neither since it shrank to the s3 buckets.
-- fix: **the reason a request was refused is no longer thrown away.** `_post_apiop`, `_put_entity` and `_search_entities` all called `raise_for_status()`, whose message is `400 Client Error: Bad Request for url: ...` and nothing else — while ms-deployment had put the actual cause in the response body the whole time. A new `_raise_for_status` keeps the body, so the failure above reads as the sentence the service wrote instead of a status line.
-- fix: **`up` no longer prints "Ready" over a failed bootstrap, and exits non-zero when it does not.** BOM seeding failures were logged `(non-fatal)` and then the "Ready" banner printed regardless, so a run that deployed nothing looked identical to one that worked. `start_environment` / `_bootstrap_environment` / `_reconcile_environment` / `_run_full_bootstrap` now report success to their caller, `up` prints the existing `Ready (degraded)` banner instead, and `hmd neuronsphere up` sets exit code 1 — the endpoints are still listed, since they are still routed.
-- fix: `setup.py` `package_data` enumerated `services/` one subdirectory at a time, so `services/deployment/db_init.sql` was tracked in git and absent from every wheel. Recursive globs now cover the tree; a file that exists only in an editable install is the hardest kind of bug to see.
-- fix: seed an `opa-bucket` in the local default BOM. `hmd_cli_opa.deploy()` uploads any repo's `src/opa-bundles/` (e.g. `hmd-ms-transform`) to `opa-bucket-hmd-inf-s3bucket-<deployment_id>-<environment>-<region>-<customer_code>` whenever the `opa` CLI is installed (true in the projectbuilder image) — it only skips when the CLI itself is missing, not when the bucket is. With no bucket of that name seeded locally, the upload threw and the deploy died with `ValueError("OPA Deploy Failed")`. `LOCAL_BOM` now provisions `opa-bucket` the same way it already provisions `project-bucket`.
+- feat: Add support for additional cdktf file paths in setup configuration
+- feat: Add support for cdktf files in external local directory
+- fix: Resolve artifact version conflicts and improve error reporting in `up` command
+- feat: Add comprehensive tests for nginx router, port validation, and repo version resolution
 
-## 2026-08-13
+## 2026-07-28
 
-- **BREAKING** feat: **repo class versions resolve artifact-first.** `_get_repo_version` read `$HMD_REPO_HOME/<repo>/meta-data/VERSION` before anything else, so whatever a developer happened to have checked out decided the version every repo instance deployed at — and an environment manifest that explicitly pinned `version: 1.2.3` was silently ignored whenever a same-named checkout existed. The version now comes from the artifact bundled with the plugin package (`external/<dir>/meta-data/VERSION`, keyed by the `name` in each artifact's `meta-data/manifest.json` — the directories are named after the plugin, `ext-secrets`, while the repo classes are not, `hmd-inf-ext-secrets`), then the declared version, and only then a working tree. A published artifact is a reproducible, resolvable version; a working tree is a work in progress. Bundled artifacts are discovered under this package's `external/` and that of every installed plugin package — located with `importlib.util.find_spec` rather than by importing it, so resolving a version never executes third-party module code — plus anything in `HMD_LOCAL_NEURONSPHERE_ARTIFACT_ROOTS`.
-- **BREAKING** feat: **the deployed code follows the version.** `LocalWorkflowRunner` mounted `$HMD_REPO_HOME/<repo>` whenever it existed and `k3s_operators` installed a checked-out chart in preference to the bundled one — so with the version flip alone a developer's tree would have deployed under the artifact's version number, making the registered version a label rather than a fact. Both now take the bundled artifact first, via one shared `bom_seeder.repo_root_candidates` so the version, the `manifest.json`, the mounted workspace and the Helm chart are all the same build. **A checkout is no longer deployed unless you ask for it**: set `HMD_LOCAL_VERSION_<REPO_CLASS>=local` for the repo you are developing and its code, chart and version all come from your tree again. `repo_root_candidates` returns an ordered list rather than one directory, because a preferred root is not guaranteed to carry what a given caller needs (an artifact with no `src/helm` still falls through to a checkout that has one).
-- feat: local versions are opt-in, per repo or globally. `HMD_LOCAL_VERSION_<REPO_CLASS>=local` uses that repo's working tree; set it to a version instead (`=1.2.3`) to pin outright — a pin says which version to register, not where the code lives, so it does not move the deploy source. `HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS=true` covers every repo, and `HMD_LOCAL_VERSION_<REPO_CLASS>=false` opts one repo back out of that. `up` warns whenever a checked-out tree is being passed over, naming the variable that selects it. See `docs/environments.rst`.
-- fix: a repo's `dependencies` and `default_configuration` are read from wherever its version came from. They were always read from the working tree, which after this change would register the bundled artifact's version alongside an in-progress tree's dependencies — a `RepoClassVersion` describing a build that never existed. `resolve_repo_version` now returns the directory it resolved from and `seed_bom` reads `manifest.json` from there.
-- note: `source.path` still selects *which* working tree a repo's metadata is read from; it does not mean that tree's version wins. The three other `meta-data/VERSION` readers are unchanged on purpose — `_read_repo_version` and `LocalPluginLoader.get_repo_version` resolve **container image tags** (an image tag must match the image the local tree just built, which is what makes `hmd build && hmd neuronsphere up` work), and `push_artifact` publishes *from* a tree.
-- note: `env_reconcile` diffs on `repo_class_version`, so the first `up` after upgrading reports `~changed` for every repo whose working tree was ahead of its artifact. That is one-time churn, not drift.
-
-## 2026-08-10
-
-- fix: **`up` could never bootstrap a control plane whose nginx config did not already stream :4566.** Floci publishes no host port — `localhost:4566` is served solely by `hmd_proxy`'s stream listener — but that listener was written by `write_control_plane_streams` *after* `wait_for_floci` polled the very same address, and the placeholder config nginx starts on was HTTP-only. On a fresh `$HMD_HOME`, a wiped `.cache/nginx`, or an upgrade from the platform-mode single-file config, the poll had nothing to connect to and spent its full 300s before reporting "Ready (degraded)" — with a perfectly healthy Floci container running. The placeholder now carries the :4566 stream, is rewritten when the existing config cannot serve 4566 (and left alone when it can, so a normal restart keeps its routes), and `hmd_proxy` is reloaded after `compose up` so an already-running container picks the change up rather than keeping its stale in-memory config.
-- fix: **in-container deploys addressed the control plane instead of their own environment.** `NS_LOCAL_PROXY` — the root a deploy tool joins `/hmd_ms_<svc>/…` onto — was a bare `http://hmd_proxy`, but only the control plane (ms-deployment, ms-naming, artifact-lib) is served unprefixed. ms-dbaccount is per-environment and routed at `/<slug>/hmd_ms_dbaccount/`, so every `hmd-database-account` node died with `404 Not Found for url: http://hmd_proxy/hmd_ms_dbaccount/api/create_db_account`. It now carries the environment's route prefix. Same bug on the CLI side: `dev_db.provision_and_register_db` skipped the prefix for a legacy-layout environment, but a legacy environment shares the control plane's *containers*, not its unprefixed routes — `write_env_routes` prefixes on slug for every environment.
-- fix: stream upstreams resolve per connection instead of at config load. nginx resolves a literal `proxy_pass host:port` once, when the config loads, and *refuses to start* if the name does not resolve — so a single stopped environment could stop the whole proxy from starting and take every other environment's routes down with it. Stream servers now assign the upstream to a variable and the base config declares a `resolver` (Docker's embedded DNS, overridable via `HMD_LOCAL_NGINX_RESOLVER`).
-- feat: **declarative environments.** A local environment can now be declared in a manifest at `$HMD_HOME/environments/<name>.{yaml,yml,json}` — which plugins to enable and which additional repo instances to deploy — which `up` compiles into a `hmd_lang_deployment.change_set` definition and reconciles the environment against. Previously an environment's contents were whatever the built-in BOM plus *every* pip-installed plugin package happened to resolve to, with no way to enable or disable one per environment and no artifact a developer could read, diff or commit. New `env create --manifest`, `env plan` and `env show`. An environment with no manifest is unaffected: same resolution, no plan, no pruning. See `docs/environments.rst`.
-- feat: **reconcile and prune.** `up` on a bootstrapped environment now prints a full `+add ~change -remove` plan instead of only detecting additions. `--upgrade` applies additions and configuration/version drift; the new `--prune` destroys instances that are still deployed but no longer declared. Until now nothing ever removed them: disabling a plugin or deleting a repo instance left its `repo_instance` `DEPLOYED` and its workloads running, and the only cleanup was `down --purge`, which discards every environment's graph. Destroys run before deploys within one `up`. Drift is tracked in `<env state>/applied-changeset.json`; an environment with no snapshot reports its deployed entries as unchanged rather than proposing a wholesale redeploy.
-- feat: `--prune` refuses rather than cascades. `destroy_from` is a starting point — ms-deployment destroys everything downstream of it — so the CLI takes the closure from a dry run first and aborts the whole prune, naming the collateral, if it includes an instance the environment still declares. Core instances (`local-neuronsphere`, `local-databases`) are never candidates for removal.
-- feat: local destroy end to end. `destroy_deploymentset` gains `skip_async` (mirroring `apply_changeset`), because the async path invokes a Lambda to build an Argo workflow and a local NeuronSphere has neither; `generate_local_deployment` now recognises a `DESTROY_NEXT` changeset and emits reverse-ordered `deploy --destroy` scripts with a `destroy` flag; `LocalWorkflowRunner.run(destroy=True)` settles nodes into `DESTROYED` and submits no Resources. (`hmd-ms-deployment`)
-- feat: the `hmd_cli_neuronsphere.get_local_bom_entries` entry point accepts an allow-list and optional per-plugin configuration. Contributors stay zero-arg-compatible: config is passed only to a callable that accepts it. Enabling a plugin that is not installed is a hard error — silently dropping it would silently shrink the declared state, and under `--prune` that means silently destroying what was dropped.
-- feat: a declared repo instance may live outside `HMD_REPO_HOME` via `source.path`. Its VERSION and `manifest.json` are read from the declared tree, and `LocalWorkflowRunner` mounts that tree. `source.type: artifact` is reserved and reports "not supported yet" rather than "unknown source type".
-- **BREAKING** fix: a named environment's `hmd_lang_deployment.environment` is now typed by its **name** (`type: dev2`) instead of all local environments sharing `type: local` plus an `instance_name` field that is not in the schema. ms-deployment resolves an environment only by `type`: `get_valid_environment` asserts exactly one match (so a second environment 500'd several apiops) and `apply_changeset`/`destroy_deploymentset` index `[0]` (so a second environment's changeset silently applied to the first). `dev_db._ensure_db_owner_rid` already assumed name-typed environments. The default environment is unaffected — its name *is* `local`. **Named environments created before this change must be recreated** (`env delete <name>` then `env create <name>`); their instances are attached to the old shared row.
-- fix: the environment component of `make_standard_name` follows the environment name. `_store_local_admin_db_secret`, `_local_db_secret_base` and the core Resource `environment` tags hardcoded `"local"`, while a generated deploy script runs with `--environment <name>` — so in any non-default environment the admin DB secret was written under a name its consumer never looked up. Same failure mode as the customer-code mismatch fixed in b160612.
-- fix: a destroy `RepoInstanceDeployment` keeps the deployment id of the deployment it replaces instead of a hardcoded `"aaa"`, so an environment-scoped status lookup sees the `DESTROYED` record and stops reporting the instance as deployed. (`hmd-ms-deployment`)
-
-## 2026-08-08
-
-- **BREAKING** feat: split local NeuronSphere into one shared **control plane** and N named **environments**, so several can run on the same machine. Previously every container published a fixed host port (`hmd_proxy` 80, `hmd_db` 5432, `floci` 4566, `global-graph` 8182, plus Trino/Superset/Airflow/Jupyter/MinIO/HDFS), so a second stack collided immediately — `HMD_HOME`-hashed naming already isolated the compose project, network and cluster, and ports were the only thing left. The control plane holds `hmd-ms-deployment`, `hmd-ms-naming` and `hmd-ms-artifact-lib` (plus their Floci, nginx, Postgres and JanusGraph); each environment is a self-contained emulated AWS account with its own Floci, EKS/k3s cluster, Postgres, JanusGraph and `hmd-ms-dbaccount`, matching the cloud where every account carries its own dbaccount, RDS and Neptune. New `hmd neuronsphere env create|list|delete|use|status`, and `--env` on `up`/`down`/`status`/`route-service`/`db-provision`/`db-register`. See `docs/environments.rst`.
-- **BREAKING** change: `hmd_proxy` is now the only container that publishes host ports. **Postgres and JanusGraph are no longer reachable from the host** — use `docker exec hmd_db psql -U postgres` (or `hmd_db-<env>`). The control-plane Floci keeps `localhost:4566`, now streamed through `hmd_proxy`, so the `/etc/hosts` `neuronsphere` entry and the presigned URLs that bake that hostname keep working. `hmd_proxy` also publishes `19000-19063` for per-environment stream listeners: a compose `ports:` list is static, so the range is published up front and individual listeners are added/removed with an nginx reload rather than a container restart.
-- refactor: replace the single generated nginx config with per-owner **fragments** (`http.d/`, `stream.d/`) assembled by a new `nginx_router` module. The previous three mechanisms — whole-file rewrite, string-surgery insert ahead of the catch-all `location /`, and one marker-delimited `stream` block — could not compose across a control plane plus N environments; now each owner writes exactly one file and removing an environment is an `unlink`. `reload()` runs `nginx -t` first, because a reload with a bad config silently leaves the previous one serving and surfaces much later as every route 404ing. Platform mode keeps a self-contained single-file config (it mounts only that file, so an `include` would fail).
-- refactor: de-globalize `floci_deployer` behind a `FlociTarget` (endpoint, internal endpoint, account id, container), threaded as a keyword-only argument defaulting to the control plane so every pre-existing call site is unchanged. Module-level `FLOCI_ENDPOINT`/`ACCOUNT_ID` are now the control-plane values only.
-- fix: scope every `repo_instance` lookup by environment. Each named environment gets its own `hmd_lang_deployment.environment` row and `repo_instance` is unique by name *per Environment*, so instance names are deliberately identical across environments — which made `find_core_deployment_node` and `_repo_instance_status` (both name-only) ambiguous: they would resolve to an arbitrary environment's instance and silently attach core Resources to the wrong cluster. Both now filter on `deployment_id`.
-- fix: pass `KUBECONFIG` explicitly on every `kubectl`/`helm` call in `k3s_operators` (new `_run` helper) instead of relying on a process-wide `os.environ["KUBECONFIG"]` mutation. With one cluster per environment, a single missed call would silently target whichever cluster the process happened to point at. CoreDNS now maps `neuronsphere`/`hmd_db`/`global-graph` to *that environment's* containers (and adds `neuronsphere-control`), so cloud Helm charts run unmodified in every environment.
-- fix: `LocalWorkflowRunner` targets the environment's Floci by container name rather than the `neuronsphere` alias — that alias belongs to the control-plane Floci, so a DAG deploy would otherwise create the environment's CDKTF resources in the wrong account.
-- fix: drop the `run_local_service` db-init container's published port, which was derived from the number of local services (`{len(local_svcs)+2}5432`) and so shifted whenever one was added or removed. It only ever runs `psql -h db` in-network and never needed one.
-- feat: `port_validator` gains reserved ranges, multi-project awareness (so a running environment's own ports aren't reported as taken) and a strict mode that rejects a published host port on any service other than the proxy. Platform mode stays warn-only.
-
-## 2026-08-04
-
-- fix: tolerate Floci's null-field API Gateway state. Floci persists every API Gateway *v1* entity (`$HMD_HOME/floci/data/apigateway-*.json`) with all fields null and, as of 1.5.34, rehydrates those records on start — so `GET /restapis` served back "ghost" gateways with no `id`/`name` and `create_api_gateway` died with `KeyError: 'name'` on every `up` over a non-purged data dir. `create_api_gateway`/`add_api_gateway_route` now skip ghost records, and a new `clear_apigateway_state()` drops the persisted v1 files before Floci starts (both extend and platform modes); gateways are recreated from scratch on every `up`, so no state is lost. Ghosts carry no id, so they cannot be deleted through the API.
+- test: update local runner fixture to quoted heredoc delimiter
 
 ## 2026-07-24
 
-- feat: add a `global-graph` CoreDNS record in the local k3s cluster so Trino's `graph` catalog (connector `nsgraph`) resolves the JanusGraph container by name from inside pods.
-- fix: align the local admin/user DB-secret `customer_code` default to `none` (was `hmd`), now sourced from `$HMD_HOME/.config/hmd.env` via `local_customer_code()`. The old mismatch seeded the admin secret under a name `ms-dbaccount` never looked up, so every `hmd-database-account` deploy failed with `ResourceNotFoundException`, blocking hive-metastore and Trino.
-- fix: drop the `floci-eks-<name>` k3s container + volume on `down --purge` (`purge_k3s_container_and_volume`). Leaving the volume made the next `up` reuse stale k3s state, registering a new Node while the old one lingered `NotReady` and orphaning StatefulSet pods (hive-metastore `FailedScheduling`).
-- feat: expose the k3s Trino coordinator on host `:18080` via a NodePort (`configure_trino_host_route`) + an `hmd_proxy` nginx `stream` block, wired on both cold and restart-fast-path `up`. Integration tests reach Trino at `host.docker.internal:18080` with no `kubectl port-forward`.
+- feat: expose local k3s Trino on host :18080 via nginx stream (no port-forward)
+- fix: drop the k3s container and volume on down --purge
+- fix: source local DB-secret customer_code from hmd.env, default none
+- feat: resolve global-graph via k3s CoreDNS for Trino graph catalog
+
+## 2026-07-22
+
+- feat: local-deploy fixes for analytics-engines bring-up
 
 ## 2026-07-21
 
-- refactor: replace the strategy-based `local_overrides.json` mechanism with a two-phase BOM/changeset bootstrap for the local control plane. `hmd neuronsphere up` now applies **Phase A** (just the core producer instance, so its Resources — Docker network, k3s cluster/compute/ingress-controller, shared Postgres, JanusGraph, and a `microservice` Resource per bootstrapped-before-ms-deployment-exists HMDMS Lambda) submit before **Phase B** (ext-secrets, built-in/custom BOM, plugin-contributed entries) validates its changeset — letting Phase-B dependencies use a real `tag_selector` against a specific producer instead of accepting any producer of the shared type. Deletes `hmdms_seeder.py` and `local_overrides.json`; the removed per-instance `strategy`/`skip` bookkeeping is superseded by the phased changeset split.
-- refactor: rename the core local producer instance `local-k3s` → `local-neuronsphere`, and give it a hashed, per-`HMD_HOME` name so multiple local environments on the same host no longer collide on a single shared instance identity.
-- feat: detect k3s cluster recreation (vs. a plain restart) and re-run the affected bootstrap phase instead of assuming an existing environment is still valid.
-- feat: add new resource-definition types backing the expanded Phase A core-producer output (see `docs/modes.rst`).
-- Updated `bom_seeder.py`, `floci_deployer.py`, `hmd_cli_neuronsphere.py`, `k3s_operators.py`, `local_workflow_runner.py`, and `docs/modes.rst`/`docs/helm_chart_dev_loop.rst` accordingly; test coverage updated in `test_bom_seeder.py`/`test_k3s_operators.py`/`03__extend_mode_tests.robot`.
+- refactor: replace strategy-based local-overrides with two-phase BOM/changeset bootstrap
 
 ## 2026-07-17
 
-- feat: enable the External Secrets local dev-deploy loop (`hmd-inf-ext-secrets-crds` + `hmd-inf-ext-secrets`, deployed through the real ms-deployment DAG) by default, per the "intended to move into the default bootstrap once proven" note in `docs/modes.rst`. `HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS` flips from opt-in to opt-out (`=false`/`0`/`no` disables it) — added `bom_seeder._is_falsy` for the new default-on/opt-out check, mirroring the pattern `k3s_operators._enabled()` already uses for `HMD_LOCAL_NEURONSPHERE_ENABLE_K3S_OPERATORS`. Updated `local_overrides.json` reasons and `docs/modes.rst` accordingly.
-- refactor: remove KEDA from the hardcoded `k3s_operators._OPERATORS` core-operator install path and the `hmd-inf-keda` `pre_build_artifacts` bundle. KEDA now deploys through the real ms-deployment DAG as a BOM entry contributed by the optional `hmd-cli-plugin-ns-telemetry` package (mirroring the earlier ClickHouse-operator/cert-manager migration), so it's only installed when that plugin is present instead of unconditionally. `local_overrides.json`'s `hmd-inf-keda` entry switches from `strategy: "skip"` to `"default"` to let the DAG deploy it.
-
-- feat: harvest the developer host's Docker registry credentials into the local `ext-secrets` BOM entry, so local k3s can pull private images (e.g. `ghcr.io/hmdlabs/*`) the same way cloud does, instead of hitting `ErrImagePull` (401, anonymous pull). New `docker_credentials.local_docker_config_json()` reads `~/.docker/config.json` (or `$DOCKER_CONFIG`), resolving each registry host's credentials from either a literal `auths[host].auth` entry or its credential helper (`credHelpers[host]` / the top-level `credsStore` — the common case on macOS/Docker Desktop), covering every registry the developer is already authenticated to, not just `ghcr.io`. `bom_seeder._inject_docker_credentials` threads the result into any `hmd-inf-ext-secrets` BOM entry's `instance_configuration.docker_config_json`, consumed by that repo's local CDKTF overlay to seed `hmd-docker-repo-secret`. Best-effort throughout — a missing Docker config or failed helper lookup for one registry never blocks the rest of `up`.
-- feat: enable the `dockerRepoSecret` `ClusterExternalSecret` locally in `k3s_operators._ext_secrets_passes()`'s second pass, pointed at a new `aws-parameter-store` `ClusterSecretStore` (added alongside the existing `aws-secrets-manager` one) — this is the same mechanism cloud already uses to sync `hmd-docker-repo-secret` into every namespace; it was simply switched off for local. Parameter Store specifically because `hmd-inf-credentials`' local CDKTF overlay writes secret values there (via `hmd_lib_secrets_backend`), not Secrets Manager.
-- fix: reap `NotReady` ghost k3s Node registrations and their node-affine local-path PVs on every `hmd neuronsphere up` (`k3s_operators._clean_stale_nodes`, called from `provision_k3s_operators`). Floci reuses the k3s data volume across cluster delete/recreate, so a respawned container — whose hostname defaults to a fresh, random container ID — registers as a brand-new Node while the previous one lingers forever as `NotReady`. Those ghosts broke `EndpointSlice` reconciliation for every Service (`FailedToUpdateEndpointSlices ... Node <id> Not Found`) and pinned PVCs to a dead node (`didn't match PersistentVolume's node affinity`), which was silently corrupting ClickHouse's StatefulSet across restarts.
-- fix: also drop the k3s container's persistent `/var/lib/rancher/k3s` volume in `floci_deployer._wait_for_cluster_gone` when force-recreating a stale cluster, so a full recreate doesn't carry forward the same accumulating ghost-node garbage `_clean_stale_nodes` has to clean up.
-- fix: label the single local k3s node with `topology.kubernetes.io/{zone,region}=local` (`k3s_operators._ensure_node_topology_labels`, called from `provision_k3s_operators`). Cloud EKS nodes carry these labels; the bare local node had none, so any chart's zone-keyed `topologySpreadConstraints` (e.g. ClickHouse's Keeper StatefulSet) found "0/1 nodes match" and left every replica beyond the first stuck `Pending` forever. A single zone value trivially satisfies max-skew for any single-node cluster.
+- feat: Enable ext-secrets by default in local NeuronSphere
+- refactor: Remove KEDA from hardcoded k3s core-operator install path
+- fix: resolve local ClickHouse/otel-collector deploy failures on k3s
 
 ## 2026-07-16
 
-- feat: deploy newly-available plugin BOM entries on `hmd neuronsphere up --upgrade` without a purge. Since `d08bc16`/`802ee24` moved ClickHouse/OTEL-collector out of this repo into the optional `hmd-cli-plugin-ns-telemetry` package (contributed via the `hmd_cli_neuronsphere.get_local_bom_entries` entry point), the restart fast-path had no way to notice a plugin installed, or an `HMD_LOCAL_NEURONSPHERE_ENABLE_*` flag flipped on, after an environment was already bootstrapped — the only way to pick it up was a destructive `down --purge` + `up`. `bom_seeder.compute_new_bom_entries` now diffs the resolved BOM against the RepoInstances already registered in ms-deployment; on a restart, the fast-path calls it and, under `--upgrade`, applies a delta-scoped changeset + DAG run for just the new instances via `seed_bom(bom=new_entries)` — already-deployed instances (core, ext-secrets) are left untouched, since the server only emits deploy scripts for instances attached to the changeset just applied. A plain `up` restart stays fast and only prints a one-line hint when new entries are detected.
-- fix: make `seed_bom` safe to call more than once against the same environment, which the delta-apply above depends on. The `deployment_set` "local" write is now find-first (matching `ensure_local_environment`'s existing pattern) instead of an unconditional PUT, and the changeset name is minted uniquely per invocation (`_new_change_set_name`) instead of the hardcoded `"local-changeset"` — a second call previously created a duplicate `local-changeset` row, which made the server's `apply_changeset` assert `Found 2` and crash.
-- fix: `compute_new_bom_entries` no longer treats a "skip"-strategy instance (e.g. the core `local-k3s` producer) as permanently retry-eligible just because it's stuck at ms-deployment's un-visited default status ("SKIPPED"). `LocalWorkflowRunner` never actually writes literal "SKIPPED" — it only writes `DEPLOYED`/`FAILED`; "SKIPPED" is what an instance shows when a fail-fast run never reached it. A "default"-strategy instance stuck there genuinely needs a retry, but a "skip"-strategy one (never runs a real script, marks itself `DEPLOYED` instantly if ever visited) does not — the delta computation now consults `local_overrides.json`'s strategy (mirroring `local_workflow_runner.SKIP_STRATEGIES`) so it stops re-offering already-terminal no-op instances on every future `--upgrade`.
-- fix: mount a rewritten kubeconfig into the projectbuilder container instead of the raw one. `write_kubeconfig` always produces a host-published `https://localhost:<port>` server (needed for host-side `kubectl`), which is unreachable from inside a container on the `neuronsphere_default` network — Helm-strategy deploy nodes for repos with no `kubernetes-cluster` resource dependency (e.g. `hmd-inf-clickhouse-operator`, which has none) got `Connection refused`. `LocalWorkflowRunner._kubeconfig_for_container` now rewrites the mounted copy's `server` to the in-network Floci EKS alias (`https://floci-eks-<cluster>:6443`) unconditionally for every node, rather than relying on hmd-cli-helm's own NERD0006 dependency-gated substitution (which only fires for repos that happen to declare a `kubernetes-cluster` resource dependency).
-- feat: wire the new `hmd-inf-cert-manager` (cluster-wide, deployed once per cluster) into `local_overrides.json` as `strategy: "default"`, so `hmd neuronsphere up` deploys it locally the same way it deploys `hmd-inf-clickhouse-operator` and other Helm-only cluster add-ons.
-
-## 2026-07-15
-
-- feat: install Traefik as the local k3s ingress controller during operator provisioning. This NeuronSphere k3s image ships no bundled ingress controller (no `traefik.yaml` addon, no IngressClass), so the seeded `kubernetes.neuronsphere.io/ingress-controller` Resource was aspirational and Ingress objects went unserved. `k3s_operators._ensure_ingress_controller` now `helm upgrade --install`s Traefik into `kube-system` (public chart, pinned version; overridable via `HMD_LOCAL_TRAEFIK_REPO`/`_VERSION`, gated by `HMD_LOCAL_NEURONSPHERE_ENABLE_INGRESS`), binding the node's `:80`/`:443` via `hostPort` so it is reachable at the k3s node container's name on the Floci docker network — no servicelb needed. Best-effort and idempotent; runs on every `hmd neuronsphere up`.
-- feat: register `hmd_proxy` and `hmd_db` in the k3s `coredns-custom` config so pods resolve them by name. `k3s_operators._ensure_coredns_floci_entry` now emits per-host server blocks for the core docker-network services alongside `neuronsphere`/`neuronsphere-workload`, so charts can use stable hostnames (e.g. `http://hmd_proxy/…`, DB host `hmd_db`) instead of ephemeral container IPs baked into config.
-- feat: idempotently re-sync bootstrapped core Resources on restart, plus a `hmd neuronsphere up --upgrade` flag. Once an env is bootstrapped, `up` takes the restart fast-path and skips BOM seeding — so it never re-submitted the core NERD Resources, and a changed core Resource set (e.g. the new Traefik ingress-controller) could only be applied via a destructive `down --purge`. `bom_seeder.resync_local_resources` now re-runs only the idempotent subset — `seed_base_resource_definitions`, `declare_core_produces`, and `build_local_core_resources`/`submit_local_resources` against the **existing** `local-k3s` deployment (looked up by `find_core_deployment_node` via the `repo_instance` → `repo_instance_has_repo_instance_deployment` edge, avoiding a duplicate changeset). The restart fast-path calls it on every `up`, so restarts self-heal; `--upgrade` additionally repulls images via the existing `update_images()`. No DAG re-run, no redeploy.
-- feat: advertise a local ingress controller as a core Resource. The `local-k3s` core instance now produces a `kubernetes.neuronsphere.io/ingress-controller` Resource (typed by the abstract base definition; `output` = `{name: traefik, namespace: kube-system, ingress_class: traefik}` — `name`/`namespace` satisfy the effective schema inherited from the `deployment` base type), backed by the Traefik that k3s already runs — no new repo or operator install. `bom_seeder.declare_core_produces` declares the fourth core type and `build_local_core_resources` submits a `<cluster>-traefik` Resource alongside the k3s cluster, so a cloud repo whose manifest declares a SPEC0008 `resource` dependency on an ingress-controller resolves against `local-k3s`. `hmd-inf-eks-alb` (the AWS Load Balancer Controller) is unchanged — it is AWS-only and cannot run against k3s.
+- refactor: Update NeuronSphere CLI with plugin architecture and remove deprecated components
+- refactor: Remove ClickHouse and Telemetry plugins along with related configurations
+- feat: Add local Postgres DB provisioning and registration commands
 
 ## 2026-07-14
 
-- feat: complete the local `hmd deploy` DAG loop for cdktf+helm repos onto k3s, with the cluster addressed via its Resource (cloud parity). The `local-k3s` `kubernetes-cluster` Resource now carries the **in-network** `endpoint` (`https://floci-eks-<cluster>:6443`), and core Resources are submitted **before** the DAG runs so a dependent's `hmd deploy` resolves that endpoint (NERD0006) — hmd-cli-helm then connects there instead of the host-scoped kubeconfig server. `LocalWorkflowRunner` also passes `HMD_HOME` and dummy `DOCKER_USERNAME`/`DOCKER_PASSWORD` (for `hmd cdktf deploy`'s credential pre-flight) into the projectbuilder container, and `floci_deployer.provision_resources` creates the CDKTF tfstate bucket (`hmd.<account>.<region>.tfstate`) so `tofu init` works locally (path-style backend lives in `hmd-lib-cdktf`).
-- fix: reach the local Deployment Service from the projectbuilder container via the `hmd_proxy` nginx alias, not `neuronsphere` (which is the Floci alias on :4566). This lets the in-container `hmd deploy` resolve dependency resource outputs and submit produced Resources.
-- fix: when the external-secrets stack is opted into the ms-deployment DAG, `provision_k3s_operators` skips the operators-path install of `ext-secrets`/`ext-secrets-crds` so the DAG is the sole installer (no CRD ownership collision).
-- feat: run the local `hmd deploy` from a **local source** instead of the Artifact Librarian (absent locally). `LocalWorkflowRunner` now injects `--local` into each generated deploy node command (`_localize_deploy_script`) so hmd-cli-deploy deploys from the mounted `/workspace` (primary). Alternatively, set `HMD_LOCAL_DEPLOY_ARTIFACT_ROOT=<dir>` holding `<repo>_<ver>_build.zip` and the runner mounts it and points hmd-cli-deploy at it via `HMD_ARTIFACT_ROOT` (secondary). Fixes the `hmd deploy` DAG nodes failing on `HMD_ARTIFACT_LIBRARIAN_API_KEY`; uses the stock projectbuilder (no rebuild).
-- feat: own all local default/core Resources under a single `hmd-cli-neuronsphere` RepoClass. The local core is now BOM entry #0 — a `local-k3s` instance of `hmd-cli-neuronsphere` (`skip` strategy in `local_overrides.json`) that `apply_changeset` creates as a proper environment producer. `bom_seeder.declare_core_produces` declares it produces `kubernetes.neuronsphere.io/kubernetes-cluster`, `compute.neuronsphere.io/compute-node`, and `network.neuronsphere.io/docker-network` before the changeset applies, so SPEC0008 resource-type dependencies resolve against it. `build_local_core_resources`/`submit_local_resources` now attach the concrete core Resources (docker-network, k3s cluster, compute pool) to that instance's RepoInstanceDeployment (looked up from the deployed nodes) instead of hand-creating bare instances.
-- feat: opt-in local deploy of the external-secrets stack via `HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`. When set, `bom_seeder` appends `hmd-inf-ext-secrets-crds` then `hmd-inf-ext-secrets` to the resolved BOM so `hmd neuronsphere up` deploys them through projectbuilder onto the local k3s cluster and tracks their produced Resources in `hmd-ms-deployment` (NERD0004/0006). Their manifests' `eks-cluster`/`compute` deps resolve against the local `local-k3s` producer.
-- feat: register a BOM repo's declared ResourceDefinitions locally. `bom_seeder.upsert_repo_resource_definitions` reads each repo's `meta-data/resources/*.yaml` and upserts them (mirroring the cloud ArtifactMonitor) so a produced Resource can be typed at deploy time.
-- feat: close the local resource-tracking loop (NERD0006). After a node deploys, `LocalWorkflowRunner` reads the Resources hmd-cli-helm renders under `meta-data/resources_output/` in the mounted workspace and POSTs them to the local Deployment Service against the node's RepoInstanceDeployment (`_submit_produced_resources`) — no projectbuilder rebuild required. It also passes a container-reachable `HMD_DEPLOYMENT_SERVICE_URL` (localhost→`neuronsphere`) and, opt-in via `HMD_LOCAL_INCONTAINER_RESOURCE_SUBMIT`, `HMD_REPO_INSTANCE_DEPLOYMENT_ID` for a local-aware in-container submit.
+- feat: complete the local hmd deploy DAG loop (Resource-driven cluster, cdktf-local)
+- feat: opt-in local ext-secrets dev-deploy loop (single-Floci branch checkpoint)
 
-### Fixed
-- fix: wire `FLOCI_SERVICES_EKS_DEFAULT_IMAGE` (the `hmd-img-k3s-floci` wrapper) into the admin/extend `floci` service (`docker-compose.admin.yml`). Without it Floci spawned stock `rancher/k3s:latest`, whose apiserver crash-loops on the `--storage-backend=sqlite3` / `etcd-servers=unix:///tmp/kine.sock` overrides Floci injects; the wrapper's entrypoint strips them so the local k3s cluster reaches ACTIVE.
-- fix: override the projectbuilder container ENTRYPOINT (`hmd`) with `bash` in `LocalWorkflowRunner`, so a node's deploy script runs as a shell command instead of being parsed as `hmd bash -c ...` ("invalid choice: 'bash'").
-- fix: pass `HMD_HOME` into the projectbuilder container (hmd-cli-* asserts it is set).
-- fix: base64-encode the `collection` `definition` attribute when creating the `deployment_set` and `change_set` via CRUD PUT. hmd_ms_base types these as base64-encoded JSON strings; sending a native list is rejected 422 and a plain JSON string fails base64 decoding (500).
+## 2026-07-06
 
-## 2026-07-13
+- feat: Enhance local k3s deployment for NeuronSphere
 
-- fix: self-heal a stale Floci k3s cluster in `ensure_k3s_cluster`. Floci pins the k3s node image into its **persistent** cluster record at creation time, so a cluster first created before `FLOCI_SERVICES_EKS_DEFAULT_IMAGE` pointed at the `hmd-img-k3s-floci` wrapper (or against any stale image) keeps respawning `rancher/k3s:latest` and crash-loops on `--kube-apiserver-arg=storage-backend=sqlite3` (`--storage-backend invalid, allowed values: etcd3`). `create_cluster`'s `ResourceInUseException` was blindly trusted, so the cluster never recovered. The deployer now inspects the spawned `floci-eks-<name>` container and, when it is missing, stopped, or not the expected wrapper image, deletes and recreates the cluster so Floci respawns it from the current wrapper image (`_k3s_container_image`/`_k3s_container_running`/`_wait_for_cluster_gone` helpers; unit tests in `tests/test_k3s_self_heal.py`).
-- feat: make the default `hmd neuronsphere up` a **minimal core** — Docker network + Floci + core databases + k3s + the deployment control plane (`hmd-ms-deployment`, `hmd-ms-naming`, `hmd-ms-dbaccount`) + the graph database (Neptune/JanusGraph). Every other app/infra service (Airflow, Trino, Superset, transform, Jupyter, ClickHouse, Hive Metastore, telemetry, MinIO, DynamoDB-standalone) is now **opt-in, off by default** — enable per-user with `HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>=true` or `hmd neuronsphere configure`. No plugins were removed. A `CORE_PLUGINS` set (`floci`, `main`, `graph`) short-circuits `LocalPluginLoader.is_plugin_enabled`; graph is brought up in the core compose set (opt out with `HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`).
-- feat: on first bootstrap, submit the concrete locally-deployed **NERD0004 Resources** into `hmd-ms-deployment` — the Docker network (`network.neuronsphere.io/docker-network`) and the k3s cluster (`kubernetes.neuronsphere.io/kubernetes-cluster`), tagged `environment=local` — so cloud repos whose `manifest.json` declares a resource dependency resolve against the local environment (`bom_seeder.build_local_core_resources` / `submit_local_resources`). Pairs with `seed_base_resource_definitions`, which seeds the base catalog before the BOM.
-- refactor: `hmd neuronsphere configure` shows the always-on local core separately and only prompts for the optional plugins (which now default off).
+## 2026-05-04
 
-## 2026-07-02
+- feat: Enhance Docker Compose configurations and introduce customer-derived librarians
 
-- feat: framework to run bundled Helm-chart plugins on the Floci k3s cluster instead of as Docker Compose containers (`k3s_chart_plugins.py`), opt-in via `HMD_LOCAL_NEURONSPHERE_K3S_CHARTS` and only when `hmd_cli_helm` is available. `provision_k3s_chart_plugins` (run in `up` after the operators) seeds each chart's Floci fixtures (S3 buckets + Secrets Manager secrets in region `local`) and deploys it via `hmd helm deploy --local`; the compose render loop suppresses the container for any converted plugin. Includes robustness for the persistent Floci k3s datastore: delete `NotReady` ghost nodes + node-affine orphaned PVs before install (`k3s_operators._clean_stale_nodes`), and a surgical pre-delete of operator-owned CRs (ExternalSecret/ScaledObject) before re-deploy to avoid helm-4 server-side-apply field conflicts.
-- feat: install NeuronSphere cluster operators onto the local Floci k3s cluster at `hmd neuronsphere up` time (`k3s_operators.provision_k3s_operators`), so chart repos deployed with `hmd helm deploy --local` render and apply their `ExternalSecret`/`ScaledObject`/ClickHouse operator resources with cloud parity. The operators are the same `hmd-inf-*` charts used in the cloud — `hmd-inf-ext-secrets-crds`, `hmd-inf-ext-secrets`, `hmd-inf-clickhouse-operator`, `hmd-inf-keda` — bundled as `pre_build_artifacts` and installed in dependency order (best-effort, gated by `HMD_LOCAL_NEURONSPHERE_ENABLE_K3S_OPERATORS`). The External Secrets `aws-secrets-manager` ClusterSecretStore is pointed at Floci Secrets Manager so `ExternalSecret`s sync for real.
-- refactor: `local_overrides.json` now records that the External Secrets / KEDA / ClickHouse operators are provided by the up-time operator step rather than the extend-mode DAG.
-- fix: the Floci k3s cluster now tracks the cloud EKS Kubernetes version (default `1.34` via `HMD_LOCAL_K3S_VERSION`) instead of a hardcoded `1.29`. Operator CRDs target the cloud API (the External Secrets CRDs use `selectableFields`, requiring k8s >= 1.30) and would not install on the old cluster. Requires the matching `hmd-img-k3s-floci` wrapper image.
-- feat: `provision_k3s_operators` installs a `coredns-custom` record so k3s pods resolve `neuronsphere`/`neuronsphere-workload` to the Floci container IP. Operators and workload charts then reach Floci via the same in-network hostname as the cloud (`http://neuronsphere:4566`) — no per-chart endpoint rewriting.
-- fix: harden operator provisioning against cluster-warmup and stale state — wait for a k3s node to report `Ready` before installing (EKS-API ACTIVE != node ready), and wait out any `Terminating` target namespace (Floci's k3s datastore persists across cluster delete/recreate, so a prior teardown can leave a namespace mid-termination).
-- test: document the local Helm chart dev loop (`docs/helm_chart_dev_loop.rst`).
+## 2026-04-27
 
-## 2026-04-30
-
-- fix: rebrand the in-network Floci hostname from `floci`/`floci-workload` to `neuronsphere`/`neuronsphere-workload`. The new names are registered as Docker network aliases on the compose services so in-network DNS resolves them automatically. Lambdas (`AWS_ENDPOINT_URL`), the projectbuilder workflow runner, the API-gateway invoke URL, and the nginx upstream now use the rebranded names. Resolves the host-side DNS failure on the S3 PUT step of `push-artifact`/publish flows by having presigned URLs use a single hostname that's resolvable from both the host (via a one-time `/etc/hosts` entry) and from inside Floci's network (via Docker network aliases) - so transform-manager and other in-network consumers of presigned URLs keep working.
-- feat: `hmd neuronsphere up` now runs a pre-flight check that verifies `neuronsphere`/`neuronsphere-workload` resolve to a loopback address on the host, and prints a clear one-line setup instruction (`sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'`) when missing. Replaces the previous failure mode where missing hostname resolution would surface deep in the build/publish flow as a confusing DNS error.
-
-## 2026-04-29
-
-- fix: `LocalPluginLoader` now resolves gremlin engine configs to local `global-graph` container values (`db_host=global-graph`, `db_protocol=ws`, `with_strategies=False`) for any HMDMS plugin, mirroring `hmd-lib-cdktf-factories`' cloud-deploy `dependency:neptune-db` resolution. Resolves `aiohttp.client_exceptions.InvalidUrlClientError: wss://dependency:neptune-db:8182/gremlin` from `push-artifact` against the artifact-librarian Lambda. `setdefault` preserves any explicit override in the plugin's `meta-data/config_local.json`.
-- fix: stop pre-creating DynamoDB tables for HMDMS plugins in `floci_deployer.provision_resources`; `hmd-entity-storage`'s `DynamoDbEngine` now creates the table on first service invocation with the correct attributes, key schema, and GSIs (`FromIndex`, `ToIndex`, `EntityNameIndex`). Resolves `ValidationException: The table does not have the specified index: EntityNameIndex` from `push-artifact` and other entity-storage queries. Users with an existing local stack should drop the broken table from Floci's LocalStack endpoint before re-running `hmd neuronsphere up`:
-
-  ```
-  aws --endpoint-url http://localhost:4566 dynamodb list-tables
-  aws --endpoint-url http://localhost:4566 dynamodb delete-table --table-name <table-from-list>
-  ```
-
-## 2026-04-28
-
-- feat: add `hmd neuronsphere push-artifact` to register a local repo build artifact in the local artifact librarian, with auto-build (`HMD_BUILD_OUTPUT_DIR` capture, no Docker/PyPI publish) and pre-built (`--build-path`) modes
-- test: round-trip + help test for push-artifact in `06__artifact_lib_tests.robot`
-- fix: `LocalPluginLoader.is_plugin_enabled` now honors `enabled_by_default` and `env_var_override` from nsplugin.json so discovered plugins (e.g. `artifact-lib`) start and register without requiring an explicit env var
-- fix: foundation-load `hmd-ms-artifact-lib` from `HMD_REPO_HOME` during `hmd neuronsphere up` so `push-artifact`/`pull-artifact` no longer fail with `"no route defined"` when the user hasn't set `HMD_LOCAL_PLUGINS`
-- fix: append a trailing slash to the default and user-supplied `--local-url` for `push-artifact`/`pull-artifact` so `urljoin` no longer strips the `/hmd_ms_artifact_lib` path segment when constructing `apiop/*` requests
-- fix: `LocalPluginLoader` now auto-populates `dynamo_table` for any dynamo engine in an HMDMS plugin's `service_config` using `make_standard_name(function_name, repo_name, did, "local", region, customer)`, mirroring `ServiceCdkTfStack`'s cloud-deploy behavior, and emits a matching `dynamodb_tables` resource so Floci provisions the table at startup
-- fix: `LocalPluginLoader` now injects `CONTENT_PATH_CONFIGS` and `GRAPH_QUERY_CONFIG` env vars on librarian-style HMDMS plugins from `manifest.deploy.default_configuration` (overridable via `config_local.json`), mirroring `LibrarianBase.get_lambda_vars` so artifact-lib boots locally without missing-config errors
-- fix: `LocalPluginLoader` also injects `BUCKET_NAME` (bare bucket name, no `s3://` prefix) on librarian-style HMDMS plugins so `hmd_ms_librarian.get_service_parameter("BUCKET_NAME")` resolves locally; gated on `content_path_configs` presence and the first declared bucket, mirroring cloud's `LibrarianBase.get_full_bucket_name`
+- feat: Enhance Floci deployment with local image resolution and API Gateway improvements
+- feat: Add Argo plugin and extend mode tests
 
 ## 2026-04-22
 
-- feat: replace MiniStack with Floci as local AWS emulator (NERD001 Phase 0)
-- feat: add mode-switching infrastructure for legacy/deploy operating modes (SPEC008)
-- refactor: rename ministack_deployer to floci_deployer with backwards-compatible env var fallback
-- refactor: rename ministack plugin to floci plugin across entry points and tests
+- feat: replace MiniStack with Floci and add legacy/deploy mode switching
 
-## 2026-03-10
+## 2026-04-15
 
 - feat: add MiniStack integration replacing MinIO and DynamoDB plugins
+
+## 2026-03-13
+
 - fix: skip port-in-use warnings for existing NeuronSphere containers
+
+## 2026-03-03
+
 - fix: update version numbers for pre_build_artifacts in manifest.json
+
+## 2026-02-27
+
 - feat: add enabled_by_default to nsplugin.json spec for plugin default state
+
+## 2026-02-25
+
 - fix: update version numbers for airflow, clickhouse, and otel-collector in manifest
 
 ## 2026-02-24
 
+- fix: ensure .env-non-dev is packaged and available for superset startup
+- feat: add aws-secretsmanager-caching to requirements
+- feat: update plugin configurations and add interactive selection for enabling local plugins
 - feat: add clean startup/shutdown output with service URL summary
 - feat: add port conflict detection for local NeuronSphere startup
-
-## 2026-02-23
-
-- feat: add clickhouse and hive-metastore plugin wrappers with entry points
-- feat: add superset pre-build artifact to manifest
-- fix: correct hive-metastore external artifact path (underscore to hyphen)
+- feat: add clickhouse, hive-metastore plugin wrappers and superset pre-build artifact
 
 ## 2026-02-20
 
+- feat: update pre-build artifacts to latest versions for consistency
 - feat: add telemetry profile seeding from local plugin nsplugin.json
+
+## 2026-02-19
+
+- fix: resolve network and db-init issues for local plugin containers
+
+## 2026-02-18
+
+- fix: telemetry plugin now uses base.py helpers for local plugin support
 
 ## 2026-02-17
 
 - feat: add pre-build artifacts for airflow, clickhouse, and otel-collector plugins
-- fix: resolve network and db-init issues for local plugin containers
-- fix: telemetry plugin now uses base.py helpers for local plugin support
 
 ## 2026-02-10
 
@@ -217,11 +146,480 @@ All notable changes to this project will be documented in this file.
 
 ## 2026-02-05
 
-### Added
-- AI skills support with SkillsLoader for skill discovery and the `init-ns-local` skill that guides users through creating src/local/ directories for local NeuronSphere plugin development
-- Support for external Docker Compose artifacts from other repos, allowing each service to manage its own local development configuration via pre-build artifacts with nsplugin.json schema and Jinja2 templating
-- Local filesystem plugin support allowing plugins from HMD_REPO_HOME to override installed plugins when explicitly enabled via environment variables
-- Handler registration with `hmd_cli.controllers` entry point for the new handler discovery mechanism
-- `validate-plugin` command to validate nsplugin.json configuration files with checks for JSON syntax, required fields, Docker Compose validity, and file existence
-- `init-plugin` command to scaffold src/local/ directory structure with template nsplugin.json and docker-compose files
-- Pre-build artifact configuration for hmd-ms-transform
+- feat: add pre_build_artifact for hmd-ms-transform in manifest.json
+- feat: add init-plugin command to scaffold local plugin structure
+- feat: add validate-plugin command for nsplugin.json validation
+- feat: register handler with hmd_cli.controllers entry point
+- feat: add local filesystem plugin support from HMD_REPO_HOME
+- feat: add AI skills support with init-ns-local skill
+- feat: add support for external Docker Compose artifacts from other repos
+
+## 2025-12-16
+
+- fix: add AWS credentials to Jupyter docker-compose configuration
+
+## 2025-10-24
+
+- fix: update python-dotenv version to 1.1.1 in requirements.in
+
+## 2025-08-01
+
+- fix: update DynamoDB local image version and remove unnecessary startup option
+
+## 2025-07-30
+
+- fix: ensure cache directory is created if it doesn't exist and handle missing databases gracefully
+
+## 2025-07-14
+
+- fix: update docker-compose file path and environment variables for transform service
+
+## 2025-05-07
+
+- fix: update bucket name retrieval in start_neuronsphere function
+
+## 2025-04-21
+
+- fix: remove deprecated requirements.txt file
+
+## 2025-03-17
+
+- fix: adds HMD_REPO_HOME and updates docker-compose configurations
+
+## 2025-03-03
+
+- fix: bumps hmd-cli-app version
+- fix: fixes some minor initial config bugs
+
+## 2025-02-17
+
+- fix: fixes restarting local cached services
+
+## 2025-01-03
+
+- fix: fixes local encryption key
+
+## 2025-01-02
+
+- fix: fixes quotes
+
+## 2024-12-21
+
+- fix: fixes error on missing query config
+- fix: made compose cmd configurable
+
+## 2024-12-19
+
+- feat: adds gozer
+
+## 2024-11-14
+
+- fix: pins PyYAML
+
+## 2024-08-21
+
+- fix: fixes update images
+
+## 2024-08-07
+
+- feat: adds Jaeger to telemetry plugin
+
+## 2024-07-19
+
+- feat: registers services w/ ms-naming on up
+
+## 2024-07-18
+
+- feat: adds restart command
+
+## 2024-07-01
+
+- fix: fixes update-images cmd
+
+## 2024-04-03
+
+- fix: fixes minio plugin
+
+## 2024-03-12
+
+- fix: fixes SECRET_KEY
+- fix: temporarily removes prev secret key
+
+## 2024-03-05
+
+- fix: creates missing neuronsphere_default network
+
+## 2024-02-28
+
+- fix: adds missing hadoop env
+- fix: adds trino plugin
+
+## 2024-02-16
+
+- feat: adds instance name to local svc yaml
+- fix: adds missing service files
+
+## 2024-02-15
+
+- feat: adds telemetry containers
+
+## 2024-02-14
+
+- feat: adds otel collector
+
+## 2024-02-13
+
+- feat:  implements plugin architecture
+- feat: adds naming service
+
+## 2024-02-07
+
+- fix: fixes running local services
+
+## 2023-11-14
+
+- fix: removes dependencies on nginx
+
+## 2023-09-08
+
+- feat: configures for airflow img seq tf
+
+## 2023-08-29
+
+- fix: adds correct gremlin config
+
+## 2023-08-15
+
+- fix: adds healthchecks to depends on
+
+## 2023-08-14
+
+- fix: removes print statement
+
+## 2023-08-11
+
+- fix: fixes overwrite conn for airflow scheduler
+- fix: adds correct session properties to trino overwrite
+
+## 2023-08-09
+
+- feat: saves addtl local services for restart
+
+## 2023-08-04
+
+- fix: adds missing data files
+- feat: connects transform svc to graph and queues
+
+## 2023-08-03
+
+- fix: uses HMD_LOCAL_NS registry
+
+## 2023-07-12
+
+- fix: changes env var for container registry
+
+## 2023-06-09
+
+- fix: adds nginx conf to setup.py
+
+## 2023-06-07
+
+- feat: adds Nginx reverse proxy
+
+## 2023-06-06
+
+- fix: makes superset more configurable
+
+## 2023-06-02
+
+- feat: makes db conns configurable
+
+## 2023-05-10
+
+- feat: adds MinIO container
+
+## 2023-04-25
+
+- fix: fixes missing db_init key
+- feat: adds override arguments for starting services
+- feat: adds local graph db
+
+## 2023-04-11
+
+- fix: fixes defaulting postgres version
+- fix: add quotes to file paths
+- fix: typo
+
+## 2023-04-05
+
+- fix: fixes versioned export on superset
+
+## 2023-04-04
+
+- fix: adds back init scripts mount
+
+## 2023-03-07
+
+- fix: removes warnings about unset vars
+
+## 2023-03-06
+
+- fix: adds full hdfs config for metastore
+
+## 2023-03-01
+
+- fix: bumps deps
+- fix: fixes postgres init scripts
+- fix: adds hive files to package
+
+## 2023-02-28
+
+- fix: switches jupyter img to env var
+- feat: updates Trino images to HMD builds
+
+## 2023-02-27
+
+- feat: converts trino img to HMD built one
+- fix: removes mounting superset scripts
+- fix: removes NB_USER env var
+- fix: fixes postgres init scripts dir
+
+## 2023-02-26
+
+- fix: fixes missing HMD_DID
+- fix: removes booleans
+- fix: fixes remaining file versions
+- fix: updates docker-compose version
+- fix: fixes docker-compose version of superset
+
+## 2023-02-24
+
+- feat: adds TRINO_BUCKET envvar to transform
+
+## 2023-02-22
+
+- fix: fixes projects mount on jupyter
+
+## 2023-02-21
+
+- fix: fixes default for aws region
+- fix: removes --quiet-pull from run
+
+## 2023-02-17
+
+- fix: adds defaults to env vars
+- fix: :bug: fixes bug with missing .aws folder
+
+## 2023-02-15
+
+- fix: conditionally copies trino config
+- fix: :bug: adds missing package data
+- fix: adds trino config
+- fix: :bug: fixes missing required dirs
+
+## 2023-02-14
+
+- fix: enables all techs by default
+- feat: adds update-images command
+
+## 2023-02-10
+
+- fix: fixes mounting projects
+
+## 2023-02-06
+
+- feat: updates docker-compose ymls
+
+## 2023-01-31
+
+- fix: bumps app and tool versions
+
+## 2023-01-30
+
+- feat: allows specifying local config in meta-data
+
+## 2023-01-27
+
+- fix: :bug: fixes default compose for running ms
+
+## 2023-01-25
+
+- feat: adds mount pkgs opt to run command
+
+## 2022-11-15
+
+- feat: adds run cmd for local svc dev
+
+## 2022-11-14
+
+- fix: bumps superset version
+
+## 2022-10-13
+
+- fix: fixes local transform issue
+
+## 2022-08-18
+
+- feat: adds support for disabling local project service
+
+## 2022-08-16
+
+- fix: fixes diagram location
+
+## 2022-07-21
+
+- feat: adds dag_generators mount and new trino conn
+
+## 2022-07-15
+
+- fix: fixes trino data location
+
+## 2022-07-13
+
+- fix: removes volumes for trino
+- fix: makes volumes more portable
+
+## 2022-07-08
+
+- fix: removes unused api key refs
+
+## 2022-07-07
+
+- feat: adds required directory on start
+
+## 2022-07-06
+
+- feat: update transform service
+- feat: update transform service
+
+## 2022-07-05
+
+- feat: adds core hmd home files
+
+## 2022-07-01
+
+- feat: added mount for project
+
+## 2022-06-29
+
+- fix: use build_repo
+- feat: adds local_transform_projects path to transform compose
+
+## 2022-06-06
+
+- fix: fixes mount target
+- feat: adds aws mount to jupyter
+
+## 2022-05-17
+
+- feat: adds git env vars
+
+## 2022-03-31
+
+- feat: tweak mount path
+- feat: tweak mount path
+- feat: tweak mount path
+
+## 2022-03-30
+
+- fix: fixes env vars
+- fix: adds necessary package data
+
+## 2022-03-29
+
+- feat: adds postgres startup scripts to ensure dbs and users are created
+
+## 2022-03-17
+
+- feat: finishes airflow and ms-transform implementation
+
+## 2022-03-15
+
+- feat: updates to new image and config
+- fix: fixes datadog config
+- feat: adds ns env file
+
+## 2022-03-07
+
+- feat: adds build commands
+
+## 2022-03-04
+
+- feat: runs jupyter server as root to alleviate some permissions issues
+- feat: makes airflow dags persistent
+
+## 2022-03-03
+
+- fix: fixes volume generation
+- feat: add all dotfiles
+- feat: adds env files
+- fix: fixes package data paths
+- fix: fixes package data to include other resources
+- feat: adds superset to edge
+
+## 2022-03-02
+
+- feat: nest airflow folders under transform folder
+- feat: adds full transform service to edge
+
+## 2022-03-01
+
+- feat: adds airflow support
+
+## 2022-02-23
+
+- feat: adds project mount
+
+## 2022-02-15
+
+- fix: adds repo version back in
+- fix: adds hostname and removes unused variable
+
+## 2022-02-04
+
+- feat: streamlines folder creation
+
+## 2022-02-02
+
+- feat: moves image versions to env vars
+
+## 2022-01-27
+
+- feat: bumps project version
+
+## 2022-01-12
+
+- feat: bumps local project version
+- feat: bumps local projects version
+
+## 2021-12-20
+
+- fix: disables xray globally
+- fix: fixes datadog issues
+
+## 2021-12-07
+
+- feat: adds hmd_home env var to proxy for future local ns checks
+
+## 2021-12-03
+
+- fix: bump project service version
+
+## 2021-12-01
+
+- feat: bumping image versions to latest
+
+## 2021-11-29
+
+- feat: updates project and postgres image versions
+
+## 2021-11-10
+
+- fix: fixes docker-compose reference
+- feat: tuning order of operations
+- feat: adds support for local repos not existing
+- feat: initial commit of cli
+
+## 2021-11-09
+
+- feat: :tada: generate initial repo structure

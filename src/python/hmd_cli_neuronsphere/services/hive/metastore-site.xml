@@ -26,7 +26,7 @@
   </property>
   <property>
     <name>javax.jdo.option.ConnectionURL</name>
-    <value>jdbc:postgresql://db/metastore</value>
+    <value>jdbc:postgresql://hmd_db/metastore</value>
   </property>
   <property>
     <name>javax.jdo.option.ConnectionDriverName</name>

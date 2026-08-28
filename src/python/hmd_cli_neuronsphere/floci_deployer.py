@@ -135,6 +135,17 @@ class FlociTarget:
     :4566, or an env's ``hmd_proxy`` stream port); ``internal_endpoint`` is the
     in-Docker-network address baked into API Gateway invoke URLs and handed to
     Lambdas as ``AWS_ENDPOINT_URL``.
+
+    ``container`` and ``alias`` are deliberately distinct. ``container`` is the
+    Docker container name -- use it for ``docker exec``/``docker inspect`` and
+    nothing else. ``alias`` is the name that may be put *on the wire* (nginx
+    upstreams, ``AWS_ENDPOINT_URL``, chart hostnames): it is always an explicit
+    ``networks.<net>.aliases`` entry, never a Compose *service key*. Compose
+    registers every service key as a network alias in every project sharing the
+    network, and both docker-compose.control-plane.yml and
+    docker-compose.environment.yml key their Floci service ``floci`` -- so
+    ``floci`` round-robins across the control-plane and every environment's
+    Floci, silently splitting API Gateway and Lambda state between accounts.
     """
 
     name: str
@@ -142,6 +153,7 @@ class FlociTarget:
     internal_endpoint: str
     account_id: str
     container: str
+    alias: str
     region: str = REGION
 
 
@@ -153,6 +165,7 @@ def control_plane_target() -> FlociTarget:
         internal_endpoint=FLOCI_INTERNAL_ENDPOINT,
         account_id=ACCOUNT_ID,
         container="floci",
+        alias="neuronsphere",
     )
 
 
@@ -171,6 +184,7 @@ def env_target(env) -> FlociTarget:
         internal_endpoint=f"http://{env.floci_container}:4566",
         account_id=env.account_id,
         container=env.floci_container,
+        alias=env.floci_alias,
     )
 
 
@@ -1458,6 +1472,82 @@ def get_api_gateway_url(
     """
     endpoint = _resolve_target(target).internal_endpoint
     return f"{endpoint}/restapis/{api_id}/{stage}/_user_request_"
+
+
+# Function names that can only ever exist in the control-plane account. An
+# environment's deployments exclude artifact-lib (``CONTROL_PLANE_PLUGINS``,
+# environments.py) and never deploy ms-deployment or ms-naming, so any of these
+# found in an environment's Floci is a stray left by the `floci` DNS-alias
+# collision: `floci` was a Compose service key on both compose files, so
+# control-plane API calls round-robined into environment accounts.
+CONTROL_PLANE_ONLY_FUNCTIONS = {
+    "hmd_ms_deployment",
+    "hmd_ms_naming",
+    "hmd_ms_artifact_lib",
+}
+
+
+def prune_control_plane_strays(target: FlociTarget) -> int:
+    """Delete control-plane-only Lambdas and gateways from an environment account.
+
+    Only ever called with an environment ``target``; the allowlist above is
+    bounded and cannot match a user service, so this can never delete something
+    the environment legitimately deployed. Best-effort: a Floci that refuses a
+    delete must not fail ``up``.
+
+    Returns the number of objects removed.
+    """
+    if target.account_id == ACCOUNT_ID:
+        # The control plane itself (or a legacy env sharing it) -- these are
+        # exactly where the objects belong.
+        return 0
+
+    removed = 0
+
+    apigw = _get_client("apigateway", target)
+    try:
+        apis = apigw.get_rest_apis(limit=500).get("items", [])
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Could not list REST APIs on {target.name}: {e}")
+        apis = []
+    stray_names = {f"neuronsphere-{fn}" for fn in CONTROL_PLANE_ONLY_FUNCTIONS}
+    for api in apis:
+        if not api.get("id") or api.get("name") not in stray_names:
+            continue
+        try:
+            apigw.delete_rest_api(restApiId=api["id"])
+        except Exception as e:
+            logger.warning(f"Could not delete stray gateway {api['name']}: {e}")
+            continue
+        removed += 1
+        logger.info(
+            f"Removed stray control-plane API Gateway '{api['name']}' "
+            f"({api['id']}) from environment account {target.name} -- left by "
+            f"the `floci` DNS-alias collision"
+        )
+
+    lam = _get_client("lambda", target)
+    try:
+        functions = lam.list_functions().get("Functions", [])
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Could not list Lambdas on {target.name}: {e}")
+        functions = []
+    for fn in functions:
+        name = fn.get("FunctionName")
+        if name not in CONTROL_PLANE_ONLY_FUNCTIONS:
+            continue
+        try:
+            lam.delete_function(FunctionName=name)
+        except Exception as e:
+            logger.warning(f"Could not delete stray Lambda {name}: {e}")
+            continue
+        removed += 1
+        logger.info(
+            f"Removed stray control-plane Lambda '{name}' from environment "
+            f"account {target.name} -- left by the `floci` DNS-alias collision"
+        )
+
+    return removed
 
 
 def find_deployed_rest_api(

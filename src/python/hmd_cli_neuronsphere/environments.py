@@ -177,7 +177,7 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     # decide whether Floci came up, and Floci publishes no host port of its own.
     bootstrap_path = nginx_router.base_config_path()
     bootstrap_rewritten = not nginx_router.config_serves_floci(bootstrap_path)
-    nginx_router.write_bootstrap_config(floci_container=target.container)
+    nginx_router.write_bootstrap_config(floci_host=target.alias)
 
     print_step("Validating ports...")
     validate_ports(compose_files, strict=True)
@@ -277,7 +277,7 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     print_step("Configuring control-plane routes...")
     nginx_router.render_base_config()
     nginx_router.write_control_plane_routes(service_api_ids)
-    nginx_router.write_control_plane_streams(target.container)
+    nginx_router.write_control_plane_streams(target.alias)
     if ms_deployment_available:
         _ensure_nginx_routed(
             f"{_MS_DEPLOYMENT_URL}/api/hmd_lang_deployment.environment"
@@ -367,6 +367,7 @@ def start_environment(
         deploy_api_gateway,
         ensure_k3s_cluster,
         env_target,
+        prune_control_plane_strays,
         provision_plugin_databases,
         provision_resources,
         wait_for_k3s_ready,
@@ -437,6 +438,14 @@ def start_environment(
             return False
 
         clear_apigateway_state(env.floci_data_dir)
+
+    # Control-plane objects that landed in this account while `floci` was an
+    # ambiguous Docker DNS name (a Compose service key on both compose files,
+    # so it round-robined between the control-plane and env Flocis). Bounded
+    # allowlist, and never runs against the control plane or a legacy env.
+    strays = prune_control_plane_strays(target)
+    if strays:
+        print_step(f"Removed {strays} stray control-plane object(s) from '{env.slug}'")
 
     # Floci resources for this account, including the admin DB secret its own
     # dbaccount reads back to reach its own Postgres.

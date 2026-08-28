@@ -23,6 +23,7 @@ class _Env:
     def __init__(self, slug, port_base=19000, slot=0):
         self.slug = slug
         self.floci_container = f"floci-{slug}"
+        self.floci_alias = f"neuronsphere-{slug}"
         self.db_container = f"hmd_db-{slug}"
         self.graph_container = f"global-graph-{slug}"
         self.k3s_cluster = f"ns-{slug}-abc"
@@ -108,17 +109,17 @@ class BaseConfigTests(_TempHome):
         so a placeholder without it makes a fresh bootstrap wait out the full
         timeout and report "Ready (degraded)" however healthy Floci is.
         """
-        text = nr.write_bootstrap_config(floci_container="floci").read_text()
+        text = nr.write_bootstrap_config().read_text()
         self.assertIn("listen 4566;", text)
-        self.assertIn("floci:4566", text)
+        self.assertIn("neuronsphere:4566", text)
 
-    def test_bootstrap_config_names_the_control_plane_floci_container(self):
-        text = nr.write_bootstrap_config(floci_container="floci-legacy").read_text()
-        self.assertIn("floci-legacy:4566", text)
+    def test_bootstrap_config_names_the_control_plane_floci_alias(self):
+        text = nr.write_bootstrap_config(floci_host="neuronsphere-legacy").read_text()
+        self.assertIn("neuronsphere-legacy:4566", text)
 
     def test_bootstrap_config_does_not_clobber_a_working_config(self):
         nr.render_base_config()
-        nr.write_control_plane_streams("floci")
+        nr.write_control_plane_streams()
         nr.write_bootstrap_config()
         self.assertIn("include", nr.base_config_path().read_text())
 
@@ -140,7 +141,7 @@ class BaseConfigTests(_TempHome):
         # gone, so nothing is on 4566.
         nr.render_base_config()
         self.assertFalse(nr.config_serves_floci(nr.base_config_path()))
-        nr.write_control_plane_streams("floci")
+        nr.write_control_plane_streams()
         self.assertTrue(nr.config_serves_floci(nr.base_config_path()))
 
 
@@ -159,8 +160,8 @@ class StreamResolutionTests(_TempHome):
         self.assertIn("resolver 127.0.0.11", text)
 
     def test_control_plane_stream_uses_a_variable(self):
-        text = nr.write_control_plane_streams("floci").read_text()
-        self.assertIn('set $ns_floci "floci:4566";', text)
+        text = nr.write_control_plane_streams().read_text()
+        self.assertIn('set $ns_floci "neuronsphere:4566";', text)
         self.assertIn("proxy_pass $ns_floci;", text)
 
     def test_env_streams_use_distinct_variables(self):
@@ -205,7 +206,7 @@ class ControlPlaneRouteTests(_TempHome):
         self.assertIn("listen 4566;", text)
         # The upstream is carried by a variable so it resolves per connection
         # (see StreamResolutionTests); what matters here is that it is Floci.
-        self.assertIn("floci:4566", text)
+        self.assertIn("neuronsphere:4566", text)
         # Databases must not be reachable from the host.
         self.assertNotIn("5432", text)
         self.assertNotIn("8182", text)
@@ -217,14 +218,14 @@ class EnvRouteTests(_TempHome):
         nr.write_env_routes(env, {"hmd_ms_transform": "gw9"})
         text = (self.http_dir() / "10-env-dev2.conf").read_text()
         self.assertIn("location /dev2/hmd_ms_transform/ {", text)
-        self.assertIn("http://floci-dev2:4566/restapis/gw9/local/", text)
+        self.assertIn("http://neuronsphere-dev2:4566/restapis/gw9/local/", text)
 
     def test_env_streams_use_the_allocated_port(self):
         env = _Env("dev2", slot=1)
         nr.write_env_streams(env)
         text = (self.stream_dir() / "10-env-dev2.conf").read_text()
         self.assertIn(f"listen {env.floci_port};", text)
-        self.assertIn("floci-dev2:4566", text)
+        self.assertIn("neuronsphere-dev2:4566", text)
 
     def test_environments_do_not_share_fragments(self):
         a, bb = _Env("alpha", slot=0), _Env("beta", slot=1)
@@ -598,6 +599,58 @@ class IngressHostResolutionTests(_TempHome):
             "socket.gethostbyname", return_value="93.184.216.34"
         ):
             self.assertEqual(nr.unresolvable_ingress_hosts(_Env("local")), ["a.local"])
+
+
+class NoAmbiguousComposeAliasTests(_TempHome):
+    """No generated fragment may name a Compose *service key* as a host.
+
+    Compose registers each service key as a network alias on every service in
+    every project sharing the network. ``floci`` and ``db`` are service keys in
+    BOTH docker-compose.control-plane.yml and docker-compose.environment.yml, so
+    Docker DNS round-robins them between the control-plane container and every
+    environment's. A route built on one reaches the wrong emulated AWS account
+    about half the time, which surfaces as Floci answering
+    ``{"message":"Invalid API id specified"}`` for a gateway that was in fact
+    created in the other account.
+    """
+
+    # Substrings, so they are precise: "floci-dev2:4566" and
+    # "neuronsphere-local:4566" do not contain "floci:4566".
+    AMBIGUOUS = ('"floci:4566"', "//floci:4566", '"db:5432"', "//db:5432")
+
+    def test_no_generated_fragment_names_a_colliding_service_key(self):
+        nr.render_base_config()
+        nr.write_bootstrap_config()
+        nr.write_control_plane_streams()
+        nr.write_control_plane_routes({"hmd_ms_deployment": "gw1"})
+        for env in (_Env("local", slot=0), _Env("dev2", slot=1)):
+            nr.write_env_routes(env, {"hmd_ms_transform": "gw9"})
+            nr.write_env_streams(env)
+
+        checked = []
+        for path in Path(self._tmp.name, ".cache", "nginx").rglob("*.conf"):
+            checked.append(path)
+            text = path.read_text()
+            for bad in self.AMBIGUOUS:
+                self.assertNotIn(
+                    bad, text, f"{path.name} names the ambiguous host {bad!r}"
+                )
+        self.assertTrue(checked, "no fragments were rendered, so nothing was checked")
+
+    def test_a_legacy_env_routes_via_the_alias_not_the_shared_container_name(self):
+        """A legacy env's ``floci_container`` *is* the ambiguous ``floci``.
+
+        It shares the control-plane Floci, so its alias is ``neuronsphere`` --
+        which is why the env upstreams must read the alias, not the container.
+        """
+        env = _Env("local")
+        env.floci_container = "floci"
+        env.floci_alias = "neuronsphere"
+        env.legacy_layout = True
+        nr.write_env_routes(env, {"hmd_ms_dbaccount": "gw3"})
+        text = (self.http_dir() / "10-env-local.conf").read_text()
+        self.assertIn("http://neuronsphere:4566/restapis/gw3/local/", text)
+        self.assertNotIn("//floci:4566", text)
 
 
 if __name__ == "__main__":

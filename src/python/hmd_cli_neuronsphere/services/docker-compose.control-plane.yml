@@ -85,7 +85,12 @@ services:
       FLOCI_LAMBDA_EXECUTOR: docker
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
       FLOCI_DEFAULT_ACCOUNT_ID: "000000000000"
-      FLOCI_HOSTNAME: floci
+      # The explicit network alias below, never the `floci` service key: Compose
+      # registers each service key as an alias in every project on the network,
+      # and docker-compose.environment.yml keys its Floci `floci` too -- so
+      # `floci` round-robins between this container and every environment's.
+      # Floci bakes this name into the invoke/endpoint URLs it hands back.
+      FLOCI_HOSTNAME: neuronsphere
       FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"

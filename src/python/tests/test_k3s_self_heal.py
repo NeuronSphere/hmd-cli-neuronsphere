@@ -146,6 +146,7 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             internal_endpoint="http://floci-dev2:4566",
             account_id="000000000002",
             container="floci-dev2",
+            alias="neuronsphere-dev2",
             region="us-west-2",
         )
         eks = self._eks(create_side_effect=[_in_use_error(), None])

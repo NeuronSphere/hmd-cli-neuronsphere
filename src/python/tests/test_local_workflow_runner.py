@@ -256,6 +256,7 @@ class EnvRoutePrefixTests(unittest.TestCase):
             self.deployment_id = slug
             self.k3s_cluster = f"ns-{slug}"
             self.floci_container = f"floci-{slug}"
+            self.floci_alias = f"neuronsphere-{slug}"
             self.legacy_layout = legacy
 
     def test_prefix_is_the_environment_slug(self):
