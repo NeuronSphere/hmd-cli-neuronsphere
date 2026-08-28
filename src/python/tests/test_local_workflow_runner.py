@@ -13,6 +13,7 @@ Run directly (``python -m pytest src/python/tests/test_local_workflow_runner.py`
 no service or Docker required.
 """
 
+import json
 import os
 import tempfile
 import unittest
@@ -21,6 +22,8 @@ from unittest import mock
 import yaml
 
 from hmd_cli_neuronsphere import bom_seeder as b
+from hmd_cli_neuronsphere import local_workflow_runner as lwr
+from hmd_cli_neuronsphere.image_cache import ImageUnavailable
 from hmd_cli_neuronsphere.local_workflow_runner import (
     LocalWorkflowRunner,
     _localize_deploy_script,
@@ -449,3 +452,112 @@ class BundledArtifactSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnsureNodeImageTests(unittest.TestCase):
+    """Per-node staging of the image Floci runs a local Lambda from.
+
+    The CDKTF factory hands Floci a bare ``<repo>:<version>`` tag, which is
+    unpullable (an unqualified name resolves to Docker Hub). Nothing inside the
+    projectbuilder container can stage it -- there is no docker CLI in there --
+    so the runner does it on the host before the node deploys, and fails the
+    node with an actionable message rather than letting Floci 404 at Lambda
+    start time, after the deploy claimed success.
+    """
+
+    def _repo(self, tmpdir, deploy_commands, version="0.2.457"):
+        """A repo dir with the manifest/VERSION the gate reads."""
+        meta = os.path.join(tmpdir, "meta-data")
+        os.makedirs(meta)
+        with open(os.path.join(meta, "manifest.json"), "w") as f:
+            json.dump({"deploy": {"commands": deploy_commands}}, f)
+        with open(os.path.join(meta, "VERSION"), "w") as f:
+            f.write(f"{version}\n")
+        return tmpdir
+
+    def _runner(self, repo_dir):
+        runner = LocalWorkflowRunner("http://x")
+        runner._repo_path = lambda repo_class_name: repo_dir
+        return runner
+
+    def _node(self, version="0.2.457"):
+        node = {"repo_class_name": "hmd-ms-transform", "instance_name": "transform"}
+        if version is not None:
+            node["repo_class_version"] = version
+        return node
+
+    def test_lambda_repo_stages_its_image(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"], ["cdktf"]]))
+            with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
+                self.assertTrue(runner._ensure_node_image(self._node()))
+            ensure.assert_called_once_with("hmd-ms-transform", "0.2.457")
+
+    def test_unavailable_image_fails_the_node(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"], ["cdktf"]]))
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch.object(
+                    lwr,
+                    "ensure_lambda_image",
+                    side_effect=ImageUnavailable("hmd-ms-transform", "0.2.457", ["a"]),
+                ):
+                    self.assertFalse(runner._ensure_node_image(self._node()))
+
+    def test_skip_env_downgrades_failure_to_a_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"], ["cdktf"]]))
+            with mock.patch.dict(
+                os.environ, {"HMD_LOCAL_SKIP_IMAGE_PREPULL": "true"}, clear=True
+            ):
+                with mock.patch.object(
+                    lwr,
+                    "ensure_lambda_image",
+                    side_effect=ImageUnavailable("hmd-ms-transform", "0.2.457", ["a"]),
+                ):
+                    self.assertTrue(runner._ensure_node_image(self._node()))
+
+    def test_helm_only_repo_is_not_staged(self):
+        """No docker deploy command means no Lambda image to stage."""
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["helm"]]))
+            with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
+                self.assertTrue(runner._ensure_node_image(self._node()))
+            ensure.assert_not_called()
+
+    def test_unresolvable_repo_is_not_staged(self):
+        """No manifest to read (bundle-only deploy): behave as before, skip."""
+        runner = self._runner(None)
+        with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
+            self.assertTrue(runner._ensure_node_image(self._node()))
+        ensure.assert_not_called()
+
+    def test_version_falls_back_to_the_repo_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"]], version="0.3.9"))
+            with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
+                self.assertTrue(runner._ensure_node_image(self._node(version=None)))
+            ensure.assert_called_once_with("hmd-ms-transform", "0.3.9")
+
+    def test_destroy_does_not_stage(self):
+        """A teardown removes a Lambda; it never needs the image."""
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"]]))
+            with mock.patch.object(runner, "_ensure_node_image") as ensure:
+                with mock.patch.object(lwr.subprocess, "run") as run:
+                    run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+                    runner._execute_in_projectbuilder(
+                        {**self._node(), "script": "hmd deploy"}, destroy=True
+                    )
+            ensure.assert_not_called()
+
+    def test_deploy_short_circuits_before_running_the_container(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"]]))
+            with mock.patch.object(runner, "_ensure_node_image", return_value=False):
+                with mock.patch.object(lwr.subprocess, "run") as run:
+                    ok = runner._execute_in_projectbuilder(
+                        {**self._node(), "script": "hmd deploy"}
+                    )
+            self.assertFalse(ok)
+            run.assert_not_called()

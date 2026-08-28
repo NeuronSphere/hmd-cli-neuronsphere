@@ -229,8 +229,43 @@ This avoids two problems with Floci 1.5.8's bundled ECR sidecar:
 - Its default port (5000) collides with macOS AirPlay Receiver, which
   intercepts requests with ``403 Forbidden``.
 
-If you need an image that isn't yet on the host, ``hmd build`` it (or
-``docker pull`` it) before ``hmd neuronsphere up``.
+Staging a node's Lambda image
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The image reference Floci is handed for a DAG-deployed microservice is a **bare**
+``<repo>:<version>`` tag — ``hmd_lib_cdktf_factories.lambda_function`` emits that
+form whenever ``stack.environment == "local"``, precisely because Floci resolves
+it from the host cache rather than from an ECR.
+
+A bare reference is unpullable by construction: Docker resolves an unqualified
+name against Docker Hub, never ghcr.io. So if the tag is missing from the host
+cache, Floci fails with ``pull access denied for <repo>`` — at container-start
+time, long after the deploy node reported success. Nothing inside the deploy can
+fix that: the DAG runs ``hmd deploy`` in an ``hmd-img-projectbuilder`` container
+with no Docker CLI, so ``hmd docker deploy``'s local staging step (and
+``hmd-cli-helm``'s image import into k3s) log and return.
+
+``LocalWorkflowRunner`` therefore stages the image on the host, before each node
+whose manifest lists ``docker`` among its ``deploy.commands``. It looks for the
+image under, in order:
+
+1. ``$HMD_CONTAINER_REGISTRY/<repo>:<version>`` — what ``hmd build`` tagged;
+2. ``$HMD_LOCAL_NS_CONTAINER_REGISTRY/<repo>:<version>``;
+3. each prefix in ``$HMD_LOCAL_IMAGE_PULL_REGISTRIES`` (comma-separated);
+4. ``ghcr.io/neuronsphere/<repo>:<version>`` — the published registry;
+5. the bare ``<repo>:<version>``.
+
+A cached image always wins over a published one, so a local ``hmd build`` is
+never silently replaced by a pull. Otherwise the candidates are pulled in the
+same order, using whatever ``docker login`` the host already has — which is how a
+private registry such as ``ghcr.io/hmdlabs`` works. Either way the result is
+tagged as the bare ref Floci looks for.
+
+If nothing can be found or pulled, the node fails immediately, naming every ref
+tried and the two ways to satisfy it: ``hmd build`` in that repo, or
+``docker login`` for the registry that publishes it. Set
+``HMD_LOCAL_SKIP_IMAGE_PREPULL=true`` to downgrade that to a warning and let the
+deploy proceed.
 
 Migrating from MiniStack
 -------------------------

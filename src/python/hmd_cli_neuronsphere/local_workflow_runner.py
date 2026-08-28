@@ -25,6 +25,7 @@ from cement import minimal_logger
 
 from .bom_seeder import CORE_REPO_CLASS
 from .floci_deployer import DOCKER_NETWORK_NAME, K3S_CLUSTER_NAME
+from .image_cache import ImageUnavailable, ensure_lambda_image
 
 logger = minimal_logger("local_workflow_runner")
 
@@ -113,6 +114,34 @@ def _overlay_has_tool_files(overlay_dir: Path) -> bool:
         (overlay_dir / "cdktf").is_dir()
         or (overlay_dir / "helm").is_dir()
         or (overlay_dir / "config_local.json").is_file()
+    )
+
+
+# Escape hatch: proceed with a warning instead of failing a node whose Lambda
+# image could not be staged. Matches the advisory posture the rest of the local
+# image handling takes (hmd_cli_docker.deploy_local, hmd-cli-helm's k3s import).
+SKIP_IMAGE_PREPULL_ENV = "HMD_LOCAL_SKIP_IMAGE_PREPULL"
+
+
+def _deploys_lambda_image(repo_dir: Optional[str]) -> bool:
+    """True if this repo's deploy builds a Floci Lambda from a Docker image.
+
+    That is exactly the set with ``docker`` among its BACON ``deploy.commands``.
+    An unreadable manifest (a repo deployed from a bundle with no resolvable
+    tree) returns False, leaving the node to behave as it did before staging
+    existed.
+    """
+    if not repo_dir:
+        return False
+    try:
+        with open(os.path.join(repo_dir, "meta-data", "manifest.json")) as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return False
+    commands = (manifest.get("deploy") or {}).get("commands") or []
+    return any(
+        (cmd[0] if isinstance(cmd, list) and cmd else cmd) == "docker"
+        for cmd in commands
     )
 
 
@@ -271,6 +300,53 @@ class LocalWorkflowRunner:
         self._set_csd_status(csd_nid, final_csd_status)
         return True
 
+    def _ensure_node_image(self, node: Dict) -> bool:
+        """Stage the Docker image this node's Lambda will run from, on the host.
+
+        Floci runs local Lambdas off the host Docker cache and is handed a bare
+        ``<repo>:<version>`` tag (hmd-lib-cdktf-factories' ``lambda_function``).
+        Nothing in the deploy path can put that tag there: the in-container
+        ``hmd docker deploy`` has no Docker CLI to tag with. So the runner does
+        it here, where a real Docker CLI exists, before the node runs.
+
+        Failing here rather than letting the tag go unresolved turns a Floci
+        "pull access denied" at Lambda-start time -- long after the node
+        reported success -- into an actionable failure of the node itself.
+
+        :returns: True to proceed with the node; False to fail it.
+        """
+        repo_class_name = node["repo_class_name"]
+        repo_dir = self._repo_path(repo_class_name)
+        if not _deploys_lambda_image(repo_dir):
+            return True
+
+        version = node.get("repo_class_version")
+        if not version:
+            try:
+                with open(os.path.join(repo_dir, "meta-data", "VERSION")) as f:
+                    version = f.read().strip()
+            except OSError:
+                version = None
+        if not version:
+            logger.warning(
+                f"No version resolved for {repo_class_name}; skipping image staging"
+            )
+            return True
+
+        try:
+            staged = ensure_lambda_image(repo_class_name, version)
+        except ImageUnavailable as e:
+            if _is_truthy(os.environ.get(SKIP_IMAGE_PREPULL_ENV)):
+                logger.warning(f"{e} ({SKIP_IMAGE_PREPULL_ENV} is set; continuing)")
+                print(f"  Warning: {e}")
+                return True
+            logger.error(str(e))
+            print(f"  {e}")
+            return False
+
+        logger.info(f"Lambda image for {repo_class_name} staged as {staged}")
+        return True
+
     def _prepare_overlay_workspace(self, repo_path: str, overlay_dir: Path) -> str:
         """Copy the repo to a temp dir and overlay its src/local alternates.
 
@@ -329,6 +405,10 @@ class LocalWorkflowRunner:
             return True
 
         repo_class_name = node["repo_class_name"]
+
+        # A destroy removes the Lambda, so it never needs the image.
+        if not destroy and not self._ensure_node_image(node):
+            return False
 
         # NERD0004/0006: expose a container-reachable Deployment Service URL so the
         # in-container `hmd deploy` can resolve dependency resource outputs (and,

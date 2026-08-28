@@ -1203,36 +1203,16 @@ def _image_cached(image_uri: str) -> bool:
 def resolve_image_uri(repo_name: str, version: str) -> Optional[str]:
     """Find a locally-cached Docker image URI for a repo/version.
 
-    Tries each candidate prefix in order and returns the first that
+    Tries each candidate ref in order and returns the first that
     `docker image inspect` finds. Returns None if none are cached.
 
-    Candidates (in priority):
-      1. ``$HMD_CONTAINER_REGISTRY/<repo>:<version>`` (matches `hmd build`)
-      2. ``$HMD_LOCAL_NS_CONTAINER_REGISTRY/<repo>:<version>``
-      3. ``ghcr.io/neuronsphere/<repo>:<version>`` (default registry)
-      4. ``<repo>:<version>`` (bare tag)
-
-    Steps 1 and 2 are skipped when the corresponding env var is unset.
+    The candidate order lives in :func:`image_cache.image_candidates` -- the
+    same list :func:`image_cache.ensure_lambda_image` stages against, so
+    resolution and staging can't drift.
     """
-    candidates: List[str] = []
-    seen: set = set()
+    from .image_cache import image_candidates
 
-    def _add(uri: str) -> None:
-        if uri and uri not in seen:
-            candidates.append(uri)
-            seen.add(uri)
-
-    build_registry = os.environ.get("HMD_CONTAINER_REGISTRY")
-    if build_registry:
-        _add(f"{build_registry}/{repo_name}:{version}")
-
-    local_registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY")
-    if local_registry:
-        _add(f"{local_registry}/{repo_name}:{version}")
-
-    _add(f"ghcr.io/neuronsphere/{repo_name}:{version}")
-    _add(f"{repo_name}:{version}")
-
+    candidates = image_candidates(repo_name, version)
     for uri in candidates:
         if _image_cached(uri):
             logger.debug(f"Resolved image for {repo_name}:{version} → {uri}")
