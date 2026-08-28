@@ -269,6 +269,8 @@ unaffected; environment services are **prefixed** with the environment name:
      - control-plane artifact-lib
    * - ``http://localhost/<env>/<service>/``
      - that environment's services
+   * - ``http://<app>.<env>.neuronsphere.io/``
+     - that environment's Ingress-exposed UIs (Airflow, Argo)
    * - ``http://localhost:4566``
      - control-plane Floci (nginx ``stream``)
    * - ``http://localhost:<19000+4n>``
@@ -285,6 +287,21 @@ the range with ``HMD_LOCAL_ENV_PORT_RANGE``.
 
 Databases are deliberately **not** reachable from the host. Use
 ``docker exec hmd_db-<env> psql -U postgres``.
+
+Two kinds of service are routed under ``/<env>/``. Services this CLI deploys as
+Lambdas are named after the plugin (``/local/hmd_ms_dbaccount/``). Services the
+deployment DAG deploys are named after their **repo instance**
+(``/local/transform/``), and their routes are discovered from the environment's
+Floci *after* the DAG has run — which is also the only way to learn the real
+API Gateway stage name, since a CDKTF stage is not called ``local``. Use
+``hmd neuronsphere route-service <repo>`` to (re-)add one by hand.
+
+UIs are reached the way the cloud reaches them: through the chart's own
+``Ingress``. Locally the ingress controller is the k3s Traefik, configured to
+answer to the cloud's ``alb`` ingress class so charts deploy unmodified;
+``hmd_proxy`` Host-routes ``*.<env>.neuronsphere.io`` to it. Because
+``/etc/hosts`` has no wildcards, each UI hostname needs an entry — ``up`` prints
+the exact ``sudo`` line for any that do not yet resolve.
 
 How cloud charts work unmodified
 --------------------------------

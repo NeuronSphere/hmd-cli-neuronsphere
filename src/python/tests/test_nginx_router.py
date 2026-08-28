@@ -8,7 +8,9 @@ edits, and the invariant that databases are never streamed to the host.
 Run directly: ``python -m pytest src/python/tests/test_nginx_router.py``
 """
 
+import json
 import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,6 +74,9 @@ class _TempHome(unittest.TestCase):
 
     def stream_dir(self):
         return Path(self._tmp.name) / ".cache" / "nginx" / "stream.d"
+
+    def vhost_dir(self):
+        return Path(self._tmp.name) / ".cache" / "nginx" / "vhost.d"
 
 
 class BaseConfigTests(_TempHome):
@@ -344,6 +349,255 @@ class ReloadTests(_TempHome):
 
         with mock.patch.object(nr.subprocess, "run", side_effect=fake_run):
             self.assertFalse(nr.reload())
+
+
+class _FakeApiGateway:
+    """Stands in for the Floci apigateway client in route discovery."""
+
+    def __init__(self, apis, stages):
+        self._apis = apis
+        self._stages = stages
+
+    def get_rest_apis(self, limit=500):
+        return {"items": self._apis}
+
+    def get_stages(self, restApiId):
+        names = self._stages.get(restApiId, [])
+        return {"item": [{"stageName": n} for n in names]}
+
+
+class DeployedServiceRouteTests(_TempHome):
+    """Routing services the deployment DAG created, not the ones this CLI deploys."""
+
+    CDKTF = "transform_hmd-ms-transform_local_local_reg1_hmdtr1-rest-api"
+
+    def setUp(self):
+        super().setUp()
+        self._reload = mock.patch.object(nr, "reload", return_value=True)
+        self.reload = self._reload.start()
+
+    def tearDown(self):
+        self._reload.stop()
+        super().tearDown()
+
+    def _discover(self, apis, stages):
+        client = _FakeApiGateway(apis, stages)
+        with mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer._get_client", return_value=client
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.env_target", return_value=None
+        ):
+            return nr.deployed_service_routes(_Env("local"))
+
+    def test_route_is_the_repo_instance_name(self):
+        routes = self._discover(
+            [{"id": "abc", "name": self.CDKTF}], {"abc": ["some_cdktf_stage"]}
+        )
+        self.assertEqual(routes, {"transform": ("abc", "some_cdktf_stage")})
+
+    def test_the_real_stage_name_is_used_not_local(self):
+        """The whole point: a CDKTF stage is not named `local`, so a route built
+        with the default stage returns `Stage not found`."""
+        stage = "transform_hmd-ms-transform_local_local_reg1_hmdtr1_api_gateway_stage"
+        routes = self._discover([{"id": "abc", "name": self.CDKTF}], {"abc": [stage]})
+        self.assertEqual(routes["transform"][1], stage)
+
+    def test_cli_created_gateways_are_skipped(self):
+        """`neuronsphere-*` gateways are already routed by write_env_routes."""
+        routes = self._discover(
+            [{"id": "d", "name": "neuronsphere-hmd_ms_dbaccount"}], {"d": ["local"]}
+        )
+        self.assertEqual(routes, {})
+
+    def test_gateways_without_a_deployed_stage_are_skipped(self):
+        routes = self._discover([{"id": "abc", "name": self.CDKTF}], {"abc": []})
+        self.assertEqual(routes, {})
+
+    def test_names_that_are_not_rest_apis_are_skipped(self):
+        routes = self._discover(
+            [{"id": "x", "name": "transform_hmd-ms-transform_local"}], {"x": ["local"]}
+        )
+        self.assertEqual(routes, {})
+
+    def test_a_name_without_the_cdktf_underscores_keeps_a_clean_route(self):
+        routes = self._discover([{"id": "y", "name": "myapi-rest-api"}], {"y": ["s"]})
+        self.assertEqual(routes, {"myapi": ("y", "s")})
+
+    def test_refresh_does_not_clobber_routes_from_write_env_routes(self):
+        env = _Env("local")
+        nr.write_env_routes(env, {"hmd_ms_dbaccount": "gw-db"})
+        with mock.patch.object(
+            nr, "deployed_service_routes", return_value={"transform": ("abc", "st")}
+        ):
+            self.assertEqual(nr.refresh_deployed_service_routes(env), 1)
+        text = (self.http_dir() / "10-env-local.conf").read_text()
+        self.assertIn("location /local/hmd_ms_dbaccount/", text)
+        self.assertIn("location /local/transform/", text)
+
+    def test_refresh_is_idempotent_and_reloads_once_per_run(self):
+        env = _Env("local")
+        nr.write_env_routes(env, {})
+        with mock.patch.object(
+            nr, "deployed_service_routes", return_value={"transform": ("abc", "st")}
+        ):
+            nr.refresh_deployed_service_routes(env)
+            nr.refresh_deployed_service_routes(env)
+        text = (self.http_dir() / "10-env-local.conf").read_text()
+        self.assertEqual(text.count("location /local/transform/ {"), 1)
+        self.assertEqual(self.reload.call_count, 2)
+
+    def test_nothing_discovered_means_no_reload(self):
+        env = _Env("local")
+        with mock.patch.object(nr, "deployed_service_routes", return_value={}):
+            self.assertEqual(nr.refresh_deployed_service_routes(env), 0)
+        self.reload.assert_not_called()
+
+
+class IngressVhostTests(_TempHome):
+    """Host-routed UIs (Airflow, Argo) reached through the k3s ingress."""
+
+    def test_base_config_includes_vhosts_at_http_level(self):
+        """`server {}` cannot nest, so vhost.d must be included outside the
+        path-routed server -- which must itself stay the default_server."""
+        text = nr.render_base_config().read_text()
+        before, sep, after = text.partition("include /etc/nginx/ns/vhost.d/*.conf;")
+        self.assertTrue(sep, "vhost.d is not included")
+        self.assertNotIn("server {", before)
+        self.assertIn("listen 80 default_server;", after)
+
+    def test_base_config_defines_the_upgrade_map(self):
+        text = nr.render_base_config().read_text()
+        self.assertIn("map $http_upgrade $connection_upgrade {", text)
+
+    def test_creates_the_vhost_dir_so_the_glob_is_valid(self):
+        nr.render_base_config()
+        self.assertTrue(self.vhost_dir().is_dir())
+
+    def test_vhost_is_a_wildcard_server_forwarding_host(self):
+        nr.write_env_vhosts(_Env("local"), "172.18.0.10:31080")
+        text = (self.vhost_dir() / "10-env-local.conf").read_text()
+        self.assertIn("server_name *.local.neuronsphere.io;", text)
+        self.assertIn("proxy_pass http://172.18.0.10:31080;", text)
+        # Traefik picks the Ingress rule from Host; rewriting it breaks routing.
+        self.assertIn("proxy_set_header Host $host;", text)
+
+    def test_environments_get_their_own_vhost_fragment(self):
+        nr.write_env_vhosts(_Env("local"), "10.0.0.1:31080")
+        nr.write_env_vhosts(_Env("dev2", slot=1), "10.0.0.2:31080")
+        self.assertIn(
+            "*.dev2.neuronsphere.io",
+            (self.vhost_dir() / "10-env-dev2.conf").read_text(),
+        )
+        self.assertIn(
+            "*.local.neuronsphere.io",
+            (self.vhost_dir() / "10-env-local.conf").read_text(),
+        )
+
+    def test_removing_an_env_removes_its_vhost(self):
+        env = _Env("dev2", slot=1)
+        nr.write_env_vhosts(env, "10.0.0.2:31080")
+        nr.write_env_routes(env, {})
+        with mock.patch.object(nr, "reload", return_value=True):
+            nr.remove_env_routes(env)
+        self.assertFalse((self.vhost_dir() / "10-env-dev2.conf").exists())
+        self.assertFalse((self.http_dir() / "10-env-dev2.conf").exists())
+
+
+class NodePortTests(_TempHome):
+    """One NodePort helper serves both Trino and the ingress controller."""
+
+    def _applied_spec(self, fn):
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured["spec"] = json.loads(kwargs["input"])
+            return mock.Mock(returncode=0, stderr="", stdout="")
+
+        with mock.patch.object(nr.subprocess, "run", side_effect=fake_run):
+            self.assertTrue(fn())
+        return captured["spec"]
+
+    def test_trino_nodeport_keeps_its_own_port_and_name(self):
+        spec = self._applied_spec(
+            lambda: nr._ensure_trino_nodeport(
+                "trino-local", {"a": "b"}, 8080, "http-coord"
+            )
+        )
+        self.assertEqual(spec["spec"]["type"], "NodePort")
+        self.assertEqual(spec["spec"]["ports"][0]["nodePort"], nr.TRINO_NODEPORT)
+        self.assertEqual(spec["metadata"]["name"], nr._TRINO_NODEPORT_SVC)
+
+    def test_traefik_nodeport_targets_the_web_entrypoint(self):
+        spec = self._applied_spec(
+            lambda: nr._ensure_nodeport(
+                nr._TRAEFIK_NODEPORT_SVC,
+                nr._TRAEFIK_NAMESPACE,
+                nr._TRAEFIK_SELECTOR,
+                80,
+                "web",
+                nr.TRAEFIK_NODEPORT,
+            )
+        )
+        self.assertEqual(spec["metadata"]["namespace"], "kube-system")
+        self.assertEqual(spec["spec"]["ports"][0]["nodePort"], nr.TRAEFIK_NODEPORT)
+        self.assertEqual(spec["spec"]["ports"][0]["targetPort"], "web")
+
+    def test_a_failed_apply_is_reported(self):
+        with mock.patch.object(
+            nr.subprocess,
+            "run",
+            return_value=mock.Mock(returncode=1, stderr="nope", stdout=""),
+        ):
+            self.assertFalse(
+                nr._ensure_nodeport("n", "ns", {"a": "b"}, 80, "web", 31080)
+            )
+
+
+class IngressHostResolutionTests(_TempHome):
+    """`/etc/hosts` has no wildcards, so every Ingress host needs its own entry."""
+
+    def _kubectl_returning(self, items):
+        return mock.patch.object(
+            nr,
+            "_kubectl",
+            return_value=mock.Mock(returncode=0, stdout=json.dumps({"items": items})),
+        )
+
+    def test_hosts_are_collected_from_every_ingress(self):
+        items = [
+            {"spec": {"rules": [{"host": "airflow.local.neuronsphere.io"}]}},
+            {"spec": {"rules": [{"host": "argo.local.neuronsphere.io"}]}},
+        ]
+        with self._kubectl_returning(items):
+            self.assertEqual(
+                nr.ingress_hosts(_Env("local")),
+                ["airflow.local.neuronsphere.io", "argo.local.neuronsphere.io"],
+            )
+
+    def test_a_kubectl_failure_is_not_fatal(self):
+        with mock.patch.object(nr, "_kubectl", return_value=mock.Mock(returncode=1)):
+            self.assertEqual(nr.ingress_hosts(_Env("local")), [])
+
+    def test_only_unresolvable_hosts_are_reported(self):
+        items = [{"spec": {"rules": [{"host": "a.local"}, {"host": "b.local"}]}}]
+
+        def fake_gethostbyname(host):
+            if host == "a.local":
+                return "127.0.0.1"
+            raise socket.gaierror("not found")
+
+        with self._kubectl_returning(items), mock.patch(
+            "socket.gethostbyname", side_effect=fake_gethostbyname
+        ):
+            self.assertEqual(nr.unresolvable_ingress_hosts(_Env("local")), ["b.local"])
+
+    def test_a_host_resolving_off_loopback_is_reported(self):
+        """A stale public DNS record must not be mistaken for a working setup."""
+        items = [{"spec": {"rules": [{"host": "a.local"}]}}]
+        with self._kubectl_returning(items), mock.patch(
+            "socket.gethostbyname", return_value="93.184.216.34"
+        ):
+            self.assertEqual(nr.unresolvable_ingress_hosts(_Env("local")), ["a.local"])
 
 
 if __name__ == "__main__":

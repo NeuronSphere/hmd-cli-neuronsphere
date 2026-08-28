@@ -1180,10 +1180,15 @@ def build_local_core_resources(
                 # k3s runs Traefik as a Deployment named `traefik` in kube-system.
                 # `name`/`namespace` satisfy the effective schema inherited from the
                 # `deployment` base type; `ingress_class` is the ingress-controller field.
+                # The class is `alb`, not `traefik`: local Traefik is configured to
+                # answer to the cloud's ALB class (see
+                # `k3s_operators._patch_traefik_manifest`) so charts render the same
+                # Ingress in both places. Advertising `traefik` here would hand
+                # consumers a class nothing serves.
                 "output": {
                     "name": "traefik",
                     "namespace": "kube-system",
-                    "ingress_class": "traefik",
+                    "ingress_class": "alb",
                 },
                 "tags": common_tags + [{"key": "cluster_type", "value": "k3s"}],
             }

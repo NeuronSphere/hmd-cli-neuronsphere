@@ -242,6 +242,123 @@ _TRAEFIK_MANIFEST_PATH = (
     "/var/lib/rancher/k3s/server/manifests/neuronsphere-traefik.yaml"
 )
 
+# The class the cloud's charts ask for. Every NeuronSphere repo renders its
+# Ingress for the AWS ALB controller -- `spec.ingressClassName: alb` on newer
+# charts, the legacy `kubernetes.io/ingress.class: alb` annotation on older ones.
+# Locally we make Traefik *answer to that class* rather than editing the charts,
+# the same way Floci answers to the AWS APIs and CoreDNS answers to the
+# in-network hostnames. That is what lets cloud charts deploy here unmodified.
+_ALB_INGRESS_CLASS = os.environ.get("HMD_LOCAL_INGRESS_CLASS", "alb")
+_TRAEFIK_CONTROLLER = "traefik.io/ingress-controller"
+# Traefik's own arg. It is matched against BOTH `spec.ingressClassName` and the
+# legacy annotation, which is why an IngressClass object alone is not enough:
+# an annotation-only Ingress never consults the IngressClass API at all.
+_TRAEFIK_INGRESS_CLASS_ARG = (
+    f"--providers.kubernetesingress.ingressclass={_ALB_INGRESS_CLASS}"
+)
+
+
+def _patch_traefik_manifest(cluster: str) -> None:
+    """Make the baked-in Traefik manifest schedulable and ALB-classed.
+
+    Two edits, both applied to the *file*: the Deployment is owned by a k3s
+    Addon, which reverts any live ``kubectl patch``, so the manifest is the only
+    durable place to change it. Editing it changes the content hash, which is
+    what makes the addon controller re-apply.
+
+    1. **Drop ``hostPort: 80``/``443``.** k3s ServiceLB creates ``svclb-*`` pods
+       for every ``type: LoadBalancer`` service, and those are
+       ``system-node-critical``. A chart exposing port 443 (the OTEL collector
+       gateway does) therefore *preempts* Traefik -- priority 0 -- off host port
+       443 permanently: ``0/1 nodes are available: 1 node(s) didn't have free
+       ports for the requested pod ports``. Traefik needs no host port here; it
+       is reached through a NodePort (see ``nginx_router.ingress_upstream``).
+    2. **Set the ingress class to ``alb``** so cloud charts resolve unmodified.
+
+    Best-effort and idempotent: both edits match nothing on a second run, and on
+    a future image that already ships this way they are silent no-ops.
+    """
+    container = f"floci-eks-{cluster}"
+
+    # 1. Strip the host ports that make Traefik unschedulable.
+    _docker_exec(
+        container,
+        [
+            "sed",
+            "-i",
+            r"/^[[:space:]]*hostPort: \(80\|443\)$/d",
+            _TRAEFIK_MANIFEST_PATH,
+        ],
+    )
+
+    # 2. Add the ingress-class arg, unless it is already there. Inserted after
+    #    the container's `args:` key, reusing its indentation. The manifest has
+    #    exactly one `args:` line, so a plain substitution needs no line address
+    #    -- which matters because k3s ships busybox sed, not GNU sed.
+    check = _docker_exec(
+        container,
+        ["grep", "-q", "--", _TRAEFIK_INGRESS_CLASS_ARG, _TRAEFIK_MANIFEST_PATH],
+    )
+    if check is not None and check.returncode != 0:
+        _docker_exec(
+            container,
+            [
+                "sed",
+                "-i",
+                r"s|^\([[:space:]]*\)args:$|\1args:\n\1  - \""
+                + _TRAEFIK_INGRESS_CLASS_ARG
+                + r"\"|",
+                _TRAEFIK_MANIFEST_PATH,
+            ],
+        )
+
+
+def _docker_exec(container: str, args: List[str]):
+    """Run a command inside a container; None when docker itself is unavailable."""
+    try:
+        return subprocess.run(
+            ["docker", "exec", container, *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not exec in {container}: {e}")
+        return None
+
+
+def _ensure_alb_ingress_class(env=None) -> None:
+    """Register an ``alb`` IngressClass backed by the local Traefik controller.
+
+    Complements the Traefik arg set in :func:`_patch_traefik_manifest`: the arg
+    is what actually makes Traefik serve these Ingresses, while this object is
+    what makes ``spec.ingressClassName: alb`` a live reference rather than a
+    dangling one, so ``kubectl get ingress`` reports the class correctly.
+
+    Deliberately **not** marked the default class: k3s already ships a default
+    ``traefik`` IngressClass, and two defaults make the API server reject
+    class-less Ingresses as ambiguous.
+    """
+    ingress_class = {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "IngressClass",
+        "metadata": {
+            "name": _ALB_INGRESS_CLASS,
+            "labels": {"app.kubernetes.io/managed-by": "hmd-cli-neuronsphere"},
+        },
+        "spec": {"controller": _TRAEFIK_CONTROLLER},
+    }
+    result = _run(["kubectl", "apply", "-f", "-"], env, input=json.dumps(ingress_class))
+    if result.returncode != 0:
+        logger.warning(
+            f"Could not register the '{_ALB_INGRESS_CLASS}' IngressClass: "
+            f"{result.stderr.strip()}"
+        )
+    else:
+        logger.info(
+            f"IngressClass '{_ALB_INGRESS_CLASS}' -> {_TRAEFIK_CONTROLLER} registered"
+        )
+
 
 def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     """Wait for the image-baked ingress controller (Traefik), or remove it.
@@ -296,6 +413,7 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     from .floci_deployer import K3S_CLUSTER_NAME
 
     cluster = env.k3s_cluster if env is not None else K3S_CLUSTER_NAME
+    _patch_traefik_manifest(cluster)
     subprocess.run(
         [
             "docker",
@@ -326,9 +444,17 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
         )
         if result.returncode == 0:
             logger.info("Ingress controller (Traefik) ready")
+            _ensure_alb_ingress_class(env)
             return
         time.sleep(4)
+    # Printed, not just logged: a Traefik that never schedules leaves every
+    # Ingress-exposed UI silently unreachable, with nothing in the `up` output
+    # pointing at the cause.
     logger.warning("Ingress controller (Traefik) did not become ready in time")
+    print(
+        "  Warning: the ingress controller (Traefik) did not become ready; "
+        "Ingress-exposed UIs (Airflow, Argo) will be unreachable."
+    )
 
 
 def _ext_secrets_passes() -> List[Dict[str, Any]]:

@@ -291,7 +291,10 @@ class CoreResourceTests(unittest.TestCase):
         )
         # Output must satisfy the effective schema inherited from the `deployment`
         # base type (name + namespace required) plus the ingress-controller field.
-        self.assertEqual(ingress[0]["output"]["ingress_class"], "traefik")
+        # The class is `alb`, not `traefik`: local Traefik is configured to answer
+        # to the cloud's ALB class, so charts render one Ingress for both. The
+        # controller is still Traefik -- only the class it claims differs.
+        self.assertEqual(ingress[0]["output"]["ingress_class"], "alb")
         self.assertEqual(ingress[0]["output"]["name"], "traefik")
         self.assertEqual(ingress[0]["output"]["namespace"], "kube-system")
         self.assertEqual(ingress[0]["resource_name"], "ns-local-traefik")

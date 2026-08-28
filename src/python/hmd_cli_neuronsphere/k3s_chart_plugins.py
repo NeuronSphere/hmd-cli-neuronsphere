@@ -194,16 +194,6 @@ def is_k3s_chart_plugin(plugin_name: str) -> bool:
     return any(c["plugin_name"] == plugin_name for c in _CHART_PLUGINS)
 
 
-def nginx_routes() -> List[Dict[str, str]]:
-    """NodePort routes (path -> host.docker.internal:<nodePort>) for converted charts
-    that expose a UI. Consumed by ``write_nginx_config``."""
-    routes = []
-    for c in _CHART_PLUGINS:
-        if c.get("nginx_path") and c.get("node_port"):
-            routes.append({"path": c["nginx_path"], "node_port": str(c["node_port"])})
-    return routes
-
-
 def _floci_client(service: str):
     return boto3.client(
         service,

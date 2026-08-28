@@ -60,9 +60,11 @@ def get_resources() -> Dict[str, Any]:
         return config["resources"]
 
     # Fallback to hardcoded resources
+    # Environment services are routed under their environment's slug (see
+    # `nginx_router.write_env_routes`); the unprefixed path is control-plane only.
     resources = {
         "services": [
-            {"name": "ms-transform", "url": "http://hmd_proxy/hmd_ms_transform/"}
+            {"name": "ms-transform", "url": "http://hmd_proxy/local/transform/"}
         ],
         "databases": [
             {

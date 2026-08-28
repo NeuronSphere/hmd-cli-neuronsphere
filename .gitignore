@@ -142,3 +142,4 @@ test/hmd_home/
 bender/
 .hmd-build-status.json
 .hmd-deploy-status.json
+src/python/hmd_cli_neuronsphere/external/

@@ -536,6 +536,17 @@ def start_environment(
         env, hmdms_deployed, cluster_name, k3s_uid, upgrade, prune=prune
     )
 
+    # Services the DAG deployed carry CDKTF-managed API Gateways that
+    # `write_env_routes` above never saw -- and whose stage names are not
+    # "local", so only a discovered route works. Unconditional: the fragment was
+    # rewritten above even on a reconcile that deployed nothing.
+    try:
+        routed = nginx_router.refresh_deployed_service_routes(env)
+        if routed:
+            print_step(f"  Routed {routed} DAG-deployed service(s) under /{env.slug}/")
+    except Exception as e:
+        logger.warning(f"DAG service route refresh skipped (non-fatal): {e}")
+
     # Expose this environment's Trino coordinator on its own host stream port.
     try:
         if nginx_router.configure_trino_host_route(env):
@@ -544,7 +555,36 @@ def start_environment(
     except Exception as e:
         logger.warning(f"Trino host route setup skipped (non-fatal): {e}")
 
+    # Host-route the environment's Ingress-exposed UIs (Airflow, Argo, ...)
+    # through hmd_proxy, the same way the cloud reaches them through an ALB.
+    try:
+        if nginx_router.configure_ingress_host_route(env):
+            nginx_router.reload()
+            print_step(
+                f"  UIs served at http://<app>.{env.slug}.{nginx_router.INGRESS_DOMAIN}/"
+            )
+            _warn_unresolvable_ingress_hosts(env)
+    except Exception as e:
+        logger.warning(f"Ingress host route setup skipped (non-fatal): {e}")
+
     return ok
+
+
+def _warn_unresolvable_ingress_hosts(env) -> None:
+    """Tell the user which UI hostnames still need an ``/etc/hosts`` entry.
+
+    A warning, never a failure: unlike the ``neuronsphere`` alias, an
+    unresolvable UI hostname affects nothing but that UI's browser access.
+    """
+    missing = nginx_router.unresolvable_ingress_hosts(env)
+    if not missing:
+        return
+    print(
+        "\n"
+        "  UI hostnames are not resolvable on this host. Run once (requires sudo):\n"
+        "\n"
+        f"      sudo sh -c 'echo \"127.0.0.1 {' '.join(missing)}\" >> /etc/hosts'\n"
+    )
 
 
 def _service_specs(env: LocalEnvironment, hmdms_deployed: List[Dict]) -> List[Dict]:

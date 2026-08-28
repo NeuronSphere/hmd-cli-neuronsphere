@@ -56,6 +56,20 @@ _NS_DIR = "/etc/nginx/ns"
 _CONTROL_PLANE_FRAGMENT = "00-control-plane.conf"
 _ENV_FRAGMENT_PREFIX = "10-env-"
 
+# The k3s ingress controller (Traefik) fronts every UI an environment's charts
+# expose via an Ingress -- Airflow, Argo, Trino. It is a ClusterIP inside the
+# cluster, so it gets a NodePort like Trino's, and hmd_proxy Host-routes to it.
+TRAEFIK_NODEPORT = int(os.environ.get("HMD_LOCAL_TRAEFIK_NODEPORT", "31080"))
+_TRAEFIK_NODEPORT_SVC = "traefik-local-nodeport"
+_TRAEFIK_NAMESPACE = "kube-system"
+_TRAEFIK_SELECTOR = {
+    "app.kubernetes.io/instance": "traefik-kube-system",
+    "app.kubernetes.io/name": "traefik",
+}
+# Ingress hosts the charts render are `<app>.<env-slug>.neuronsphere.io`, so one
+# wildcard server block per environment covers every UI it deploys, now and later.
+INGRESS_DOMAIN = os.environ.get("HMD_LOCAL_INGRESS_DOMAIN", "neuronsphere.io")
+
 # Control-plane service route aliases. The robot suites build their URL from
 # HMD_INSTANCE_NAME, which may arrive as any of these spellings depending on how
 # bender is invoked, so route all of them to the same gateway.
@@ -92,6 +106,10 @@ def _http_dir() -> Path:
 
 def _stream_dir() -> Path:
     return nginx_cache_dir() / "stream.d"
+
+
+def _vhost_dir() -> Path:
+    return nginx_cache_dir() / "vhost.d"
 
 
 def _env_fragment_name(slug: str) -> str:
@@ -148,11 +166,22 @@ def render_base_config(config_path: Optional[Path] = None) -> Path:
     path = config_path or base_config_path()
     _http_dir().mkdir(parents=True, exist_ok=True)
     _stream_dir().mkdir(parents=True, exist_ok=True)
+    _vhost_dir().mkdir(parents=True, exist_ok=True)
 
+    # `vhost.d` is included at the `http {}` level, not inside the server block:
+    # Host-routed UIs need whole `server {}` blocks, whereas `http.d` fragments
+    # are `location`s spliced into the one path-routed server. Keeping
+    # `default_server` on that server is what preserves today's behaviour --
+    # a request only reaches a vhost when its Host actually matches.
     config = f"""events {{
     worker_connections 1024;
 }}
 http {{
+    map $http_upgrade $connection_upgrade {{
+        default upgrade;
+        ''      close;
+    }}
+    include {_NS_DIR}/vhost.d/*.conf;
     server {{
         listen 80 default_server;
         server_name _;
@@ -515,11 +544,58 @@ def env_stream_entries(
     return entries
 
 
+def _vhost_server(server_name: str, upstream: str) -> str:
+    """A Host-routed server block proxying everything to the ingress controller.
+
+    ``Host`` is forwarded verbatim because Traefik picks the Ingress rule from
+    it -- rewriting it would make every UI resolve to the same (or no) backend.
+    The path is passed through unchanged for the same reason, which is why
+    ``_passthrough_location`` is not reusable here: it strips its own prefix.
+    The Upgrade/Connection pair is what lets Argo stream workflow logs.
+    """
+    return f"""server {{
+    listen 80;
+    server_name {server_name};
+    location / {{
+        proxy_pass http://{upstream};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }}
+}}"""
+
+
+def write_env_vhosts(env, upstream: str) -> Path:
+    """Write an environment's Host-routed vhost fragment.
+
+    One wildcard block per environment (``*.<slug>.neuronsphere.io``) rather
+    than one per app: the charts derive their Ingress hosts from the environment
+    name, so a wildcard covers every UI the environment deploys without this
+    module having to know which apps exist.
+    """
+    block = _wrap(
+        f"{env.slug}:vhost",
+        _vhost_server(f"*.{env.slug}.{INGRESS_DOMAIN}", upstream),
+    )
+    return _write_fragment(
+        _vhost_dir() / _env_fragment_name(env.slug),
+        [block],
+        f"environment '{env.slug}' ingress vhosts",
+    )
+
+
 def remove_env_routes(env) -> None:
-    """Delete an environment's HTTP and stream fragments. Idempotent."""
+    """Delete an environment's HTTP, stream and vhost fragments. Idempotent."""
     for path in (
         _http_dir() / _env_fragment_name(env.slug),
         _stream_dir() / _env_fragment_name(env.slug),
+        _vhost_dir() / _env_fragment_name(env.slug),
     ):
         try:
             path.unlink()
@@ -546,6 +622,19 @@ def add_service_route(
     by its own marker comments, so re-running after a redeploy replaces exactly
     that route and nothing else.
     """
+    _upsert_service_route(route_path, rest_api_id, stage_name, env=env)
+    reload()
+
+
+def _upsert_service_route(
+    route_path: str, rest_api_id: str, stage_name: str, *, env=None
+) -> str:
+    """Splice one API Gateway route into its fragment **without** reloading.
+
+    Split out of :func:`add_service_route` so the bulk refresh can upsert N
+    routes and reload once, instead of reloading per route. Returns the route
+    it wrote.
+    """
     route_path = route_path.strip("/")
     if env is not None:
         fragment = _http_dir() / _env_fragment_name(env.slug)
@@ -558,7 +647,7 @@ def add_service_route(
 
     block = _wrap(route, _api_location(route, upstream_host, rest_api_id, stage_name))
     _upsert_block(fragment, route, block)
-    reload()
+    return route
 
 
 def _upsert_block(fragment: Path, route: str, block: str) -> None:
@@ -571,6 +660,84 @@ def _upsert_block(fragment: Path, route: str, block: str) -> None:
         text = (text.rstrip() + "\n" if text.strip() else "") + block
     fragment.parent.mkdir(parents=True, exist_ok=True)
     fragment.write_text(text)
+
+
+# ---------------------------------------------------------------------------
+# DAG-deployed services
+# ---------------------------------------------------------------------------
+# Services deployed through the real deployment DAG (`hmd deploy --local`, the
+# `up` bootstrap) get a CDKTF-managed API Gateway that neither `write_env_routes`
+# nor `write_control_plane_routes` knows about -- those writers only see the
+# Lambdas this CLI deploys itself. Their gateways have to be discovered from
+# Floci after the DAG has run, which is also the only way to learn the real
+# stage name: CDKTF stages are named after the stack, not "local", so a route
+# built with the default stage returns `{"message": "Stage not found"}`.
+
+# Gateways this CLI creates itself (floci_deployer.setup_service names them
+# `neuronsphere-<service>`); already routed by the bulk writers, so discovery
+# skips them rather than writing a second, redundant route.
+_CLI_GATEWAY_PREFIX = "neuronsphere-"
+
+# CDKTF names its REST API `<instance>_<repo_class>_<did>_<env>_<region>_<customer>-rest-api`.
+# The leading segment is the repo *instance* name, which is what the service is
+# addressed as: `transform_hmd-ms-transform_local_..._-rest-api` -> /<env>/transform/.
+_REST_API_SUFFIX = "-rest-api"
+
+
+def _route_path_for_gateway(name: str) -> Optional[str]:
+    """The route segment a CDKTF gateway name should be served under."""
+    if not name or name.startswith(_CLI_GATEWAY_PREFIX):
+        return None
+    if not name.endswith(_REST_API_SUFFIX):
+        return None
+    # Strip the suffix before splitting so a name carrying no `_` at all still
+    # yields a usable route rather than one ending in "-rest-api".
+    stem = name[: -len(_REST_API_SUFFIX)]
+    instance = stem.split("_", 1)[0].strip()
+    return instance or None
+
+
+def deployed_service_routes(env, target=None) -> Dict[str, Tuple[str, str]]:
+    """``{route_path: (rest_api_id, stage_name)}`` for DAG-deployed gateways.
+
+    Reads the environment's own Floci account -- a DAG-deployed service lives
+    there, not in the control-plane Floci. An API with no deployed stage is
+    skipped: it would 404 anyway, and it is usually a gateway mid-deploy.
+    """
+    from .floci_deployer import _get_client, env_target
+
+    if target is None and env is not None:
+        target = env_target(env)
+
+    client = _get_client("apigateway", target)
+    routes: Dict[str, Tuple[str, str]] = {}
+    for api in client.get_rest_apis(limit=500).get("items", []):
+        route_path = _route_path_for_gateway(api.get("name", ""))
+        if not route_path or route_path in routes:
+            continue
+        stages = client.get_stages(restApiId=api["id"]).get("item", [])
+        if not stages:
+            logger.debug(f"Gateway {api.get('name')} has no deployed stage; skipping.")
+            continue
+        routes[route_path] = (api["id"], stages[0]["stageName"])
+    return routes
+
+
+def refresh_deployed_service_routes(env, target=None) -> int:
+    """Route every DAG-deployed service in ``env``; reload once. Returns the count.
+
+    Unconditional rather than driven by what this run deployed: ``write_env_routes``
+    rewrites the whole fragment on every ``up``, so an already-bootstrapped
+    environment that deploys nothing still needs its DAG routes put back.
+    """
+    routes = deployed_service_routes(env, target=target)
+    if not routes:
+        return 0
+    for route_path, (rest_api_id, stage_name) in routes.items():
+        _upsert_service_route(route_path, rest_api_id, stage_name, env=env)
+        logger.info(f"Routed /{env.slug}/{route_path}/ -> {rest_api_id}/{stage_name}")
+    reload()
+    return len(routes)
 
 
 # ---------------------------------------------------------------------------
@@ -660,13 +827,21 @@ def _find_trino_coordinator_service(env=None):
     return None
 
 
-def _ensure_trino_nodeport(namespace, selector, port, target_port, env=None) -> bool:
-    """Idempotently apply a NodePort service exposing the Trino coordinator."""
+def _ensure_nodeport(
+    name, namespace, selector, port, target_port, node_port, env=None
+) -> bool:
+    """Idempotently apply a NodePort service fronting an in-cluster workload.
+
+    A NodePort is how anything on the Docker network reaches a ClusterIP inside
+    k3s: ``hmd_proxy`` connects to ``floci-eks-<cluster>:<nodePort>``. Applied as
+    a *separate* service rather than by mutating the workload's own -- Traefik's
+    service is owned by a k3s Addon, which reverts out-of-band edits.
+    """
     svc = {
         "apiVersion": "v1",
         "kind": "Service",
         "metadata": {
-            "name": _TRINO_NODEPORT_SVC,
+            "name": name,
             "namespace": namespace,
             "labels": {"app.kubernetes.io/managed-by": "hmd-cli-neuronsphere"},
         },
@@ -678,7 +853,7 @@ def _ensure_trino_nodeport(namespace, selector, port, target_port, env=None) -> 
                     "name": "http",
                     "port": port,
                     "targetPort": target_port,
-                    "nodePort": TRINO_NODEPORT,
+                    "nodePort": node_port,
                     "protocol": "TCP",
                 }
             ],
@@ -697,12 +872,25 @@ def _ensure_trino_nodeport(namespace, selector, port, target_port, env=None) -> 
             env=proc_env,
         )
     except (subprocess.SubprocessError, OSError) as e:
-        logger.warning(f"Could not apply Trino NodePort service: {e}")
+        logger.warning(f"Could not apply NodePort service {name}: {e}")
         return False
     if r.returncode != 0:
-        logger.warning(f"Could not apply Trino NodePort service: {r.stderr.strip()}")
+        logger.warning(f"Could not apply NodePort service {name}: {r.stderr.strip()}")
         return False
     return True
+
+
+def _ensure_trino_nodeport(namespace, selector, port, target_port, env=None) -> bool:
+    """Idempotently apply a NodePort service exposing the Trino coordinator."""
+    return _ensure_nodeport(
+        _TRINO_NODEPORT_SVC,
+        namespace,
+        selector,
+        port,
+        target_port,
+        TRINO_NODEPORT,
+        env=env,
+    )
 
 
 def trino_upstream(env) -> Optional[str]:
@@ -737,3 +925,93 @@ def configure_trino_host_route(env) -> bool:
         f"Wired Trino host route for '{env.slug}': :{env.trino_port} -> {upstream}"
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# Ingress host route
+# ---------------------------------------------------------------------------
+# Charts expose their UIs (Airflow, Argo, Trino) through Ingress objects, exactly
+# as they do in the cloud. Locally the ingress controller is the k3s Traefik, so
+# reaching those UIs from the host means: NodePort in front of Traefik, then a
+# Host-routed nginx vhost in hmd_proxy that forwards `Host` untouched.
+
+
+def ingress_upstream(env) -> Optional[str]:
+    """``<floci-eks ip>:<nodePort>`` for this env's ingress controller, or None."""
+    from .floci_deployer import _floci_eks_ip
+
+    if not _ensure_nodeport(
+        _TRAEFIK_NODEPORT_SVC,
+        _TRAEFIK_NAMESPACE,
+        _TRAEFIK_SELECTOR,
+        80,
+        "web",
+        TRAEFIK_NODEPORT,
+        env=env,
+    ):
+        return None
+    ip = _floci_eks_ip(env.k3s_cluster)
+    if not ip:
+        logger.warning("Could not resolve floci-eks IP; ingress route not wired.")
+        return None
+    return f"{ip}:{TRAEFIK_NODEPORT}"
+
+
+def configure_ingress_host_route(env) -> bool:
+    """Wire this environment's ingress controller to a Host-routed nginx vhost.
+
+    Caller reloads nginx when this returns True.
+    """
+    upstream = ingress_upstream(env)
+    if not upstream:
+        return False
+    write_env_vhosts(env, upstream)
+    logger.info(
+        f"Wired ingress vhost for '{env.slug}': "
+        f"*.{env.slug}.{INGRESS_DOMAIN} -> {upstream}"
+    )
+    return True
+
+
+def ingress_hosts(env) -> List[str]:
+    """Every Ingress hostname declared in this environment's cluster."""
+    try:
+        r = _kubectl(["get", "ingress", "-A", "-o", "json"], env=env)
+    except (subprocess.SubprocessError, OSError):
+        return []
+    if r.returncode != 0:
+        return []
+    try:
+        items = json.loads(r.stdout).get("items", [])
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    hosts = []
+    for item in items:
+        for rule in item.get("spec", {}).get("rules") or []:
+            host = rule.get("host")
+            if host and host not in hosts:
+                hosts.append(host)
+    return hosts
+
+
+def unresolvable_ingress_hosts(env) -> List[str]:
+    """Ingress hostnames that do not resolve to loopback on this machine.
+
+    ``/etc/hosts`` has no wildcards, so the vhost's ``*.<slug>`` server_name
+    cannot help until each name resolves. Unlike the ``neuronsphere`` alias
+    (see ``floci_deployer.ensure_neuronsphere_hosts_entry``, which aborts), a
+    missing UI hostname breaks nothing else -- so callers warn, never abort.
+    """
+    import socket
+
+    missing = []
+    for host in ingress_hosts(env):
+        try:
+            ip = socket.gethostbyname(host)
+        except socket.gaierror:
+            missing.append(host)
+            continue
+        if not (ip.startswith("127.") or ip == "::1"):
+            missing.append(host)
+    return missing
