@@ -621,7 +621,13 @@ class LocalPluginLoader:
         # deploy time (via db_secret_name_from_dependencies). Locally the DB
         # instance is fixed to the hmd_db / hmd-postgres-base convention used
         # by `_store_local_admin_db_secret` and `provision_plugin_databases`.
+        # The customer code MUST come from `local_customer_code()` (the single
+        # `hmd.env`-backed source the seeding side uses): defaulting it here
+        # independently is what made every db-account lookup miss the secret
+        # the seeder had actually written (see floci_deployer.b160612).
         from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+        from ..floci_deployer import FLOCI_INTERNAL_ENDPOINT, local_customer_code
 
         local_secret_base = make_standard_name(
             "hmd_db",
@@ -629,7 +635,7 @@ class LocalPluginLoader:
             os.environ.get("HMD_DID", "aaa"),
             "local",
             os.environ.get("HMD_REGION", "reg1"),
-            os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+            local_customer_code(),
         )
         for engine in merged_service_config.get("hmd_db_engines", {}).values():
             if engine.get("engine_type") != "postgres":
@@ -668,7 +674,7 @@ class LocalPluginLoader:
             os.environ.get("HMD_DID", "aaa"),
             "local",
             os.environ.get("HMD_REGION", "reg1"),
-            os.environ.get("HMD_CUSTOMER_CODE", "hmd"),
+            local_customer_code(),
         )
         for engine in merged_service_config.get("hmd_db_engines", {}).values():
             if engine.get("engine_type") != "dynamo":
@@ -677,7 +683,7 @@ class LocalPluginLoader:
             engine_config.setdefault("dynamo_table", service_base_name)
 
         env_vars: Dict[str, str] = {
-            "HMD_CUSTOMER_CODE": os.environ.get("HMD_CUSTOMER_CODE", "none"),
+            "HMD_CUSTOMER_CODE": local_customer_code(),
             "HMD_DID": os.environ.get("HMD_DID", "aaa"),
             "HMD_ENVIRONMENT": "local",
             "HMD_REGION": os.environ.get("HMD_REGION", "reg1"),
@@ -692,13 +698,15 @@ class LocalPluginLoader:
             "AWS_SECRET_ACCESS_KEY": os.environ.get(
                 "AWS_SECRET_ACCESS_KEY", "dummykey"
             ),
-            # `neuronsphere` is the canonical in-network hostname for Floci
-            # (Docker network alias, registered on the compose service). It
-            # is also the hostname baked into presigned URLs returned to
-            # host-side consumers (`hmd build` with HMD_AUTO_PUBLISH=true).
-            # Host requires `127.0.0.1 neuronsphere` in /etc/hosts; checked
-            # by ensure_neuronsphere_hosts_entry pre-flight on `up`.
-            "AWS_ENDPOINT_URL": "http://neuronsphere:4566",
+            # The *control-plane* Floci -- `neuronsphere` is a Docker network
+            # alias on that instance, and the hostname baked into presigned
+            # URLs returned to host-side consumers (`hmd build` with
+            # HMD_AUTO_PUBLISH=true). Host requires `127.0.0.1 neuronsphere`
+            # in /etc/hosts; checked by ensure_neuronsphere_hosts_entry on
+            # `up`. This is only the default: a Lambda belonging to a named
+            # environment gets it rewritten to that environment's own Floci by
+            # `_apply_env_overrides` (hmd_cli_neuronsphere.py).
+            "AWS_ENDPOINT_URL": FLOCI_INTERNAL_ENDPOINT,
             "AWS_XRAY_SDK_ENABLED": "false",
             "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
             "DD_TRACE_ENABLED": "false",

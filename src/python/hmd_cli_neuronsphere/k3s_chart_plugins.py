@@ -32,7 +32,11 @@ from cement import minimal_logger
 from hmd_cli_tools.hmd_cli_tools import make_standard_name
 
 from . import k3s_operators as ko
-from .floci_deployer import DOCKER_NETWORK_NAME, FLOCI_ENDPOINT
+from .floci_deployer import (
+    DOCKER_NETWORK_NAME,
+    FLOCI_ENDPOINT,
+    local_customer_code,
+)
 
 logger = minimal_logger("ns_k3s_charts")
 
@@ -46,7 +50,7 @@ _ENABLE_ENV = "HMD_LOCAL_NEURONSPHERE_K3S_CHARTS"
 _DID = "local"
 _ENV = "local"
 _HMD_REGION = os.environ.get("HMD_REGION", "reg1")
-_CUSTOMER = os.environ.get("HMD_CUSTOMER_CODE") or "none"
+_CUSTOMER = local_customer_code()
 # The ClusterSecretStore (installed by k3s_operators with aws_region=local) queries this
 # region, so every secret a chart's ExternalSecret reads MUST be seeded here.
 _SEED_REGION = "local"
@@ -108,8 +112,11 @@ def _label_nodes_for_compute() -> None:
 # ---------------------------------------------------------------------------
 # Chart registry — ordered by dependency tier. Each converted plugin lists the
 # Floci fixtures its chart needs. `secrets[*]` name is
-# make_standard_name(instance, repo, did, local, reg1, hmd) to match the chart's
-# ExternalSecret remoteRef.key; value is the JSON the ExternalSecret pulls keys from.
+# make_standard_name(instance, repo, did, local, reg1, _CUSTOMER) — optionally
+# plus a `suffix` — to match the chart's ExternalSecret remoteRef.key; value is
+# the JSON the ExternalSecret pulls keys from. Never spell a fixture name out in
+# full: the customer code has to track `local_customer_code()`, and a literal
+# silently drifts from whatever the seeding side wrote.
 #
 # ClickHouse and the OTEL collector ("telemetry") used to be hardcoded here too. Both
 # are now deployed through the real DAG (BOM entries contributed by the optional
@@ -161,12 +168,22 @@ _CHART_PLUGINS: List[Dict[str, Any]] = [
             {
                 # DB creds — the `metastore` DB already exists in the compose
                 # Postgres (hmd_db); host is resolved to its container IP.
-                "name": "hmd-db_hmd-postgres-base_local_local_reg1_hmd_metastore",
+                # `hmd-db` (dash) is not a typo: it is the literal
+                # `dependencies.db-credentials.dependencies.database-instance.
+                # instance_name` in hmd-inf-hive-metastore's config_local.json,
+                # which the chart's `awsDbSecretName` helper joins verbatim.
+                "instance": "hmd-db",
+                "repo": "hmd-postgres-base",
+                "did": _DID,
+                "suffix": "_metastore",
                 "value": {"username": "postgres", "password": "admin", "port": "5432"},
                 "host_from_container": "hmd_db",
             },
             {
-                "name": "hive-bucket_hmd-inf-trino-store-access_local_local_reg1_hmd-bucketaccess",
+                "instance": "hive-bucket",
+                "repo": "hmd-inf-trino-store-access",
+                "did": _DID,
+                "suffix": "-bucketaccess",
                 "value": {"S3_ACCESS_KEY": "test", "S3_ACCESS_SECRET": "test"},
             },
         ],
@@ -221,10 +238,21 @@ def _seed_fixtures(chart: Dict[str, Any]) -> None:
     if secrets:
         sm = _floci_client("secretsmanager")
         for sec in secrets:
-            # Secret name is either explicit (some charts append db_name/suffixes the
-            # standard-name helper can't express) or built from make_standard_name.
-            name = sec.get("name") or make_standard_name(
-                sec["instance"], sec["repo"], sec["did"], _ENV, _HMD_REGION, _CUSTOMER
+            # Secret name is built from make_standard_name plus an optional
+            # `suffix` (some charts append a db_name/qualifier the standard-name
+            # helper can't express, e.g. `_metastore`, `-bucketaccess`). A fully
+            # explicit `name` is still honoured, but prefer the derived form so
+            # the customer code stays tied to `local_customer_code()`.
+            name = sec.get("name") or (
+                make_standard_name(
+                    sec["instance"],
+                    sec["repo"],
+                    sec["did"],
+                    _ENV,
+                    _HMD_REGION,
+                    _CUSTOMER,
+                )
+                + sec.get("suffix", "")
             )
             value = dict(sec["value"])
             # DB-creds secrets carry a `host`; resolve it to the compose Postgres

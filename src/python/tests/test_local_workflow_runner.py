@@ -560,5 +560,87 @@ class EnsureNodeImageTests(unittest.TestCase):
             run.assert_not_called()
 
 
+class DeployedLambdaEndpointTests(unittest.TestCase):
+    """A deployed Lambda must be handed *its own* environment's Floci endpoint.
+
+    hmd-lib-cdktf-factories stamps ``AWS_ENDPOINT_URL`` onto every local Lambda
+    it deploys, and takes the value from the deployer's own environment. That
+    only works because the runner exports the environment's Floci here.
+
+    The failure this guards against is silent: ``neuronsphere`` is a Docker
+    network alias on the *control-plane* Floci, and only CoreDNS inside the k3s
+    cluster remaps it to the environment's. Floci runs Lambdas as containers on
+    the raw Docker network, so a Lambda handed the bare alias reads secrets and
+    SSM parameters from the control-plane account -- where a service's DB
+    credentials do not exist ("Unable to read secret name: ...").
+    """
+
+    class _Env:
+        def __init__(self, slug, legacy=False):
+            self.slug = slug
+            self.deployment_id = slug
+            self.k3s_cluster = f"ns-{slug}"
+            self.floci_container = f"floci-{slug}"
+            self.floci_alias = f"neuronsphere-{slug}"
+            self.legacy_layout = legacy
+            self.kubeconfig = f"/nonexistent/{slug}/kubeconfig"
+
+    def _endpoint_passed_to_docker(self, env, environ=None):
+        """Run a node and return the AWS_ENDPOINT_URL the container was given."""
+        with tempfile.TemporaryDirectory() as d:
+            meta = os.path.join(d, "meta-data")
+            os.makedirs(meta)
+            with open(os.path.join(meta, "manifest.json"), "w") as f:
+                json.dump({"deploy": {"commands": [["cdktf"]]}}, f)
+            with open(os.path.join(meta, "VERSION"), "w") as f:
+                f.write("0.2.457\n")
+
+            runner = LocalWorkflowRunner("http://x", env=env)
+            runner._repo_path = lambda repo_class_name: d
+            node = {
+                "repo_class_name": "hmd-ms-transform",
+                "instance_name": "transform",
+                "repo_class_version": "0.2.457",
+                "script": "hmd deploy --local",
+            }
+            with mock.patch.dict(os.environ, environ or {}, clear=True):
+                with mock.patch.object(runner, "_ensure_node_image", return_value=True):
+                    with mock.patch.object(lwr.subprocess, "run") as run:
+                        run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+                        runner._execute_in_projectbuilder(node)
+            cmd = run.call_args[0][0]
+
+        for arg in cmd:
+            if arg.startswith("AWS_ENDPOINT_URL="):
+                return arg.split("=", 1)[1]
+        self.fail(f"no AWS_ENDPOINT_URL in {cmd}")
+
+    def test_environment_deploy_targets_its_own_floci(self):
+        endpoint = self._endpoint_passed_to_docker(self._Env("dev2"))
+        self.assertEqual(endpoint, "http://floci-dev2:4566")
+
+    def test_environment_deploy_never_gets_the_control_plane_alias(self):
+        # The whole point: `neuronsphere` means the control plane out here.
+        endpoint = self._endpoint_passed_to_docker(self._Env("local"))
+        self.assertNotIn("//neuronsphere:", endpoint)
+        self.assertEqual(endpoint, "http://floci-local:4566")
+
+    def test_legacy_environment_still_uses_the_control_plane(self):
+        # A legacy-layout environment shares the control-plane Floci.
+        endpoint = self._endpoint_passed_to_docker(self._Env("local", legacy=True))
+        self.assertEqual(endpoint, "http://neuronsphere:4566")
+
+    def test_no_environment_uses_the_control_plane(self):
+        endpoint = self._endpoint_passed_to_docker(None)
+        self.assertEqual(endpoint, "http://neuronsphere:4566")
+
+    def test_explicit_override_wins(self):
+        endpoint = self._endpoint_passed_to_docker(
+            self._Env("dev2"),
+            environ={"FLOCI_WORKLOAD_ENDPOINT_DOCKER": "http://elsewhere:4566"},
+        )
+        self.assertEqual(endpoint, "http://elsewhere:4566")
+
+
 if __name__ == "__main__":
     unittest.main()
