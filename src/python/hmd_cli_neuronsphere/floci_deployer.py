@@ -1191,30 +1191,21 @@ def _ensure_local_image(image_uri: str) -> str:
     return image_uri
 
 
-def _image_cached(image_uri: str) -> bool:
-    """Return True if the image is present in the local docker cache."""
-    result = subprocess.run(
-        ["docker", "image", "inspect", image_uri],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
 def resolve_image_uri(repo_name: str, version: str) -> Optional[str]:
     """Find a locally-cached Docker image URI for a repo/version.
 
     Tries each candidate ref in order and returns the first that
-    `docker image inspect` finds. Returns None if none are cached.
+    `<cli> image inspect` finds. Returns None if none are cached.
 
     The candidate order lives in :func:`image_cache.image_candidates` -- the
     same list :func:`image_cache.ensure_lambda_image` stages against, so
     resolution and staging can't drift.
     """
-    from .image_cache import image_candidates
+    from .image_cache import image_cached, image_candidates
 
     candidates = image_candidates(repo_name, version)
     for uri in candidates:
-        if _image_cached(uri):
+        if image_cached(uri):
             logger.debug(f"Resolved image for {repo_name}:{version} → {uri}")
             return uri
 

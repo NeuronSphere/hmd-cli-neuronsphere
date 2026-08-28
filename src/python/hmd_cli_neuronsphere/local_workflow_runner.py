@@ -25,7 +25,7 @@ from cement import minimal_logger
 
 from .bom_seeder import CORE_REPO_CLASS
 from .floci_deployer import DOCKER_NETWORK_NAME, K3S_CLUSTER_NAME
-from .image_cache import ImageUnavailable, ensure_lambda_image
+from .image_cache import ImageUnavailable, _is_truthy, ensure_lambda_image
 
 logger = minimal_logger("local_workflow_runner")
 
@@ -42,10 +42,6 @@ _OVERLAY_COPY_IGNORE = shutil.ignore_patterns(
     "__pycache__",
     "*.egg-info",
 )
-
-
-def _is_truthy(value: Optional[str]) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Matches the `hmd ... deploy` command line the ms-deployment generator emits

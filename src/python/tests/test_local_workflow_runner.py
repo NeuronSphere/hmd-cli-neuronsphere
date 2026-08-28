@@ -450,10 +450,6 @@ class BundledArtifactSourceTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class EnsureNodeImageTests(unittest.TestCase):
     """Per-node staging of the image Floci runs a local Lambda from.
 
@@ -561,3 +557,7 @@ class EnsureNodeImageTests(unittest.TestCase):
                     )
             self.assertFalse(ok)
             run.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

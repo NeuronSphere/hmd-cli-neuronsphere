@@ -267,6 +267,13 @@ tried and the two ways to satisfy it: ``hmd build`` in that repo, or
 ``HMD_LOCAL_SKIP_IMAGE_PREPULL=true`` to downgrade that to a warning and let the
 deploy proceed.
 
+The client used for those lookups is not hardcoded. ``HMD_DOCKER_USE_NERDCTL``
+selects ``hmd_nerdctl`` over ``docker`` — the same switch
+``hmd_lib_containers.get_client`` reads — and whichever client is actually on
+``PATH`` settles it otherwise, so a host with only one of the two works without
+configuration. With neither installed, staging fails with that as the stated
+reason rather than reporting the image as missing.
+
 Migrating from MiniStack
 -------------------------
 

@@ -8,12 +8,16 @@ resolves it against Docker Hub, not ghcr.io -- so if nothing has put that tag in
 the host cache, Floci fails with a 404 "pull access denied" long after the
 deploy reported success.
 
-``image_cache`` closes that gap on the host, where a real Docker CLI exists: it
-finds the image under any of the registry-prefixed refs the platform uses, or
-pulls it, then tags it under the bare ref Floci looks for.
+``image_cache`` closes that gap on the host, where a real container CLI exists:
+it finds the image under any of the registry-prefixed refs the platform uses, or
+pulls it, then tags it under the bare ref Floci looks for. Which CLI that is is
+resolved, not hardcoded -- a developer host runs ``docker``, the cloud builders
+run nerdctl and have no ``docker`` binary at all.
 
 Run directly (``python -m pytest src/python/tests/test_image_cache.py``) -- no
-Docker required; every ``subprocess.run`` is mocked.
+container runtime required, and no container CLI either: every ``subprocess.run``
+is mocked and ``shutil.which`` is stubbed, so the suite never reads the host's
+PATH.
 """
 
 import unittest
@@ -31,14 +35,31 @@ _ENV_KEYS = (
     "HMD_CONTAINER_REGISTRY",
     "HMD_LOCAL_NS_CONTAINER_REGISTRY",
     "HMD_LOCAL_IMAGE_PULL_REGISTRIES",
+    "HMD_DOCKER_USE_NERDCTL",
 )
 
 
-class _Docker:
-    """Fake ``subprocess.run`` standing in for the docker CLI.
+def _which(*installed):
+    """Stand in for ``shutil.which``, resolving only ``installed`` clients.
 
-    :param cached: refs that ``docker image inspect`` should find.
-    :param pullable: refs that ``docker pull`` should succeed for.
+    Every test states the clients its host has. Reading the real PATH is what
+    broke this suite in CI: the builders run nerdctl and have no ``docker``, so
+    the ``container_cli()`` guard fired before the mocked ``subprocess.run``
+    could be reached.
+    """
+    return lambda name: f"/usr/local/bin/{name}" if name in installed else None
+
+
+class _Docker:
+    """Fake ``subprocess.run`` standing in for the container CLI.
+
+    Client-agnostic on purpose: ``docker`` and ``nerdctl`` speak the same
+    ``image inspect`` / ``pull`` / ``tag`` verbs, so the fake matches on the verb
+    and records ``cmd[0]`` in :attr:`clis` for the tests that care which client
+    was driven.
+
+    :param cached: refs that ``<cli> image inspect`` should find.
+    :param pullable: refs that ``<cli> pull`` should succeed for.
     """
 
     def __init__(self, cached=(), pullable=()):
@@ -47,24 +68,26 @@ class _Docker:
         self.inspected = []
         self.pulled = []
         self.tagged = []
+        self.clis = []
 
     def __call__(self, cmd, *args, **kwargs):
-        if cmd[:3] == ["docker", "image", "inspect"]:
+        self.clis.append(cmd[0])
+        if cmd[1:3] == ["image", "inspect"]:
             ref = cmd[3]
             self.inspected.append(ref)
             return mock.Mock(returncode=0 if ref in self.cached else 1)
-        if cmd[:2] == ["docker", "pull"]:
+        if cmd[1] == "pull":
             ref = cmd[2]
             self.pulled.append(ref)
             ok = ref in self.pullable
             if ok:
                 self.cached.add(ref)
             return mock.Mock(returncode=0 if ok else 1, stdout="", stderr="denied")
-        if cmd[:2] == ["docker", "tag"]:
+        if cmd[1] == "tag":
             self.tagged.append((cmd[2], cmd[3]))
             self.cached.add(cmd[3])
             return mock.Mock(returncode=0, stdout="", stderr="")
-        raise AssertionError(f"unexpected docker command: {cmd}")
+        raise AssertionError(f"unexpected container command: {cmd}")
 
 
 class _EnvIsolated(unittest.TestCase):
@@ -124,6 +147,14 @@ class ImageCandidatesTests(_EnvIsolated):
 
 
 class EnsureLambdaImageTests(_EnvIsolated):
+    def setUp(self):
+        super().setUp()
+        # The common host: docker installed, no nerdctl. Tests that care about
+        # the other shapes re-patch `which` themselves.
+        patcher = mock.patch.object(ic.shutil, "which", _which("docker"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_bare_tag_cached_is_a_no_op(self):
         """The `hmd build` fast path: nothing to pull, nothing to tag."""
         docker = _Docker(cached=[BARE])
@@ -180,20 +211,81 @@ class EnsureLambdaImageTests(_EnvIsolated):
         self.assertIn("hmd build", message)
         self.assertIn("docker login", message)
 
-    def test_missing_docker_cli_raises_unavailable(self):
-        """No docker on PATH: report it, don't traceback on FileNotFoundError."""
-        with mock.patch.object(ic.shutil, "which", return_value=None):
+    def test_missing_container_cli_raises_unavailable(self):
+        """No client at all on PATH: report it, don't traceback on OSError."""
+        with mock.patch.object(ic.shutil, "which", _which()):
             with self.assertRaises(ic.ImageUnavailable) as ctx:
                 ic.ensure_lambda_image(REPO, VERSION)
-        self.assertIn("docker", str(ctx.exception))
+        self.assertIn("no container CLI", str(ctx.exception))
+
+    def test_nerdctl_env_selects_the_nerdctl_client(self):
+        """`HMD_DOCKER_USE_NERDCTL` steers us the same way hmd_lib_containers is steered."""
+        ic.os.environ["HMD_DOCKER_USE_NERDCTL"] = "true"
+        docker = _Docker(cached=[BARE])
+        with mock.patch.object(ic.shutil, "which", _which("docker", "hmd_nerdctl")):
+            with mock.patch.object(ic.subprocess, "run", docker):
+                self.assertEqual(ic.ensure_lambda_image(REPO, VERSION), BARE)
+        self.assertEqual(set(docker.clis), {"hmd_nerdctl"})
+
+    def test_nerdctl_only_host_needs_no_env(self):
+        """The CI shape: nerdctl is installed, docker isn't, nothing is set."""
+        published = f"ghcr.io/neuronsphere/{REPO}:{VERSION}"
+        docker = _Docker(pullable=[published])
+        with mock.patch.object(ic.shutil, "which", _which("hmd_nerdctl")):
+            with mock.patch.object(ic.subprocess, "run", docker):
+                self.assertEqual(ic.ensure_lambda_image(REPO, VERSION), BARE)
+        self.assertEqual(set(docker.clis), {"hmd_nerdctl"})
+        self.assertEqual(docker.tagged, [(published, BARE)])
 
     def test_tag_failure_still_returns_a_usable_ref(self):
         """If tagging fails, the cached prefixed ref is still what Floci resolves."""
         built = f"ghcr.io/neuronsphere/{REPO}:{VERSION}"
         docker = _Docker(cached=[built])
         with mock.patch.object(ic.subprocess, "run", docker):
-            with mock.patch.object(ic, "_docker_tag", return_value=False):
+            with mock.patch.object(ic, "_tag", return_value=False):
                 self.assertEqual(ic.ensure_lambda_image(REPO, VERSION), built)
+
+
+class ContainerCliTests(_EnvIsolated):
+    """Client resolution: the env var states a preference, PATH has the last word."""
+
+    def test_docker_by_default(self):
+        with mock.patch.object(ic.shutil, "which", _which("docker", "hmd_nerdctl")):
+            self.assertEqual(ic.container_cli(), "docker")
+
+    def test_nerdctl_when_the_env_asks_for_it(self):
+        ic.os.environ["HMD_DOCKER_USE_NERDCTL"] = "true"
+        with mock.patch.object(ic.shutil, "which", _which("docker", "hmd_nerdctl")):
+            self.assertEqual(ic.container_cli(), "hmd_nerdctl")
+
+    def test_falls_back_to_whatever_is_installed(self):
+        """A docker-less host uses nerdctl even with the env var unset."""
+        with mock.patch.object(ic.shutil, "which", _which("nerdctl")):
+            self.assertEqual(ic.container_cli(), "nerdctl")
+
+    def test_nerdctl_env_still_falls_back_to_docker(self):
+        ic.os.environ["HMD_DOCKER_USE_NERDCTL"] = "true"
+        with mock.patch.object(ic.shutil, "which", _which("docker")):
+            self.assertEqual(ic.container_cli(), "docker")
+
+    def test_none_when_nothing_is_installed(self):
+        with mock.patch.object(ic.shutil, "which", _which()):
+            self.assertIsNone(ic.container_cli())
+
+
+class ImageCachedTests(_EnvIsolated):
+    """The lookup floci_deployer.resolve_image_uri shares with the stager."""
+
+    def test_reports_a_cached_ref(self):
+        docker = _Docker(cached=[BARE])
+        with mock.patch.object(ic.shutil, "which", _which("docker")):
+            with mock.patch.object(ic.subprocess, "run", docker):
+                self.assertTrue(ic.image_cached(BARE))
+                self.assertFalse(ic.image_cached(f"{REPO}:9.9.9"))
+
+    def test_no_cli_is_not_cached_rather_than_an_error(self):
+        with mock.patch.object(ic.shutil, "which", _which()):
+            self.assertFalse(ic.image_cached(BARE))
 
 
 if __name__ == "__main__":
