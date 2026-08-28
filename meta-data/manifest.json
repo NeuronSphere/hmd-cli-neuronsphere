@@ -7,7 +7,7 @@
       ["hmd-inf-superset@0.5.228:build", "src/python/hmd_cli_neuronsphere/external/apache_superset"],
       ["hmd-ms-telemetry-debug@0.1.5:build", "src/python/hmd_cli_neuronsphere/external/telemetry-debug"],
       ["hmd-inf-ext-secrets-crds@0.1.3:build", "src/python/hmd_cli_neuronsphere/external/ext-secrets-crds"],
-      ["hmd-inf-ext-secrets@0.2.50:build", "src/python/hmd_cli_neuronsphere/external/ext-secrets"],
+      ["hmd-inf-ext-secrets@0.2.54:build", "src/python/hmd_cli_neuronsphere/external/ext-secrets"],
       ["hmd-inf-s3bucket@0.1.13:build", "src/python/hmd_cli_neuronsphere/external/s3bucket"]
     ],
     "commands": [["python"]]
