@@ -145,18 +145,20 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     target = control_plane_target()
     reg = env_registry.load()
 
-    if upgrade:
-        print_step("Upgrade — pulling latest images...")
-        try:
-            update_images()
-        except Exception as e:
-            logger.warning(f"Image pull failed (non-fatal): {e}")
-            print(f"  Warning: image pull failed: {e}")
-
     local_loader = LocalPluginLoader()
     # artifact-lib backs `hmd neuronsphere push-artifact` / `pull-artifact`, so
     # it must always be available. It is control-plane, not per-environment.
     local_loader.ensure_foundation_plugin("artifact-lib", "hmd-ms-artifact-lib")
+
+    if upgrade:
+        print_step("Upgrade — pulling latest images...")
+        try:
+            update_images(
+                control_plane_compose_files(local_loader) + _env_compose_files()
+            )
+        except Exception as e:
+            logger.warning(f"Image pull failed (non-fatal): {e}")
+            print(f"  Warning: image pull failed: {e}")
 
     compose_files = control_plane_compose_files(local_loader)
 

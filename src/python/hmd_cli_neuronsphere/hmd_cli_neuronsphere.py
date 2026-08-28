@@ -2164,7 +2164,14 @@ def print_status(json_mode: bool = False, env_name: str = None) -> None:
         print()
 
 
-def update_images():
+def update_images(compose_files: Optional[List[str]] = None):
+    """Pull the latest images for the given compose files.
+
+    :param compose_files: Explicit compose files to pull for (Extend mode
+        passes its own control-plane/environment compose files). Defaults to
+        scanning ``$HMD_HOME/.cache`` for Platform mode's per-plugin compose
+        files, which is where that legacy mode copies them.
+    """
     load_hmd_env()
     home_projects_path = _hmd_home / "studio" / "projects"
     hmd_repo_home = os.environ.get("HMD_REPO_HOME")
@@ -2179,7 +2186,8 @@ def update_images():
         os.environ.get("HMD_PROJECTS_PATH") is not None
     ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
 
-    compose_files = _get_cached_compose_files()
+    if compose_files is None:
+        compose_files = _get_cached_compose_files()
     command = [*_get_base_command(compose_files), "--verbose", "pull"]
     _exec(command)
 
