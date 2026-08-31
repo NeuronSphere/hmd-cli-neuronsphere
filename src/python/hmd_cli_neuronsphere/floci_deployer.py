@@ -203,6 +203,15 @@ def _get_client(service: str, target: Optional[FlociTarget] = None):
     )
 
 
+def get_client(service: str, env=None):
+    """Public Floci client factory for plugin entry-point hooks (e.g.
+    ``hmd_cli_neuronsphere.get_post_deploy_notices``) that need to read their
+    own secrets/resources back from an environment's Floci. Thin wrapper
+    around the internal ``_get_client`` -- kept separate so the ~20 existing
+    internal call sites don't need to change."""
+    return _get_client(service, env_target(env) if env else None)
+
+
 def wait_for_floci(
     timeout: int = 300, endpoint: str = None, *, target: Optional[FlociTarget] = None
 ):

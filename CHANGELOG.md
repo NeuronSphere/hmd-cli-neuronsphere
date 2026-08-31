@@ -42,6 +42,29 @@
   redeploy when that release is gone. Entries that install no release are
   unaffected, and an unreadable cluster is never mistaken for an empty one.
 
+- feat: Add a `get_post_deploy_notices` plugin entry point
+
+  There was no way for an installed local-BOM plugin to surface anything in
+  `up`'s "Ready" summary short of hardcoding plugin-specific knowledge into
+  this repo — the summary's per-environment block was a fixed list of core
+  URLs. `hmd_cli_neuronsphere.get_post_deploy_notices` is a new entry-point
+  group, collected the same best-effort way as the existing
+  `get_local_bom_entries`/`get_resources` hooks: each installed contributor is
+  a callable `(env) -> List[str]`, and a broken contributor logs a warning and
+  is skipped rather than breaking `up` for everyone else. `start_neuronsphere_
+  extend` prints whatever lines every contributor returns after the
+  environment's URL block. First consumer:
+  `hmd-cli-plugin-ns-visualization` reports its Superset admin login this way
+  instead of requiring a manual `aws secretsmanager get-secret-value` call.
+
+- feat: Expose `floci_deployer.get_client` as a public Floci client factory
+
+  Plugins implementing `get_post_deploy_notices` (or any future entry point)
+  need to read their own secrets/resources back from an environment's Floci,
+  but the existing `_get_client` is private and has ~20 internal call sites
+  not worth touching. `get_client(service, env)` is a thin public wrapper
+  around it for exactly this kind of cross-package use.
+
 ## 2026-08-28
 
 - fix: Address Floci by its network alias, never the `floci` compose service key

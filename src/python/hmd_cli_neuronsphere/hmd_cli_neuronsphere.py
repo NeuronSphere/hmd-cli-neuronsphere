@@ -37,6 +37,30 @@ ENABLED_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.enabled"
 PREPARE_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.prepare_hmd_home"
 RESOURCES_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.get_resources"
 COMPOSE_PLUGIN_ENTRY_POINT = "hmd_cli_neuronsphere.render_compose_yaml"
+POST_DEPLOY_NOTICES_ENTRY_POINT = "hmd_cli_neuronsphere.get_post_deploy_notices"
+
+
+def _collect_post_deploy_notices(env) -> List[str]:
+    """Best-effort per-plugin lines to append to `up`'s "Ready" summary.
+
+    Each entry point is a callable ``(env) -> List[str]``, letting an
+    installed plugin (e.g. hmd-cli-plugin-ns-visualization reporting its
+    Superset admin login) surface something after deploy without this
+    module knowing anything about what the plugin is or what it deployed.
+    A broken or misbehaving contributor logs a warning and is skipped --
+    an optional plugin's summary line must never block or crash `up` for
+    everyone else.
+    """
+    notices: List[str] = []
+    for entrypoint in entry_points(group=POST_DEPLOY_NOTICES_ENTRY_POINT):
+        try:
+            notices.extend(entrypoint.load()(env) or [])
+        except Exception as e:
+            logger.warning(
+                f"Plugin '{entrypoint.name}' failed to produce post-deploy "
+                f"notices ({e}); skipping"
+            )
+    return notices
 
 
 def _get_required_env_var(var_name, default=None):
@@ -1092,6 +1116,8 @@ def start_neuronsphere_extend(
     print(f"    services:       http://localhost/{env.slug}/<service>/")
     print(f"    Floci:          http://localhost:{env.floci_port}")
     print(f"    Trino:          localhost:{env.trino_port}")
+    for notice in _collect_post_deploy_notices(env):
+        print(f"    {notice}")
     others = [e.slug for e in env_registry.list_envs(reg) if e.slug != env.slug]
     if others:
         print(f"\n  Other environments: {', '.join(others)}")
