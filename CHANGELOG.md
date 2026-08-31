@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-08-31
+
+- fix: Make a non-purge `down` preserve the k3s cluster so `up` takes the restart fast-path
+
+  `stop_environment` deleted the environment's k3s cluster on every `down`, not
+  just under `--purge`. Floci's `delete_cluster` drops the cluster's
+  `floci-eks-<name>` volume along with it, so the next `up` got a brand-new
+  cluster with a new `kube-system` UID — which `_bootstrap_environment` reads as
+  "the cluster was replaced since the last bootstrap" and answers by redeploying
+  the entire BOM. The documented restart fast-path was therefore never taken.
+
+  A plain `down` now stops the k3s container, stops (rather than removes) the
+  containers, and leaves the Docker network in place; `ensure_k3s_cluster`
+  restarts a stopped container on the expected image instead of recreating it,
+  falling back to a recreate only when the start fails. `--purge` keeps the old
+  destructive behavior.
+
+  Floci's `ContainerLifecycleManager` still removes the `floci-eks-<cluster>`
+  container and its volume when the environment's `floci-<env>` container stops,
+  so the cluster's datastore does not survive a `down` today. What did change is
+  that the cluster *record* now persists (`eks-clusters.json` reloads it rather
+  than coming back empty), and the redeploy is no longer all-or-nothing:
+
+- fix: Redeploy only the k8s instances when the k3s cluster is replaced
+
+  A mismatched `kube-system` UID forced `_run_full_bootstrap` — the entire BOM —
+  even though only the instances deployed onto k3s were actually lost. S3
+  buckets, cdktf-to-Floci stacks and Lambdas live in Floci, whose state persists
+  across the restart. `up` now reconciles instead, and the release cross-check
+  turns exactly the k8s-backed entries into additions. With no recorded release
+  information it still falls back to the full bootstrap, since narrowing without
+  that record would be a guess.
+
+- fix: Cross-check Helm releases against the deployment graph during reconcile
+
+  ms-deployment records intent and cannot see the cluster, so an instance whose
+  release was uninstalled stayed `DEPLOYED` and `up` reported "matches its
+  declared state" over a missing workload. The applied-changeset snapshot now
+  records the Helm release each entry installed, and `compute_plan` proposes a
+  redeploy when that release is gone. Entries that install no release are
+  unaffected, and an unreadable cluster is never mistaken for an empty one.
+
 ## 2026-08-28
 
 - fix: Address Floci by its network alias, never the `floci` compose service key

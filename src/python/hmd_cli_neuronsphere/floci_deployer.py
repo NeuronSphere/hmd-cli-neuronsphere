@@ -386,11 +386,24 @@ def ensure_k3s_cluster(
         # a cluster created before the wrapper image was wired up (or against a
         # stale/old image) keeps respawning that image and crash-loops on the
         # bad --kube-apiserver-arg=storage-backend flag. If the spawned container
-        # is missing, stopped, or not the wrapper image we expect, recreate the
-        # cluster so Floci respawns it from the current
-        # FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
+        # is missing or not the wrapper image we expect, recreate the cluster so
+        # Floci respawns it from the current FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
         image = _k3s_container_image(name)
         running = _k3s_container_running(name)
+        # A stopped container running the *expected* image is not stale -- it is
+        # what a non-purge `down` leaves behind (see `stop_k3s_cluster`).
+        # Recreating it would drop the cluster's datastore along with every Helm
+        # release on it, which is exactly what makes the next `up` redeploy the
+        # whole BOM. Start it back up instead and keep the cluster's identity.
+        if image == K3S_WRAPPER_IMAGE and not running:
+            logger.info(f"k3s cluster {name} is stopped; restarting it in place")
+            if start_k3s_container(name):
+                running = True
+            else:
+                logger.warning(
+                    f"Could not restart the stopped k3s container for {name} "
+                    f"(the Docker network may have been removed); recreating."
+                )
         if image != K3S_WRAPPER_IMAGE or not running:
             logger.warning(
                 f"Existing k3s cluster {name} is stale "
@@ -679,19 +692,74 @@ def delete_k3s_cluster(
             logger.warning(f"Failed to delete k3s cluster {name}: {e}")
 
 
+def stop_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> bool:
+    """Stop the Floci-spawned k3s container without deleting the cluster.
+
+    This is what a non-purge ``down`` does. Asking Floci to *delete* the cluster
+    (``delete_k3s_cluster``) also drops its ``floci-eks-<name>`` volume -- the
+    ``/var/lib/rancher/k3s`` datastore -- so the next ``up`` gets a brand-new
+    cluster with a new ``kube-system`` UID. ``environments._bootstrap_environment``
+    reads that as "the cluster was recreated since the last bootstrap" and
+    redeploys the entire BOM, which is precisely the slow restart this avoids.
+
+    Stopping the container instead keeps the datastore, the cluster's identity
+    and every Helm release on it, so ``up`` can take the reconcile fast path.
+    Best-effort: returns whether the container was stopped.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "stop", f"floci-eks-{name}"],
+            capture_output=True,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"k3s container stop skipped for {name}: {e}")
+        return False
+    if result.returncode == 0:
+        logger.info(f"Stopped k3s container: floci-eks-{name}")
+        return True
+    logger.debug(f"k3s container stop for {name} returned {result.returncode}")
+    return False
+
+
+def start_k3s_container(name: str = K3S_CLUSTER_NAME) -> bool:
+    """Start a k3s container previously stopped by :func:`stop_k3s_cluster`.
+
+    Fails (returning False) if the container's Docker network was removed while
+    it was stopped -- a stopped endpoint holds the network by *id*, and a
+    recreated network gets a new one. Callers fall back to recreating the
+    cluster, which is why ``down`` keeps the network unless purging.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "start", f"floci-eks-{name}"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"k3s container start failed for {name}: {e}")
+        return False
+    if result.returncode == 0:
+        logger.info(f"Started k3s container: floci-eks-{name}")
+        return True
+    logger.warning(f"Could not start floci-eks-{name}: {(result.stderr or '').strip()}")
+    return False
+
+
 def purge_k3s_container_and_volume(name: str = K3S_CLUSTER_NAME) -> None:
     """Force-remove the Floci-spawned k3s container AND its persistent volume.
 
-    `delete_k3s_cluster` only asks Floci to delete the cluster; the
-    `/var/lib/rancher/k3s` docker volume (``floci-eks-<name>``) survives. A
-    subsequent `up` respawns a container that reuses that stale sqlite-backed
-    state: the new container gets a fresh random hostname and registers as a
+    Belt-and-suspenders after `delete_k3s_cluster`: Floci tears the container
+    down asynchronously, and a leftover `/var/lib/rancher/k3s` docker volume
+    (``floci-eks-<name>``) would be reused by a later `up`. A container respawned
+    against stale sqlite state gets a fresh random hostname and registers as a
     brand-new Node while the previous one lingers forever as NotReady, so
     StatefulSet pods pinned (via node affinity) to the dead node's
     ``hmdlabs.io/repo-instance-name`` label can never schedule.
 
     `down --purge` promises a clean slate, so it must drop the volume too.
-    Mirrors the belt-and-suspenders cleanup in `_wait_for_cluster_gone`.
+    Mirrors the cleanup in `_wait_for_cluster_gone`.
     """
     for args in (
         ["docker", "rm", "-f", f"floci-eks-{name}"],

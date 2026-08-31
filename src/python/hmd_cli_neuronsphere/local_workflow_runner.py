@@ -25,7 +25,15 @@ from cement import minimal_logger
 
 from .bom_seeder import CORE_REPO_CLASS
 from .floci_deployer import DOCKER_NETWORK_NAME, K3S_CLUSTER_NAME
-from .image_cache import ImageUnavailable, _is_truthy, ensure_lambda_image
+from .image_cache import (
+    ImageUnavailable,
+    _image_cached,
+    _is_truthy,
+    _tag,
+    container_cli,
+    ensure_lambda_image,
+    image_candidates,
+)
 
 logger = minimal_logger("local_workflow_runner")
 
@@ -139,6 +147,72 @@ def _deploys_lambda_image(repo_dir: Optional[str]) -> bool:
         (cmd[0] if isinstance(cmd, list) and cmd else cmd) == "docker"
         for cmd in commands
     )
+
+
+def _chart_image_repository(repo_dir: Optional[str]) -> Optional[str]:
+    """The image repository this repo's Helm chart deploys, if it has one.
+
+    That is a repo with ``helm`` among its BACON ``deploy.commands`` *and* an
+    ``image.repository`` in its ``deploy.default_configuration`` -- the value the
+    chart renders into the pod spec. A chart that names no image of its own (a
+    CRDs chart, an operator wrapper) has nothing to stage.
+
+    An unreadable manifest returns None, leaving the node to behave as it did
+    before staging existed.
+    """
+    if not repo_dir:
+        return None
+    try:
+        with open(os.path.join(repo_dir, "meta-data", "manifest.json")) as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return None
+    deploy = manifest.get("deploy") or {}
+    commands = deploy.get("commands") or []
+    deploys_helm = any(
+        (cmd[0] if isinstance(cmd, list) and cmd else cmd) == "helm" for cmd in commands
+    )
+    if not deploys_helm:
+        return None
+    image = (deploy.get("default_configuration") or {}).get("image") or {}
+    return image.get("repository") or None
+
+
+def _import_image_into_k3s(ref: str, container: str, cli: str) -> bool:
+    """``docker save <ref> | <cli> exec -i <container> ctr -n k8s.io images import -``.
+
+    k3s serves pods from its own containerd namespace (``k8s.io``), which the host
+    daemon's cache is invisible to. Streaming rather than writing a tar keeps a
+    multi-hundred-MB image off disk.
+    """
+    already = subprocess.run(
+        [cli, "exec", container, "ctr", "-n", "k8s.io", "images", "ls", "-q"],
+        capture_output=True,
+        text=True,
+    )
+    if already.returncode == 0 and ref in (already.stdout or ""):
+        logger.info(f"{ref} is already in {container}'s containerd")
+        return True
+
+    logger.info(f"Importing {ref} into {container}'s containerd")
+    saved = subprocess.Popen([cli, "save", ref], stdout=subprocess.PIPE)
+    imported = subprocess.Popen(
+        [cli, "exec", "-i", container, "ctr", "-n", "k8s.io", "images", "import", "-"],
+        stdin=saved.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if saved.stdout is not None:
+        saved.stdout.close()
+    _, stderr = imported.communicate()
+    saved.wait()
+    if imported.returncode != 0:
+        logger.warning(
+            f"Could not import {ref} into {container}: "
+            f"{(stderr or b'').decode().strip()}"
+        )
+        return False
+    return True
 
 
 class LocalWorkflowRunner:
@@ -343,6 +417,67 @@ class LocalWorkflowRunner:
         logger.info(f"Lambda image for {repo_class_name} staged as {staged}")
         return True
 
+    def _ensure_k3s_image(self, node: Dict) -> bool:
+        """Import a locally-built chart image into the k3s node's containerd.
+
+        Only relevant to the inner dev loop. Normally a chart's image is a
+        published tag and k3s pulls it from the registry with the
+        ``hmd-docker-repo-secret`` credentials; but when a repo is deployed from
+        its working tree (``HMD_LOCAL_VERSION_<REPO_CLASS>=local`` or
+        ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS``), the version resolves to
+        one nothing has published and the image exists only in the host's docker
+        cache.
+
+        hmd-cli-helm has an importer for exactly this, but it cannot run in the
+        deploy path: it needs a ``docker`` CLI to reach the host daemon, and the
+        projectbuilder container ships nerdctl instead. So the runner does it here,
+        on the host, before the node runs. ``image.pullPolicy=IfNotPresent`` is
+        already forced for local deploys, so an imported image wins.
+
+        Always returns True: a cache miss is the ordinary published-version path,
+        and a failed import still leaves the registry pull to fall back on. Only
+        :meth:`_ensure_node_image` (whose bare Lambda tag is unpullable by
+        construction) can fail a node.
+        """
+        repo_class_name = node["repo_class_name"]
+        repository = _chart_image_repository(self._repo_path(repo_class_name))
+        if not repository:
+            return True
+
+        version = node.get("repo_class_version")
+        if not version:
+            logger.debug(f"No version resolved for {repo_class_name}; not importing")
+            return True
+
+        cli = container_cli()
+        if not cli:
+            return True
+
+        # The ref the chart asks for: hmd-cli-helm passes the resolved version as
+        # env.HMD_REPO_VERSION, which the pod spec uses as the tag.
+        chart_ref = f"{repository}:{version}"
+
+        # `ctr images import` names the image from the tar's own metadata, so the
+        # host copy has to carry the chart's ref before it is saved. chart_ref is
+        # last so an already-correct tag needs no re-tagging.
+        sources = [
+            ref
+            for ref in image_candidates(repo_class_name, version) + [chart_ref]
+            if _image_cached(ref, cli)
+        ]
+        if not sources:
+            logger.debug(
+                f"{chart_ref} is not in the host image cache; leaving the pull to k3s"
+            )
+            return True
+
+        if sources[0] != chart_ref and not _tag(sources[0], chart_ref, cli):
+            return True
+
+        container = f"floci-eks-{self.cluster_name or K3S_CLUSTER_NAME}"
+        _import_image_into_k3s(chart_ref, container, cli)
+        return True
+
     def _prepare_overlay_workspace(self, repo_path: str, overlay_dir: Path) -> str:
         """Copy the repo to a temp dir and overlay its src/local alternates.
 
@@ -405,6 +540,10 @@ class LocalWorkflowRunner:
         # A destroy removes the Lambda, so it never needs the image.
         if not destroy and not self._ensure_node_image(node):
             return False
+
+        # Charts read their image from the k3s node's containerd, not the host's.
+        if not destroy:
+            self._ensure_k3s_image(node)
 
         # NERD0004/0006: expose a container-reachable Deployment Service URL so the
         # in-container `hmd deploy` can resolve dependency resource outputs (and,

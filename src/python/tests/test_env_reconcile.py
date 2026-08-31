@@ -19,6 +19,11 @@ Drift detection deliberately treats a missing snapshot as "no information", so
 an environment bootstrapped before snapshots existed does not propose redeploying
 everything it already has.
 
+The Helm release cross-check is the one place the plan looks past the graph at
+the cluster itself, and it is fail-safe in both directions: an entry that
+recorded no release is never flagged, and a cluster that could not be read is
+not mistaken for an empty one.
+
 Run directly: ``python -m pytest src/python/tests/test_env_reconcile.py``
 """
 
@@ -164,6 +169,83 @@ class PlanTests(_ReconcileTest):
         self.assertIn("- gone", rendered)
         self.assertIn("+ added", rendered)
         self.assertIn("~ changed", rendered)
+
+
+class HelmReleaseCrossCheckTests(_ReconcileTest):
+    """A DEPLOYED instance whose Helm release is gone must be redeployed.
+
+    ms-deployment records intent; it cannot see the cluster. Without this check
+    a release someone uninstalled -- or one lost with a replaced cluster --
+    leaves the graph reporting DEPLOYED forever and `up` reporting "matches its
+    declared state" over a missing workload.
+    """
+
+    def _plan_with_releases(self, desired, statuses, live):
+        with mock.patch.object(
+            csb, "full_definition", return_value=desired
+        ), mock.patch.object(
+            b, "_repo_instance_status", return_value=statuses
+        ), mock.patch(
+            "hmd_cli_neuronsphere.k3s_operators.live_helm_releases", return_value=live
+        ):
+            return er.compute_plan("http://x", env=self.env)
+
+    def test_missing_release_makes_a_deployed_entry_an_addition(self):
+        entry = _entry("redis")
+        er.write_snapshot(self.env, [entry], releases={"redis": "redis-dev2"})
+        plan = self._plan_with_releases([entry], {"redis": "DEPLOYED"}, set())
+        self.assertEqual([e["repo_instance_name"] for e in plan.add], ["redis"])
+        self.assertEqual(plan.unchanged, [])
+
+    def test_present_release_stays_unchanged(self):
+        entry = _entry("redis")
+        er.write_snapshot(self.env, [entry], releases={"redis": "redis-dev2"})
+        plan = self._plan_with_releases(
+            [entry], {"redis": "DEPLOYED"}, {"redis-dev2", "argo-dev2"}
+        )
+        self.assertEqual(plan.unchanged, ["redis"])
+        self.assertEqual(plan.add, [])
+
+    def test_entry_with_no_recorded_release_is_never_flagged(self):
+        # S3 buckets, cdktf-only repos and the skip-strategy core instance
+        # install no Helm release; an empty cluster must not implicate them.
+        entry = _entry("project-bucket")
+        er.write_snapshot(self.env, [entry])
+        plan = self._plan_with_releases([entry], {"project-bucket": "DEPLOYED"}, set())
+        self.assertEqual(plan.unchanged, ["project-bucket"])
+        self.assertEqual(plan.add, [])
+
+    def test_an_unreadable_cluster_is_not_an_empty_one(self):
+        entry = _entry("redis")
+        er.write_snapshot(self.env, [entry], releases={"redis": "redis-dev2"})
+        plan = self._plan_with_releases([entry], {"redis": "DEPLOYED"}, None)
+        self.assertEqual(plan.unchanged, ["redis"])
+        self.assertEqual(plan.add, [])
+
+    def test_the_cluster_is_not_queried_when_nothing_recorded_a_release(self):
+        entry = _entry("my-api")
+        er.write_snapshot(self.env, [entry])
+        with mock.patch.object(
+            csb, "full_definition", return_value=[entry]
+        ), mock.patch.object(
+            b, "_repo_instance_status", return_value={"my-api": "DEPLOYED"}
+        ), mock.patch(
+            "hmd_cli_neuronsphere.k3s_operators.live_helm_releases"
+        ) as live:
+            er.compute_plan("http://x", env=self.env)
+        live.assert_not_called()
+
+    def test_merge_preserves_a_release_for_entries_not_reapplied(self):
+        first, second = _entry("redis"), _entry("argo")
+        er.write_snapshot(self.env, [first, second], releases={"redis": "redis-dev2"})
+        # Only argo redeploys; redis keeps its recorded release.
+        er.merge_snapshot(
+            self.env, [first, second], [second], releases={"argo": "argo-dev2"}
+        )
+        self.assertEqual(
+            er.load_release_map(self.env),
+            {"redis": "redis-dev2", "argo": "argo-dev2"},
+        )
 
 
 class SnapshotTests(_ReconcileTest):

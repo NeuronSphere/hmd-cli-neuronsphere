@@ -10,8 +10,13 @@ deployer would otherwise trust the broken cluster forever.
 These tests lock in the recovery contract:
 
 * a healthy, wrapper-imaged, running cluster is a no-op (no recreate);
-* a stale cluster (wrong image OR not running) is deleted and recreated so
-  Floci respawns from the current ``FLOCI_SERVICES_EKS_DEFAULT_IMAGE``;
+* a *stopped* container on the expected image is restarted in place, never
+  recreated -- that is what a non-purge ``down`` leaves behind, and recreating
+  it would drop the datastore and force a full BOM redeploy on the next ``up``;
+* ... unless the restart fails (e.g. its Docker network was removed), in which
+  case recreating is the only way forward;
+* a stale cluster (wrong image, or a missing container) is deleted and recreated
+  so Floci respawns from the current ``FLOCI_SERVICES_EKS_DEFAULT_IMAGE``;
 * a fresh (not-yet-existing) cluster is simply created.
 
 Run directly (``python -m pytest src/python/tests/test_k3s_self_heal.py``) or via
@@ -99,8 +104,39 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd.ensure_k3s_cluster(name="neuronsphere")
         self._assert_recreated(delete, eks)
 
-    def test_stale_stopped_container_is_recreated(self):
-        """Existing cluster whose container crashed/stopped -> delete + recreate."""
+    def test_stopped_container_is_restarted_not_recreated(self):
+        """A container stopped by a non-purge `down` -> docker start, no recreate.
+
+        This is the whole point of stopping rather than deleting the cluster:
+        the datastore, the `kube-system` UID and every Helm release survive, so
+        the next `up` reconciles instead of redeploying the entire BOM.
+        """
+        eks = self._eks(create_side_effect=[_in_use_error()])
+        with mock.patch.object(fd, "ensure_k3s_wrapper_image"), mock.patch.object(
+            fd, "_get_client", return_value=eks
+        ), mock.patch.object(
+            fd, "_k3s_container_image", return_value=fd.K3S_WRAPPER_IMAGE
+        ), mock.patch.object(
+            fd, "_k3s_container_running", return_value=False
+        ), mock.patch.object(
+            fd, "start_k3s_container", return_value=True
+        ) as start, mock.patch.object(
+            fd, "_wait_for_cluster_gone"
+        ), mock.patch.object(
+            fd, "delete_k3s_cluster"
+        ) as delete:
+            fd.ensure_k3s_cluster(name="neuronsphere")
+        start.assert_called_once_with("neuronsphere")
+        delete.assert_not_called()
+        self.assertEqual(eks.create_cluster.call_count, 1)
+
+    def test_stopped_container_recreated_when_restart_fails(self):
+        """A stopped container that will not start -> fall back to recreate.
+
+        `down --purge` removes the Docker network, and a stopped endpoint pins
+        it by id, so `docker start` can legitimately fail. Recreating is then
+        the only way to get a cluster at all.
+        """
         eks = self._eks(create_side_effect=[_in_use_error(), None])
         with mock.patch.object(fd, "ensure_k3s_wrapper_image"), mock.patch.object(
             fd, "_get_client", return_value=eks
@@ -109,11 +145,14 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
         ), mock.patch.object(
             fd, "_k3s_container_running", return_value=False
         ), mock.patch.object(
+            fd, "start_k3s_container", return_value=False
+        ) as start, mock.patch.object(
             fd, "_wait_for_cluster_gone"
         ), mock.patch.object(
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
+        start.assert_called_once_with("neuronsphere")
         self._assert_recreated(delete, eks)
 
     def test_missing_container_is_recreated(self):
@@ -126,11 +165,15 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
         ), mock.patch.object(
             fd, "_k3s_container_running", return_value=False
         ), mock.patch.object(
+            fd, "start_k3s_container"
+        ) as start, mock.patch.object(
             fd, "_wait_for_cluster_gone"
         ), mock.patch.object(
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
+        # Nothing to start -- there is no container.
+        start.assert_not_called()
         self._assert_recreated(delete, eks)
 
     def test_recreate_deletes_from_the_same_account_it_creates_in(self):

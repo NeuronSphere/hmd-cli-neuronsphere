@@ -69,6 +69,33 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 5. A subsequent ``down`` then ``up`` takes a **restart fast-path** — the
    persistent Floci/PostgreSQL state is reused and the BOM/DAG is not re-run.
 
+   A plain ``down`` therefore *stops* rather than tears down: containers are
+   stopped in place, the k3s cluster is stopped rather than deleted, and the
+   Docker network is left alone (a stopped container's endpoint pins its
+   network by id, so removing it would strand the k3s container).
+
+   .. note::
+
+      The k3s cluster is the one thing a ``down`` cannot currently preserve.
+      Floci's ``ContainerLifecycleManager`` removes the ``floci-eks-<cluster>``
+      container **and its volume** whenever the environment's own ``floci-<env>``
+      container stops, so the cluster's datastore does not survive the restart
+      however the CLI asks for it to be stopped.
+
+      The next ``up`` consequently gets a cluster with a new ``kube-system``
+      UID. Rather than redeploy the whole BOM onto it, ``up`` redeploys only the
+      instances that *were* on k3s — the applied-changeset snapshot records the
+      Helm release each entry installed, so those are exactly the entries whose
+      release is now missing. Everything Floci-side (S3 buckets, cdktf stacks,
+      Lambdas) keeps its persisted state and is left alone. If the snapshot
+      holds no release information at all — an environment bootstrapped before
+      this was recorded — ``up`` falls back to the full BOM redeploy, because
+      narrowing without that record would be a guess.
+
+   ``down --purge`` is the opposite promise and destroys everything — cluster,
+   volume, containers, network and persisted state — so the next ``up`` runs the
+   full two-phase bootstrap.
+
 **To use Extend mode** (no action required -- it is the default):
 
 .. code-block:: bash

@@ -17,6 +17,7 @@ aws-secretsmanager-caching==1.1.3
     #   hmd-cli-tools
 backports-tarfile==1.2.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   jaraco-context
 boto3==1.36.22
@@ -48,6 +49,7 @@ certifi==2025.4.26
 cffi==2.0.0
     # via
     #   cryptography
+    #   hmd-cli-app
     #   hmd-cli-tools
 charset-normalizer==2.0.12
     # via
@@ -58,6 +60,7 @@ colorlog==6.6.0
     # via hmd-cli-app
 cryptography==46.0.2
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   secretstorage
 durationpy==0.10
@@ -70,7 +73,7 @@ google-auth==2.9.1
     #   hmd-cli-app
     #   hmd-cli-tools
     #   kubernetes
-hmd-cli-app~=1.2.627
+hmd-cli-app~=1.2.628
     # via -r requirements.in
 hmd-cli-tools~=1.2.252
     # via hmd-cli-app
@@ -81,6 +84,7 @@ idna==3.10
     #   requests
 importlib-metadata==8.7.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   keyring
 inquirerpy==0.3.4
@@ -89,18 +93,22 @@ inquirerpy==0.3.4
     #   hmd-cli-tools
 jaraco-classes==3.4.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   keyring
 jaraco-context==6.0.1
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   keyring
 jaraco-functools==4.1.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   keyring
 jeepney==0.9.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   secretstorage
 jinja2==3.1.6
@@ -114,7 +122,9 @@ jmespath==0.10.0
     #   hmd-cli-app
     #   hmd-cli-tools
 keyring==25.6.0
-    # via hmd-cli-tools
+    # via
+    #   hmd-cli-app
+    #   hmd-cli-tools
 kubernetes==34.1.0
     # via
     #   hmd-cli-app
@@ -125,6 +135,7 @@ markupsafe==3.0.2
     #   jinja2
 more-itertools==10.7.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   jaraco-classes
     #   jaraco-functools
@@ -161,6 +172,7 @@ pyasn1-modules==0.4.2
 pycparser==2.23
     # via
     #   cffi
+    #   hmd-cli-app
     #   hmd-cli-tools
 python-dateutil==2.8.2
     # via
@@ -207,7 +219,9 @@ scramp==1.4.8
     #   hmd-cli-tools
     #   pg8000
 secretstorage==3.5.0
-    # via hmd-cli-tools
+    # via
+    #   hmd-cli-app
+    #   hmd-cli-tools
 setuptools==83.0.0
     # via hmd-cli-app
 six==1.17.0
@@ -218,7 +232,9 @@ six==1.17.0
     #   kubernetes
     #   python-dateutil
 tomli-w==1.2.0
-    # via hmd-cli-tools
+    # via
+    #   hmd-cli-app
+    #   hmd-cli-tools
 urllib3==2.3.0
     # via
     #   botocore
@@ -238,5 +254,6 @@ websocket-client==1.3.3
     #   kubernetes
 zipp==3.21.0
     # via
+    #   hmd-cli-app
     #   hmd-cli-tools
     #   importlib-metadata

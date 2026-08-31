@@ -121,7 +121,8 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
     2. a legacy ``HMD_LOCAL_BOM_FILE``, if still set,
     3. the built-in ``LOCAL_BOM``,
     4. ``EXT_SECRETS_BOM`` unless opted out,
-    5. entries contributed by the enabled plugin packages.
+    5. the Deployment GUI's :func:`bom_seeder.gui_bom` unless opted out,
+    6. entries contributed by the enabled plugin packages.
 
     The result is de-duped, topologically sorted (so cross-plugin dependency
     edges resolve regardless of ``entry_points()`` scan order) and stamped with
@@ -147,6 +148,12 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
 
     if not b._is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
         entries.extend(b.EXT_SECRETS_BOM)
+
+    # Must mirror resolve_plugin_bom's own append: this path also produces the
+    # reconcile snapshot, so a GUI missing here reads as drift and every reconcile
+    # would propose destroying an instance the other path keeps creating.
+    if b.gui_enabled():
+        entries.extend(b.gui_bom(env))
 
     enabled = manifest.enabled_plugins() if manifest is not None else None
     plugin_config = manifest.plugin_config if manifest is not None else None

@@ -572,11 +572,29 @@ def start_environment(
             print_step(
                 f"  UIs served at http://<app>.{env.slug}.{nginx_router.INGRESS_DOMAIN}/"
             )
+            _print_gui_url(env)
             _warn_unresolvable_ingress_hosts(env)
     except Exception as e:
         logger.warning(f"Ingress host route setup skipped (non-fatal): {e}")
 
     return ok
+
+
+def _print_gui_url(env) -> None:
+    """Point the user at the Deployment GUI.
+
+    Printed separately from the wildcard-hostname line above because the GUI is
+    reached on a port instead, and so needs no /etc/hosts entry -- it is the one
+    UI a local user is most likely to want immediately.
+    """
+    from .bom_seeder import gui_enabled, gui_port
+
+    if not gui_enabled():
+        return
+    print_step(
+        f"  Deployment GUI at http://localhost:{gui_port(env)}/ "
+        f"(sign in as testadmin/testpassword)"
+    )
 
 
 def _warn_unresolvable_ingress_hosts(env) -> None:
@@ -626,6 +644,19 @@ def _service_specs(env: LocalEnvironment, hmdms_deployed: List[Dict]) -> List[Di
     return specs
 
 
+def _record_k3s_uid(env: LocalEnvironment, k3s_uid: Optional[str]) -> None:
+    """Re-stamp the environment's bootstrap with the cluster it now runs on.
+
+    Without this a recovered environment keeps pointing at the dead cluster's
+    UID and every subsequent ``up`` re-detects the same "cluster was recreated".
+    """
+    if not k3s_uid:
+        return
+    env_registry.record_bootstrap(
+        env, env.bootstrap.get("csd_nid", "control-plane"), k3s_uid=k3s_uid
+    )
+
+
 def _bootstrap_environment(
     env: LocalEnvironment,
     hmdms_deployed: List[Dict],
@@ -644,6 +675,7 @@ def _bootstrap_environment(
         resync_local_resources,
         seed_base_resource_definitions,
     )
+    from . import env_reconcile
     from .change_set_builder import declared_repo_paths
     from .env_manifest import load_manifest
     from .local_workflow_runner import LocalWorkflowRunner
@@ -698,23 +730,48 @@ def _bootstrap_environment(
             logger.warning(f"Local resource resync failed (non-fatal): {e}")
 
         if cluster_recreated:
+            # Only the instances that deploy *onto k3s* were lost with it.
+            # Everything else -- S3 buckets, cdktf-to-Floci stacks, Lambdas --
+            # lives in Floci, whose state does persist, so redeploying the whole
+            # BOM would redo a great deal of work that is still perfectly good.
+            # The snapshot records which entries installed a Helm release, and
+            # the reconcile plan's cluster cross-check turns exactly those into
+            # additions once the cluster comes back empty. Upgrade is forced:
+            # this is a recovery, not a discretionary change, and the entries
+            # involved are already known to be missing from the cluster.
+            known_releases = env_reconcile.load_release_map(env)
+            if not known_releases:
+                print_step(
+                    "k3s cluster was recreated since the last bootstrap and "
+                    "there is no record of which instances deploy onto it; "
+                    "redeploying the full BOM onto the new cluster."
+                )
+                return _run_full_bootstrap(
+                    env,
+                    runner,
+                    specs,
+                    cluster_name,
+                    k3s_uid,
+                    base_url,
+                    manifest=manifest,
+                )
             print_step(
-                "k3s cluster was recreated since the last bootstrap — the "
-                "persisted deployment graph no longer matches reality; "
-                "redeploying the full BOM onto the new cluster."
+                "k3s cluster was recreated since the last bootstrap — "
+                f"redeploying the {len(known_releases)} instance(s) that deploy "
+                "onto it; Floci-side state is kept."
             )
-            return _run_full_bootstrap(
-                env, runner, specs, cluster_name, k3s_uid, base_url, manifest=manifest
+            ok = _reconcile_environment(
+                env, runner, base_url, manifest, upgrade=True, prune=prune
             )
+            _record_k3s_uid(env, k3s_uid)
+            return ok
 
         ok = _reconcile_environment(
             env, runner, base_url, manifest, upgrade=upgrade, prune=prune
         )
 
         if k3s_uid and not env.bootstrap.get("k3s_uid"):
-            env_registry.record_bootstrap(
-                env, env.bootstrap.get("csd_nid", "control-plane"), k3s_uid=k3s_uid
-            )
+            _record_k3s_uid(env, k3s_uid)
         return ok
 
     print_step("Seeding base resource definitions...")
@@ -727,6 +784,37 @@ def _bootstrap_environment(
     return _run_full_bootstrap(
         env, runner, specs, cluster_name, k3s_uid, base_url, manifest=manifest
     )
+
+
+def _observed_releases(env, entries: List[Dict]) -> Dict[str, str]:
+    """Map applied entries to the Helm releases they actually installed.
+
+    Recorded in the drift snapshot so a later reconcile can tell "this instance
+    is DEPLOYED and its release is on the cluster" from "the graph says DEPLOYED
+    but the release is gone". Entries that install no release (S3 buckets,
+    cdktf-only repos, the ``skip``-strategy core instance) never appear here, so
+    they can never be flagged as missing.
+    """
+    if not entries:
+        return {}
+    from .k3s_operators import helm_release_name, live_helm_releases
+
+    try:
+        live = live_helm_releases(env)
+    except Exception as e:
+        logger.warning(f"Could not read Helm releases after apply: {e}")
+        return {}
+    if not live:
+        return {}
+    observed = {}
+    for entry in entries:
+        name = entry.get("repo_instance_name")
+        if not name:
+            continue
+        release = helm_release_name(name, env)
+        if release in live:
+            observed[name] = release
+    return observed
 
 
 def _reconcile_environment(
@@ -813,7 +901,12 @@ def _reconcile_environment(
     # --- additions and redeploys ----------------------------------------
     pending = plan.add + plan.change
     if not pending:
-        env_reconcile.write_snapshot(env, plan.desired)
+        # Nothing to deploy (a prune-only run). Carry the recorded release map
+        # forward -- rewriting the snapshot without it would erase the very
+        # thing the next run's cluster cross-check reads.
+        env_reconcile.write_snapshot(
+            env, plan.desired, releases=env_reconcile.load_release_map(env)
+        )
         return ok
     if not upgrade:
         print_step(
@@ -840,7 +933,9 @@ def _reconcile_environment(
     settled = [
         e for e in pending if e["repo_instance_name"] in set(runner.last_succeeded)
     ]
-    env_reconcile.merge_snapshot(env, plan.desired, settled)
+    env_reconcile.merge_snapshot(
+        env, plan.desired, settled, releases=_observed_releases(env, settled)
+    )
     return ok and bool(ok_run)
 
 
@@ -913,10 +1008,12 @@ def _run_full_bootstrap(
         # reconcile if both sides normalize the entries the same way.
         definition = full_definition(env=env, manifest=manifest)
         settled = set(core_succeeded) | set(runner.last_succeeded)
+        applied = [e for e in definition if e["repo_instance_name"] in settled]
         env_reconcile.merge_snapshot(
             env,
             definition,
-            [e for e in definition if e["repo_instance_name"] in settled],
+            applied,
+            releases=_observed_releases(env, applied),
         )
     except Exception as e:
         logger.warning(f"BOM seeding failed: {e}")
@@ -986,19 +1083,30 @@ def create_environment(
 def stop_environment(
     env: LocalEnvironment, verbose: bool = False, purge: bool = False
 ) -> None:
-    """Stop one environment's containers and remove its routes."""
+    """Stop one environment's containers and remove its routes.
+
+    Without ``purge`` this is a *stop*, not a teardown: the k3s cluster is
+    stopped rather than deleted and the containers are stopped rather than
+    removed, so the next ``up`` restarts them in place and takes the reconcile
+    fast path instead of redeploying the whole BOM. ``purge`` is what promises a
+    clean slate, and only then is anything actually destroyed.
+    """
     from .floci_deployer import (
         delete_k3s_cluster,
         env_target,
         purge_k3s_container_and_volume,
+        stop_k3s_cluster,
     )
     from .hmd_cli_neuronsphere import _exec, _get_base_command
 
     print_step(f"Stopping environment '{env.slug}'...")
     try:
-        delete_k3s_cluster(env.k3s_cluster, target=env_target(env))
+        if purge:
+            delete_k3s_cluster(env.k3s_cluster, target=env_target(env))
+        else:
+            stop_k3s_cluster(env.k3s_cluster)
     except Exception as e:
-        logger.debug(f"k3s cluster delete skipped: {e}")
+        logger.debug(f"k3s cluster stop/delete skipped: {e}")
 
     if not env.legacy_layout:
         _export_env_vars(env)
@@ -1008,7 +1116,7 @@ def stop_environment(
                 quiet=not verbose,
                 project_name=env.compose_project,
             ),
-            "down",
+            "down" if purge else "stop",
         ]
         _exec(command, capture=not verbose, quiet=not verbose)
 
@@ -1070,6 +1178,8 @@ def environment_status(env: LocalEnvironment) -> Dict:
     """A serializable snapshot of one environment."""
     import subprocess
 
+    from .bom_seeder import gui_enabled, gui_port
+
     def _running(container: str) -> bool:
         result = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", container],
@@ -1097,6 +1207,11 @@ def environment_status(env: LocalEnvironment) -> Dict:
             "services": f"http://localhost/{env.slug}/<service>/",
             "floci": f"http://localhost:{env.floci_port}",
             "trino": f"localhost:{env.trino_port}",
+            **(
+                {"deployment_gui": f"http://localhost:{gui_port(env)}"}
+                if gui_enabled()
+                else {}
+            ),
         },
         "containers": {
             role: {"name": name, "running": _running(name)}

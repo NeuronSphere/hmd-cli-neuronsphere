@@ -451,6 +451,137 @@ class BundledArtifactSourceTests(unittest.TestCase):
         )
 
 
+class EnsureK3sImageTests(unittest.TestCase):
+    """Per-node staging of a chart's image into the k3s node's containerd.
+
+    k3s reads images from its own containerd, not the host docker daemon.
+    hmd-cli-helm has an importer for exactly this, but it no-ops in the deploy
+    path: it needs a ``docker`` CLI to reach the host daemon and the
+    projectbuilder container ships nerdctl instead. So for a chart whose image was
+    just built locally (`hmd build`, then a local version override) the runner
+    imports it here, on the host, where a real docker CLI exists.
+
+    Best-effort throughout: an image that is not in the host cache is one k3s can
+    pull from the registry, which is the normal published-version path.
+    """
+
+    IMAGE_REPO = "ghcr.io/hmdlabs/hmd-app-neuronsphere"
+
+    def _repo(self, tmpdir, deploy_commands, image_repository=IMAGE_REPO):
+        meta = os.path.join(tmpdir, "meta-data")
+        os.makedirs(meta)
+        manifest = {"deploy": {"commands": deploy_commands}}
+        if image_repository is not None:
+            manifest["deploy"]["default_configuration"] = {
+                "image": {"repository": image_repository}
+            }
+        with open(os.path.join(meta, "manifest.json"), "w") as f:
+            json.dump(manifest, f)
+        return tmpdir
+
+    def _runner(self, repo_dir):
+        runner = LocalWorkflowRunner("http://x", cluster_name="neuronsphere")
+        runner._repo_path = lambda repo_class_name: repo_dir
+        return runner
+
+    def _node(self, version="0.1"):
+        return {
+            "repo_class_name": "hmd-app-neuronsphere",
+            "instance_name": "deployment-gui",
+            "repo_class_version": version,
+        }
+
+    def test_no_op_for_a_repo_without_a_chart_image(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"]], image_repository=None))
+            with mock.patch.object(lwr, "_import_image_into_k3s") as imp:
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            imp.assert_not_called()
+
+    def test_no_op_for_a_repo_that_does_not_deploy_helm(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["docker"], ["cdktf"]]))
+            with mock.patch.object(lwr, "_import_image_into_k3s") as imp:
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            imp.assert_not_called()
+
+    def test_imports_under_the_ref_the_chart_asks_for(self):
+        """`ctr images import` names the image from the tar, so the ref imported
+        must be the one the chart's pod spec will ask for."""
+        chart_ref = f"{self.IMAGE_REPO}:0.1"
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"], ["helm"]]))
+            with mock.patch.object(
+                lwr, "container_cli", return_value="docker"
+            ), mock.patch.object(
+                lwr, "_image_cached", side_effect=lambda ref, cli: ref == chart_ref
+            ), mock.patch.object(
+                lwr, "_tag"
+            ) as tag, mock.patch.object(
+                lwr, "_import_image_into_k3s", return_value=True
+            ) as imp:
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            # Already under the chart's ref, so there is nothing to re-tag.
+            tag.assert_not_called()
+            imp.assert_called_once_with(chart_ref, "floci-eks-neuronsphere", "docker")
+
+    def test_retags_the_first_cached_candidate(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"], ["helm"]]))
+            with mock.patch.dict(
+                os.environ, {"HMD_CONTAINER_REGISTRY": "local.reg"}, clear=False
+            ), mock.patch.object(
+                lwr, "container_cli", return_value="docker"
+            ), mock.patch.object(
+                lwr, "_image_cached", side_effect=lambda ref, cli: "local.reg" in ref
+            ), mock.patch.object(
+                lwr, "_tag", return_value=True
+            ) as tag, mock.patch.object(
+                lwr, "_import_image_into_k3s", return_value=True
+            ):
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            tag.assert_called_once_with(
+                "local.reg/hmd-app-neuronsphere:0.1", f"{self.IMAGE_REPO}:0.1", "docker"
+            )
+
+    def test_a_cache_miss_leaves_the_registry_pull_to_k3s(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"], ["helm"]]))
+            with mock.patch.object(
+                lwr, "container_cli", return_value="docker"
+            ), mock.patch.object(
+                lwr, "_image_cached", return_value=False
+            ), mock.patch.object(
+                lwr, "_import_image_into_k3s"
+            ) as imp:
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            imp.assert_not_called()
+
+    def test_a_failed_import_does_not_fail_the_node(self):
+        """The registry pull is still a valid outcome, so this stays advisory."""
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"], ["helm"]]))
+            with mock.patch.object(
+                lwr, "container_cli", return_value="docker"
+            ), mock.patch.object(
+                lwr, "_image_cached", return_value=True
+            ), mock.patch.object(
+                lwr, "_tag", return_value=True
+            ), mock.patch.object(
+                lwr, "_import_image_into_k3s", return_value=False
+            ):
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+
+    def test_no_op_without_a_container_cli(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = self._runner(self._repo(d, [["cdktf"], ["helm"]]))
+            with mock.patch.object(
+                lwr, "container_cli", return_value=None
+            ), mock.patch.object(lwr, "_import_image_into_k3s") as imp:
+                self.assertTrue(runner._ensure_k3s_image(self._node()))
+            imp.assert_not_called()
+
+
 class EnsureNodeImageTests(unittest.TestCase):
     """Per-node staging of the image Floci runs a local Lambda from.
 

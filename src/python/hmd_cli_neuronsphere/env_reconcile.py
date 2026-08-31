@@ -22,6 +22,14 @@ Three sources feed the diff:
 A missing snapshot means "no drift information", not "everything changed": an
 environment bootstrapped before snapshots existed reports its deployed entries as
 unchanged rather than proposing a wholesale redeploy.
+
+The graph is authoritative for *intent*, but it cannot see the cluster. An
+instance whose Helm release was uninstalled -- or that was deployed onto a
+cluster since replaced -- still reads ``DEPLOYED``. So the snapshot also records
+the Helm release each entry actually installed (``k8s_release``), and the plan
+demotes an entry to ``add`` when that release is no longer on the cluster.
+Entries that install no release (S3 buckets, cdktf-only repos, the
+``skip``-strategy core instance) record none and are unaffected.
 """
 
 import json
@@ -34,7 +42,7 @@ from cement import minimal_logger
 
 logger = minimal_logger("env_reconcile")
 
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 SNAPSHOT_FILENAME = "applied-changeset.json"
 
 # A deployment whose most recent status is this is considered live. Everything
@@ -155,12 +163,36 @@ def load_snapshot(env) -> Dict[str, str]:
     }
 
 
-def _snapshot_entry(entry: Dict, digest: str) -> Dict:
-    return {
+def _snapshot_entry(entry: Dict, digest: str, release: Optional[str] = None) -> Dict:
+    record = {
         "repo_instance_name": entry.get("repo_instance_name"),
         "repo_class_name": entry.get("repo_class_name"),
         "repo_class_version": entry.get("repo_class_version"),
         "hash": digest,
+    }
+    if release:
+        record["k8s_release"] = release
+    return record
+
+
+def load_release_map(env) -> Dict[str, str]:
+    """Map ``repo_instance_name`` -> the Helm release it installed, if any.
+
+    Only entries the last apply *observed* on the cluster are present, so a
+    missing key means "this entry installs no Helm release, or we never saw
+    one" -- never "its release is gone".
+    """
+    path = snapshot_path(env)
+    if path is None or not path.is_file():
+        return {}
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {
+        e["repo_instance_name"]: e["k8s_release"]
+        for e in (doc.get("entries") or [])
+        if e.get("repo_instance_name") and e.get("k8s_release")
     }
 
 
@@ -186,17 +218,33 @@ def _write_snapshot(env, entries: List[Dict]) -> Optional[Path]:
     return path
 
 
-def write_snapshot(env, definition: List[Dict]) -> Optional[Path]:
+def write_snapshot(
+    env, definition: List[Dict], releases: Optional[Dict[str, str]] = None
+) -> Optional[Path]:
     """Record the whole ``definition`` as successfully applied.
 
     Used after a full bootstrap, where every entry really was deployed.
+    ``releases`` maps ``repo_instance_name`` -> the Helm release observed on the
+    cluster afterwards; entries absent from it simply record none.
     """
     from .change_set_builder import entry_hash
 
-    return _write_snapshot(env, [_snapshot_entry(e, entry_hash(e)) for e in definition])
+    releases = releases or {}
+    return _write_snapshot(
+        env,
+        [
+            _snapshot_entry(e, entry_hash(e), releases.get(e.get("repo_instance_name")))
+            for e in definition
+        ],
+    )
 
 
-def merge_snapshot(env, definition: List[Dict], applied: List[Dict]) -> Optional[Path]:
+def merge_snapshot(
+    env,
+    definition: List[Dict],
+    applied: List[Dict],
+    releases: Optional[Dict[str, str]] = None,
+) -> Optional[Path]:
     """Record only the entries that were actually applied this run.
 
     A partial apply -- ``--upgrade`` deploying just the delta, or a run where
@@ -204,6 +252,10 @@ def merge_snapshot(env, definition: List[Dict], applied: List[Dict]) -> Optional
     next run would consider them settled and never retry them. Entries not in
     this apply keep whatever digest the snapshot already had; entries that have
     neither are omitted, so they keep reading as "not yet applied".
+
+    ``releases`` is the Helm release map observed after this apply. It is only
+    consulted for entries in ``applied``; every other entry keeps the release it
+    already had recorded, for the same reason it keeps its digest.
     """
     from .change_set_builder import entry_hash
 
@@ -211,14 +263,20 @@ def merge_snapshot(env, definition: List[Dict], applied: List[Dict]) -> Optional
         return None
     applied_names = {e.get("repo_instance_name") for e in applied}
     previous = load_snapshot(env)
+    previous_releases = load_release_map(env)
+    releases = releases or {}
 
     entries = []
     for entry in definition:
         name = entry.get("repo_instance_name")
         if name in applied_names:
-            entries.append(_snapshot_entry(entry, entry_hash(entry)))
+            entries.append(
+                _snapshot_entry(entry, entry_hash(entry), releases.get(name))
+            )
         elif name in previous:
-            entries.append(_snapshot_entry(entry, previous[name]))
+            entries.append(
+                _snapshot_entry(entry, previous[name], previous_releases.get(name))
+            )
     return _write_snapshot(env, entries)
 
 
@@ -227,8 +285,38 @@ def merge_snapshot(env, definition: List[Dict], applied: List[Dict]) -> Optional
 # ---------------------------------------------------------------------------
 
 
+def _missing_releases(env, expected: Dict[str, str]) -> set:
+    """Instance names whose recorded Helm release is absent from the cluster.
+
+    Fail-safe in both directions. With nothing expected there is nothing to
+    check, so the cluster is never queried. And a listing that could not be read
+    (``None``) yields an empty set rather than "every release is missing" -- an
+    unreachable cluster must not be read as an empty one.
+    """
+    if not expected:
+        return set()
+    from .k3s_operators import live_helm_releases
+
+    try:
+        live = live_helm_releases(env)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(f"Could not list Helm releases: {e}")
+        return set()
+    if live is None:
+        logger.warning(
+            "Could not read the cluster's Helm releases; skipping the "
+            "release cross-check this run."
+        )
+        return set()
+    return {name for name, release in expected.items() if release not in live}
+
+
 def compute_plan(base_url: str, env=None, manifest=None) -> ReconcilePlan:
-    """Diff the desired change_set definition against the deployment graph.
+    """Diff the desired change_set definition against reality.
+
+    Reality is the deployment graph, cross-checked against the cluster: an entry
+    the graph calls ``DEPLOYED`` whose recorded Helm release is no longer
+    installed is proposed for redeployment (see :func:`_missing_releases`).
 
     Fail-safe: if the graph cannot be queried the plan comes back ``degraded``
     with nothing to do, so a transient ms-deployment outage can never be read as
@@ -250,12 +338,24 @@ def compute_plan(base_url: str, env=None, manifest=None) -> ReconcilePlan:
         return plan
 
     snapshot = load_snapshot(env)
+    expected_releases = load_release_map(env)
+    missing_releases = _missing_releases(env, expected_releases)
     desired_names = set()
 
     for entry in desired:
         name = entry.get("repo_instance_name")
         desired_names.add(name)
         if status_by_name.get(name) != DEPLOYED:
+            plan.add.append(entry)
+            continue
+        # The graph says DEPLOYED but the release it installed is gone from the
+        # cluster -- redeploying is the only thing that can make them agree.
+        if name in missing_releases:
+            logger.info(
+                f"'{name}' is DEPLOYED in the graph but its Helm release "
+                f"'{expected_releases[name]}' is not on the cluster; "
+                f"proposing a redeploy."
+            )
             plan.add.append(entry)
             continue
         recorded = snapshot.get(name)

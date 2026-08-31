@@ -40,6 +40,9 @@ class _Env:
         self.account_id = "000000000002"
         self.core_instance_name = "local-neuronsphere"
         self.legacy_layout = False
+        # Fourth of the four host ports each environment reserves; the Deployment
+        # GUI is served here (see bom_seeder.gui_port).
+        self.spare_port = 19003
 
     @property
     def is_default(self):
@@ -66,6 +69,7 @@ class _BuilderTest(unittest.TestCase):
         for var in (
             "HMD_LOCAL_BOM_FILE",
             "HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS",
+            "HMD_LOCAL_NEURONSPHERE_ENABLE_GUI",
             b.PREFER_LOCAL_VERSIONS_ENV,
             b.ARTIFACT_ROOTS_ENV,
             b._local_version_env_var("hmd-ms-myapi"),
@@ -271,6 +275,66 @@ class PrecedenceTests(_BuilderTest):
             b.CORE_INSTANCE_NAME, {e["repo_instance_name"] for e in phase_b}
         )
         self.assertIn(b.CORE_INSTANCE_NAME, {e["repo_instance_name"] for e in full})
+
+
+class DeploymentGuiTests(_BuilderTest):
+    """The GUI must reach the manifest-driven path too.
+
+    ``build_definition`` also produces the snapshot ``env_reconcile`` diffs against,
+    so a GUI present in ``resolve_plugin_bom`` but absent here would read as drift
+    and every reconcile would propose destroying an instance the other path keeps
+    re-creating.
+    """
+
+    def test_gui_is_included_by_default(self):
+        definition = csb.build_definition(
+            env=_Env(), manifest=self._manifest(plugins=[], repos=[])
+        )
+        names = {e["repo_instance_name"] for e in definition}
+        self.assertIn(b.GUI_INSTANCE_NAME, names)
+        self.assertIn(b.GUI_DB_INSTANCE_NAME, names)
+
+    def test_gui_can_be_opted_out(self):
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
+        definition = csb.build_definition(
+            env=_Env(), manifest=self._manifest(plugins=[], repos=[])
+        )
+        names = {e["repo_instance_name"] for e in definition}
+        self.assertNotIn(b.GUI_INSTANCE_NAME, names)
+        self.assertNotIn(b.GUI_DB_INSTANCE_NAME, names)
+
+    def test_a_declared_repo_overrides_the_builtin_gui_entry(self):
+        """Keep-first de-dup: an explicit manifest entry wins on instance name."""
+        definition = csb.build_definition(
+            env=_Env(),
+            manifest=self._manifest(
+                plugins=[],
+                repos=[
+                    {
+                        "instance_name": b.GUI_INSTANCE_NAME,
+                        "repo_class_name": "hmd-app-neuronsphere",
+                        "version": "0.1.70",
+                        "instance_configuration": {"replicaCount": 3},
+                    }
+                ],
+            ),
+        )
+        entry = next(
+            e for e in definition if e["repo_instance_name"] == b.GUI_INSTANCE_NAME
+        )
+        self.assertEqual(entry["instance_configuration"], {"replicaCount": 3})
+
+    def test_gui_csrf_origins_track_the_environment_port(self):
+        env = _Env()
+        env.spare_port = 19011
+        definition = csb.build_definition(
+            env=env, manifest=self._manifest(plugins=[], repos=[])
+        )
+        entry = next(
+            e for e in definition if e["repo_instance_name"] == b.GUI_INSTANCE_NAME
+        )
+        origins = entry["instance_configuration"]["config"]["extraCsrfOrigins"]
+        self.assertIn("http://localhost:19011", origins)
 
 
 class PluginEnablementTests(_BuilderTest):

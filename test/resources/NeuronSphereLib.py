@@ -360,6 +360,27 @@ class NeuronSphereLib:
             raise AssertionError(f"Service at {url} not reachable: {e}")
 
     @keyword
+    def get_deployment_gui_url(self, env_name: str = "local") -> str:
+        """The host URL `hmd neuronsphere up` serves the Deployment GUI on.
+
+        Resolved rather than hardcoded: the port is the environment's *spare*
+        port, which is derived from the slot the environment was allocated
+        (`port_base + slot * 4 + 3`), so it is 19003 only for the first
+        environment on a machine. Asserting a literal would pass or fail
+        depending on how many environments the developer happens to have.
+        """
+        from hmd_cli_neuronsphere import bom_seeder, env_registry
+
+        envs = env_registry.list_envs()
+        env = next((e for e in envs if e.slug == env_name), None)
+        if env is None:
+            raise AssertionError(
+                f"No local environment named '{env_name}'; have "
+                f"{[e.slug for e in envs]}"
+            )
+        return f"http://localhost:{bom_seeder.gui_port(env)}"
+
+    @keyword
     def get_deployment_bom(self, env_type: str, base_url: str = "http://localhost/hmd_ms_deployment"):
         """Get the deployment BOM for an environment type.
 

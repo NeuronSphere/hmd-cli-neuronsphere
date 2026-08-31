@@ -593,21 +593,88 @@ def _vhost_server(server_name: str, upstream: str) -> str:
 }}"""
 
 
-def write_env_vhosts(env, upstream: str) -> Path:
+# hmd-cli-helm's `_set_local_standard_values` renders every local chart with
+# `--set alb.hostname=<instance>.local.neuronsphere.io`. `--set` beats any values
+# file, and the slug there is the literal string "local" in *every* environment --
+# so an Ingress hostname is derived from the instance name alone, never env.slug.
+_HELM_LOCAL_SLUG = "local"
+
+
+def ingress_host_for(instance_name: str) -> str:
+    """The Ingress hostname hmd-cli-helm gives ``instance_name``'s chart."""
+    return f"{instance_name}.{_HELM_LOCAL_SLUG}.{INGRESS_DOMAIN}"
+
+
+def _port_vhost_server(
+    port: int, upstream: str, ingress_host: str, public_origin: str
+) -> str:
+    """A port-listening server block for one Ingress-exposed UI.
+
+    The wildcard vhost below reaches a UI by hostname, which costs the user an
+    /etc/hosts entry. An environment also reserves a spare host port that
+    hmd_proxy already publishes, so a UI can instead be served at its *root* path
+    on ``http://localhost:<port>/`` with no DNS at all -- which is how the
+    Deployment GUI is reached.
+
+    ``Host`` is set rather than forwarded, the one difference from
+    :func:`_vhost_server`: Traefik selects the Ingress rule from it and the browser
+    sends ``localhost:<port>``, which matches no rule. ``proxy_redirect`` undoes
+    that substitution on the way back, so an absolute ``Location`` built from the
+    rewritten Host does not send the browser to a name it cannot resolve.
+    """
+    return f"""server {{
+    listen {port};
+    server_name _;
+    location / {{
+        proxy_pass http://{upstream};
+        proxy_set_header Host {ingress_host};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_redirect http://{ingress_host}/ {public_origin}/;
+        proxy_redirect https://{ingress_host}/ {public_origin}/;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }}
+}}"""
+
+
+def write_env_vhosts(env, upstream: str, port_routes=()) -> Path:
     """Write an environment's Host-routed vhost fragment.
 
     One wildcard block per environment (``*.<slug>.neuronsphere.io``) rather
     than one per app: the charts derive their Ingress hosts from the environment
     name, so a wildcard covers every UI the environment deploys without this
     module having to know which apps exist.
+
+    ``port_routes`` is an optional sequence of ``(port, ingress_host)`` pairs, each
+    additionally served at ``http://localhost:<port>/`` (see
+    :func:`_port_vhost_server`). They go in this same fragment rather than one of
+    their own: :func:`_write_fragment` rewrites a fragment wholesale, so a second
+    writer aimed at a second file would still have to be kept in step with
+    :func:`remove_env_routes` -- one file keeps writing and removal atomic.
     """
-    block = _wrap(
-        f"{env.slug}:vhost",
-        _vhost_server(f"*.{env.slug}.{INGRESS_DOMAIN}", upstream),
-    )
+    blocks = [
+        _wrap(
+            f"{env.slug}:vhost",
+            _vhost_server(f"*.{env.slug}.{INGRESS_DOMAIN}", upstream),
+        )
+    ]
+    for port, ingress_host in port_routes:
+        blocks.append(
+            _wrap(
+                f"{env.slug}:vhost:{port}",
+                _port_vhost_server(
+                    port, upstream, ingress_host, f"http://localhost:{port}"
+                ),
+            )
+        )
     return _write_fragment(
         _vhost_dir() / _env_fragment_name(env.slug),
-        [block],
+        blocks,
         f"environment '{env.slug}' ingress vhosts",
     )
 
@@ -979,6 +1046,21 @@ def ingress_upstream(env) -> Optional[str]:
     return f"{ip}:{TRAEFIK_NODEPORT}"
 
 
+def gui_port_routes(env) -> List[Tuple[int, str]]:
+    """The ``(port, ingress_host)`` pairs served at ``http://localhost:<port>/``.
+
+    Just the Deployment GUI today, on the environment's otherwise-unused spare
+    port. Deferred import: ``bom_seeder`` is where the GUI's enablement flag and
+    port live, and importing it at module scope would make every nginx edit depend
+    on the BOM machinery.
+    """
+    from .bom_seeder import GUI_INSTANCE_NAME, gui_enabled, gui_port
+
+    if not gui_enabled():
+        return []
+    return [(gui_port(env), ingress_host_for(GUI_INSTANCE_NAME))]
+
+
 def configure_ingress_host_route(env) -> bool:
     """Wire this environment's ingress controller to a Host-routed nginx vhost.
 
@@ -987,11 +1069,14 @@ def configure_ingress_host_route(env) -> bool:
     upstream = ingress_upstream(env)
     if not upstream:
         return False
-    write_env_vhosts(env, upstream)
+    port_routes = gui_port_routes(env)
+    write_env_vhosts(env, upstream, port_routes=port_routes)
     logger.info(
         f"Wired ingress vhost for '{env.slug}': "
         f"*.{env.slug}.{INGRESS_DOMAIN} -> {upstream}"
     )
+    for port, ingress_host in port_routes:
+        logger.info(f"  http://localhost:{port}/ -> {ingress_host} -> {upstream}")
     return True
 
 

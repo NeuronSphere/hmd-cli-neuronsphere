@@ -41,6 +41,10 @@ class _Env:
         return self.floci_port + 1
 
     @property
+    def spare_port(self):
+        return self.floci_port + 3
+
+    @property
     def is_default(self):
         return self.slug == "local"
 
@@ -502,6 +506,89 @@ class IngressVhostTests(_TempHome):
             nr.remove_env_routes(env)
         self.assertFalse((self.vhost_dir() / "10-env-dev2.conf").exists())
         self.assertFalse((self.http_dir() / "10-env-dev2.conf").exists())
+
+
+class GuiPortVhostTests(_TempHome):
+    """The Deployment GUI is reached on a port, not a hostname.
+
+    The wildcard vhost needs a matching /etc/hosts entry, which is friction for
+    the one UI a local user is most likely to open first. Each environment already
+    reserves a fourth host port that hmd_proxy publishes and nothing uses, so the
+    GUI gets a port-listening server block that rewrites Host to the Ingress
+    hostname on the way through.
+    """
+
+    UPSTREAM = "172.18.0.10:31080"
+
+    def _fragment(self, env):
+        nr.write_env_vhosts(
+            env,
+            self.UPSTREAM,
+            port_routes=[(env.spare_port, nr.ingress_host_for("deployment-gui"))],
+        )
+        return (self.vhost_dir() / f"10-env-{env.slug}.conf").read_text()
+
+    def test_port_block_listens_on_the_spare_port(self):
+        text = self._fragment(_Env("local"))
+        self.assertIn("listen 19003;", text)
+        self.assertIn(f"proxy_pass http://{self.UPSTREAM};", text)
+
+    def test_host_is_rewritten_to_the_ingress_hostname(self):
+        """Traefik selects the Ingress rule by Host, and the browser sends
+        `localhost:19003` -- so unlike the wildcard vhost, Host must be set."""
+        text = self._fragment(_Env("local"))
+        self.assertIn(
+            "proxy_set_header Host deployment-gui.local.neuronsphere.io;", text
+        )
+        self.assertNotIn("proxy_set_header Host $host;\n        proxy_pass", text)
+
+    def test_ingress_hostname_is_always_the_literal_local_slug(self):
+        """hmd-cli-helm's _set_local_standard_values hardcodes
+        `alb.hostname=<instance>.local.neuronsphere.io` in *every* environment, so
+        the Host header must not be derived from the environment slug."""
+        text = self._fragment(_Env("dev2", slot=1))
+        self.assertIn(
+            "proxy_set_header Host deployment-gui.local.neuronsphere.io;", text
+        )
+        self.assertNotIn("deployment-gui.dev2.neuronsphere.io", text)
+
+    def test_absolute_redirects_are_mapped_back_to_the_browser_origin(self):
+        text = self._fragment(_Env("local"))
+        self.assertIn(
+            "proxy_redirect http://deployment-gui.local.neuronsphere.io/ "
+            "http://localhost:19003/;",
+            text,
+        )
+
+    def test_wildcard_vhost_survives_alongside_the_port_block(self):
+        """One fragment file, rewritten wholesale -- the port block must be
+        appended to the wildcard block, not replace it."""
+        text = self._fragment(_Env("local"))
+        self.assertIn("server_name *.local.neuronsphere.io;", text)
+        self.assertIn("listen 19003;", text)
+
+    def test_port_routes_are_optional(self):
+        nr.write_env_vhosts(_Env("local"), self.UPSTREAM)
+        text = (self.vhost_dir() / "10-env-local.conf").read_text()
+        self.assertIn("server_name *.local.neuronsphere.io;", text)
+        self.assertNotIn("listen 19003;", text)
+
+    def test_rewriting_is_idempotent(self):
+        env = _Env("local")
+        first = self._fragment(env)
+        self.assertEqual(first, self._fragment(env))
+        self.assertEqual(first.count("listen 19003;"), 1)
+
+    def test_removing_an_env_removes_the_port_block_too(self):
+        env = _Env("dev2", slot=1)
+        self._fragment(env)
+        with mock.patch.object(nr, "reload", return_value=True):
+            nr.remove_env_routes(env)
+        self.assertFalse((self.vhost_dir() / "10-env-dev2.conf").exists())
+
+    def test_each_environment_gets_its_own_port(self):
+        self.assertEqual(_Env("local").spare_port, 19003)
+        self.assertEqual(_Env("dev2", slot=1).spare_port, 19007)
 
 
 class NodePortTests(_TempHome):

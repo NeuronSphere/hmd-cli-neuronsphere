@@ -586,6 +586,56 @@ def cluster_incarnation_id(env=None) -> Optional[str]:
     return uid if result.returncode == 0 and uid else None
 
 
+def live_helm_releases(env=None) -> Optional[set]:
+    """Names of the Helm releases currently installed on this env's cluster.
+
+    Helm stores one Secret per release revision, labelled ``owner=helm`` with
+    the release name in ``metadata.labels.name``. Listing those is cheaper than
+    shelling out to ``helm list -A`` and needs no helm binary on the host.
+
+    Used by ``env_reconcile.compute_plan`` to catch the case the deployment
+    graph cannot see: an instance the graph still calls ``DEPLOYED`` whose
+    release is gone from the cluster.
+
+    Returns ``None`` -- explicitly "could not read the cluster", as distinct
+    from the empty set "the cluster has no releases" -- on any kubectl failure,
+    so callers can decline to act rather than propose a wholesale redeploy.
+    """
+    try:
+        result = _run(
+            [
+                "kubectl",
+                "get",
+                "secrets",
+                "--all-namespaces",
+                "-l",
+                "owner=helm",
+                "-o",
+                'jsonpath={range .items[*]}{.metadata.labels.name}{"\\n"}{end}',
+            ],
+            env,
+            timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not list Helm releases: {e}")
+        return None
+    if result.returncode != 0:
+        logger.warning(f"Could not list Helm releases: {(result.stderr or '').strip()}")
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def helm_release_name(repo_instance_name: str, env) -> str:
+    """The Helm release ``hmd deploy`` installs for one BOM entry.
+
+    Both the release and its namespace are named
+    ``<repo_instance_name>-<deployment_id>`` -- e.g. the ``redis`` entry in the
+    ``local`` environment becomes the ``redis-local`` release in the
+    ``redis-local`` namespace.
+    """
+    return f"{repo_instance_name}-{env.deployment_id}"
+
+
 def _wait_for_node_ready(timeout: int = 120, env=None) -> bool:
     """Wait for at least one k3s node to report Ready.
 

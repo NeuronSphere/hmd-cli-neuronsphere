@@ -151,6 +151,46 @@ Extend Mode Submits k3s Cluster Resource
     ...    msg=Expected the local k3s cluster submitted as a NERD0004 Resource
 
 # ═══════════════════════════════════════════════════════════════
+# Deployment GUI
+# ═══════════════════════════════════════════════════════════════
+
+Extend Mode Deploys The Deployment GUI Database
+    [Tags]    integration    extend-mode    phase2    gui
+    [Documentation]    hmd-database-account creates the GUI's Postgres database and
+    ...    user before the GUI itself deploys. db_name and username are both
+    ...    `deployment_gui`, which is what makes the credential secret name the
+    ...    chart derives agree with the one ms-dbaccount writes.
+    ${status}=    Get Instance Deployment Status    deployment-gui-db-account    local
+    Should Be Equal    ${status}    DEPLOYED
+
+Extend Mode Deploys The Deployment GUI
+    [Tags]    integration    extend-mode    phase2    gui
+    [Documentation]    hmd-app-neuronsphere deploys onto the local k3s through the
+    ...    real DAG (CDKTF overlay + Helm), the same path the cloud takes.
+    ${status}=    Get Instance Deployment Status    deployment-gui    local
+    Should Be Equal    ${status}    DEPLOYED
+
+Extend Mode Serves The Deployment GUI Health Endpoint
+    [Tags]    integration    extend-mode    phase2    gui
+    [Documentation]    The GUI is reachable at the root of the environment's spare
+    ...    host port: hmd_proxy listens there and rewrites Host to the Ingress
+    ...    hostname so Traefik can pick the rule. No /etc/hosts entry is involved.
+    ...    The port is resolved, not hardcoded -- it depends on the slot this
+    ...    environment was allocated. Generous timeout: the pod runs
+    ...    `manage.py migrate` before it serves.
+    ${gui}=    Get Deployment GUI URL    local
+    Wait Until Keyword Succeeds    5 min    15 sec
+    ...    Service Should Respond    ${gui}/health/
+
+Extend Mode Serves The Deployment GUI Login Page
+    [Tags]    integration    extend-mode    phase2    gui
+    [Documentation]    Okta is not emulated locally, so the GUI renders its
+    ...    username/password form rather than redirecting to an OIDC provider.
+    ${gui}=    Get Deployment GUI URL    local
+    Wait Until Keyword Succeeds    2 min    10 sec
+    ...    Service Should Respond    ${gui}/accounts/login/
+
+# ═══════════════════════════════════════════════════════════════
 # Admin Control Plane Stop
 # ═══════════════════════════════════════════════════════════════
 

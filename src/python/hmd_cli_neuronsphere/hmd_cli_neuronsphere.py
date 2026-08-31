@@ -1658,9 +1658,13 @@ def stop_neuronsphere_extend(
     registered environment is stopped (in reverse creation order) and then the
     control plane itself.
 
-    ``purge`` additionally drops persisted state. Note that purging the control
-    plane destroys ms-deployment's graph for *every* environment, so the caller
-    is expected to have confirmed that.
+    Without ``purge`` this stops containers rather than removing them and leaves
+    the Docker network in place, so a following ``up`` restarts everything as it
+    was and reconciles instead of redeploying the whole BOM.
+
+    ``purge`` tears the containers and network down and drops persisted state.
+    Note that purging the control plane destroys ms-deployment's graph for
+    *every* environment, so the caller is expected to have confirmed that.
     """
     from . import env_registry
     from .environments import control_plane_compose_files, stop_environment
@@ -1688,17 +1692,25 @@ def stop_neuronsphere_extend(
 
     print_step("Stopping control-plane containers...")
     quiet = not verbose
-    command = [*_get_base_command(compose_files, quiet=quiet), "down"]
+    command = [
+        *_get_base_command(compose_files, quiet=quiet),
+        "down" if purge else "stop",
+    ]
     _exec(command, capture=quiet, quiet=quiet)
 
-    print_step("Removing network...")
-    _exec(
-        ["docker", "network", "rm", DOCKER_NETWORK_NAME],
-        capture=True,
-        quiet=not verbose,
-    )
-
     if purge:
+        # Only torn down on a purge. A stopped container's endpoint pins the
+        # network by *id*, so removing and recreating it would leave every
+        # stopped container -- the k3s node in particular -- unable to start,
+        # forcing the cluster recreate (and full BOM redeploy) that stopping
+        # rather than deleting is meant to avoid. An idle network costs nothing.
+        print_step("Removing network...")
+        _exec(
+            ["docker", "network", "rm", DOCKER_NETWORK_NAME],
+            capture=True,
+            quiet=not verbose,
+        )
+
         _purge_control_plane_state(verbose=verbose)
         try:
             shutil.rmtree(env_registry.environments_root(), ignore_errors=True)

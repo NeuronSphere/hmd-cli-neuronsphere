@@ -66,6 +66,28 @@ Commands
 resolves in this order: ``$HMD_LOCAL_ENV``, the registry's default environment,
 then ``local``.
 
+Stopping vs. purging
+~~~~~~~~~~~~~~~~~~~~
+
+``down`` without ``--purge`` is a **stop**, not a teardown. Containers are
+stopped rather than removed, the environment's k3s cluster is stopped rather
+than deleted, and the Docker network stays. The deployment graph in PostgreSQL,
+the registry's ``csd_nid`` and ``k3s_uid``, and the applied-changeset snapshot
+all survive, so the next ``up`` reconciles rather than redeploying.
+
+The exception is the k3s cluster itself: Floci removes the ``floci-eks-<cluster>``
+container and volume when the environment's ``floci-<env>`` container stops, so
+its datastore is lost either way. ``up`` handles that by redeploying only the
+instances that had a Helm release on the old cluster, leaving the Floci-side
+ones (S3 buckets, cdktf stacks, Lambdas) alone -- see :doc:`modes`.
+
+``down --purge`` destroys instead: it deletes the k3s cluster *and* its
+``floci-eks-<cluster>`` volume, removes the containers and the Docker network,
+deletes ``$HMD_HOME/.cache/environments/<slug>/``, and clears the environment's
+bootstrap marker. The next ``up`` then runs the full two-phase bootstrap. Note
+that a whole-stack ``--purge`` also drops ms-deployment's graph for *every*
+environment; ``--env <name> --purge`` scopes it to one.
+
 Declaring an environment
 ------------------------
 
