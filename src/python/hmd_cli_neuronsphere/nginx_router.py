@@ -497,6 +497,77 @@ def write_control_plane_streams(floci_host: str = "neuronsphere") -> Path:
     )
 
 
+# The Deployment GUI container in the control-plane compose file, and the port it
+# listens on inside it.
+GUI_UPSTREAM = "hmd_deployment_gui:8000"
+
+
+def _container_vhost_server(port: int, upstream: str, var: str) -> str:
+    """A port-listening server block proxying to a container by name.
+
+    The upstream goes through a variable and a ``resolver`` for the reason
+    :func:`_resolver_directive` gives: a literal ``proxy_pass host:port`` is
+    resolved once, at config load, and a name that does not resolve makes
+    ``nginx -t`` fail -- which would reject the whole reload and take every
+    *other* route down with it. Deferring the lookup to the request means a GUI
+    container that failed to start costs only its own 502.
+
+    ``Host`` is forwarded verbatim: nothing downstream selects on it (there is no
+    Ingress here), and ``localhost`` already satisfies the app's allowed-hosts
+    list -- so no ``proxy_redirect`` pair is needed either.
+    """
+    return f"""server {{
+    listen {port};
+    server_name _;
+    {_resolver_directive()}
+    set ${var} "{upstream}";
+    location / {{
+        proxy_pass http://${var};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }}
+}}"""
+
+
+def write_control_plane_vhosts() -> Path:
+    """Write the control-plane vhost fragment.
+
+    Just the Deployment GUI today. It is served at the *root* path of a published
+    host port (``http://localhost:19003/``) rather than behind the wildcard
+    ``*.<slug>.neuronsphere.io`` vhost, so reaching it costs no /etc/hosts entry.
+    The port is already inside the range hmd_proxy publishes
+    (``env_registry.env_port_range``), so adding this listener needs a reload, not
+    a container restart.
+
+    Unlike the environment vhosts this proxies straight to a container on the
+    Docker network, with no Ingress in between -- see
+    :func:`_container_vhost_server`.
+
+    An always-written fragment: when the GUI is disabled the file is truncated to
+    its header, which removes a listener a previous run may have added.
+    """
+    from .bom_seeder import gui_enabled, gui_port
+
+    blocks = []
+    if gui_enabled():
+        blocks.append(
+            _wrap(
+                "deployment-gui",
+                _container_vhost_server(gui_port(), GUI_UPSTREAM, "ns_gui"),
+            )
+        )
+    return _write_fragment(
+        _vhost_dir() / _CONTROL_PLANE_FRAGMENT, blocks, "control-plane vhosts"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Environments
 # ---------------------------------------------------------------------------
@@ -1046,21 +1117,6 @@ def ingress_upstream(env) -> Optional[str]:
     return f"{ip}:{TRAEFIK_NODEPORT}"
 
 
-def gui_port_routes(env) -> List[Tuple[int, str]]:
-    """The ``(port, ingress_host)`` pairs served at ``http://localhost:<port>/``.
-
-    Just the Deployment GUI today, on the environment's otherwise-unused spare
-    port. Deferred import: ``bom_seeder`` is where the GUI's enablement flag and
-    port live, and importing it at module scope would make every nginx edit depend
-    on the BOM machinery.
-    """
-    from .bom_seeder import GUI_INSTANCE_NAME, gui_enabled, gui_port
-
-    if not gui_enabled():
-        return []
-    return [(gui_port(env), ingress_host_for(GUI_INSTANCE_NAME))]
-
-
 def configure_ingress_host_route(env) -> bool:
     """Wire this environment's ingress controller to a Host-routed nginx vhost.
 
@@ -1069,14 +1125,11 @@ def configure_ingress_host_route(env) -> bool:
     upstream = ingress_upstream(env)
     if not upstream:
         return False
-    port_routes = gui_port_routes(env)
-    write_env_vhosts(env, upstream, port_routes=port_routes)
+    write_env_vhosts(env, upstream)
     logger.info(
         f"Wired ingress vhost for '{env.slug}': "
         f"*.{env.slug}.{INGRESS_DOMAIN} -> {upstream}"
     )
-    for port, ingress_host in port_routes:
-        logger.info(f"  http://localhost:{port}/ -> {ingress_host} -> {upstream}")
     return True
 
 

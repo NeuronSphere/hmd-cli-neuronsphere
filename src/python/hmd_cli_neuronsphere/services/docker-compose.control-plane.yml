@@ -116,6 +116,104 @@ services:
           - neuronsphere
           - neuronsphere-workload
 
+  # The Deployment GUI (hmd-app-neuronsphere): the Django front end to
+  # hmd-ms-deployment, pointed at the local control plane so a local user browses
+  # environment BOMs and applies ChangeSets the way they would in the cloud.
+  #
+  # It is the control plane's own management surface rather than a platform
+  # workload, so it runs here beside hmd_db and floci instead of being deployed
+  # into an environment's k3s through the deployment DAG. That earlier path
+  # needed the cluster, the Traefik-as-alb patch, ext-secrets, a NodePort, an
+  # Ingress-host rewrite and an ms-dbaccount round trip before the GUI could
+  # serve a page; this one needs a container.
+  #
+  # `profiles` is what HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false turns off:
+  # environments.ensure_control_plane only sets COMPOSE_PROFILES when
+  # bom_seeder.gui_enabled() is true.
+  deployment-gui:
+    container_name: hmd_deployment_gui
+    profiles: ["deployment-gui"]
+    # Resolved by environments._deployment_gui_image(): a locally built image
+    # wins, else the app's own published registry. The default here only applies
+    # when compose is driven by hand.
+    image: ${HMD_DEPLOYMENT_GUI_IMAGE:-ghcr.io/hmdlabs/hmd-app-neuronsphere:stable}
+    restart: unless-stopped
+    # No host port: reached at http://localhost:19003/ through hmd_proxy's
+    # control-plane vhost (nginx_router.write_control_plane_vhosts).
+    environment:
+      # These mirror the chart's ConfigMap rendered with the values the local BOM
+      # entry used to pass -- oktaAuth false, localHttp true, createLocalSuperuser
+      # true -- so the app is configured exactly as it was under Helm.
+      DJANGO_SETTINGS_MODULE: deployment_gui.settings.production
+      DJANGO_DEBUG: "false"
+      # No port in ALLOWED_HOSTS: Django compares the hostname only, and the
+      # proxy forwards Host verbatim (there is no Ingress rule to select).
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,hmd_deployment_gui
+      CSRF_TRUSTED_ORIGINS: "http://localhost:${HMD_LOCAL_GUI_HOST_PORT:-19003},http://127.0.0.1:${HMD_LOCAL_GUI_HOST_PORT:-19003}"
+      # Plain HTTP behind the proxy: turns off the SSL redirect, secure-cookie
+      # and HSTS settings, and re-enables username/password login. The chart's
+      # `config.localHttp` block, spelled out.
+      DJANGO_SECURE_SSL_REDIRECT: "false"
+      DJANGO_SESSION_COOKIE_SECURE: "false"
+      DJANGO_CSRF_COOKIE_SECURE: "false"
+      DJANGO_SECURE_HSTS_SECONDS: "0"
+      DJANGO_SOCIALACCOUNT_ONLY: "false"
+      DJANGO_SECRET_KEY: ${HMD_LOCAL_GUI_DJANGO_SECRET_KEY:-django-insecure-local-deployment-gui}
+      # The control-plane ms-deployment route, from a plain peer on this network.
+      DEPLOYMENT_API_URL: http://hmd_proxy/hmd_ms_deployment
+      DEPLOYMENT_API_TIMEOUT: "30"
+      SESSION_COOKIE_AGE: "28800"
+      # gunicorn.conf.py otherwise sizes to cpu_count()*2+1 and forks dozens of
+      # workers on a many-core host.
+      GUNICORN_WORKERS: "3"
+      # Created by floci_deployer.ensure_core_databases_direct, which follows the
+      # local password-equals-username convention.
+      DB_HOST: hmd_db
+      DB_PORT: "5432"
+      DB_NAME: deployment_gui
+      DB_USER: deployment_gui
+      DB_PASSWORD: deployment_gui
+      # MCP server, mounted at /mcp by deployment_gui/asgi.py. It sits beside
+      # Django rather than behind it, so it does its own Host/Origin checks.
+      # Platform API keys are the local credential path; Okta is not emulated.
+      MCP_ENABLED: "true"
+      MCP_API_KEYS_ENABLED: "true"
+      MCP_FEDERATION_ENABLED: "false"
+      MCP_ALLOWED_HOSTS: localhost,127.0.0.1,hmd_deployment_gui
+      MCP_ALLOWED_ORIGINS: "http://localhost:${HMD_LOCAL_GUI_HOST_PORT:-19003}"
+      TELEMETRY_SERVICE_URLS: ""
+      TELEMETRY_SERVICE_TIMEOUT: "5"
+      # Read by `createsuperuser --noinput` below: no Okta locally, so the GUI
+      # authenticates against this superuser instead.
+      DJANGO_SUPERUSER_USERNAME: ${HMD_LOCAL_GUI_SUPERUSER:-testadmin}
+      DJANGO_SUPERUSER_EMAIL: ${HMD_LOCAL_GUI_SUPERUSER_EMAIL:-testadmin@example.com}
+      DJANGO_SUPERUSER_PASSWORD: ${HMD_LOCAL_GUI_SUPERUSER_PASSWORD:-testpassword}
+    # `db` being healthy means postgres accepts connections, not that the GUI's
+    # own database exists -- ensure_core_databases_direct creates that after
+    # `compose up` returns -- which is why migrate retries below rather than
+    # failing the container on the first attempt.
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -c
+      - |
+        until python manage.py migrate --noinput; do
+          echo "deployment_gui database not ready yet; retrying migrate in 3s"
+          sleep 3
+        done
+        python manage.py createsuperuser --noinput || true
+        exec gunicorn --config gunicorn.conf.py deployment_gui.asgi:application
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+    networks:
+      - neuronsphere_default
+
 networks:
   neuronsphere_default:
     external: true

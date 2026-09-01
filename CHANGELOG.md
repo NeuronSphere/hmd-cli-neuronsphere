@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-09-01
+
+- refactor: Run the Deployment GUI as a control-plane container instead of a k3s workload
+
+  `hmd-app-neuronsphere` was in the local BOM, so every `up` deployed it through
+  the full DAG — CDKTF, Helm into the environment's k3s, the Traefik-as-`alb`
+  patch, an ext-secrets dependency, a NodePort, an Ingress-host rewrite, an
+  ms-dbaccount round trip and a private-registry image import into containerd —
+  before the GUI could serve a page. That chain was blocking `up`.
+
+  The GUI is the control plane's own management surface, not a platform
+  workload, so it now runs as the `deployment-gui` service in
+  `docker-compose.control-plane.yml` beside `hmd_db` and `floci`, and its
+  database is one of `floci_deployer.CORE_DATABASES` (created directly by
+  `psql`, like `hmd_ms_naming` and `hmd_ms_deployment`). `hmd_proxy` serves it at
+  the same `http://localhost:19003/` as before, now proxying straight to the
+  container — no Ingress, so no Host rewrite or `proxy_redirect` pair.
+
+  `bom_seeder.gui_bom` and both of its BOM appends are gone;
+  `HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false` still opts out, now via a compose
+  profile. `gui_port()` lost its `env` argument — the GUI is one control-plane
+  singleton serving every environment rather than one instance per environment —
+  and `HMD_LOCAL_GUI_HOST_PORT` overrides it. An existing install still carrying
+  the old Helm release sees the removed entries as "declared no longer; destroy"
+  on the next reconcile.
+
 ## 2026-08-31
 
 - fix: Make a non-purge `down` preserve the k3s cluster so `up` takes the restart fast-path

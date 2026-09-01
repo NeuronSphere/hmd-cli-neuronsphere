@@ -1693,7 +1693,11 @@ def stop_neuronsphere_extend(
     *every* environment, so the caller is expected to have confirmed that.
     """
     from . import env_registry
-    from .environments import control_plane_compose_files, stop_environment
+    from .environments import (
+        control_plane_compose_files,
+        export_control_plane_compose_env,
+        stop_environment,
+    )
 
     load_hmd_env()
     print_header("Stopping")
@@ -1715,6 +1719,9 @@ def stop_neuronsphere_extend(
 
     local_loader = LocalPluginLoader()
     compose_files = control_plane_compose_files(local_loader)
+    # Sets COMPOSE_PROFILES, without which `stop` does not see the Deployment GUI
+    # service and would leave its container running.
+    export_control_plane_compose_env()
 
     print_step("Stopping control-plane containers...")
     quiet = not verbose

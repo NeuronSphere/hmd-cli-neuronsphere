@@ -278,63 +278,45 @@ class PrecedenceTests(_BuilderTest):
 
 
 class DeploymentGuiTests(_BuilderTest):
-    """The GUI must reach the manifest-driven path too.
+    """The GUI must stay out of the manifest-driven path too.
 
-    ``build_definition`` also produces the snapshot ``env_reconcile`` diffs against,
-    so a GUI present in ``resolve_plugin_bom`` but absent here would read as drift
-    and every reconcile would propose destroying an instance the other path keeps
-    re-creating.
+    It runs as a container in the control-plane compose file, not as a deployed
+    repo instance. ``build_definition`` also produces the snapshot
+    ``env_reconcile`` diffs against, so a GUI entry reappearing here would read as
+    drift on every reconcile.
     """
 
-    def test_gui_is_included_by_default(self):
+    def test_gui_is_not_in_the_definition(self):
         definition = csb.build_definition(
             env=_Env(), manifest=self._manifest(plugins=[], repos=[])
         )
         names = {e["repo_instance_name"] for e in definition}
-        self.assertIn(b.GUI_INSTANCE_NAME, names)
-        self.assertIn(b.GUI_DB_INSTANCE_NAME, names)
+        self.assertNotIn("deployment-gui", names)
+        self.assertNotIn("deployment-gui-db-account", names)
+        classes = {e.get("repo_class_name") for e in definition}
+        self.assertNotIn("hmd-app-neuronsphere", classes)
 
-    def test_gui_can_be_opted_out(self):
-        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
-        definition = csb.build_definition(
-            env=_Env(), manifest=self._manifest(plugins=[], repos=[])
-        )
-        names = {e["repo_instance_name"] for e in definition}
-        self.assertNotIn(b.GUI_INSTANCE_NAME, names)
-        self.assertNotIn(b.GUI_DB_INSTANCE_NAME, names)
-
-    def test_a_declared_repo_overrides_the_builtin_gui_entry(self):
-        """Keep-first de-dup: an explicit manifest entry wins on instance name."""
+    def test_a_declared_repo_can_still_deploy_the_gui_chart(self):
+        """Nothing stops a user asking for the chart explicitly; it is only the
+        built-in, always-on entry that is gone."""
         definition = csb.build_definition(
             env=_Env(),
             manifest=self._manifest(
                 plugins=[],
                 repos=[
                     {
-                        "instance_name": b.GUI_INSTANCE_NAME,
+                        "instance_name": "deployment-gui",
                         "repo_class_name": "hmd-app-neuronsphere",
-                        "version": "0.1.70",
+                        "version": "0.1.73",
                         "instance_configuration": {"replicaCount": 3},
                     }
                 ],
             ),
         )
         entry = next(
-            e for e in definition if e["repo_instance_name"] == b.GUI_INSTANCE_NAME
+            e for e in definition if e["repo_instance_name"] == "deployment-gui"
         )
         self.assertEqual(entry["instance_configuration"], {"replicaCount": 3})
-
-    def test_gui_csrf_origins_track_the_environment_port(self):
-        env = _Env()
-        env.spare_port = 19011
-        definition = csb.build_definition(
-            env=env, manifest=self._manifest(plugins=[], repos=[])
-        )
-        entry = next(
-            e for e in definition if e["repo_instance_name"] == b.GUI_INSTANCE_NAME
-        )
-        origins = entry["instance_configuration"]["config"]["extraCsrfOrigins"]
-        self.assertIn("http://localhost:19011", origins)
 
 
 class PluginEnablementTests(_BuilderTest):

@@ -35,6 +35,7 @@ class ResolveBomTests(unittest.TestCase):
                     "HMD_LOCAL_BOM_FILE",
                     "HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS",
                     "HMD_LOCAL_NEURONSPHERE_ENABLE_GUI",
+                    "HMD_LOCAL_GUI_HOST_PORT",
                 }
             },
             clear=True,
@@ -104,70 +105,36 @@ class ResolveBomTests(unittest.TestCase):
 
     # -- Deployment GUI ----------------------------------------------------
     #
-    # The GUI is the control plane's own management surface, so it ships with the
-    # control plane and is on unless opted out -- same posture as ext-secrets.
+    # The GUI is the control plane's own management surface, not a platform
+    # workload, so it runs as a container in the control-plane compose file and
+    # is absent from every BOM. These guard against it creeping back in.
 
-    def test_gui_on_by_default(self):
+    def test_gui_is_not_in_the_bom(self):
         names = [e["repo_instance_name"] for e in b._resolve_bom()]
-        self.assertIn(b.GUI_INSTANCE_NAME, names)
-        self.assertIn(b.GUI_DB_INSTANCE_NAME, names)
+        self.assertNotIn("deployment-gui", names)
+        self.assertNotIn("deployment-gui-db-account", names)
 
-    def test_gui_opt_out_removes_entries(self):
+    def test_gui_repo_class_is_not_in_the_bom(self):
+        """It is deployed by compose, so no DAG node should reference the chart."""
+        classes = [e.get("repo_class_name") for e in b._resolve_bom()]
+        self.assertNotIn("hmd-app-neuronsphere", classes)
+
+    def test_gui_port_defaults_to_the_slot_zero_spare_port(self):
+        os.environ.pop("HMD_LOCAL_GUI_HOST_PORT", None)
+        self.assertEqual(b.gui_port(), 19003)
+
+    def test_gui_port_is_overridable(self):
+        os.environ["HMD_LOCAL_GUI_HOST_PORT"] = "19107"
+        self.assertEqual(b.gui_port(), 19107)
+
+    def test_gui_port_falls_back_when_the_override_is_not_a_number(self):
+        os.environ["HMD_LOCAL_GUI_HOST_PORT"] = "not-a-port"
+        self.assertEqual(b.gui_port(), 19003)
+
+    def test_gui_enabled_by_default_and_opt_out(self):
+        self.assertTrue(b.gui_enabled())
         os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
-        names = [e["repo_instance_name"] for e in b._resolve_bom()]
-        self.assertNotIn(b.GUI_INSTANCE_NAME, names)
-        self.assertNotIn(b.GUI_DB_INSTANCE_NAME, names)
-
-    def test_gui_db_account_name_equals_username(self):
-        """ms-dbaccount names the credential secret with the *username* while the
-        chart's awsDbSecretName appends the *db_name*; they only agree when the two
-        strings are identical."""
-        bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
-        config = bom[b.GUI_DB_INSTANCE_NAME]["instance_configuration"]
-        self.assertEqual(config["db_name"], config["username"])
-
-    def test_gui_deps_name_local_producers(self):
-        bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
-        deps = bom[b.GUI_INSTANCE_NAME]["dependencies"]
-        for role in ("eks-cluster", "eks-alb", "compute", "deployment-service"):
-            self.assertEqual(deps[role], b.CORE_INSTANCE_NAME, role)
-        self.assertEqual(deps["ext-secrets"], "ext-secrets")
-        self.assertEqual(deps["db-credentials"], b.GUI_DB_INSTANCE_NAME)
-
-    def test_gui_omits_okta_and_redis_roles(self):
-        """Both are optional in the manifest and guarded in the chart; naming them
-        would make ms-deployment demand a BOM instance nothing contributes."""
-        bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
-        deps = bom[b.GUI_INSTANCE_NAME]["dependencies"]
-        self.assertNotIn("okta-app", deps)
-        self.assertNotIn("redis", deps)
-
-    def test_gui_is_configured_for_a_non_okta_local_deploy(self):
-        bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
-        config = bom[b.GUI_INSTANCE_NAME]["instance_configuration"]["config"]
-        self.assertIs(config["oktaAuth"], False)
-        self.assertIs(config["localHttp"], True)
-        self.assertIs(config["createLocalSuperuser"], True)
-
-    def test_gui_db_account_is_ordered_before_the_gui(self):
-        names = [e["repo_instance_name"] for e in b._resolve_bom()]
-        self.assertLess(
-            names.index(b.GUI_DB_INSTANCE_NAME), names.index(b.GUI_INSTANCE_NAME)
-        )
-
-    def test_gui_csrf_origins_follow_the_environment_spare_port(self):
-        """The GUI is served on the environment's spare host port, so the browser
-        Origin -- and therefore the trusted CSRF origin -- differs per environment."""
-        env = mock.Mock(spare_port=19007)
-        bom = {e["repo_instance_name"]: e for e in b.gui_bom(env)}
-        config = bom[b.GUI_INSTANCE_NAME]["instance_configuration"]["config"]
-        self.assertIn("http://localhost:19007", config["extraCsrfOrigins"])
-        self.assertIn("http://127.0.0.1:19007", config["extraCsrfOrigins"])
-
-    def test_gui_csrf_origins_fall_back_to_the_default_port(self):
-        bom = {e["repo_instance_name"]: e for e in b.gui_bom(None)}
-        config = bom[b.GUI_INSTANCE_NAME]["instance_configuration"]["config"]
-        self.assertIn("http://localhost:19003", config["extraCsrfOrigins"])
+        self.assertFalse(b.gui_enabled())
 
     @mock.patch(
         "hmd_cli_neuronsphere.bom_seeder.local_docker_config_json", return_value=None

@@ -67,6 +67,8 @@ class _TempHome(unittest.TestCase):
             "HMD_LOCAL_TRINO_HOST_PORT",
             "HMD_LOCAL_ENV_PORT_BASE",
             "HMD_LOCAL_ENV_PORT_RANGE",
+            "HMD_LOCAL_NEURONSPHERE_ENABLE_GUI",
+            "HMD_LOCAL_GUI_HOST_PORT",
         ):
             os.environ.pop(var, None)
 
@@ -508,54 +510,103 @@ class IngressVhostTests(_TempHome):
         self.assertFalse((self.http_dir() / "10-env-dev2.conf").exists())
 
 
-class GuiPortVhostTests(_TempHome):
+class ControlPlaneGuiVhostTests(_TempHome):
     """The Deployment GUI is reached on a port, not a hostname.
 
-    The wildcard vhost needs a matching /etc/hosts entry, which is friction for
-    the one UI a local user is most likely to open first. Each environment already
-    reserves a fourth host port that hmd_proxy publishes and nothing uses, so the
-    GUI gets a port-listening server block that rewrites Host to the Ingress
-    hostname on the way through.
+    It is a control-plane container, not a workload behind an Ingress, so its
+    vhost proxies straight to the container and lives in the control-plane
+    fragment rather than any environment's.
     """
+
+    def _fragment_path(self):
+        return self.vhost_dir() / "00-control-plane.conf"
+
+    def test_gui_listens_on_the_gui_port(self):
+        nr.write_control_plane_vhosts()
+        text = self._fragment_path().read_text()
+        self.assertIn("listen 19003;", text)
+        self.assertIn("server_name _;", text)
+        self.assertIn(f'set $ns_gui "{nr.GUI_UPSTREAM}";', text)
+        self.assertIn("proxy_pass http://$ns_gui;", text)
+
+    def test_the_gui_upstream_resolves_per_request(self):
+        """A literal `proxy_pass hmd_deployment_gui:8000` is resolved once, at
+        config load, and a name that does not resolve fails `nginx -t` -- which
+        would reject the reload and take every other route down with it."""
+        nr.write_control_plane_vhosts()
+        text = self._fragment_path().read_text()
+        self.assertIn("resolver ", text)
+        self.assertNotIn(f"proxy_pass http://{nr.GUI_UPSTREAM};", text)
+
+    def test_host_is_forwarded_verbatim(self):
+        """No Ingress downstream selects on Host, and `localhost` already
+        satisfies the GUI's DJANGO_ALLOWED_HOSTS -- so nothing is rewritten and no
+        proxy_redirect pair is needed."""
+        nr.write_control_plane_vhosts()
+        text = self._fragment_path().read_text()
+        self.assertIn("proxy_set_header Host $host;", text)
+        self.assertNotIn("proxy_redirect", text)
+
+    def test_the_port_is_overridable(self):
+        os.environ["HMD_LOCAL_GUI_HOST_PORT"] = "19107"
+        nr.write_control_plane_vhosts()
+        self.assertIn("listen 19107;", self._fragment_path().read_text())
+
+    def test_opting_out_writes_no_listener(self):
+        """The fragment is still written, so a listener a previous run added is
+        removed rather than left behind."""
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
+        nr.write_control_plane_vhosts()
+        text = self._fragment_path().read_text()
+        self.assertNotIn("listen 19003;", text)
+
+    def test_rewriting_is_idempotent(self):
+        first = nr.write_control_plane_vhosts().read_text()
+        self.assertEqual(first, nr.write_control_plane_vhosts().read_text())
+        self.assertEqual(first.count("listen 19003;"), 1)
+
+    def test_environment_vhosts_are_a_separate_fragment(self):
+        """The GUI no longer rides on an environment's spare port, so an
+        environment's fragment carries only its wildcard Host block."""
+        nr.write_control_plane_vhosts()
+        nr.write_env_vhosts(_Env("local"), "172.18.0.10:31080")
+        env_text = (self.vhost_dir() / "10-env-local.conf").read_text()
+        self.assertIn("server_name *.local.neuronsphere.io;", env_text)
+        self.assertNotIn("listen 19003;", env_text)
+
+
+class PortRoutedVhostTests(_TempHome):
+    """`write_env_vhosts(port_routes=...)` still serves an Ingress-exposed UI at
+    the root of a published host port. Nothing uses it since the Deployment GUI
+    moved to the control plane, but it remains the mechanism for the next one."""
 
     UPSTREAM = "172.18.0.10:31080"
 
-    def _fragment(self, env):
-        nr.write_env_vhosts(
-            env,
-            self.UPSTREAM,
-            port_routes=[(env.spare_port, nr.ingress_host_for("deployment-gui"))],
-        )
+    def _fragment(self, env, port_routes):
+        nr.write_env_vhosts(env, self.UPSTREAM, port_routes=port_routes)
         return (self.vhost_dir() / f"10-env-{env.slug}.conf").read_text()
-
-    def test_port_block_listens_on_the_spare_port(self):
-        text = self._fragment(_Env("local"))
-        self.assertIn("listen 19003;", text)
-        self.assertIn(f"proxy_pass http://{self.UPSTREAM};", text)
 
     def test_host_is_rewritten_to_the_ingress_hostname(self):
         """Traefik selects the Ingress rule by Host, and the browser sends
-        `localhost:19003` -- so unlike the wildcard vhost, Host must be set."""
-        text = self._fragment(_Env("local"))
-        self.assertIn(
-            "proxy_set_header Host deployment-gui.local.neuronsphere.io;", text
-        )
-        self.assertNotIn("proxy_set_header Host $host;\n        proxy_pass", text)
+        `localhost:<port>` -- so unlike the wildcard vhost, Host must be set."""
+        text = self._fragment(_Env("local"), [(19003, nr.ingress_host_for("some-app"))])
+        self.assertIn("listen 19003;", text)
+        self.assertIn("proxy_set_header Host some-app.local.neuronsphere.io;", text)
 
     def test_ingress_hostname_is_always_the_literal_local_slug(self):
         """hmd-cli-helm's _set_local_standard_values hardcodes
         `alb.hostname=<instance>.local.neuronsphere.io` in *every* environment, so
         the Host header must not be derived from the environment slug."""
-        text = self._fragment(_Env("dev2", slot=1))
-        self.assertIn(
-            "proxy_set_header Host deployment-gui.local.neuronsphere.io;", text
+        text = self._fragment(
+            _Env("dev2", slot=1), [(19007, nr.ingress_host_for("some-app"))]
         )
-        self.assertNotIn("deployment-gui.dev2.neuronsphere.io", text)
+        self.assertIn("proxy_set_header Host some-app.local.neuronsphere.io;", text)
+        self.assertNotIn("some-app.dev2.neuronsphere.io", text)
 
     def test_absolute_redirects_are_mapped_back_to_the_browser_origin(self):
-        text = self._fragment(_Env("local"))
+        text = self._fragment(_Env("local"), [(19003, nr.ingress_host_for("some-app"))])
         self.assertIn(
-            "proxy_redirect http://deployment-gui.local.neuronsphere.io/ "
+            "proxy_redirect http://some-app.local.neuronsphere.io/ "
             "http://localhost:19003/;",
             text,
         )
@@ -563,7 +614,7 @@ class GuiPortVhostTests(_TempHome):
     def test_wildcard_vhost_survives_alongside_the_port_block(self):
         """One fragment file, rewritten wholesale -- the port block must be
         appended to the wildcard block, not replace it."""
-        text = self._fragment(_Env("local"))
+        text = self._fragment(_Env("local"), [(19003, nr.ingress_host_for("some-app"))])
         self.assertIn("server_name *.local.neuronsphere.io;", text)
         self.assertIn("listen 19003;", text)
 
@@ -573,22 +624,12 @@ class GuiPortVhostTests(_TempHome):
         self.assertIn("server_name *.local.neuronsphere.io;", text)
         self.assertNotIn("listen 19003;", text)
 
-    def test_rewriting_is_idempotent(self):
-        env = _Env("local")
-        first = self._fragment(env)
-        self.assertEqual(first, self._fragment(env))
-        self.assertEqual(first.count("listen 19003;"), 1)
-
     def test_removing_an_env_removes_the_port_block_too(self):
         env = _Env("dev2", slot=1)
-        self._fragment(env)
+        self._fragment(env, [(env.spare_port, nr.ingress_host_for("some-app"))])
         with mock.patch.object(nr, "reload", return_value=True):
             nr.remove_env_routes(env)
         self.assertFalse((self.vhost_dir() / "10-env-dev2.conf").exists())
-
-    def test_each_environment_gets_its_own_port(self):
-        self.assertEqual(_Env("local").spare_port, 19003)
-        self.assertEqual(_Env("dev2", slot=1).spare_port, 19007)
 
 
 class NodePortTests(_TempHome):

@@ -28,10 +28,17 @@ only honest answer.
 Run directly: ``python -m pytest src/python/tests/test_environments_lifecycle.py``
 """
 
+import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import yaml
+
+import hmd_cli_neuronsphere
+from hmd_cli_neuronsphere import bom_seeder as b
 from hmd_cli_neuronsphere import environments as envs
+from hmd_cli_neuronsphere import floci_deployer
 
 
 class _Env:
@@ -216,3 +223,132 @@ class ClusterRecreatedTests(unittest.TestCase):
         reconcile, full, _ = self._bootstrap({})
         full.assert_called_once()
         reconcile.assert_not_called()
+
+
+class DeploymentGuiComposeTests(unittest.TestCase):
+    """The Deployment GUI is a control-plane container, not a deployed workload.
+
+    It used to reach k3s through the deployment DAG -- CDKTF, Helm, Traefik, an
+    Ingress-host rewrite and an ms-dbaccount round trip -- for a UI whose only job
+    is to talk to the control plane it now sits beside.
+    """
+
+    @staticmethod
+    def _service():
+        path = (
+            Path(hmd_cli_neuronsphere.__file__).parent
+            / "services"
+            / "docker-compose.control-plane.yml"
+        )
+        return yaml.safe_load(path.read_text())["services"]["deployment-gui"]
+
+    def test_the_service_publishes_no_host_port(self):
+        """hmd_proxy is the only container that publishes ports; that invariant is
+        what lets several environments coexist on one machine."""
+        self.assertNotIn("ports", self._service())
+
+    def test_the_service_is_behind_the_gui_profile(self):
+        """Which is how HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false still turns it off."""
+        self.assertEqual(self._service()["profiles"], [envs.GUI_COMPOSE_PROFILE])
+
+    def test_the_service_points_at_the_control_plane_database(self):
+        env = self._service()["environment"]
+        self.assertEqual(env["DB_HOST"], "hmd_db")
+        self.assertEqual(env["DB_NAME"], b.GUI_DB_NAME)
+        # Local convention: password == username (ensure_core_databases_direct).
+        self.assertEqual(env["DB_USER"], env["DB_PASSWORD"])
+
+    def test_the_service_calls_ms_deployment_through_the_proxy(self):
+        self.assertEqual(
+            self._service()["environment"]["DEPLOYMENT_API_URL"],
+            b.GUI_DEPLOYMENT_API_URL,
+        )
+
+    def test_migrate_retries_until_the_database_exists(self):
+        """ensure_core_databases_direct creates it *after* `compose up` returns, so
+        a single migrate attempt would leave the container dead on a cold boot."""
+        command = "\n".join(self._service()["command"])
+        self.assertIn("until python manage.py migrate --noinput", command)
+
+    def test_the_database_is_a_core_control_plane_database(self):
+        names = [db["db_name"] for db in floci_deployer.CORE_DATABASES]
+        self.assertIn(b.GUI_DB_NAME, names)
+
+
+class ControlPlaneComposeEnvTests(unittest.TestCase):
+    def setUp(self):
+        self._env = mock.patch.dict(os.environ, {}, clear=False)
+        self._env.start()
+        for var in (
+            "COMPOSE_PROFILES",
+            "HMD_DEPLOYMENT_GUI_IMAGE",
+            "HMD_LOCAL_GUI_HOST_PORT",
+            "HMD_LOCAL_NEURONSPHERE_ENABLE_GUI",
+        ):
+            os.environ.pop(var, None)
+
+    def tearDown(self):
+        self._env.stop()
+
+    def test_the_profile_and_image_are_exported(self):
+        with mock.patch.object(
+            envs, "deployment_gui_image", return_value="some/ref:0.1"
+        ):
+            envs.export_control_plane_compose_env()
+        self.assertEqual(os.environ["COMPOSE_PROFILES"], envs.GUI_COMPOSE_PROFILE)
+        self.assertEqual(os.environ["HMD_DEPLOYMENT_GUI_IMAGE"], "some/ref:0.1")
+        self.assertEqual(os.environ["HMD_LOCAL_GUI_HOST_PORT"], "19003")
+
+    def test_opting_out_leaves_the_profile_unset(self):
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
+        envs.export_control_plane_compose_env()
+        self.assertNotIn("COMPOSE_PROFILES", os.environ)
+        self.assertNotIn("HMD_DEPLOYMENT_GUI_IMAGE", os.environ)
+
+    def test_an_unresolvable_image_does_not_fail_the_export(self):
+        """The compose file's own default still applies; a missing image is not a
+        reason to abort `up`."""
+        with mock.patch.object(
+            envs, "deployment_gui_image", side_effect=RuntimeError("no registry")
+        ):
+            envs.export_control_plane_compose_env()
+        self.assertEqual(os.environ["COMPOSE_PROFILES"], envs.GUI_COMPOSE_PROFILE)
+        self.assertNotIn("HMD_DEPLOYMENT_GUI_IMAGE", os.environ)
+
+
+class DeploymentGuiImageTests(unittest.TestCase):
+    """A locally built image wins over a published one, the same rule every
+    Lambda image follows."""
+
+    def _resolve(self, cached, source="bundled"):
+        with mock.patch(
+            "hmd_cli_neuronsphere.bom_seeder.resolve_repo_version"
+        ) as version, mock.patch(
+            "hmd_cli_neuronsphere.image_cache.image_candidates",
+            return_value=["hmd-app-neuronsphere:0.1.73"],
+        ), mock.patch(
+            "hmd_cli_neuronsphere.image_cache.image_cached",
+            side_effect=lambda ref: ref in cached,
+        ):
+            version.return_value = mock.Mock(version="0.1.73", source=source)
+            return envs.deployment_gui_image()
+
+    def test_a_cached_local_build_wins(self):
+        self.assertEqual(
+            self._resolve({"hmd-app-neuronsphere:0.1.73"}),
+            "hmd-app-neuronsphere:0.1.73",
+        )
+
+    def test_nothing_cached_falls_through_to_the_published_ref(self):
+        """ghcr.io/hmdlabs is the app's own registry -- its manifest's
+        image.repository -- and is not one of image_candidates' prefixes."""
+        self.assertEqual(
+            self._resolve(set()),
+            "ghcr.io/hmdlabs/hmd-app-neuronsphere:0.1.73",
+        )
+
+    def test_a_guessed_version_yields_no_ref(self):
+        """The `default` tier is the 0.1.0 sentinel; a ref built from it names an
+        image that was never published, so the compose file's own `:stable`
+        default is the better answer."""
+        self.assertIsNone(self._resolve(set(), source="default"))

@@ -360,25 +360,17 @@ class NeuronSphereLib:
             raise AssertionError(f"Service at {url} not reachable: {e}")
 
     @keyword
-    def get_deployment_gui_url(self, env_name: str = "local") -> str:
+    def get_deployment_gui_url(self) -> str:
         """The host URL `hmd neuronsphere up` serves the Deployment GUI on.
 
-        Resolved rather than hardcoded: the port is the environment's *spare*
-        port, which is derived from the slot the environment was allocated
-        (`port_base + slot * 4 + 3`), so it is 19003 only for the first
-        environment on a machine. Asserting a literal would pass or fail
-        depending on how many environments the developer happens to have.
+        Resolved rather than hardcoded so that `HMD_LOCAL_GUI_HOST_PORT` is
+        honoured. There is one GUI per `$HMD_HOME`, not one per environment: it
+        is a control-plane container serving every environment through
+        ms-deployment.
         """
-        from hmd_cli_neuronsphere import bom_seeder, env_registry
+        from hmd_cli_neuronsphere import bom_seeder
 
-        envs = env_registry.list_envs()
-        env = next((e for e in envs if e.slug == env_name), None)
-        if env is None:
-            raise AssertionError(
-                f"No local environment named '{env_name}'; have "
-                f"{[e.slug for e in envs]}"
-            )
-        return f"http://localhost:{bom_seeder.gui_port(env)}"
+        return f"http://localhost:{bom_seeder.gui_port()}"
 
     @keyword
     def get_deployment_bom(self, env_type: str, base_url: str = "http://localhost/hmd_ms_deployment"):
@@ -446,6 +438,43 @@ class NeuronSphereLib:
         ]
         logger.info(f"Resource names: {names}")
         return names
+
+    @keyword
+    def instance_names_from(self, bom):
+        """Extract the instance names from a BOM list."""
+        names = [
+            e.get("instance_name") or e.get("repo_instance_name")
+            for e in bom
+            if isinstance(e, dict)
+        ]
+        logger.info(f"Instance names: {names}")
+        return names
+
+    @keyword
+    def database_should_exist(self, container: str, db_name: str):
+        """Assert a database exists in a Postgres container.
+
+        Databases are deliberately not reachable from the host (only hmd_proxy
+        publishes ports), so this asks the container itself.
+        """
+        result = subprocess.run(
+            [
+                "docker", "exec", container,
+                "psql", "-U", "postgres", "-tAc",
+                f"SELECT 1 FROM pg_database WHERE datname = '{db_name}'",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"Could not query {container}: {result.stderr.strip()}"
+            )
+        if result.stdout.strip() != "1":
+            raise AssertionError(
+                f"Database '{db_name}' does not exist in {container}"
+            )
+        logger.info(f"Database '{db_name}' exists in {container}")
 
     @keyword
     def find_bom_entry_by_instance_name(self, bom, instance_name: str):

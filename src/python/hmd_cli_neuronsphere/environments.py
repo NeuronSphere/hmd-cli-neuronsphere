@@ -82,6 +82,85 @@ def control_plane_compose_files(local_loader: LocalPluginLoader) -> List[str]:
     return files
 
 
+# The Deployment GUI's own published registry -- its manifest's
+# `deploy.default_configuration.image.repository`. Not one of
+# `image_cache.image_candidates`' prefixes, which cover the NeuronSphere registry
+# and whatever a developer added, so it is appended explicitly.
+GUI_PUBLISHED_REGISTRY = "ghcr.io/hmdlabs"
+GUI_REPO_CLASS = "hmd-app-neuronsphere"
+
+# Compose profile guarding the `deployment-gui` service in
+# services/docker-compose.control-plane.yml.
+GUI_COMPOSE_PROFILE = "deployment-gui"
+
+
+def deployment_gui_image() -> Optional[str]:
+    """The image ref the control-plane compose file runs the Deployment GUI from.
+
+    Version resolution is `bom_seeder.resolve_repo_version`, so the pinned
+    artifact bundled with this package wins by default and a developer can point
+    at their working tree with ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE=local``.
+
+    A locally cached image wins over a published one -- the same rule
+    `image_cache.ensure_lambda_image` applies to every Lambda -- so `hmd build` in
+    the app repo is enough to iterate on the GUI. Nothing cached falls through to
+    the published ref, which compose then pulls.
+
+    :returns: the ref, or None when the version could only be guessed. The
+        ``default`` tier is the ``0.1.0`` sentinel, and a sentinel version names
+        an image that was never published -- so the caller is better off leaving
+        the compose file's own ``:stable`` default in place.
+    """
+    from .bom_seeder import resolve_repo_version
+    from .image_cache import image_cached, image_candidates
+
+    resolution = resolve_repo_version(GUI_REPO_CLASS)
+    if resolution.source == "default":
+        logger.warning(
+            f"No version resolved for {GUI_REPO_CLASS} (no bundled artifact); "
+            f"leaving the Deployment GUI on the compose file's default image"
+        )
+        return None
+
+    version = resolution.version
+    published = f"{GUI_PUBLISHED_REGISTRY}/{GUI_REPO_CLASS}:{version}"
+
+    for ref in image_candidates(GUI_REPO_CLASS, version) + [published]:
+        if image_cached(ref):
+            logger.info(f"Deployment GUI image: {ref} (cached)")
+            return ref
+
+    logger.info(f"Deployment GUI image: {published} (will be pulled)")
+    return published
+
+
+def export_control_plane_compose_env() -> None:
+    """Set the variables the control-plane compose file interpolates.
+
+    Called before *every* control-plane compose invocation, not just ``up``:
+    ``COMPOSE_PROFILES`` decides whether ``docker compose stop`` sees the GUI
+    service at all, so a `down`/`stop` that skipped this would leave the
+    container running.
+    """
+    from .bom_seeder import gui_enabled, gui_port
+
+    os.environ["HMD_LOCAL_GUI_HOST_PORT"] = str(gui_port())
+    if not gui_enabled():
+        logger.info("Deployment GUI disabled by HMD_LOCAL_NEURONSPHERE_ENABLE_GUI")
+        return
+
+    os.environ["COMPOSE_PROFILES"] = GUI_COMPOSE_PROFILE
+    try:
+        image = deployment_gui_image()
+    except Exception as e:
+        # Falling through leaves the compose file's own default in play, which is
+        # the published `:stable` tag -- degraded, but not a reason to fail `up`.
+        logger.warning(f"Could not resolve the Deployment GUI image: {e}")
+        image = None
+    if image:
+        os.environ["HMD_DEPLOYMENT_GUI_IMAGE"] = image
+
+
 def _graph_enabled() -> bool:
     return os.environ.get(
         "HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH", "true"
@@ -149,6 +228,8 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     # artifact-lib backs `hmd neuronsphere push-artifact` / `pull-artifact`, so
     # it must always be available. It is control-plane, not per-environment.
     local_loader.ensure_foundation_plugin("artifact-lib", "hmd-ms-artifact-lib")
+
+    export_control_plane_compose_env()
 
     if upgrade:
         print_step("Upgrade — pulling latest images...")
@@ -278,6 +359,7 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     nginx_router.render_base_config()
     nginx_router.write_control_plane_routes(service_api_ids)
     nginx_router.write_control_plane_streams(target.alias)
+    nginx_router.write_control_plane_vhosts()
     if ms_deployment_available:
         _ensure_nginx_routed(
             f"{_MS_DEPLOYMENT_URL}/api/hmd_lang_deployment.environment"
@@ -290,6 +372,8 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
         _wait_for_ms_deployment(_MS_DEPLOYMENT_URL)
         reg.control_plane.bootstrapped = True
         env_registry.save(reg)
+
+    _print_gui_url()
 
     return ms_deployment_available
 
@@ -572,7 +656,6 @@ def start_environment(
             print_step(
                 f"  UIs served at http://<app>.{env.slug}.{nginx_router.INGRESS_DOMAIN}/"
             )
-            _print_gui_url(env)
             _warn_unresolvable_ingress_hosts(env)
     except Exception as e:
         logger.warning(f"Ingress host route setup skipped (non-fatal): {e}")
@@ -580,20 +663,24 @@ def start_environment(
     return ok
 
 
-def _print_gui_url(env) -> None:
+def _print_gui_url() -> None:
     """Point the user at the Deployment GUI.
 
-    Printed separately from the wildcard-hostname line above because the GUI is
-    reached on a port instead, and so needs no /etc/hosts entry -- it is the one
-    UI a local user is most likely to want immediately.
+    Printed separately from the environments' wildcard-hostname line because the
+    GUI is a control-plane container reached on a port, so it needs no /etc/hosts
+    entry -- and it is the one UI a local user is most likely to want immediately.
     """
     from .bom_seeder import gui_enabled, gui_port
 
     if not gui_enabled():
         return
+    # The same defaults the compose file gives the container's DJANGO_SUPERUSER_*
+    # env, so overriding one of them does not make this line a lie.
+    user = os.environ.get("HMD_LOCAL_GUI_SUPERUSER", "testadmin")
+    password = os.environ.get("HMD_LOCAL_GUI_SUPERUSER_PASSWORD", "testpassword")
     print_step(
-        f"  Deployment GUI at http://localhost:{gui_port(env)}/ "
-        f"(sign in as testadmin/testpassword)"
+        f"  Deployment GUI at http://localhost:{gui_port()}/ "
+        f"(sign in as {user}/{password})"
     )
 
 
@@ -1208,7 +1295,7 @@ def environment_status(env: LocalEnvironment) -> Dict:
             "floci": f"http://localhost:{env.floci_port}",
             "trino": f"localhost:{env.trino_port}",
             **(
-                {"deployment_gui": f"http://localhost:{gui_port(env)}"}
+                {"deployment_gui": f"http://localhost:{gui_port()}"}
                 if gui_enabled()
                 else {}
             ),

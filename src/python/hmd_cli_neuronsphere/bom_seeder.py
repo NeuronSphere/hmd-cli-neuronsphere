@@ -319,130 +319,38 @@ EXT_SECRETS_BOM = [
 # hmd-app-neuronsphere is the Django front end to hmd-ms-deployment: the same GUI
 # the cloud platform serves, pointed at the local control plane so a local user
 # browses environment BOMs and applies ChangeSets the way they would in the cloud.
-# It is the control plane's own management surface rather than a workload, so it
-# ships with the control plane and is on unless opted out of with
-# HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false -- the same posture as EXT_SECRETS_BOM.
 #
-# Two entries, because the GUI keeps Django models (permissions, ChangeSet drafts,
-# audit log, MCP API keys) in its own Postgres database:
-#
-#   deployment-gui-db-account   hmd-database-account -> creates the database/user
-#   deployment-gui              hmd-app-neuronsphere -> the app itself
-#
-# `db_name` and `username` must be the same string: ms-dbaccount names the
-# credential secret `{secret_base}_{username}` (floci_deployer._local_db_secret_base)
-# while the chart's awsDbSecretName helper appends the *db_name*, so they agree only
-# when identical. Same constraint hmd-cli-plugin-ns-visualization documents for
-# superset-db-account.
-GUI_INSTANCE_NAME = "deployment-gui"
-GUI_DB_INSTANCE_NAME = "deployment-gui-db-account"
+# It is the control plane's own management surface rather than a platform
+# workload, so it is *not* in any BOM: it runs as the `deployment-gui` service in
+# `services/docker-compose.control-plane.yml`, beside hmd_db and floci, and its
+# Postgres database is one of `floci_deployer.CORE_DATABASES`. What is left here
+# is only what the rest of the CLI needs in order to talk about it.
 GUI_DB_NAME = "deployment_gui"
 
-# hmd_proxy is reachable from inside k3s: k3s_operators._ensure_coredns_floci_entry
-# registers the container name against its address on the Docker network, and the
-# proxy shares that network with the k3s node.
+# hmd_proxy is on the same Docker network as the GUI container, so the GUI reaches
+# the control-plane ms-deployment route by container name.
 GUI_DEPLOYMENT_API_URL = "http://hmd_proxy/hmd_ms_deployment"
 
-# Fallback host port for the GUI when no environment is in hand -- the default
-# environment's spare slot. Mirrors env_registry's DEFAULT_PORT_BASE + the spare
-# offset (PORTS_PER_ENV - 1); not imported to keep bom_seeder free of that module.
+# The host port hmd_proxy serves the GUI on. It is the spare slot of port slot 0
+# (env_registry's DEFAULT_PORT_BASE + PORTS_PER_ENV - 1), already inside the range
+# the proxy publishes, so no compose change is needed to reach it. A constant
+# rather than an environment's `spare_port`: the GUI is a control-plane singleton
+# serving every environment, not one instance per environment.
 _DEFAULT_GUI_PORT = 19003
 
 
-def gui_port(env=None) -> int:
-    """The host port hmd_proxy serves this environment's GUI on.
-
-    Each environment reserves four host ports; the fourth (``spare_port``) is
-    otherwise unused, already published by the proxy container, and needs no
-    /etc/hosts entry -- so the GUI is served there at its root path rather than
-    behind the wildcard ``*.<slug>.neuronsphere.io`` vhost.
-    """
-    return getattr(env, "spare_port", None) or _DEFAULT_GUI_PORT
-
-
-def gui_bom(env=None) -> List[Dict[str, Any]]:
-    """The Deployment GUI's BOM entries for ``env``.
-
-    A function rather than a module constant because the trusted CSRF origins
-    depend on the environment's own host port.
-
-    The `instance_configuration` below is the *only* source of local values: the
-    deployment DAG builds a repo's config from its manifest `default_configuration`
-    deep-updated with the instance configuration, and never reads the repo's
-    `meta-data/config_local.json` (that file backs the standalone `hmd deploy
-    --local` loop instead). Both `requests` and `limits` are stated because that
-    merge cannot delete keys, only override them.
-
-    `okta-app` and `redis` are deliberately absent. Both are optional in the app's
-    manifest and guarded in its chart; naming a role here would make ms-deployment
-    demand a BOM instance nothing contributes. Okta is real SaaS identity Floci does
-    not emulate, so the local deploy authenticates against the superuser the chart's
-    init container creates (`createLocalSuperuser`) instead.
-    """
-    port = gui_port(env)
-    return [
-        {
-            "repo_instance_name": GUI_DB_INSTANCE_NAME,
-            "repo_class_name": "hmd-database-account",
-            "deployment_id": "local",
-            "instance_configuration": {
-                "db_name": GUI_DB_NAME,
-                "username": GUI_DB_NAME,
-            },
-            "dependencies": {
-                "database-instance": CORE_INSTANCE_NAME,
-                "create-service": CORE_INSTANCE_NAME,
-            },
-        },
-        {
-            "repo_instance_name": GUI_INSTANCE_NAME,
-            "repo_class_name": "hmd-app-neuronsphere",
-            "deployment_id": "local",
-            "instance_configuration": {
-                "replicaCount": 1,
-                "autoscaling": {"enabled": False},
-                "clusterSecretStore": {"name": "aws-secrets-manager"},
-                "resources": {
-                    "requests": {"cpu": "100m", "memory": "384Mi"},
-                    "limits": {"cpu": "1000m", "memory": "1Gi"},
-                },
-                "config": {
-                    # No Okta locally: drops the OAuth ExternalSecrets and the
-                    # OAUTH_* env refs that would otherwise leave every pod in
-                    # CreateContainerConfigError on secrets that never sync.
-                    "oktaAuth": False,
-                    "oktaGroupMapping": "",
-                    "oktaSuperuserGroups": "",
-                    # Plain HTTP behind the proxy: turns off the SSL redirect,
-                    # secure-cookie and HSTS settings, and re-enables
-                    # username/password login.
-                    "localHttp": True,
-                    "djangoDebug": "false",
-                    "createLocalSuperuser": True,
-                    "localSuperuserUsername": "testadmin",
-                    "localSuperuserPassword": "testpassword",
-                    "localSuperuserEmail": "testadmin@example.com",
-                    "gunicornWorkers": "3",
-                    "deploymentApiUrl": GUI_DEPLOYMENT_API_URL,
-                    # The browser talks to the proxy on localhost; nginx rewrites
-                    # Host to the Ingress hostname, which the chart already adds to
-                    # DJANGO_ALLOWED_HOSTS from alb.hostname.
-                    "extraAllowedHosts": "localhost,127.0.0.1",
-                    "extraCsrfOrigins": (
-                        f"http://localhost:{port},http://127.0.0.1:{port}"
-                    ),
-                },
-            },
-            "dependencies": {
-                "eks-cluster": CORE_INSTANCE_NAME,
-                "eks-alb": CORE_INSTANCE_NAME,
-                "compute": CORE_INSTANCE_NAME,
-                "ext-secrets": "ext-secrets",
-                "deployment-service": CORE_INSTANCE_NAME,
-                "db-credentials": GUI_DB_INSTANCE_NAME,
-            },
-        },
-    ]
+def gui_port() -> int:
+    """The host port hmd_proxy serves the Deployment GUI at, at its root path."""
+    raw = os.environ.get("HMD_LOCAL_GUI_HOST_PORT")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning(
+                f"HMD_LOCAL_GUI_HOST_PORT={raw!r} is not an integer; "
+                f"falling back to {_DEFAULT_GUI_PORT}"
+            )
+    return _DEFAULT_GUI_PORT
 
 
 def gui_enabled() -> bool:
@@ -1874,9 +1782,8 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
       :func:`_inject_docker_credentials`), so its local CDKTF overlay can seed the
       ``hmd-docker-repo-secret`` k3s uses to pull private images.
 
-    Augmented, in order, with ``EXT_SECRETS_BOM`` (unless opted out), the
-    Deployment GUI's :func:`gui_bom` (unless opted out) and the entries contributed
-    by installed plugin packages.
+    Augmented, in order, with ``EXT_SECRETS_BOM`` (unless opted out) and the
+    entries contributed by installed plugin packages.
 
     The result is de-duped by ``repo_instance_name`` (so an explicit BOM file that
     already lists these entries stays idempotent) and topologically sorted (see
@@ -1903,10 +1810,6 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
     if not _is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
         logger.info("ext-secrets enabled by default — appending EXT_SECRETS_BOM")
         bom = bom + EXT_SECRETS_BOM
-
-    if gui_enabled():
-        logger.info("Deployment GUI enabled by default — appending GUI_BOM")
-        bom = bom + gui_bom(env)
 
     plugin_entries = _collect_plugin_bom_entries()
     if plugin_entries:

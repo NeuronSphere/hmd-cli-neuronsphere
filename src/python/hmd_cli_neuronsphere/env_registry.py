@@ -122,6 +122,13 @@ class LocalEnvironment:
 
     @property
     def spare_port(self) -> int:
+        """Reserved, currently unused by any environment-scoped listener.
+
+        The Deployment GUI used to be served here while it was deployed per
+        environment; it is now a control-plane container fixed at slot 0's spare
+        port (``bom_seeder._DEFAULT_GUI_PORT``, 19003). The slot stays reserved so
+        the next port-routed UI has somewhere to go without renumbering.
+        """
         return self.floci_port + 3
 
     # -- derived paths -----------------------------------------------------

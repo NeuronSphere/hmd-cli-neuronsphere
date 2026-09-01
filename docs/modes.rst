@@ -17,10 +17,13 @@ rather than starting the whole platform as Docker Compose containers.
 - a Docker network (``neuronsphere_default``);
 - a **Floci** instance emulating the control-plane AWS account
   (``000000000000``);
-- PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment`` created directly;
+- PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment`` / ``deployment_gui``
+  created directly;
 - **JanusGraph**;
 - ``hmd-ms-deployment``, ``hmd-ms-naming`` and ``hmd-ms-artifact-lib`` as Floci
   Lambdas behind the nginx proxy;
+- the **Deployment GUI** (``hmd-app-neuronsphere``) as a container — see
+  `Deployment GUI`_;
 - ``hmd_proxy`` — the only container that publishes host ports.
 
 **Each named environment** is a self-contained emulated AWS account:
@@ -106,6 +109,50 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 
    For backwards compatibility, ``HMD_LOCAL_NEURONSPHERE_MODE=deploy`` is
    still accepted and maps to Extend mode.
+
+Deployment GUI
+~~~~~~~~~~~~~~
+
+``hmd-app-neuronsphere`` is the Django front end to ``hmd-ms-deployment``: the
+same GUI the cloud platform serves, pointed at the local control plane so you can
+browse environment BOMs and apply ChangeSets the way you would in the cloud.
+
+It is the control plane's **own management surface**, not a platform workload, so
+it runs as the ``deployment-gui`` service in the control-plane compose file
+alongside ``hmd_db`` and ``floci`` — not as a Helm release on an environment's
+k3s. Nothing about it depends on a cluster, an Ingress controller or
+External Secrets.
+
+Open it at **http://localhost:19003/** and sign in as ``testadmin`` /
+``testpassword`` (Okta is real SaaS identity that Floci does not emulate, so the
+container creates a local superuser instead). ``hmd neuronsphere status`` prints
+the same URL. The MCP server is mounted at ``/mcp`` on the same port.
+
+``hmd_proxy`` publishes that port already, so nothing needs an ``/etc/hosts``
+entry and the proxy proxies straight to the container.
+
+Knobs:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Variable
+     - Effect
+   * - ``HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false``
+     - Do not start the GUI at all.
+   * - ``HMD_LOCAL_GUI_HOST_PORT``
+     - Serve it on a different host port (default ``19003``).
+   * - ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE=local``
+     - Use your working tree's ``meta-data/VERSION``, so a local ``hmd build`` in
+       ``hmd-app-neuronsphere`` is what runs.
+   * - ``HMD_LOCAL_GUI_SUPERUSER`` / ``..._PASSWORD`` / ``..._EMAIL``
+     - Override the local superuser the container creates.
+
+The image is resolved the same way every other bundled image is: a locally built
+``hmd-app-neuronsphere:<version>`` wins, otherwise the published
+``ghcr.io/hmdlabs/hmd-app-neuronsphere:<version>`` is pulled.
+
 
 Local core vs optional plugins
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

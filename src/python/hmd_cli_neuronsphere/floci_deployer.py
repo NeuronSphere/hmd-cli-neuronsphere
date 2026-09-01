@@ -1027,6 +1027,10 @@ def _local_db_secret_base(
 CORE_DATABASES = [
     {"db_name": "hmd_ms_naming", "username": "hmd_ms_naming"},
     {"db_name": "hmd_ms_deployment", "username": "hmd_ms_deployment"},
+    # The Deployment GUI's Django database. It runs as a control-plane compose
+    # container (services/docker-compose.control-plane.yml), so like the two
+    # Lambdas above it has no dbaccount to provision it.
+    {"db_name": "deployment_gui", "username": "deployment_gui"},
 ]
 
 
@@ -1182,8 +1186,8 @@ def ensure_core_databases_direct(
 ) -> None:
     """Guarantee the foundational control-plane databases/users exist.
 
-    ms-naming, ms-deployment and artifact-lib are foundational to the local
-    control plane and their Lambdas connect with the local
+    ms-naming, ms-deployment, artifact-lib and the Deployment GUI are
+    foundational to the local control plane and connect with the local
     ``password == username`` convention. The control plane has no dbaccount of
     its own -- dbaccount is per-environment, matching the cloud -- so this
     deterministic psql path is the *only* mechanism that creates them. Waits

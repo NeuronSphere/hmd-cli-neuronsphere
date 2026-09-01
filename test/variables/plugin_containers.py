@@ -84,7 +84,14 @@ HIVE_METASTORE_INIT_CONTAINERS = []
 # --- Extend Mode (admin control plane) ---
 # ms-deployment and ms-naming run as Lambda functions in Floci, not as Docker containers.
 # They are verified via HTTP response, not container status.
-EXTEND_ADMIN_RUNNING_CONTAINERS = ["hmd_proxy", "hmd_db", "floci"]
+EXTEND_ADMIN_RUNNING_CONTAINERS = [
+    "hmd_proxy",
+    "hmd_db",
+    "floci",
+    # The Deployment GUI runs beside them rather than on k3s: it is the control
+    # plane's own management surface, not a platform workload.
+    "hmd_deployment_gui",
+]
 EXTEND_ADMIN_INIT_CONTAINERS = ["hmd-ms-naming_db_init", "hmd-ms-deployment_db_init"]
 EXTEND_SUBSTITUTE_CONTAINERS = ["global-graph"]
 

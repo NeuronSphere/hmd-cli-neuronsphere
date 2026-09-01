@@ -35,6 +35,7 @@ CANONICAL_HOSTNAMES = {
     "hmd_db",
     "global-graph",
     "hmd_proxy",
+    "hmd_deployment_gui",
 }
 
 
