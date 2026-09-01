@@ -2,6 +2,13 @@
 
 ## 2026-09-01
 
+- chore: Pin the Deployment GUI at 0.1.74 and ms-deployment at 0.1.848
+
+  `MS_DEPLOYMENT_VERSION` is new: the control plane fell back to the floating
+  `stable` tag on a machine with no `$HMD_REPO_HOME/hmd-ms-deployment` checkout,
+  so `up` ran whatever was published last. A checked-out working tree and
+  `HMD_MS_DEPLOYMENT_VERSION` still win — only the fallback changed.
+
 - refactor: Run the Deployment GUI as a control-plane container instead of a k3s workload
 
   `hmd-app-neuronsphere` was in the local BOM, so every `up` deployed it through
@@ -17,6 +24,12 @@
   `psql`, like `hmd_ms_naming` and `hmd_ms_deployment`). `hmd_proxy` serves it at
   the same `http://localhost:19003/` as before, now proxying straight to the
   container — no Ingress, so no Host rewrite or `proxy_redirect` pair.
+
+  Nothing of `hmd-app-neuronsphere` is bundled into this CLI any more: its
+  `pre_build_artifacts` entry is dropped, since the container runs from the app's
+  published image rather than from its Helm chart. The version is a pin
+  (`environments.GUI_IMAGE_VERSION`), still overridable with
+  `HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE`.
 
   `bom_seeder.gui_bom` and both of its BOM appends are gone;
   `HMD_LOCAL_NEURONSPHERE_ENABLE_GUI=false` still opts out, now via a compose

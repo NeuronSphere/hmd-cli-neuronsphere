@@ -133,9 +133,10 @@ services:
   deployment-gui:
     container_name: hmd_deployment_gui
     profiles: ["deployment-gui"]
-    # Resolved by environments._deployment_gui_image(): a locally built image
-    # wins, else the app's own published registry. The default here only applies
-    # when compose is driven by hand.
+    # Always set by environments.export_control_plane_compose_env(), which pins
+    # the version (environments.GUI_IMAGE_VERSION) and prefers a locally built
+    # image over the published one. The default here only applies when compose is
+    # driven by hand.
     image: ${HMD_DEPLOYMENT_GUI_IMAGE:-ghcr.io/hmdlabs/hmd-app-neuronsphere:stable}
     restart: unless-stopped
     # No host port: reached at http://localhost:19003/ through hmd_proxy's

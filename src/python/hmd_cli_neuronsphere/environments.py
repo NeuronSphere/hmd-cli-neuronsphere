@@ -89,40 +89,44 @@ def control_plane_compose_files(local_loader: LocalPluginLoader) -> List[str]:
 GUI_PUBLISHED_REGISTRY = "ghcr.io/hmdlabs"
 GUI_REPO_CLASS = "hmd-app-neuronsphere"
 
+# Which version of the GUI this CLI ships against. A plain pin, because the app is
+# no longer a `pre_build_artifacts` entry: nothing of it is bundled here now that
+# it runs from its published image instead of its Helm chart. Bump it the way the
+# artifact pins in `meta-data/manifest.json` are bumped.
+GUI_IMAGE_VERSION = "0.1.74"
+
 # Compose profile guarding the `deployment-gui` service in
 # services/docker-compose.control-plane.yml.
 GUI_COMPOSE_PROFILE = "deployment-gui"
 
+# Which version of ms-deployment the control plane runs when nothing else says.
+# A checked-out `$HMD_REPO_HOME/hmd-ms-deployment` still wins, and
+# `HMD_MS_DEPLOYMENT_VERSION` wins over both -- this only replaces the `stable`
+# floating tag a machine without the repo used to fall back to, so `up` there
+# gets a version this CLI was actually tested against.
+MS_DEPLOYMENT_VERSION = "0.1.848"
 
-def deployment_gui_image() -> Optional[str]:
+
+def deployment_gui_image() -> str:
     """The image ref the control-plane compose file runs the Deployment GUI from.
 
-    Version resolution is `bom_seeder.resolve_repo_version`, so the pinned
-    artifact bundled with this package wins by default and a developer can point
-    at their working tree with ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE=local``.
+    Version resolution is `bom_seeder.resolve_repo_version` with
+    :data:`GUI_IMAGE_VERSION` as the declared version, so the pin above is the
+    default while a developer can still override it -- with
+    ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE=<version>``, or ``=local`` to take
+    their working tree's ``meta-data/VERSION``.
 
     A locally cached image wins over a published one -- the same rule
     `image_cache.ensure_lambda_image` applies to every Lambda -- so `hmd build` in
     the app repo is enough to iterate on the GUI. Nothing cached falls through to
     the published ref, which compose then pulls.
-
-    :returns: the ref, or None when the version could only be guessed. The
-        ``default`` tier is the ``0.1.0`` sentinel, and a sentinel version names
-        an image that was never published -- so the caller is better off leaving
-        the compose file's own ``:stable`` default in place.
     """
     from .bom_seeder import resolve_repo_version
     from .image_cache import image_cached, image_candidates
 
-    resolution = resolve_repo_version(GUI_REPO_CLASS)
-    if resolution.source == "default":
-        logger.warning(
-            f"No version resolved for {GUI_REPO_CLASS} (no bundled artifact); "
-            f"leaving the Deployment GUI on the compose file's default image"
-        )
-        return None
-
-    version = resolution.version
+    version = resolve_repo_version(
+        GUI_REPO_CLASS, bom_version=GUI_IMAGE_VERSION
+    ).version
     published = f"{GUI_PUBLISHED_REGISTRY}/{GUI_REPO_CLASS}:{version}"
 
     for ref in image_candidates(GUI_REPO_CLASS, version) + [published]:
@@ -151,14 +155,11 @@ def export_control_plane_compose_env() -> None:
 
     os.environ["COMPOSE_PROFILES"] = GUI_COMPOSE_PROFILE
     try:
-        image = deployment_gui_image()
+        os.environ["HMD_DEPLOYMENT_GUI_IMAGE"] = deployment_gui_image()
     except Exception as e:
         # Falling through leaves the compose file's own default in play, which is
         # the published `:stable` tag -- degraded, but not a reason to fail `up`.
         logger.warning(f"Could not resolve the Deployment GUI image: {e}")
-        image = None
-    if image:
-        os.environ["HMD_DEPLOYMENT_GUI_IMAGE"] = image
 
 
 def _graph_enabled() -> bool:

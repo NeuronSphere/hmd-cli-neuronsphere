@@ -143,15 +143,26 @@ Knobs:
      - Do not start the GUI at all.
    * - ``HMD_LOCAL_GUI_HOST_PORT``
      - Serve it on a different host port (default ``19003``).
-   * - ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE=local``
-     - Use your working tree's ``meta-data/VERSION``, so a local ``hmd build`` in
+   * - ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE``
+     - Run a different version than the one this CLI pins
+       (``environments.GUI_IMAGE_VERSION``). Set it to ``local`` to take your
+       working tree's ``meta-data/VERSION``, so a local ``hmd build`` in
        ``hmd-app-neuronsphere`` is what runs.
    * - ``HMD_LOCAL_GUI_SUPERUSER`` / ``..._PASSWORD`` / ``..._EMAIL``
      - Override the local superuser the container creates.
 
-The image is resolved the same way every other bundled image is: a locally built
-``hmd-app-neuronsphere:<version>`` wins, otherwise the published
-``ghcr.io/hmdlabs/hmd-app-neuronsphere:<version>`` is pulled.
+Nothing of ``hmd-app-neuronsphere`` is bundled into this CLI -- it is not a
+``pre_build_artifacts`` entry, because the container runs from the app's
+published image rather than from its Helm chart. The version is a pin in
+``environments.GUI_IMAGE_VERSION``, and the image is resolved the same way every
+other NeuronSphere image is: a locally built ``hmd-app-neuronsphere:<version>``
+wins, otherwise ``ghcr.io/hmdlabs/hmd-app-neuronsphere:<version>`` is pulled.
+
+``environments.MS_DEPLOYMENT_VERSION`` pins ms-deployment the same way, as the
+fallback when neither ``HMD_MS_DEPLOYMENT_VERSION`` nor a checked-out
+``$HMD_REPO_HOME/hmd-ms-deployment`` says otherwise — so a machine without the
+repo runs a version this CLI was tested against rather than the floating
+``stable`` tag.
 
 
 Local core vs optional plugins

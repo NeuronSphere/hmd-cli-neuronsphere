@@ -26,10 +26,6 @@
       [
         "hmd-inf-s3bucket@0.1.13:build",
         "src/python/hmd_cli_neuronsphere/external/s3bucket"
-      ],
-      [
-        "hmd-app-neuronsphere@0.1.73:build",
-        "src/python/hmd_cli_neuronsphere/external/deployment-gui"
       ]
     ],
     "commands": [

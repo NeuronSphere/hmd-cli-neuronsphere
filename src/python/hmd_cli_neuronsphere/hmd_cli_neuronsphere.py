@@ -231,8 +231,12 @@ def _wait_for_ms_deployment(base_url: str, timeout: int = 180):
     logger.warning(f"Service at {env_url} not ready after {timeout}s")
 
 
-def _read_repo_version(repo_home: str, repo_name: str) -> str:
-    """Read VERSION from a repo's meta-data, falling back to 'stable'."""
+def _read_repo_version(repo_home: str, repo_name: str, default: str = "stable") -> str:
+    """Read VERSION from a repo's meta-data, falling back to ``default``.
+
+    ``default`` is the floating ``stable`` tag unless the caller ships a pin for
+    the repo, which is a version this CLI was actually tested against.
+    """
     if repo_home:
         version_path = os.path.join(repo_home, repo_name, "meta-data", "VERSION")
         try:
@@ -240,7 +244,7 @@ def _read_repo_version(repo_home: str, repo_name: str) -> str:
                 return f.read().strip()
         except FileNotFoundError:
             pass
-    return "stable"
+    return default
 
 
 def _load_entry_point(name: str, group: str):
@@ -725,12 +729,15 @@ def _deploy_ms_deployment_lambda(api_id: str) -> str:
     Used by both Platform and Extend modes so ms-deployment is the single
     source of truth for "what's deployed locally".
     """
+    from .environments import MS_DEPLOYMENT_VERSION
     from .floci_deployer import resolve_image_uri, setup_service
 
     repo_home = os.environ.get("HMD_REPO_HOME", "")
     deployment_version = os.environ.get(
         "HMD_MS_DEPLOYMENT_VERSION",
-        _read_repo_version(repo_home, "hmd-ms-deployment"),
+        _read_repo_version(
+            repo_home, "hmd-ms-deployment", default=MS_DEPLOYMENT_VERSION
+        ),
     )
 
     image_uri = resolve_image_uri("hmd-ms-deployment", deployment_version)

@@ -29,6 +29,7 @@ Run directly: ``python -m pytest src/python/tests/test_environments_lifecycle.py
 """
 
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -316,39 +317,93 @@ class ControlPlaneComposeEnvTests(unittest.TestCase):
         self.assertNotIn("HMD_DEPLOYMENT_GUI_IMAGE", os.environ)
 
 
+class MsDeploymentVersionTests(unittest.TestCase):
+    """The control plane's ms-deployment version, most specific source first."""
+
+    def setUp(self):
+        self._env = mock.patch.dict(os.environ, {}, clear=False)
+        self._env.start()
+        for var in ("HMD_MS_DEPLOYMENT_VERSION", "HMD_REPO_HOME"):
+            os.environ.pop(var, None)
+
+    def tearDown(self):
+        self._env.stop()
+
+    def test_no_repo_checkout_falls_back_to_the_pin(self):
+        """Previously the floating `stable` tag, which is whatever was published
+        last rather than a version this CLI was tested against."""
+        from hmd_cli_neuronsphere import hmd_cli_neuronsphere as cli
+
+        self.assertEqual(
+            cli._read_repo_version(
+                "", "hmd-ms-deployment", default=envs.MS_DEPLOYMENT_VERSION
+            ),
+            envs.MS_DEPLOYMENT_VERSION,
+        )
+
+    def test_the_pin_is_not_the_floating_tag(self):
+        self.assertNotEqual(envs.MS_DEPLOYMENT_VERSION, "stable")
+
+    def test_a_checked_out_repo_still_wins(self):
+        """Local iteration is the point of HMD_REPO_HOME; the pin must not
+        shadow a developer's working tree."""
+        from hmd_cli_neuronsphere import hmd_cli_neuronsphere as cli
+
+        with tempfile.TemporaryDirectory() as home:
+            meta = Path(home) / "hmd-ms-deployment" / "meta-data"
+            meta.mkdir(parents=True)
+            (meta / "VERSION").write_text("9.9\n")
+            self.assertEqual(
+                cli._read_repo_version(
+                    home, "hmd-ms-deployment", default=envs.MS_DEPLOYMENT_VERSION
+                ),
+                "9.9",
+            )
+
+    def test_other_callers_keep_the_stable_default(self):
+        """ms-naming has no pin, so its fallback must not change."""
+        from hmd_cli_neuronsphere import hmd_cli_neuronsphere as cli
+
+        self.assertEqual(cli._read_repo_version("", "hmd-ms-naming"), "stable")
+
+
 class DeploymentGuiImageTests(unittest.TestCase):
     """A locally built image wins over a published one, the same rule every
     Lambda image follows."""
 
-    def _resolve(self, cached, source="bundled"):
+    def _resolve(self, cached):
         with mock.patch(
-            "hmd_cli_neuronsphere.bom_seeder.resolve_repo_version"
-        ) as version, mock.patch(
-            "hmd_cli_neuronsphere.image_cache.image_candidates",
-            return_value=["hmd-app-neuronsphere:0.1.73"],
-        ), mock.patch(
             "hmd_cli_neuronsphere.image_cache.image_cached",
             side_effect=lambda ref: ref in cached,
         ):
-            version.return_value = mock.Mock(version="0.1.73", source=source)
             return envs.deployment_gui_image()
 
+    VERSION = envs.GUI_IMAGE_VERSION
+
     def test_a_cached_local_build_wins(self):
-        self.assertEqual(
-            self._resolve({"hmd-app-neuronsphere:0.1.73"}),
-            "hmd-app-neuronsphere:0.1.73",
-        )
+        bare = f"hmd-app-neuronsphere:{self.VERSION}"
+        self.assertEqual(self._resolve({bare}), bare)
 
     def test_nothing_cached_falls_through_to_the_published_ref(self):
         """ghcr.io/hmdlabs is the app's own registry -- its manifest's
         image.repository -- and is not one of image_candidates' prefixes."""
         self.assertEqual(
             self._resolve(set()),
-            "ghcr.io/hmdlabs/hmd-app-neuronsphere:0.1.73",
+            f"ghcr.io/hmdlabs/hmd-app-neuronsphere:{self.VERSION}",
         )
 
-    def test_a_guessed_version_yields_no_ref(self):
-        """The `default` tier is the 0.1.0 sentinel; a ref built from it names an
-        image that was never published, so the compose file's own `:stable`
-        default is the better answer."""
-        self.assertIsNone(self._resolve(set(), source="default"))
+    def test_the_version_comes_from_the_pin_not_a_bundled_artifact(self):
+        """The app is no longer a pre_build_artifacts entry, so there is no
+        `external/` VERSION to read -- the resolver must not fall through to the
+        0.1.0 sentinel, which names an image that was never published."""
+        self.assertNotEqual(self.VERSION, "0.1.0")
+        self.assertIn(self.VERSION, self._resolve(set()))
+
+    def test_an_explicit_pin_overrides_the_shipped_version(self):
+        with mock.patch.dict(
+            os.environ, {"HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE": "0.1.99"}
+        ):
+            self.assertEqual(
+                self._resolve(set()),
+                "ghcr.io/hmdlabs/hmd-app-neuronsphere:0.1.99",
+            )
