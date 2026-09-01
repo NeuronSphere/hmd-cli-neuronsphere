@@ -99,6 +99,20 @@ GUI_IMAGE_VERSION = "0.1.74"
 # services/docker-compose.control-plane.yml.
 GUI_COMPOSE_PROFILE = "deployment-gui"
 
+# The `deployment-gui` service's container_name, which the MCP key bootstrap
+# execs into. `nginx_router.GUI_UPSTREAM` spells the same name with its port.
+GUI_CONTAINER = "hmd_deployment_gui"
+
+# `--name` for the MCP API key `up` mints. The management command's
+# `--if-not-exists` keys off this name, so it is also what makes a second `up` a
+# no-op instead of a rotation.
+MCP_KEY_NAME = "local dev"
+
+# Prefix every platform MCP key carries (`deployments.models.MCPApiKey.PREFIX`).
+# The key is printed once and never stored in the clear, so this is how it gets
+# picked out of the management command's stdout.
+MCP_KEY_PREFIX = "nsmcp_"
+
 # Which version of ms-deployment the control plane runs when nothing else says.
 # A checked-out `$HMD_REPO_HOME/hmd-ms-deployment` still wins, and
 # `HMD_MS_DEPLOYMENT_VERSION` wins over both -- this only replaces the `stable`
@@ -374,6 +388,7 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
         reg.control_plane.bootstrapped = True
         env_registry.save(reg)
 
+    ensure_mcp_api_key()
     _print_gui_url()
 
     return ms_deployment_available
@@ -662,6 +677,144 @@ def start_environment(
         logger.warning(f"Ingress host route setup skipped (non-fatal): {e}")
 
     return ok
+
+
+def _gui_health(timeout: int = 120) -> Optional[Dict]:
+    """Poll the Deployment GUI's ``/health/`` until it answers, and return it.
+
+    A 200 here is a stronger signal than the container's healthcheck (whose
+    ``interval`` is 30s) or ``_wait_for_service`` (which accepts any non-5xx and
+    throws the body away): the container's own command loops
+    ``until python manage.py migrate --noinput``, so gunicorn serving at all
+    means the schema is applied. The body then says whether the MCP server came
+    up, which is what decides whether minting a key makes sense.
+
+    Returns ``None`` on timeout rather than raising -- nothing here is worth
+    failing `up` over.
+    """
+    import time
+
+    import requests
+
+    from .bom_seeder import gui_port
+
+    url = f"http://localhost:{gui_port()}/health/"
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                return resp.json()
+        except (requests.RequestException, ValueError):
+            pass
+        time.sleep(3)
+    logger.warning(f"Deployment GUI health at {url} not ready after {timeout}s")
+    return None
+
+
+def _docker_exec(container: str, args: List[str]):
+    """Run a command inside a container; ``None`` when docker itself is unavailable."""
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["docker", "exec", container, *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not exec in {container}: {e}")
+        return None
+
+
+def ensure_mcp_api_key() -> None:
+    """Mint the local MCP bearer token once, and print it.
+
+    The control plane runs the GUI with ``MCP_API_KEYS_ENABLED`` because Okta is
+    not emulated locally, but nothing ever created a credential -- so ``/mcp/``
+    answered 401 for every caller. This closes that gap at the one moment the
+    plaintext exists: ``MCPApiKey`` stores only a SHA-256, so a key is readable
+    exactly once, here.
+
+    Idempotent by way of the management command's ``--if-not-exists``, which
+    keys off ``MCP_KEY_NAME``: a second ``up`` prints nothing and leaves an
+    already-configured client working.
+    """
+    from .bom_seeder import gui_enabled
+
+    try:
+        if not gui_enabled():
+            return
+
+        health = _gui_health()
+        if not health:
+            return
+        if not (health.get("mcp") or {}).get("enabled"):
+            # HMD_LOCAL_GUI_MCP_ENABLED=false, or a GUI image predating /mcp.
+            logger.info(
+                "MCP server is not enabled on the Deployment GUI; no key minted"
+            )
+            return
+
+        # The same default the compose file gives DJANGO_SUPERUSER_USERNAME, so
+        # overriding the superuser does not mint against a nonexistent account.
+        user = os.environ.get("HMD_LOCAL_GUI_SUPERUSER", "testadmin")
+        result = _docker_exec(
+            GUI_CONTAINER,
+            [
+                "python",
+                "manage.py",
+                "create_mcp_api_key",
+                "--user",
+                user,
+                "--name",
+                MCP_KEY_NAME,
+                "--if-not-exists",
+            ],
+        )
+        if result is None or result.returncode != 0:
+            detail = (result.stderr or "").strip() if result else "docker unavailable"
+            logger.warning(f"Could not mint an MCP API key: {detail}")
+            return
+
+        key = next(
+            (
+                line.strip()
+                for line in (result.stdout or "").splitlines()
+                if line.strip().startswith(MCP_KEY_PREFIX)
+            ),
+            None,
+        )
+        if key is None:
+            # `--if-not-exists` found one; it was printed by the `up` that minted it.
+            logger.info(f"An MCP API key named '{MCP_KEY_NAME}' already exists")
+            return
+
+        _print_mcp_api_key(user, key)
+    except Exception as e:
+        # No key means MCP clients get a 401 -- a worse local stack, but not a
+        # reason to fail `up`.
+        logger.warning(f"MCP API key bootstrap skipped (non-fatal): {e}")
+
+
+def _print_mcp_api_key(user: str, key: str) -> None:
+    """Show the freshly minted key, once.
+
+    Padded and unindented rather than a ``print_step`` line: this is the only
+    time the plaintext exists, so it must not read as one more status line.
+    """
+    from .bom_seeder import gui_port
+
+    print(
+        "\n"
+        f"  MCP API key minted for {user} (shown once -- store it now):\n"
+        "\n"
+        f"      {key}\n"
+        "\n"
+        f"  Point an MCP client at http://localhost:{gui_port()}/mcp/ -- note the\n"
+        "  trailing slash -- sending 'Authorization: Bearer <key>'.\n"
+    )
 
 
 def _print_gui_url() -> None:
@@ -1296,7 +1449,12 @@ def environment_status(env: LocalEnvironment) -> Dict:
             "floci": f"http://localhost:{env.floci_port}",
             "trino": f"localhost:{env.trino_port}",
             **(
-                {"deployment_gui": f"http://localhost:{gui_port()}"}
+                {
+                    "deployment_gui": f"http://localhost:{gui_port()}",
+                    # The key itself is unrecoverable -- only its hash is stored --
+                    # so this surfaces the endpoint alone.
+                    "deployment_gui_mcp": f"http://localhost:{gui_port()}/mcp/",
+                }
                 if gui_enabled()
                 else {}
             ),

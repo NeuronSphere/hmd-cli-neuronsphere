@@ -126,10 +126,53 @@ External Secrets.
 Open it at **http://localhost:19003/** and sign in as ``testadmin`` /
 ``testpassword`` (Okta is real SaaS identity that Floci does not emulate, so the
 container creates a local superuser instead). ``hmd neuronsphere status`` prints
-the same URL. The MCP server is mounted at ``/mcp`` on the same port.
+the same URL.
 
 ``hmd_proxy`` publishes that port already, so nothing needs an ``/etc/hosts``
 entry and the proxy proxies straight to the container.
+
+MCP server
+^^^^^^^^^^
+
+The GUI also serves a read-only `Model Context Protocol
+<https://modelcontextprotocol.io>`_ endpoint over Streamable HTTP, so an AI agent
+can query deployment state through the same tools the GUI reads. It is mounted
+beside Django rather than behind it, at **http://localhost:19003/mcp/** -- the
+trailing slash matters. Without it the mount misses and Django answers a plain
+404, which looks nothing like an authentication problem.
+
+Okta is not emulated locally, so the endpoint's credential is a platform API key:
+a bearer token bound to a Django user, which authorizes as that user. ``up``
+mints one for the local superuser the first time it finds none, and prints it::
+
+    MCP API key minted for testadmin (shown once -- store it now):
+
+        nsmcp_...
+
+Only the SHA-256 hash of a key is stored, so that print is the one and only time
+the token exists in the clear. Later ``up`` runs are a no-op -- they neither
+reprint nor rotate it -- so a client configured once keeps working.
+
+Send it as an ``Authorization`` header::
+
+    curl -X POST http://localhost:19003/mcp/ \
+      -H "Authorization: Bearer nsmcp_..." \
+      -H "Accept: application/json, text/event-stream" \
+      -H "Content-Type: application/json" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+``GET /health/`` needs no credential and reports whether the MCP server came up
+and which tools it registered -- the quickest way to tell a server that is down
+from a token that is wrong.
+
+If the key is lost, mint a replacement under a *different* name (``up`` skips
+minting when a key of its own name already exists)::
+
+    docker exec hmd_deployment_gui python manage.py create_mcp_api_key \
+        --user testadmin --name "second key"
+
+Revoke a key by clearing its ``is_active`` flag in the Django admin; the
+plaintext can never be recovered from there.
 
 Knobs:
 
@@ -150,6 +193,8 @@ Knobs:
        ``hmd-app-neuronsphere`` is what runs.
    * - ``HMD_LOCAL_GUI_SUPERUSER`` / ``..._PASSWORD`` / ``..._EMAIL``
      - Override the local superuser the container creates.
+   * - ``HMD_LOCAL_GUI_MCP_ENABLED=false``
+     - Do not serve the MCP endpoint, and mint no API key for it.
 
 Nothing of ``hmd-app-neuronsphere`` is bundled into this CLI -- it is not a
 ``pre_build_artifacts`` entry, because the container runs from the app's

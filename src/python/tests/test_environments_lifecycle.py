@@ -28,7 +28,10 @@ only honest answer.
 Run directly: ``python -m pytest src/python/tests/test_environments_lifecycle.py``
 """
 
+import contextlib
+import io
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -275,6 +278,17 @@ class DeploymentGuiComposeTests(unittest.TestCase):
         names = [db["db_name"] for db in floci_deployer.CORE_DATABASES]
         self.assertIn(b.GUI_DB_NAME, names)
 
+    def test_the_mcp_server_can_be_switched_off_by_the_operator(self):
+        """The knob the key bootstrap reads back out of /health/, so one variable
+        turns off both the server and the minting step."""
+        self.assertEqual(
+            self._service()["environment"]["MCP_ENABLED"],
+            "${HMD_LOCAL_GUI_MCP_ENABLED:-true}",
+        )
+
+    def test_api_key_auth_is_on_because_okta_is_not_emulated(self):
+        self.assertEqual(self._service()["environment"]["MCP_API_KEYS_ENABLED"], "true")
+
 
 class ControlPlaneComposeEnvTests(unittest.TestCase):
     def setUp(self):
@@ -407,3 +421,128 @@ class DeploymentGuiImageTests(unittest.TestCase):
                 self._resolve(set()),
                 "ghcr.io/hmdlabs/hmd-app-neuronsphere:0.1.99",
             )
+
+
+class McpApiKeyTests(unittest.TestCase):
+    """`up` mints the MCP bearer token once and prints it.
+
+    The control plane has always run the GUI with ``MCP_API_KEYS_ENABLED`` --
+    Okta is not emulated locally -- but nothing created a credential, so ``/mcp/``
+    answered 401 to every caller and the only way in was a hand-run management
+    command. ``MCPApiKey`` stores a SHA-256 and nothing else, so the plaintext
+    exists for exactly one moment; these tests pin that it is printed then, that a
+    second ``up`` is a no-op rather than a rotation, and that every failure mode
+    is survivable, since no MCP key is worth failing `up` over.
+    """
+
+    KEY = "nsmcp_" + "x" * 43
+
+    MINTED = (
+        "Created MCP API key 'local dev' for testadmin.\n"
+        "\n"
+        f"{KEY}\n"
+        "\n"
+        "This is the only time the key is shown. Store it now.\n"
+    )
+
+    EXISTS = (
+        "An active key named 'local dev' already exists for testadmin; "
+        "leaving it alone.\n"
+    )
+
+    HEALTHY = {"status": "healthy", "mcp": {"enabled": True, "tools": 5}}
+
+    @staticmethod
+    def _completed(returncode=0, stdout="", stderr=""):
+        return subprocess.CompletedProcess(
+            args=["docker"], returncode=returncode, stdout=stdout, stderr=stderr
+        )
+
+    #: Distinguishes "caller said nothing" from "/health/ never answered".
+    _DEFAULT = object()
+
+    def _run(self, health=_DEFAULT, result=None, gui=True):
+        """Drive `ensure_mcp_api_key` over stubbed docker/HTTP, capturing stdout."""
+        health = self.HEALTHY if health is self._DEFAULT else health
+        out = io.StringIO()
+        with mock.patch.object(b, "gui_enabled", return_value=gui), mock.patch.object(
+            envs, "_gui_health", return_value=health
+        ) as health_mock, mock.patch.object(
+            envs, "_docker_exec", return_value=result
+        ) as exec_mock, contextlib.redirect_stdout(
+            out
+        ):
+            envs.ensure_mcp_api_key()
+        return out.getvalue(), exec_mock, health_mock
+
+    def test_a_minted_key_is_printed_with_the_endpoint(self):
+        printed, _, _ = self._run(result=self._completed(stdout=self.MINTED))
+        self.assertIn(self.KEY, printed)
+        # The trailing slash is the whole difference between a 401 you can fix
+        # and Django's 404 from the Mount("/") fallback.
+        self.assertIn("http://localhost:19003/mcp/", printed)
+
+    def test_the_command_is_idempotent_and_names_the_superuser(self):
+        _, exec_mock, _ = self._run(result=self._completed(stdout=self.MINTED))
+        container, argv = exec_mock.call_args.args
+        self.assertEqual(container, envs.GUI_CONTAINER)
+        self.assertIn("create_mcp_api_key", argv)
+        self.assertIn("--if-not-exists", argv)
+        self.assertEqual(argv[argv.index("--user") + 1], "testadmin")
+        self.assertEqual(argv[argv.index("--name") + 1], envs.MCP_KEY_NAME)
+
+    def test_an_overridden_superuser_is_the_one_the_key_is_issued_to(self):
+        """Otherwise `up` would mint against an account that does not exist."""
+        with mock.patch.dict(os.environ, {"HMD_LOCAL_GUI_SUPERUSER": "alice"}):
+            _, exec_mock, _ = self._run(result=self._completed(stdout=self.MINTED))
+        argv = exec_mock.call_args.args[1]
+        self.assertEqual(argv[argv.index("--user") + 1], "alice")
+
+    def test_a_second_up_prints_nothing_and_rotates_nothing(self):
+        printed, _, _ = self._run(result=self._completed(stdout=self.EXISTS))
+        self.assertEqual(printed, "")
+
+    def test_an_image_without_the_command_does_not_fail_up(self):
+        printed, _, _ = self._run(
+            result=self._completed(returncode=1, stderr="Unknown command")
+        )
+        self.assertEqual(printed, "")
+
+    def test_docker_being_unavailable_does_not_fail_up(self):
+        printed, _, _ = self._run(result=None)
+        self.assertEqual(printed, "")
+
+    def test_a_gui_that_never_becomes_ready_is_not_exec_into(self):
+        printed, exec_mock, _ = self._run(health=None)
+        self.assertEqual(printed, "")
+        exec_mock.assert_not_called()
+
+    def test_no_key_is_minted_when_the_mcp_server_is_switched_off(self):
+        printed, exec_mock, _ = self._run(health={"mcp": {"enabled": False}})
+        self.assertEqual(printed, "")
+        exec_mock.assert_not_called()
+
+    def test_a_disabled_gui_is_not_probed_at_all(self):
+        printed, exec_mock, health_mock = self._run(gui=False)
+        self.assertEqual(printed, "")
+        exec_mock.assert_not_called()
+        health_mock.assert_not_called()
+
+
+class DeploymentGuiRouteTests(unittest.TestCase):
+    def test_env_status_reports_the_mcp_endpoint(self):
+        """`hmd neuronsphere env status` is where an operator looks for the URL;
+        the key itself is unrecoverable, so only the endpoint can be surfaced."""
+        env = mock.MagicMock()
+        env.slug = "local"
+        env.floci_port = 6500
+        env.trino_port = 6502
+        env.bootstrap = {}
+        with mock.patch.object(b, "gui_enabled", return_value=True), mock.patch(
+            "subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                args=["docker"], returncode=1, stdout="", stderr=""
+            ),
+        ):
+            routes = envs.environment_status(env)["routes"]
+        self.assertEqual(routes["deployment_gui_mcp"], "http://localhost:19003/mcp/")

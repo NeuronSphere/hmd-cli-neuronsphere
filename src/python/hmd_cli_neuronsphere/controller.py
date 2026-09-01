@@ -1276,5 +1276,7 @@ class EnvController(Controller):
             print(f"      {role:<7} {c['name']:<28} {state}")
         print("\n    Routes")
         for label, url in info["routes"].items():
-            print(f"      {label:<9} {url}")
+            # Widened for `deployment_gui_mcp`; a fixed 9 left the two GUI rows
+            # hanging off the column the others line up in.
+            print(f"      {label:<18} {url}")
         print()

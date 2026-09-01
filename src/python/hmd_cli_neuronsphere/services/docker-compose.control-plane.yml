@@ -177,7 +177,7 @@ services:
       # MCP server, mounted at /mcp by deployment_gui/asgi.py. It sits beside
       # Django rather than behind it, so it does its own Host/Origin checks.
       # Platform API keys are the local credential path; Okta is not emulated.
-      MCP_ENABLED: "true"
+      MCP_ENABLED: ${HMD_LOCAL_GUI_MCP_ENABLED:-true}
       MCP_API_KEYS_ENABLED: "true"
       MCP_FEDERATION_ENABLED: "false"
       MCP_ALLOWED_HOSTS: localhost,127.0.0.1,hmd_deployment_gui

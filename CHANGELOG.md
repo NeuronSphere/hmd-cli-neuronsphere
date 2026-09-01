@@ -2,6 +2,34 @@
 
 ## 2026-09-01
 
+- feat: Mint and print an MCP API key when the control plane starts
+
+  The Deployment GUI serves a read-only MCP endpoint at `/mcp/`, and the control
+  plane already ran it with `MCP_API_KEYS_ENABLED` -- Okta is not emulated
+  locally, so a platform API key is the only credential it accepts. Nothing ever
+  created one. `up` therefore brought up an MCP server that answered 401 to every
+  caller, and the only way in was knowing to run a management command inside the
+  container by hand.
+
+  `environments.ensure_mcp_api_key` now runs at the end of `ensure_control_plane`,
+  just before the GUI URL is printed. It waits for the GUI's `/health/` to answer
+  200 -- a stronger signal than the container's healthcheck, whose interval is
+  30s, and the point at which the container's `until migrate` loop has finished --
+  reads back whether MCP came up at all, and execs
+  `create_mcp_api_key --if-not-exists` for the local superuser. Only the SHA-256
+  of a key is stored, so the plaintext exists for exactly one moment; it is
+  printed there, padded and unindented so it does not read as one more status
+  line.
+
+  `--if-not-exists` keys off the key's name, so a second `up` prints nothing and
+  rotates nothing, and a client configured once keeps working. Every failure mode
+  -- an unready GUI, an image predating the command, docker unavailable, MCP
+  switched off -- is a warning and never a failed `up`. `MCP_ENABLED` in the
+  compose file becomes `${HMD_LOCAL_GUI_MCP_ENABLED:-true}`, one switch for both
+  the server and the minting step, and `hmd neuronsphere env status` gains a
+  `deployment_gui_mcp` route. The key itself is deliberately not recoverable
+  there: `docs/modes.rst` documents minting a replacement under a different name.
+
 - chore: Pin the Deployment GUI at 0.1.74 and ms-deployment at 0.1.848
 
   `MS_DEPLOYMENT_VERSION` is new: the control plane fell back to the floating
