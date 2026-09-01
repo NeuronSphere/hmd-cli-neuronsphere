@@ -211,13 +211,13 @@ def ensure_lambda_image(repo_name: str, version: str) -> str:
 
     for ref in pullable:
         if _image_cached(ref, cli):
-            logger.info(f"Staging cached image {ref} as {bare} for Floci")
+            logger.debug(f"Staging cached image {ref} as {bare} for Floci")
             return bare if _tag(ref, bare, cli) else ref
 
     for ref in pullable:
-        logger.info(f"{bare} is not cached; trying to pull {ref}")
+        logger.debug(f"{bare} is not cached; trying to pull {ref}")
         if _pull(ref, cli):
-            logger.info(f"Pulled {ref}; staging it as {bare} for Floci")
+            logger.debug(f"Pulled {ref}; staging it as {bare} for Floci")
             return bare if _tag(ref, bare, cli) else ref
 
     raise ImageUnavailable(repo_name, version, candidates)

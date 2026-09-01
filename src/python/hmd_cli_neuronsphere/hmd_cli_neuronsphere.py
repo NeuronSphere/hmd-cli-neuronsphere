@@ -24,6 +24,7 @@ from cement import App, minimal_logger, shell
 from .floci_deployer import COMPOSE_PROJECT_NAME, DOCKER_NETWORK_NAME
 from .loaders import LocalPluginLoader
 from .startup_display import (
+    print_banner,
     print_header,
     print_step,
     print_startup_summary,
@@ -267,9 +268,9 @@ def _load_plugins(config_overrides: Dict[str, bool] = {}):
     local_loader = LocalPluginLoader()
     for plugin_name in local_loader.get_enabled_plugins():
         if plugin_name in plugins:
-            logger.info(f"Local plugin overriding installed: {plugin_name}")
+            logger.debug(f"Local plugin overriding installed: {plugin_name}")
         else:
-            logger.info(f"Loading local plugin: {plugin_name}")
+            logger.debug(f"Loading local plugin: {plugin_name}")
         # Local enabled plugins override installed
         plugins[plugin_name] = True
 
@@ -440,7 +441,7 @@ def _rewrite_floci_depends(compose_path: str, floci_provided: set) -> None:
     if modified:
         with open(compose_path, "w") as f:
             yaml.safe_dump(cfg, f)
-        logger.info(f"Rewrote Floci-provided depends_on in {compose_path}")
+        logger.debug(f"Rewrote Floci-provided depends_on in {compose_path}")
 
 
 def _resolve_compose_var(value: str) -> str:
@@ -527,7 +528,9 @@ def _extract_lambda_services(compose_files: list, resources: dict) -> None:
                 elif isinstance(deps, dict) and svc_name in deps:
                     deps.pop(svc_name)
 
-            logger.info(f"Extracted {svc_name} from {path} for Floci Lambda deployment")
+            logger.debug(
+                f"Extracted {svc_name} from {path} for Floci Lambda deployment"
+            )
 
         # Write updated compose (may now have only supporting services)
         if cfg["services"]:
@@ -623,6 +626,7 @@ def _deploy_hmdms_service_lambdas(
     exclude_plugins: Optional[List[str]] = None,
     target=None,
     env=None,
+    verbose: bool = False,
 ) -> List[Dict]:
     """Deploy each enabled HMDMS-service plugin as a Floci Lambda.
 
@@ -650,6 +654,7 @@ def _deploy_hmdms_service_lambdas(
         setup_service,
         build_gozer_rds_secrets,
     )
+    from .startup_display import spinner_step
 
     deployed: List[Dict] = []
     seen_function_names: set = set(skip_function_names or [])
@@ -678,47 +683,49 @@ def _deploy_hmdms_service_lambdas(
             continue
         seen_function_names.add(function_name)
 
-        repo_name = spec["repo_name"]
-        repo_version = spec["repo_version"]
-        image = resolve_image_uri(repo_name, repo_version)
-        if image is None:
-            logger.warning(
-                f"HMDMS service '{plugin_name}' image for "
-                f"{repo_name}:{repo_version} not found locally. "
-                f"Run `hmd build` in the repo and retry. Skipping Lambda deploy."
-            )
-            hint = ""
-            if plugin_name == "artifact-lib":
-                hint = (
-                    " Without it, `hmd neuronsphere push-artifact` and "
-                    "`pull-artifact` will return 'no route defined'."
+        with spinner_step(f"Deploying {plugin_name}", verbose=verbose) as step:
+            repo_name = spec["repo_name"]
+            repo_version = spec["repo_version"]
+            image = resolve_image_uri(repo_name, repo_version)
+            if image is None:
+                logger.warning(
+                    f"HMDMS service '{plugin_name}' image for "
+                    f"{repo_name}:{repo_version} not found locally. "
+                    f"Run `hmd build` in the repo and retry. Skipping Lambda deploy."
                 )
-            print(
-                f"  Warning: image for {repo_name}:{repo_version} not cached. "
-                f"Run `hmd build` in the source repo first.{hint}"
+                hint = ""
+                if plugin_name == "artifact-lib":
+                    hint = (
+                        " Without it, `hmd neuronsphere push-artifact` and "
+                        "`pull-artifact` will return 'no route defined'."
+                    )
+                step.fail(f"{plugin_name} (image not cached)")
+                print(f"  Run `hmd build` in {repo_name} and retry.{hint}")
+                continue
+
+            env_vars = dict(spec["env_vars"])
+            graph_host = env.graph_container if env is not None else "global-graph"
+            if plugin_name == "gozer":
+                env_vars["RDS_SECRETS"] = json.dumps(
+                    build_gozer_rds_secrets(local_loader)
+                )
+                env_vars["NEPTUNE_ENDPOINTS"] = json.dumps({"global-graph": graph_host})
+                env_vars.setdefault("LIBRARIAN_DYNAMO_TABLES", "{}")
+                env_vars.setdefault("S3_BUCKETS", "{}")
+                env_vars.setdefault("DYNAMO_TABLE_NAMES", "[]")
+
+            if env is not None:
+                _apply_env_overrides(env_vars, env, target)
+
+            spec["image"] = image
+            spec["env_vars"] = env_vars
+            svc_api_id = setup_service(
+                function_name, image, env_vars, api_id=api_id, target=target
             )
-            continue
-
-        env_vars = dict(spec["env_vars"])
-        graph_host = env.graph_container if env is not None else "global-graph"
-        if plugin_name == "gozer":
-            env_vars["RDS_SECRETS"] = json.dumps(build_gozer_rds_secrets(local_loader))
-            env_vars["NEPTUNE_ENDPOINTS"] = json.dumps({"global-graph": graph_host})
-            env_vars.setdefault("LIBRARIAN_DYNAMO_TABLES", "{}")
-            env_vars.setdefault("S3_BUCKETS", "{}")
-            env_vars.setdefault("DYNAMO_TABLE_NAMES", "[]")
-
-        if env is not None:
-            _apply_env_overrides(env_vars, env, target)
-
-        spec["image"] = image
-        spec["env_vars"] = env_vars
-        svc_api_id = setup_service(
-            function_name, image, env_vars, api_id=api_id, target=target
-        )
-        spec["api_id"] = svc_api_id
-        deployed.append(spec)
-        logger.info(f"Deployed HMDMS service Lambda: {function_name} ({image})")
+            spec["api_id"] = svc_api_id
+            deployed.append(spec)
+            logger.debug(f"Deployed HMDMS service Lambda: {function_name} ({image})")
+            step.ok(plugin_name)
 
     return deployed
 
@@ -823,7 +830,9 @@ def _seed_telemetry_profiles(
         logger.debug("No telemetry_profiles found in any plugin")
         return
 
-    logger.info(f"Seeding {len(profiles)} telemetry profile(s) into telemetry-debug...")
+    logger.debug(
+        f"Seeding {len(profiles)} telemetry profile(s) into telemetry-debug..."
+    )
 
     # Wait for telemetry-debug service to be ready
     base_url = "http://localhost/ms-telemetry-debug"
@@ -860,7 +869,7 @@ def _seed_telemetry_profiles(
         )
         if resp.status_code == 200:
             result = resp.json()
-            logger.info(f"Telemetry profile seeding complete: {result}")
+            logger.debug(f"Telemetry profile seeding complete: {result}")
         else:
             logger.warning(
                 f"Telemetry profile seeding failed: "
@@ -978,6 +987,8 @@ def start_neuronsphere(
     env_name: str = None,
     prune: bool = False,
 ) -> bool:
+    print_banner()
+
     # Verify the host can resolve `neuronsphere`/`neuronsphere-workload` to
     # loopback before doing anything else. Without this, presigned URLs
     # returned by in-network services would be unreachable from the host
@@ -1105,13 +1116,22 @@ def start_neuronsphere_extend(
         env = env_registry.ensure_default_env(reg)
         env_registry.save(reg)
 
-    if not ensure_control_plane(verbose=verbose, upgrade=upgrade):
+    # Shared across both calls below so plugin discovery (a filesystem scan
+    # of HMD_REPO_HOME / HMD_LOCAL_PLUGINS) runs once per `up`, not once per
+    # caller -- each constructs its own loader by default otherwise.
+    local_loader = LocalPluginLoader()
+
+    if not ensure_control_plane(
+        verbose=verbose, upgrade=upgrade, local_loader=local_loader
+    ):
         print_header("Ready (degraded)")
         print("\n  The control plane is up but ms-deployment is unavailable;")
         print("  environment bootstrap was skipped.\n")
         return False
 
-    ok = start_environment(env, verbose=verbose, upgrade=upgrade, prune=prune)
+    ok = start_environment(
+        env, verbose=verbose, upgrade=upgrade, prune=prune, local_loader=local_loader
+    )
 
     print_header("Ready" if ok else "Ready (degraded)")
     print("\n  Control plane")
@@ -1246,7 +1266,7 @@ def start_neuronsphere_platform(
                 for f in os.listdir(svc_path):
                     if f.startswith("docker-compose."):
                         stale = svc_path / f
-                        logger.info(
+                        logger.debug(
                             f"Removing stale compose file for Floci Lambda service: {stale}"
                         )
                         os.unlink(stale)
@@ -1289,7 +1309,7 @@ def start_neuronsphere_platform(
             # Converted plugins run on k3s (deployed after operators); don't also
             # start them as compose containers.
             if _k3s_charts and is_k3s_chart_plugin(plugin):
-                logger.info(f"Plugin '{plugin}' runs on k3s; skipping compose service")
+                logger.debug(f"Plugin '{plugin}' runs on k3s; skipping compose service")
                 continue
             entrypoint = _load_entry_point(plugin, COMPOSE_PLUGIN_ENTRY_POINT)
             compose_file = None
@@ -1312,7 +1332,7 @@ def start_neuronsphere_platform(
                     if use_floci:
                         _rewrite_floci_depends(str(cached), floci_provided_services)
                     compose_files.append(str(cached))
-                    logger.info(f"Added local compose file: {cached}")
+                    logger.debug(f"Added local compose file: {cached}")
 
     # Extract Lambda-deployable services from compose when Floci is enabled
     if use_floci:
@@ -1331,7 +1351,7 @@ def start_neuronsphere_platform(
         init_compose = local_loader.get_db_init_compose(plugin_name)
         if init_compose:
             db_init_services.update(init_compose)
-            logger.info(f"Generated db init container for plugin: {plugin_name}")
+            logger.debug(f"Generated db init container for plugin: {plugin_name}")
 
     if db_init_services:
         db_init_compose = {
@@ -1573,7 +1593,7 @@ def start_neuronsphere_platform(
             _wait_for_ms_deployment(ms_deployment_url)
 
     print_step("Registering services...")
-    logger.info("Upserting local services to Naming Service...")
+    logger.debug("Upserting local services to Naming Service...")
     for svc in resources.get("services", []):
         if isinstance(svc, dict):
             name = svc.get("name")
@@ -1590,7 +1610,7 @@ def start_neuronsphere_platform(
                 data={"httpEndpoint": url},
             )
 
-    logger.info("Updating database connections file...")
+    logger.debug("Updating database connections file...")
     conn_file_path = cache_dir / ".." / "connections.yml"
 
     conns = {"databases": {}}
@@ -1601,7 +1621,7 @@ def start_neuronsphere_platform(
     for db in resources.get("databases", []):
         if not isinstance(db, dict):
             continue
-        logger.info(f"Adding {db['database']}")
+        logger.debug(f"Adding {db['database']}")
         conns["databases"][db["database"]] = {"host": "hmd_db", **db}
 
     with open(conn_file_path, "w") as c:
@@ -1776,7 +1796,7 @@ def stop_neuronsphere_platform(verbose: bool = False):
         compose_path = local_loader.get_compose_path(plugin_name)
         if compose_path and str(compose_path) not in [str(f) for f in compose_files]:
             compose_files.append(str(compose_path))
-            logger.info(f"Added local plugin compose file for down: {compose_path}")
+            logger.debug(f"Added local plugin compose file for down: {compose_path}")
 
     # Best-effort: delete the k3s cluster while Floci is still up.
     try:
@@ -1812,7 +1832,7 @@ def restart_service(service_name: List[str] = None):
         compose_path = local_loader.get_compose_path(plugin_name)
         if compose_path and str(compose_path) not in [str(f) for f in compose_files]:
             compose_files.append(str(compose_path))
-            logger.info(f"Added local plugin compose file for restart: {compose_path}")
+            logger.debug(f"Added local plugin compose file for restart: {compose_path}")
 
     command = [*_get_base_command(compose_files), "up", "-d"]
 

@@ -28,7 +28,7 @@ from hmd_cli_tools.hmd_cli_tools import load_hmd_env
 from . import env_registry, nginx_router
 from .env_registry import LocalEnvironment
 from .loaders.local_plugin_loader import LocalPluginLoader
-from .startup_display import print_header, print_step
+from .startup_display import print_header, print_section, print_step, spinner_step
 from .validators.port_validator import validate_ports
 
 logger = minimal_logger("environments")
@@ -145,10 +145,10 @@ def deployment_gui_image() -> str:
 
     for ref in image_candidates(GUI_REPO_CLASS, version) + [published]:
         if image_cached(ref):
-            logger.info(f"Deployment GUI image: {ref} (cached)")
+            logger.debug(f"Deployment GUI image: {ref} (cached)")
             return ref
 
-    logger.info(f"Deployment GUI image: {published} (will be pulled)")
+    logger.debug(f"Deployment GUI image: {published} (will be pulled)")
     return published
 
 
@@ -164,7 +164,7 @@ def export_control_plane_compose_env() -> None:
 
     os.environ["HMD_LOCAL_GUI_HOST_PORT"] = str(gui_port())
     if not gui_enabled():
-        logger.info("Deployment GUI disabled by HMD_LOCAL_NEURONSPHERE_ENABLE_GUI")
+        logger.debug("Deployment GUI disabled by HMD_LOCAL_NEURONSPHERE_ENABLE_GUI")
         return
 
     os.environ["COMPOSE_PROFILES"] = GUI_COMPOSE_PROFILE
@@ -207,10 +207,19 @@ def _reload_proxy_when_ready(attempts: int = 10, delay: float = 2.0) -> bool:
     return False
 
 
-def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
+def ensure_control_plane(
+    verbose: bool = False,
+    upgrade: bool = False,
+    local_loader: Optional[LocalPluginLoader] = None,
+) -> bool:
     """Bring up (or reconcile) the control plane. Idempotent.
 
     Returns True when ms-deployment is reachable afterwards.
+
+    :param local_loader: Shared :class:`LocalPluginLoader` to discover plugins
+        with. Pass the same instance a sibling ``start_environment`` call uses
+        so plugin discovery (a filesystem scan) runs once per `up`, not once
+        per caller. A fresh one is constructed when omitted.
     """
     from .floci_deployer import (
         DOCKER_NETWORK_NAME,
@@ -235,11 +244,11 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
         update_images,
     )
 
-    print_step("Control plane")
+    print_section("Control Plane")
     target = control_plane_target()
     reg = env_registry.load()
 
-    local_loader = LocalPluginLoader()
+    local_loader = local_loader or LocalPluginLoader()
     # artifact-lib backs `hmd neuronsphere push-artifact` / `pull-artifact`, so
     # it must always be available. It is control-plane, not per-environment.
     local_loader.ensure_foundation_plugin("artifact-lib", "hmd-ms-artifact-lib")
@@ -308,21 +317,23 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
     if bootstrap_rewritten:
         _reload_proxy_when_ready()
 
-    print_step("Waiting for Floci...")
-    try:
-        wait_for_floci(target=target)
-    except RuntimeError as e:
-        logger.warning(f"{e} — skipping control-plane Lambda deployment")
-        print(f"  Warning: {e}")
-        print(
-            "  The control-plane Floci is reached through hmd_proxy's :4566 "
-            "stream, not directly. Check `docker logs hmd_proxy` and that "
-            f"`docker inspect -f '{{{{.State.Running}}}}' {target.container}` is true."
-        )
-        return False
+    with spinner_step("Waiting for Floci...", verbose=verbose) as step:
+        try:
+            wait_for_floci(target=target)
+            step.ok()
+        except RuntimeError as e:
+            step.fail()
+            logger.warning(f"{e} — skipping control-plane Lambda deployment")
+            print(
+                "  The control-plane Floci is reached through hmd_proxy's :4566 "
+                "stream, not directly. Check `docker logs hmd_proxy` and that "
+                f"`docker inspect -f '{{{{.State.Running}}}}' {target.container}` is true."
+            )
+            return False
 
-    print_step("Waiting for PostgreSQL (hmd_db)...")
-    _wait_for_hmd_db()
+    with spinner_step("Waiting for PostgreSQL (hmd_db)...", verbose=verbose) as step:
+        _wait_for_hmd_db()
+        step.ok()
 
     # The control plane has no dbaccount of its own -- dbaccount is
     # per-environment, matching the cloud -- so its databases are created
@@ -359,7 +370,11 @@ def ensure_control_plane(verbose: bool = False, upgrade: bool = False) -> bool:
 
     # artifact-lib (and any other control-plane HMDMS plugin).
     cp_deployed = _deploy_hmdms_service_lambdas(
-        None, local_loader, plugin_filter=CONTROL_PLANE_PLUGINS, target=target
+        None,
+        local_loader,
+        plugin_filter=CONTROL_PLANE_PLUGINS,
+        target=target,
+        verbose=verbose,
     )
     for spec in cp_deployed:
         service_api_ids[spec["function_name"]] = spec["api_id"]
@@ -448,6 +463,7 @@ def start_environment(
     verbose: bool = False,
     upgrade: bool = False,
     prune: bool = False,
+    local_loader: Optional[LocalPluginLoader] = None,
 ) -> bool:
     """Start (or reconcile) one named environment.
 
@@ -461,6 +477,10 @@ def start_environment(
         Off by default: a reconcile reports removals but never performs one
         unless asked, so a mistyped or half-edited manifest cannot tear down a
         running instance.
+    :param local_loader: Shared :class:`LocalPluginLoader` to discover plugins
+        with. Pass the same instance a preceding ``ensure_control_plane`` call
+        used so plugin discovery (a filesystem scan) runs once per `up`, not
+        once per caller. A fresh one is constructed when omitted.
     """
     from .floci_deployer import (
         clear_apigateway_state,
@@ -481,9 +501,9 @@ def start_environment(
         _wait_for_hmd_db,
     )
 
-    print_step(f"Environment '{env.slug}'")
+    print_section(f"Environment: {env.slug}")
     target = env_target(env)
-    local_loader = LocalPluginLoader()
+    local_loader = local_loader or LocalPluginLoader()
     # dbaccount is foundational for cloud-parity DB provisioning and is
     # per-environment, exactly as in the cloud.
     local_loader.ensure_foundation_plugin("dbaccount", "hmd-ms-dbaccount")
@@ -520,22 +540,28 @@ def start_environment(
         # must exist before it can be polled over HTTP, and the container must
         # exist before the route can point anywhere. So: wait on the container,
         # then publish the route, then verify over HTTP.
-        print_step("Waiting for environment containers...")
-        _wait_for_container_health(env.floci_container)
-        _wait_for_hmd_db(container=env.db_container)
+        with spinner_step(
+            "Waiting for environment containers...", verbose=verbose
+        ) as step:
+            _wait_for_container_health(env.floci_container)
+            _wait_for_hmd_db(container=env.db_container)
+            step.ok()
 
         nginx_router.write_env_streams(env)
         nginx_router.reload()
 
         from .floci_deployer import wait_for_floci
 
-        print_step(f"Waiting for Floci (account {env.account_id})...")
-        try:
-            wait_for_floci(target=target)
-        except RuntimeError as e:
-            logger.warning(f"{e} — environment '{env.slug}' is degraded")
-            print(f"  Warning: {e}")
-            return False
+        with spinner_step(
+            f"Waiting for Floci (account {env.account_id})...", verbose=verbose
+        ) as step:
+            try:
+                wait_for_floci(target=target)
+                step.ok()
+            except RuntimeError as e:
+                step.fail()
+                logger.warning(f"{e} — environment '{env.slug}' is degraded")
+                return False
 
         clear_apigateway_state(env.floci_data_dir)
 
@@ -570,28 +596,36 @@ def start_environment(
         "0",
         "no",
     ):
-        print_step(f"Creating k3s cluster '{env.k3s_cluster}'...")
         try:
-            ensure_k3s_cluster(env.k3s_cluster, target=target)
-            wait_for_k3s_ready(env.k3s_cluster, target=target)
-            cluster_name = env.k3s_cluster
-            kubeconfig = write_kubeconfig(
-                env.k3s_cluster, env.kubeconfig_path, target=target
-            )
-            # The default environment also writes the historical shared path so
-            # host-side kubectl and the robot suites keep working unchanged.
-            if env.is_default:
-                legacy = _hmd_home() / ".cache" / "k3s" / "kubeconfig"
-                legacy.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(kubeconfig, legacy)
-                os.environ.setdefault("KUBECONFIG", str(legacy))
-            print_step(f"  k3s ready (kubeconfig: {kubeconfig})")
+            with spinner_step(
+                f"Creating k3s cluster '{env.k3s_cluster}'...", verbose=verbose
+            ) as step:
+                ensure_k3s_cluster(env.k3s_cluster, target=target)
+                wait_for_k3s_ready(env.k3s_cluster, target=target)
+                cluster_name = env.k3s_cluster
+                kubeconfig = write_kubeconfig(
+                    env.k3s_cluster, env.kubeconfig_path, target=target
+                )
+                # The default environment also writes the historical shared path so
+                # host-side kubectl and the robot suites keep working unchanged.
+                if env.is_default:
+                    legacy = _hmd_home() / ".cache" / "k3s" / "kubeconfig"
+                    legacy.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(kubeconfig, legacy)
+                    os.environ.setdefault("KUBECONFIG", str(legacy))
+                step.ok(f"k3s cluster '{env.k3s_cluster}'")
 
-            print_step("Installing cluster operators onto k3s...")
-            from .k3s_operators import cluster_incarnation_id, provision_k3s_operators
+            with spinner_step(
+                "Installing cluster operators onto k3s...", verbose=verbose
+            ) as step:
+                from .k3s_operators import (
+                    cluster_incarnation_id,
+                    provision_k3s_operators,
+                )
 
-            provision_k3s_operators(env)
-            k3s_uid = cluster_incarnation_id(env)
+                provision_k3s_operators(env)
+                k3s_uid = cluster_incarnation_id(env)
+                step.ok()
         except Exception as e:
             logger.warning(f"k3s cluster creation failed: {e}")
             print(
@@ -602,7 +636,12 @@ def start_environment(
     # dbaccount first, so it can provision the other services' databases.
     service_api_ids: Dict[str, str] = {}
     dbaccount_deployed = _deploy_hmdms_service_lambdas(
-        None, local_loader, plugin_filter=["dbaccount"], target=target, env=env
+        None,
+        local_loader,
+        plugin_filter=["dbaccount"],
+        target=target,
+        env=env,
+        verbose=verbose,
     )
     if dbaccount_deployed:
         for spec in dbaccount_deployed:
@@ -628,6 +667,7 @@ def start_environment(
         exclude_plugins=CONTROL_PLANE_PLUGINS,
         target=target,
         env=env,
+        verbose=verbose,
     )
     hmdms_deployed = list(dbaccount_deployed) + list(hmdms_deployed)
     for spec in hmdms_deployed:
@@ -642,7 +682,13 @@ def start_environment(
     nginx_router.reload()
 
     ok = _bootstrap_environment(
-        env, hmdms_deployed, cluster_name, k3s_uid, upgrade, prune=prune
+        env,
+        hmdms_deployed,
+        cluster_name,
+        k3s_uid,
+        upgrade,
+        prune=prune,
+        verbose=verbose,
     )
 
     # Services the DAG deployed carry CDKTF-managed API Gateways that
@@ -752,7 +798,7 @@ def ensure_mcp_api_key() -> None:
             return
         if not (health.get("mcp") or {}).get("enabled"):
             # HMD_LOCAL_GUI_MCP_ENABLED=false, or a GUI image predating /mcp.
-            logger.info(
+            logger.debug(
                 "MCP server is not enabled on the Deployment GUI; no key minted"
             )
             return
@@ -788,7 +834,7 @@ def ensure_mcp_api_key() -> None:
         )
         if key is None:
             # `--if-not-exists` found one; it was printed by the `up` that minted it.
-            logger.info(f"An MCP API key named '{MCP_KEY_NAME}' already exists")
+            logger.debug(f"An MCP API key named '{MCP_KEY_NAME}' already exists")
             return
 
         _print_mcp_api_key(user, key)
@@ -905,6 +951,7 @@ def _bootstrap_environment(
     k3s_uid: Optional[str],
     upgrade: bool,
     prune: bool = False,
+    verbose: bool = False,
 ) -> bool:
     """Seed and deploy this environment's BOM, or reconcile an existing one.
 
@@ -946,7 +993,11 @@ def _bootstrap_environment(
     repo_paths = declared_repo_paths(manifest)
     bootstrapped = bool(env.bootstrap.get("csd_nid"))
     runner = LocalWorkflowRunner(
-        base_url, cluster_name=cluster_name, env=env, repo_paths=repo_paths
+        base_url,
+        cluster_name=cluster_name,
+        env=env,
+        repo_paths=repo_paths,
+        verbose=verbose,
     )
 
     if bootstrapped:
@@ -1307,14 +1358,18 @@ def create_environment(
         installed = install_manifest(env.slug, manifest_file)
         print_step(f"  manifest {installed}")
 
-    if not ensure_control_plane(verbose=verbose):
+    # Shared across both calls below so plugin discovery (a filesystem scan)
+    # runs once, not once per caller.
+    local_loader = LocalPluginLoader()
+
+    if not ensure_control_plane(verbose=verbose, local_loader=local_loader):
         print(
             "\n  Warning: control plane is not fully available; environment "
             "creation may be incomplete."
         )
 
     if deploy:
-        start_environment(env, verbose=verbose)
+        start_environment(env, verbose=verbose, local_loader=local_loader)
     else:
         print_step("--no-deploy: registered only, nothing started.")
     print_header("Ready")

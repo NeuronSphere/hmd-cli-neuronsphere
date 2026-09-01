@@ -434,7 +434,7 @@ def load() -> Registry:
     if marker is not None:
         reg.environments[DEFAULT_ENV_NAME] = _legacy_environment(marker)
         reg.control_plane.bootstrapped = True
-        logger.info("Migrated pre-multi-environment layout into the env registry.")
+        logger.debug("Migrated pre-multi-environment layout into the env registry.")
     return reg
 
 

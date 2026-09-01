@@ -227,7 +227,7 @@ def wait_for_floci(
         try:
             r = requests.get(f"{ep}/_floci/health", timeout=5)
             if r.status_code == 200:
-                logger.info(f"Floci healthy at {ep}: {r.json()}")
+                logger.debug(f"Floci healthy at {ep}: {r.json()}")
                 return
         except requests.RequestException:
             pass
@@ -339,7 +339,7 @@ def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
     inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
     if inspect.returncode == 0:
         return image
-    logger.info(f"k3s wrapper image '{image}' not cached locally; pulling...")
+    logger.debug(f"k3s wrapper image '{image}' not cached locally; pulling...")
     pull = subprocess.run(["docker", "pull", image], capture_output=True, text=True)
     if pull.returncode == 0:
         return image
@@ -380,7 +380,7 @@ def ensure_k3s_cluster(
             # (HMD_LOCAL_K3S_WRAPPER_IMAGE); keep them in sync.
             version=os.environ.get("HMD_LOCAL_K3S_VERSION", "1.34"),
         )
-        logger.info(f"Created k3s cluster: {name}")
+        logger.debug(f"Created k3s cluster: {name}")
 
     try:
         _create()
@@ -405,7 +405,7 @@ def ensure_k3s_cluster(
         # release on it, which is exactly what makes the next `up` redeploy the
         # whole BOM. Start it back up instead and keep the cluster's identity.
         if image == K3S_WRAPPER_IMAGE and not running:
-            logger.info(f"k3s cluster {name} is stopped; restarting it in place")
+            logger.debug(f"k3s cluster {name} is stopped; restarting it in place")
             if start_k3s_container(name):
                 running = True
             else:
@@ -575,7 +575,7 @@ def wait_for_k3s_ready(
             cluster = eks.describe_cluster(name=name)["cluster"]
             status = cluster.get("status")
             if status != last_status:
-                logger.info(f"k3s cluster {name} status: {status}")
+                logger.debug(f"k3s cluster {name} status: {status}")
                 last_status = status
             if status == "ACTIVE":
                 return cluster
@@ -620,7 +620,7 @@ def write_kubeconfig(
             r = requests.get(url, timeout=10)
             if r.status_code == 200 and r.text.strip().startswith("apiVersion"):
                 out_path.write_text(r.text)
-                logger.info(f"Wrote kubeconfig from {url} to {out_path}")
+                logger.debug(f"Wrote kubeconfig from {url} to {out_path}")
                 return out_path
         except requests.RequestException:
             continue
@@ -642,7 +642,7 @@ def write_kubeconfig(
                     "https://127.0.0.1:6443", f"https://localhost:{host_port}"
                 )
             out_path.write_text(kubeconfig)
-            logger.info(f"Wrote kubeconfig from k3s container to {out_path}")
+            logger.debug(f"Wrote kubeconfig from k3s container to {out_path}")
             return out_path
     except (subprocess.SubprocessError, OSError) as e:
         logger.debug(f"Failed to read kubeconfig from container: {e}")
@@ -681,7 +681,7 @@ users:
     token: floci-local
 """
     out_path.write_text(kubeconfig)
-    logger.info(f"Wrote synthesized kubeconfig to {out_path}")
+    logger.debug(f"Wrote synthesized kubeconfig to {out_path}")
     return out_path
 
 
@@ -692,7 +692,7 @@ def delete_k3s_cluster(
     eks = _get_client("eks", target)
     try:
         eks.delete_cluster(name=name)
-        logger.info(f"Deleted k3s cluster: {name}")
+        logger.debug(f"Deleted k3s cluster: {name}")
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code in ("ResourceNotFoundException", "NotFoundException"):
@@ -725,7 +725,7 @@ def stop_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> bool:
         logger.debug(f"k3s container stop skipped for {name}: {e}")
         return False
     if result.returncode == 0:
-        logger.info(f"Stopped k3s container: floci-eks-{name}")
+        logger.debug(f"Stopped k3s container: floci-eks-{name}")
         return True
     logger.debug(f"k3s container stop for {name} returned {result.returncode}")
     return False
@@ -750,7 +750,7 @@ def start_k3s_container(name: str = K3S_CLUSTER_NAME) -> bool:
         logger.debug(f"k3s container start failed for {name}: {e}")
         return False
     if result.returncode == 0:
-        logger.info(f"Started k3s container: floci-eks-{name}")
+        logger.debug(f"Started k3s container: floci-eks-{name}")
         return True
     logger.warning(f"Could not start floci-eks-{name}: {(result.stderr or '').strip()}")
     return False
@@ -823,7 +823,7 @@ def clear_apigateway_state(data_dir) -> None:
         except OSError as e:
             logger.debug(f"Could not remove stale API Gateway state {path}: {e}")
     if stale:
-        logger.info(f"Cleared {len(stale)} persisted Floci API Gateway state file(s)")
+        logger.debug(f"Cleared {len(stale)} persisted Floci API Gateway state file(s)")
 
 
 def _store_local_admin_db_secret(
@@ -900,11 +900,11 @@ def _store_local_admin_db_secret(
         secret_name = f"{secret_base}_db-secret"
         try:
             sm.create_secret(Name=secret_name, SecretString=secret_value)
-            logger.info(f"Stored local admin DB secret: {secret_name}")
+            logger.debug(f"Stored local admin DB secret: {secret_name}")
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceExistsException":
                 sm.put_secret_value(SecretId=secret_name, SecretString=secret_value)
-                logger.info(f"Updated local admin DB secret: {secret_name}")
+                logger.debug(f"Updated local admin DB secret: {secret_name}")
             else:
                 raise
 
@@ -965,7 +965,7 @@ def provision_resources(
         name = queue["name"]
         try:
             sqs.create_queue(QueueName=name)
-            logger.info(f"Created SQS queue: {name}")
+            logger.debug(f"Created SQS queue: {name}")
         except ClientError as e:
             if e.response["Error"]["Code"] == "QueueAlreadyExists":
                 logger.debug(f"SQS queue already exists: {name}")
@@ -987,7 +987,7 @@ def provision_resources(
                 Bucket=name,
                 CreateBucketConfiguration={"LocationConstraint": target.region},
             )
-            logger.info(f"Created S3 bucket: {name}")
+            logger.debug(f"Created S3 bucket: {name}")
         except ClientError as e:
             code = e.response["Error"]["Code"]
             if code in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
@@ -1095,7 +1095,7 @@ def _post_create_db_account(
                 f"returned {resp.status_code}: {resp.text}"
             )
         else:
-            logger.info(f"dbaccount provisioning for {origin}/{db_name}: {resp.text}")
+            logger.debug(f"dbaccount provisioning for {origin}/{db_name}: {resp.text}")
         return
 
 
@@ -1232,7 +1232,9 @@ def ensure_core_databases_direct(
             if c.returncode != 0:
                 logger.warning(f"Creating database {name} failed: {c.stderr.strip()}")
         _psql_c(f'GRANT ALL PRIVILEGES ON DATABASE "{name}" TO "{user}";')
-        logger.info(f"Ensured core database/user '{name}' in {container} (direct psql)")
+        logger.debug(
+            f"Ensured core database/user '{name}' in {container} (direct psql)"
+        )
 
 
 def build_gozer_rds_secrets(local_loader) -> Dict[str, List[str]]:
@@ -1339,7 +1341,7 @@ def deploy_lambda_function(
 
     try:
         resp = client.create_function(**function_config)
-        logger.info(f"Created Lambda function: {function_name}")
+        logger.debug(f"Created Lambda function: {function_name}")
         return resp["FunctionArn"]
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceConflictException":
@@ -1352,7 +1354,7 @@ def deploy_lambda_function(
                 Environment={"Variables": env_vars},
             )
             resp = client.get_function(FunctionName=function_name)
-            logger.info(f"Updated Lambda function: {function_name}")
+            logger.debug(f"Updated Lambda function: {function_name}")
             return resp["Configuration"]["FunctionArn"]
         raise
 
@@ -1397,9 +1399,9 @@ def create_api_gateway(
         if api["name"] == api_name:
             if recreate:
                 client.delete_rest_api(restApiId=api["id"])
-                logger.info(f"Deleted existing API Gateway: {api['id']}")
+                logger.debug(f"Deleted existing API Gateway: {api['id']}")
             else:
-                logger.info(f"Found existing API Gateway: {api['id']}")
+                logger.debug(f"Found existing API Gateway: {api['id']}")
                 return api["id"]
     if ghosts:
         logger.debug(
@@ -1411,7 +1413,7 @@ def create_api_gateway(
         name=api_name,
         description="NeuronSphere local API Gateway",
     )
-    logger.info(f"Created API Gateway: {resp['id']}")
+    logger.debug(f"Created API Gateway: {resp['id']}")
     return resp["id"]
 
 
@@ -1505,7 +1507,7 @@ def add_api_gateway_route(
                 uri=integration_uri,
             )
 
-    logger.info(
+    logger.debug(
         f"Added API Gateway route: /{service_name}/{{proxy+}} -> {function_name}"
     )
 
@@ -1540,7 +1542,7 @@ def deploy_api_gateway(
     invoke_url = (
         f"{target.internal_endpoint}/restapis/{api_id}/{stage_name}/_user_request_"
     )
-    logger.info(f"API Gateway deployed: {invoke_url}")
+    logger.debug(f"API Gateway deployed: {invoke_url}")
     return invoke_url
 
 
@@ -1601,7 +1603,7 @@ def prune_control_plane_strays(target: FlociTarget) -> int:
             logger.warning(f"Could not delete stray gateway {api['name']}: {e}")
             continue
         removed += 1
-        logger.info(
+        logger.debug(
             f"Removed stray control-plane API Gateway '{api['name']}' "
             f"({api['id']}) from environment account {target.name} -- left by "
             f"the `floci` DNS-alias collision"
@@ -1623,7 +1625,7 @@ def prune_control_plane_strays(target: FlociTarget) -> int:
             logger.warning(f"Could not delete stray Lambda {name}: {e}")
             continue
         removed += 1
-        logger.info(
+        logger.debug(
             f"Removed stray control-plane Lambda '{name}' from environment "
             f"account {target.name} -- left by the `floci` DNS-alias collision"
         )
@@ -1695,7 +1697,7 @@ def setup_service(
     # Add route for this service
     add_api_gateway_route(api_id, service_name, service_name, target=target)
 
-    logger.info(f"Service {service_name} routed via API Gateway {api_id}")
+    logger.debug(f"Service {service_name} routed via API Gateway {api_id}")
     return api_id
 
 

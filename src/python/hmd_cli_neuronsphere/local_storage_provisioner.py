@@ -128,7 +128,7 @@ def apply_pv_manifests(
         kubeconfig: Optional path to kubeconfig file for the k3s cluster.
     """
     if not manifests:
-        logger.info("No PV manifests to apply.")
+        logger.debug("No PV manifests to apply.")
         return
 
     combined = yaml.dump_all(manifests, default_flow_style=False)
@@ -152,7 +152,7 @@ def apply_pv_manifests(
 
     for line in result.stdout.strip().split("\n"):
         if line:
-            logger.info(line)
+            logger.debug(line)
 
 
 def ensure_hmd_home_dirs(
@@ -190,12 +190,12 @@ def provision_local_storage(
     volumes = collect_plugin_volumes(plugin_loader)
 
     if not volumes:
-        logger.info(
+        logger.debug(
             "No plugin volume declarations found. Skipping local storage provisioning."
         )
         return
 
-    logger.info(
+    logger.debug(
         f"Provisioning local storage: {len(volumes)} volumes from "
         f"{len({v['plugin_name'] for v in volumes})} plugins"
     )
@@ -207,4 +207,4 @@ def provision_local_storage(
     manifests = generate_all_pv_manifests(volumes, namespace)
     apply_pv_manifests(manifests, kubeconfig)
 
-    logger.info("Local storage provisioning complete.")
+    logger.debug("Local storage provisioning complete.")

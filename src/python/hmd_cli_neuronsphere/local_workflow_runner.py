@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -34,6 +35,7 @@ from .image_cache import (
     ensure_lambda_image,
     image_candidates,
 )
+from .startup_display import spinner_step
 
 logger = minimal_logger("local_workflow_runner")
 
@@ -58,6 +60,38 @@ _OVERLAY_COPY_IGNORE = shutil.ignore_patterns(
 # lines don't), and requires a following flag/whitespace so we don't match a value
 # that merely ends in "deploy".
 _DEPLOY_CMD_RE = re.compile(r"^(\s*hmd\b.*?\sdeploy)(\s|$)")
+
+
+@dataclass
+class _NodeResult:
+    """Outcome of running one node's deploy script in a projectbuilder container.
+
+    Carries enough of the subprocess result for the caller to print a terse
+    success line (resource_count) or, on failure, the full diagnostic detail
+    (returncode/stdout/stderr) -- without printing either eagerly itself.
+    """
+
+    success: bool
+    resource_count: int = 0
+    returncode: Optional[int] = None
+    stdout: str = ""
+    stderr: str = ""
+
+
+def _print_failure_detail(instance_name: str, result: "_NodeResult") -> None:
+    """Print a node's captured output below its ``✗`` line.
+
+    The happy path is now a single terse line per node, so a failure must not
+    lose the diagnostic payload -- it's just deferred to print in full here,
+    directly under the failed node, instead of eagerly during the run.
+    """
+    header = f"exit {result.returncode}" if result.returncode is not None else "failed"
+    print(f"\n  --- {instance_name} {header} ---")
+    if result.stdout.strip():
+        print(result.stdout.rstrip())
+    if result.stderr.strip():
+        print(result.stderr.rstrip())
+    print(f"  --- end {instance_name} output ---\n")
 
 
 def _localize_deploy_script(script: str) -> str:
@@ -191,10 +225,10 @@ def _import_image_into_k3s(ref: str, container: str, cli: str) -> bool:
         text=True,
     )
     if already.returncode == 0 and ref in (already.stdout or ""):
-        logger.info(f"{ref} is already in {container}'s containerd")
+        logger.debug(f"{ref} is already in {container}'s containerd")
         return True
 
-    logger.info(f"Importing {ref} into {container}'s containerd")
+    logger.debug(f"Importing {ref} into {container}'s containerd")
     saved = subprocess.Popen([cli, "save", ref], stdout=subprocess.PIPE)
     imported = subprocess.Popen(
         [cli, "exec", "-i", container, "ctr", "-n", "k8s.io", "images", "import", "-"],
@@ -227,7 +261,12 @@ class LocalWorkflowRunner:
     """
 
     def __init__(
-        self, base_url: str, cluster_name: str = None, env=None, repo_paths=None
+        self,
+        base_url: str,
+        cluster_name: str = None,
+        env=None,
+        repo_paths=None,
+        verbose: bool = False,
     ):
         """
         :param base_url: ms-deployment base URL (e.g., http://localhost/hmd_ms_deployment)
@@ -242,11 +281,15 @@ class LocalWorkflowRunner:
             for repo instances an environment manifest declares with an explicit
             ``source.path``, which by definition are not under ``HMD_REPO_HOME``
             where :func:`_repo_path_for` would find them.
+        :param verbose: Disables per-node spinner animation in favor of plain
+            start/result lines -- set from the `up`/`down` command's own
+            --verbose flag, for log- and CI-friendly output.
         """
         self.base_url = base_url
         self.env = env
         self.cluster_name = cluster_name or (env.k3s_cluster if env else None)
         self.repo_paths = dict(repo_paths or {})
+        self.verbose = verbose
         # Instance names the most recent run() settled successfully. A partial
         # run is normal (the DAG stops at the first failure), and the reconcile
         # snapshot must record exactly what landed -- no more, so a failed entry
@@ -322,6 +365,7 @@ class LocalWorkflowRunner:
         :returns: True if all nodes succeeded
         """
         verb = "DESTROY" if destroy else "DEPLOY"
+        verb_ing = "Destroying" if destroy else "Deploying"
         success_status = "DESTROYED" if destroy else "DEPLOYED"
         final_csd_status = "DESTROYED" if destroy else "COMPLETED"
         succeeded: List[str] = []
@@ -331,12 +375,13 @@ class LocalWorkflowRunner:
 
         core_count = sum(1 for n in nodes if n["repo_class_name"] == CORE_REPO_CLASS)
         other_count = len(nodes) - core_count
-        logger.info(
+        logger.debug(
             f"Node summary: {core_count} core (no-op), {other_count} {verb.lower()}"
         )
-        print(
-            f"  Node summary: {core_count} core (no-op), {other_count} {verb.lower()}"
-        )
+        summary = f"  {other_count} instance(s) to {verb.lower()}"
+        if core_count:
+            summary += f", {core_count} core"
+        print(summary)
 
         for node in nodes:
             instance_name = node["instance_name"]
@@ -346,31 +391,37 @@ class LocalWorkflowRunner:
             if repo_class_name == CORE_REPO_CLASS:
                 # The core instance anchors the local Resource graph and is never
                 # torn down by a reconcile, so a core node in a destroy manifest
-                # is still just a status flip.
-                logger.info(f"CORE: {instance_name} ({repo_class_name})")
-                print(f"  CORE: {instance_name} ({repo_class_name})")
+                # is still just a status flip -- no spinner, nothing to wait on.
+                logger.debug(f"CORE: {instance_name} ({repo_class_name})")
+                print(f"  ✔ {instance_name} (core)")
                 self._set_status(rid_nid, success_status)
                 succeeded.append(instance_name)
                 continue
 
-            logger.info(f"{verb}: {instance_name} ({repo_class_name})")
-            print(f"  {verb}: {instance_name} ({repo_class_name})")
-
-            success = self._execute_in_projectbuilder(node, destroy=destroy)
-            if success:
-                self._set_status(rid_nid, success_status)
-                succeeded.append(instance_name)
-            else:
-                self._set_status(rid_nid, "FAILED")
-                self._set_csd_status(csd_nid, "FAILED")
-                logger.error(f"FAILED: {instance_name} ({repo_class_name})")
-                print(f"  FAILED: {instance_name}")
-                return False
+            with spinner_step(
+                f"{verb_ing} {instance_name} ({repo_class_name})",
+                verbose=self.verbose,
+            ) as step:
+                result = self._execute_in_projectbuilder(node, destroy=destroy)
+                if result.success:
+                    self._set_status(rid_nid, success_status)
+                    succeeded.append(instance_name)
+                    ok_text = instance_name
+                    if result.resource_count:
+                        ok_text += f" ({result.resource_count} resource(s))"
+                    step.ok(ok_text)
+                else:
+                    self._set_status(rid_nid, "FAILED")
+                    self._set_csd_status(csd_nid, "FAILED")
+                    step.fail(instance_name)
+                    logger.error(f"FAILED: {instance_name} ({repo_class_name})")
+                    _print_failure_detail(instance_name, result)
+                    return False
 
         self._set_csd_status(csd_nid, final_csd_status)
         return True
 
-    def _ensure_node_image(self, node: Dict) -> bool:
+    def _ensure_node_image(self, node: Dict) -> "tuple[bool, str]":
         """Stage the Docker image this node's Lambda will run from, on the host.
 
         Floci runs local Lambdas off the host Docker cache and is handed a bare
@@ -383,12 +434,17 @@ class LocalWorkflowRunner:
         "pull access denied" at Lambda-start time -- long after the node
         reported success -- into an actionable failure of the node itself.
 
-        :returns: True to proceed with the node; False to fail it.
+        :returns: ``(True, "")`` to proceed with the node; ``(False, message)``
+            to fail it. Returned rather than printed directly -- this runs
+            while the node's spinner is animating (see ``run()``), and a raw
+            ``print()`` there would collide with the spinner's own writes to
+            stdout. The message is surfaced by the caller's ``_NodeResult``
+            once the spinner has settled.
         """
         repo_class_name = node["repo_class_name"]
         repo_dir = self._repo_path(repo_class_name)
         if not _deploys_lambda_image(repo_dir):
-            return True
+            return True, ""
 
         version = node.get("repo_class_version")
         if not version:
@@ -401,21 +457,19 @@ class LocalWorkflowRunner:
             logger.warning(
                 f"No version resolved for {repo_class_name}; skipping image staging"
             )
-            return True
+            return True, ""
 
         try:
             staged = ensure_lambda_image(repo_class_name, version)
         except ImageUnavailable as e:
             if _is_truthy(os.environ.get(SKIP_IMAGE_PREPULL_ENV)):
                 logger.warning(f"{e} ({SKIP_IMAGE_PREPULL_ENV} is set; continuing)")
-                print(f"  Warning: {e}")
-                return True
+                return True, ""
             logger.error(str(e))
-            print(f"  {e}")
-            return False
+            return False, str(e)
 
-        logger.info(f"Lambda image for {repo_class_name} staged as {staged}")
-        return True
+        logger.debug(f"Lambda image for {repo_class_name} staged as {staged}")
+        return True, ""
 
     def _ensure_k3s_image(self, node: Dict) -> bool:
         """Import a locally-built chart image into the k3s node's containerd.
@@ -510,10 +564,12 @@ class LocalWorkflowRunner:
             applied.append("src/local/config_local.json -> meta-data/config_local.json")
 
         if applied:
-            logger.info(f"Applied src/local overlay: {', '.join(applied)}")
+            logger.debug(f"Applied src/local overlay: {', '.join(applied)}")
         return workspace
 
-    def _execute_in_projectbuilder(self, node: Dict, destroy: bool = False) -> bool:
+    def _execute_in_projectbuilder(
+        self, node: Dict, destroy: bool = False
+    ) -> "_NodeResult":
         """Run a deploy script in an hmd-img-projectbuilder container.
 
         The container runs on the neuronsphere_default network with
@@ -533,13 +589,15 @@ class LocalWorkflowRunner:
         script = node.get("script", "")
         if not script:
             logger.warning(f"No script for node {node['instance_name']}, skipping")
-            return True
+            return _NodeResult(True)
 
         repo_class_name = node["repo_class_name"]
 
         # A destroy removes the Lambda, so it never needs the image.
-        if not destroy and not self._ensure_node_image(node):
-            return False
+        if not destroy:
+            image_ok, image_err = self._ensure_node_image(node)
+            if not image_ok:
+                return _NodeResult(False, stderr=image_err)
 
         # Charts read their image from the k3s node's containerd, not the host's.
         if not destroy:
@@ -603,7 +661,7 @@ class LocalWorkflowRunner:
         if overlay_dir is not None:
             if (overlay_dir / "deploy_local.sh").is_file():
                 # Highest precedence: a full deploy-script override.
-                logger.info(
+                logger.debug(
                     f"Using src/local/deploy_local.sh override for {repo_class_name}"
                 )
                 script = "bash src/local/deploy_local.sh"
@@ -629,8 +687,7 @@ class LocalWorkflowRunner:
                 f"manifest."
             )
             logger.error(message)
-            print(f"  FAILED: {message}")
-            return False
+            return _NodeResult(False, stderr=message)
 
         # A local NeuronSphere has no Artifact Librarian, so `hmd deploy` must take
         # its code from a local source instead of pulling the build bundle. Prefer a
@@ -640,7 +697,7 @@ class LocalWorkflowRunner:
         artifact_root_mount = self._resolve_artifact_bundle_dir(node)
         if not deploy_script_overridden:
             if artifact_root_mount is not None:
-                logger.info(
+                logger.debug(
                     f"Deploying {repo_class_name} from local artifact bundle "
                     f"({artifact_root_mount})"
                 )
@@ -757,7 +814,8 @@ class LocalWorkflowRunner:
             ]
         )
 
-        logger.info(f"Running projectbuilder for {node['instance_name']}")
+        logger.debug(f"Running projectbuilder for {node['instance_name']}")
+        resource_count = 0
         try:
             result = subprocess.run(cmd, capture_output=True, text=True)
             # Submit produced Resources from the runner while the (possibly
@@ -768,7 +826,7 @@ class LocalWorkflowRunner:
             # resources_output/ left over from the prior deploy would otherwise
             # be re-submitted for an instance that no longer exists).
             if result.returncode == 0 and not incontainer_submit and not destroy:
-                self._submit_produced_resources(workspace, node)
+                resource_count = self._submit_produced_resources(workspace, node)
         finally:
             os.unlink(script_file.name)
             if tmp_workspace is not None:
@@ -780,9 +838,15 @@ class LocalWorkflowRunner:
                 f"exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
         else:
-            logger.info(f"Projectbuilder succeeded for {node['instance_name']}")
+            logger.debug(f"Projectbuilder succeeded for {node['instance_name']}")
 
-        return result.returncode == 0
+        return _NodeResult(
+            success=result.returncode == 0,
+            resource_count=resource_count,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
 
     @staticmethod
     def _resolve_artifact_bundle_dir(node: Dict) -> Optional[str]:
@@ -860,11 +924,10 @@ class LocalWorkflowRunner:
                 timeout=30,
             )
             resp.raise_for_status()
-            logger.info(
+            logger.debug(
                 f"Tracked {len(resources)} produced resource(s) for "
                 f"{node['instance_name']}"
             )
-            print(f"  Tracked {len(resources)} resource(s) for {node['instance_name']}")
             return len(resources)
         except requests.RequestException as e:
             logger.warning(

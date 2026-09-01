@@ -197,7 +197,7 @@ def install_manifest(slug: str, source: str) -> Path:
     already_installed = dest.exists() and src.resolve() == dest.resolve()
     if not already_installed:
         shutil.copyfile(src, dest)
-    logger.info(f"Installed manifest for '{slug}': {dest}")
+    logger.debug(f"Installed manifest for '{slug}': {dest}")
     return dest
 
 

@@ -1,5 +1,37 @@
 """Display helpers for NeuronSphere local startup/shutdown output."""
 
+import sys
+
+import yaspin
+
+
+# Block-letter "NEURONSPHERE", built from a small 5-row font (see
+# print_banner) rather than hand-typed, so column alignment across letters
+# is guaranteed by construction instead of by eye.
+_BANNER_FONT = {
+    "N": ["#   #", "##  #", "# # #", "#  ##", "#   #"],
+    "E": ["#####", "#    ", "###  ", "#    ", "#####"],
+    "U": ["#   #", "#   #", "#   #", "#   #", "#####"],
+    "R": ["#### ", "#   #", "#### ", "#  # ", "#   #"],
+    "O": [" ### ", "#   #", "#   #", "#   #", " ### "],
+    "S": [" ####", "#    ", " ### ", "    #", "#### "],
+    "P": ["#### ", "#   #", "#### ", "#    ", "#    "],
+    "H": ["#   #", "#   #", "#####", "#   #", "#   #"],
+}
+
+
+def print_banner():
+    """Print the ASCII 'NEURONSPHERE' banner shown once at the start of `up`."""
+    rows = ["" for _ in range(5)]
+    for ch in "NEURONSPHERE":
+        glyph = _BANNER_FONT[ch]
+        for i in range(5):
+            rows[i] += glyph[i] + " "
+    print()
+    for row in rows:
+        print(row.rstrip())
+    print()
+
 
 def print_header(text):
     """Print 'NeuronSphere Local - {text}' with separator line."""
@@ -9,6 +41,81 @@ def print_header(text):
 def print_step(text):
     """Print an indented step message."""
     print(f"  {text}")
+
+
+def print_section(title, width=64):
+    """Print a section divider demarcating a major phase of `up`/`down`.
+
+    Used to clearly separate control-plane setup from a named environment's
+    own deploy, which otherwise read as one undifferentiated stream of steps.
+    """
+    label = f" {title} "
+    left = "\u2500\u2500"
+    right = "\u2500" * max(2, width - len(left) - len(label))
+    print(f"\n{left}{label}{right}")
+
+
+class _SpinnerStep:
+    """One terse status line for a step: spinner while it runs, then a
+    checkmark or cross. Falls back to plain (unanimated) start/result lines
+    when stdout isn't a TTY or the caller passed verbose=True, so piped/CI
+    output and `--verbose` both stay readable line-by-line.
+    """
+
+    def __init__(self, text, animate):
+        self._text = text
+        self._animate = animate
+        self._settled = False
+        self._sp = None
+
+    def __enter__(self):
+        if self._animate:
+            self._sp = yaspin.yaspin(text=self._text, color="cyan")
+            self._sp.start()
+        else:
+            print(f"  {self._text}")
+        return self
+
+    def ok(self, text=None):
+        self._settled = True
+        message = text or self._text
+        if self._sp is not None:
+            self._sp.text = message
+            self._sp.ok("\u2714")
+        else:
+            print(f"  \u2714 {message}")
+
+    def fail(self, text=None):
+        self._settled = True
+        message = text or self._text
+        if self._sp is not None:
+            self._sp.text = message
+            self._sp.fail("\u2717")
+        else:
+            print(f"  \u2717 {message}")
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self._settled:
+            # An exception propagated without the caller settling the step
+            # explicitly -- never leave a spinner hanging.
+            self.fail()
+        return False
+
+
+def spinner_step(text, *, verbose=False):
+    """Context manager for one terse, animated step line.
+
+    Usage::
+
+        with spinner_step("Waiting for Floci...") as step:
+            wait_for_floci()
+            step.ok()
+
+    Animates via yaspin when stdout is a TTY and ``verbose`` is False;
+    otherwise prints plain, unanimated start/result lines.
+    """
+    animate = sys.stdout.isatty() and not verbose
+    return _SpinnerStep(text, animate)
 
 
 def print_service_table(resources):

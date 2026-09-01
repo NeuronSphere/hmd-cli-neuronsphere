@@ -225,7 +225,7 @@ def _ensure_coredns_floci_entry(env=None) -> None:
             ],
             env,
         )
-        logger.info("CoreDNS: " + ", ".join(f"{host}->{ip}" for host, ip in entries))
+        logger.debug("CoreDNS: " + ", ".join(f"{host}->{ip}" for host, ip in entries))
     finally:
         try:
             os.unlink(cm_path)
@@ -355,7 +355,7 @@ def _ensure_alb_ingress_class(env=None) -> None:
             f"{result.stderr.strip()}"
         )
     else:
-        logger.info(
+        logger.debug(
             f"IngressClass '{_ALB_INGRESS_CLASS}' -> {_TRAEFIK_CONTROLLER} registered"
         )
 
@@ -379,13 +379,13 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     # manifest now also uses -- clear it so the two don't collide.
     migrated = _run(["helm", "uninstall", "traefik", "--namespace", "kube-system"], env)
     if migrated.returncode == 0:
-        logger.info(
+        logger.debug(
             "Removed legacy runtime-installed Traefik release "
             "(ingress is now baked into the k3s image)"
         )
 
     if os.environ.get(_INGRESS_ENABLE_ENV, "true").lower() in ("false", "0", "no"):
-        logger.info(
+        logger.debug(
             "Ingress controller disabled via "
             + _INGRESS_ENABLE_ENV
             + "; removing baked-in Traefik"
@@ -443,7 +443,7 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
             env,
         )
         if result.returncode == 0:
-            logger.info("Ingress controller (Traefik) ready")
+            logger.debug("Ingress controller (Traefik) ready")
             _ensure_alb_ingress_class(env)
             return
         time.sleep(4)
@@ -774,7 +774,7 @@ def _wait_namespace_not_terminating(
         )
         if result.returncode != 0 or result.stdout.strip() != "Terminating":
             return
-        logger.info(f"Waiting for namespace {namespace} to finish terminating...")
+        logger.debug(f"Waiting for namespace {namespace} to finish terminating...")
         time.sleep(4)
 
 
@@ -877,7 +877,7 @@ def _ensure_chart_dependencies(chart_dir: Path) -> None:
     charts_sub = chart_dir / "charts"
     if charts_sub.exists() and any(charts_sub.iterdir()):
         return
-    logger.info(f"Building chart dependencies for {chart_dir}")
+    logger.debug(f"Building chart dependencies for {chart_dir}")
     subprocess.run(
         ["helm", "dependency", "build", str(chart_dir)],
         capture_output=True,
@@ -917,7 +917,7 @@ def _helm_upgrade(
             values_path,
         ]
         _wait_namespace_not_terminating(_namespace(op), env=env)
-        logger.info(f"Installing operator '{op['name']}': {' '.join(command)}")
+        logger.debug(f"Installing operator '{op['name']}': {' '.join(command)}")
         result = _run(command, env)
         if result.returncode != 0:
             logger.warning(
@@ -966,10 +966,10 @@ def provision_k3s_operators(env=None) -> None:
     to call repeatedly (each install is ``helm upgrade --install``).
     """
     if not _enabled():
-        logger.info("k3s operator provisioning disabled via " + _ENABLE_ENV)
+        logger.debug("k3s operator provisioning disabled via " + _ENABLE_ENV)
         return
     if env is None and not os.environ.get("KUBECONFIG"):
-        logger.info("KUBECONFIG not set; skipping k3s operator provisioning")
+        logger.debug("KUBECONFIG not set; skipping k3s operator provisioning")
         return
 
     # The cluster's EKS status is ACTIVE, but the node may still be warming up;
@@ -1006,7 +1006,7 @@ def provision_k3s_operators(env=None) -> None:
     installed = []
     for op in _OPERATORS:
         if ext_secrets_via_dag and op["name"] in ext_secrets_ops:
-            logger.info(
+            logger.debug(
                 f"Skipping operator '{op['name']}' — deployed via the ms-deployment "
                 "DAG (HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS)"
             )
@@ -1014,4 +1014,4 @@ def provision_k3s_operators(env=None) -> None:
         if _install_operator(op, env):
             installed.append(op["name"])
     if installed:
-        logger.info(f"Installed k3s operators: {', '.join(installed)}")
+        logger.debug(f"Installed k3s operators: {', '.join(installed)}")

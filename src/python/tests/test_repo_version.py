@@ -27,13 +27,14 @@ from unittest import mock
 from hmd_cli_neuronsphere import bom_seeder as b
 
 
-class _WarningAssertion:
-    """Context manager: `bom_seeder.logger.warning` fired, naming each fragment."""
+class _LogAssertion:
+    """Context manager: `bom_seeder.logger.<level>` fired, naming each fragment."""
 
-    def __init__(self, test, fragments):
+    def __init__(self, test, level, fragments):
         self._test = test
+        self._level = level
         self._fragments = fragments
-        self._patch = mock.patch.object(b.logger, "warning")
+        self._patch = mock.patch.object(b.logger, level)
 
     def __enter__(self):
         self._mock = self._patch.start()
@@ -44,7 +45,7 @@ class _WarningAssertion:
         if exc_type is not None:
             return False
         self._test.assertTrue(
-            self._mock.called, "expected a warning, but none was logged"
+            self._mock.called, f"expected a {self._level}, but none was logged"
         )
         emitted = "\n".join(str(call.args[0]) for call in self._mock.call_args_list)
         for fragment in self._fragments:
@@ -98,7 +99,11 @@ class _VersionTest(unittest.TestCase):
 
     def assertWarned(self, *fragments):
         """Assert `bom_seeder.logger.warning` fired, mentioning each fragment."""
-        return _WarningAssertion(self, fragments)
+        return _LogAssertion(self, "warning", fragments)
+
+    def assertDebugLogged(self, *fragments):
+        """Assert `bom_seeder.logger.debug` fired, mentioning each fragment."""
+        return _LogAssertion(self, "debug", fragments)
 
     def _make_tree(self, repo_class_name, version, root=None):
         """A working tree with a meta-data/VERSION."""
@@ -152,11 +157,30 @@ class PrecedenceTests(_VersionTest):
         resolution = b.resolve_repo_version("hmd-ms-myapi", repo_path=str(elsewhere))
         self.assertEqual(resolution.version, "7.0.0")
 
-    def test_a_shadowed_working_tree_is_warned_about(self):
+    def test_a_shadowed_working_tree_is_logged_about(self):
+        # A one-off lookup (no `shadow_batch`) logs at debug, not warning: a
+        # single instance is routine and not worth surfacing on every `up`
+        # the way a whole shadowed BOM would be -- see
+        # `test_a_shadowed_bom_reports_one_combined_warning` below.
         self._make_tree("hmd-ms-myapi", "2.3.4")
         self._make_artifact("myapi", "1.0.0", manifest_name="hmd-ms-myapi")
-        with self.assertWarned("2.3.4", b._local_version_env_var("hmd-ms-myapi")):
+        with self.assertDebugLogged("2.3.4", b._local_version_env_var("hmd-ms-myapi")):
             b.resolve_repo_version("hmd-ms-myapi")
+
+    def test_a_shadowed_bom_reports_one_combined_warning(self):
+        # A batched caller (seed_bom's per-entry loop) collects shadowed repos
+        # instead of logging immediately, then reports them all in one
+        # warning -- not one repeated warning per repo.
+        self._make_tree("hmd-ms-myapi", "2.3.4")
+        self._make_artifact("myapi", "1.0.0", manifest_name="hmd-ms-myapi")
+        batch = {}
+        with mock.patch.object(b.logger, "warning") as warned:
+            b.resolve_repo_version("hmd-ms-myapi", shadow_batch=batch)
+        self.assertFalse(warned.called)
+        self.assertEqual(batch, {"hmd-ms-myapi": ("1.0.0", "2.3.4")})
+
+        with self.assertWarned("hmd-ms-myapi", "1.0.0", "2.3.4"):
+            b._flush_shadowed_local_warnings(batch)
 
     def test_a_matching_working_tree_is_not_warned_about(self):
         self._make_tree("hmd-ms-myapi", "1.0.0")
@@ -315,7 +339,7 @@ class ArtifactIndexTests(_VersionTest):
         second, roots = self._duplicate_across_two_roots("1.0.0", "2.0.0")
         with roots:
             b._reset_artifact_version_index()
-            with self.assertWarned("found twice", "2.0.0", "1.0.0"):
+            with self.assertDebugLogged("found twice", "2.0.0", "1.0.0"):
                 index = b._artifact_version_index()
         self.assertEqual(index["hmd-ms-myapi"], ("2.0.0", str(second / "myapi")))
 
@@ -324,7 +348,7 @@ class ArtifactIndexTests(_VersionTest):
         _, roots = self._duplicate_across_two_roots("2.0.0", "1.0.0")
         with roots:
             b._reset_artifact_version_index()
-            with self.assertWarned("found twice"):
+            with self.assertDebugLogged("found twice"):
                 index = b._artifact_version_index()
         self.assertEqual(
             index["hmd-ms-myapi"], ("2.0.0", str(self.artifacts / "myapi"))
@@ -355,7 +379,7 @@ class ArtifactIndexTests(_VersionTest):
         _, roots = self._duplicate_across_two_roots("1.0.0", "1.0.0rc1")
         with roots:
             b._reset_artifact_version_index()
-            with self.assertWarned("found twice"):
+            with self.assertDebugLogged("found twice"):
                 index = b._artifact_version_index()
         self.assertEqual(index["hmd-ms-myapi"][0], "1.0.0")
 

@@ -22,7 +22,7 @@ version: "3.7"
 
 services:
   floci:
-    image: floci/floci:1.5.34
+    image: floci/floci:${HMD_LOCAL_FLOCI_VERSION:-1.7.0}
     container_name: ${NS_ENV_FLOCI_CONTAINER}
     environment:
       FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager,rds
@@ -31,6 +31,11 @@ services:
       # start, so `clear_apigateway_state` drops those files on every `up`;
       # every other service persists correctly.
       FLOCI_STORAGE_MODE: persistent
+      # Floci 1.7.0: keep the spawned k3s container's volume across a Floci
+      # restart -- see the matching comment in docker-compose.control-plane.yml
+      # and the k3s-cluster-persistence note in docs/modes.rst.
+      FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN: "false"
+      FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE: "false"
       FLOCI_LAMBDA_EXECUTOR: docker
       FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
       # This environment's emulated AWS account -- distinct from the control

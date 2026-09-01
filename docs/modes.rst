@@ -79,21 +79,25 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 
    .. note::
 
-      The k3s cluster is the one thing a ``down`` cannot currently preserve.
-      Floci's ``ContainerLifecycleManager`` removes the ``floci-eks-<cluster>``
-      container **and its volume** whenever the environment's own ``floci-<env>``
-      container stops, so the cluster's datastore does not survive the restart
-      however the CLI asks for it to be stopped.
+      As of Floci 1.7.0, the k3s cluster's datastore now survives a plain
+      ``down`` too. Earlier versions' ``ContainerLifecycleManager`` removed the
+      ``floci-eks-<cluster>`` container **and its volume** whenever the
+      environment's own ``floci-<env>`` container stopped, so every restart got
+      a cluster with a new ``kube-system`` UID; 1.7.0 re-adopts the existing
+      container/volume on restart instead (``FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN``
+      and ``FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE`` control this and are both
+      pinned ``false`` in the compose files). The ``kube-system`` UID is
+      therefore unchanged across a ``down``/``up`` cycle, and ``up`` takes the
+      true fast path with no redeploy at all.
 
-      The next ``up`` consequently gets a cluster with a new ``kube-system``
-      UID. Rather than redeploy the whole BOM onto it, ``up`` redeploys only the
-      instances that *were* on k3s — the applied-changeset snapshot records the
-      Helm release each entry installed, so those are exactly the entries whose
-      release is now missing. Everything Floci-side (S3 buckets, cdktf stacks,
-      Lambdas) keeps its persisted state and is left alone. If the snapshot
-      holds no release information at all — an environment bootstrapped before
-      this was recorded — ``up`` falls back to the full BOM redeploy, because
-      narrowing without that record would be a guess.
+      The applied-changeset snapshot's Helm-release cross-check (which narrows
+      a redeploy to just the k8s-backed instances whose release went missing,
+      rather than the whole BOM) remains as a safety net for the cases where the
+      cluster genuinely is replaced — a Docker daemon restart evicting the
+      container between ``down`` and ``up``, a wrapper-image mismatch forcing an
+      intentional recreate, or an environment bootstrapped before release
+      tracking existed (which still falls back to the full BOM redeploy, since
+      narrowing without that record would be a guess).
 
    ``down --purge`` is the opposite promise and destroys everything — cluster,
    volume, containers, network and persisted state — so the next ``up`` runs the
@@ -340,6 +344,14 @@ The Floci container is configured via environment variables:
 - ``FLOCI_SERVICES``: Comma-separated list of services to enable.
 - ``FLOCI_STORAGE_MODE``: Set to ``persistent`` for data to survive restarts.
 - ``FLOCI_REGION``: AWS region (default: ``us-west-2``).
+- ``FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN`` (Floci 1.7.0+): whether the
+  spawned k3s container keeps running when Floci itself stops. Pinned
+  ``false`` — the CLI already stops it explicitly on a plain ``down``; only
+  the volume needs to survive.
+- ``FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE`` (Floci 1.7.0+): whether a
+  container-backed resource's volume (e.g. the k3s cluster's) is deleted
+  along with the container. Pinned ``false`` so a plain ``down`` preserves
+  the k3s cluster's datastore across restarts (see the note above).
 
 Data is persisted to ``$HMD_HOME/floci/data/`` when persistence is enabled.
 

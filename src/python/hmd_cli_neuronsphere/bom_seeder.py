@@ -385,7 +385,7 @@ def load_bom_from_file(path: str) -> List[Dict]:
     # Filter out image-only entries (not deployable)
     filtered = [entry for entry in bom if not entry.get("image_only", False)]
 
-    logger.info(
+    logger.debug(
         f"Loaded {len(filtered)} entries from {path} ({len(bom) - len(filtered)} image-only filtered)"
     )
     return filtered
@@ -606,7 +606,7 @@ def _artifact_version_index() -> Dict[str, Tuple[str, str]]:
                     used, shadowed = found, existing
                 else:
                     used, shadowed = existing, found
-                logger.warning(
+                logger.debug(
                     f"Bundled artifact '{key}' found twice: {used[0]} in "
                     f"{used[1]} (used) and {shadowed[0]} in {shadowed[1]} (shadowed)"
                 )
@@ -636,10 +636,28 @@ def _core_distribution_version() -> Optional[str]:
         return None
 
 
+def _warn_once(repo_class_name: str, warned_repos: Optional[set], message: str) -> None:
+    """Log ``message`` at warning level, at most once per ``repo_class_name``.
+
+    A BOM can name the same repo class in more than one entry (e.g. two
+    ``s3_bucket_bom_entry`` instances both resolving ``hmd-inf-s3bucket``),
+    which would otherwise repeat an identical warning once per entry. Pass
+    the same set across every repo class in one pass to dedupe across it;
+    omit to always warn, for a one-off lookup.
+    """
+    if warned_repos is not None:
+        if repo_class_name in warned_repos:
+            return
+        warned_repos.add(repo_class_name)
+    logger.warning(message)
+
+
 def resolve_repo_version(
     repo_class_name: str,
     bom_version: Optional[str] = None,
     repo_path: Optional[str] = None,
+    shadow_batch: Optional[Dict[str, Tuple[str, str]]] = None,
+    warned_repos: Optional[set] = None,
 ) -> "VersionResolution":
     """Resolve a repo class's deployed version, artifact-first.
 
@@ -663,6 +681,19 @@ def resolve_repo_version(
     is a work in progress. That is why the artifact wins by default and a
     developer must ask for their tree's version explicitly.
 
+    :param shadow_batch: When resolving many repo classes in one pass (e.g. a
+        BOM's worth), pass a shared dict here so a shadowed-local-tree warning
+        (tiers 2/3, see :func:`_warn_shadowed_local`) is collected into it
+        instead of logged immediately -- the caller then reports every
+        shadowed repo in one combined warning via
+        :func:`_flush_shadowed_local_warnings`. Omit for a one-off lookup,
+        which logs immediately as before.
+    :param warned_repos: Passed to :func:`_warn_once` for tiers 4 and 5 (no
+        bundled artifact or declared version; VERSION not found at all). Pass
+        the same set across every repo class in one BOM so a repo class named
+        by more than one entry (e.g. two ``s3_bucket_bom_entry`` instances
+        both resolving ``hmd-inf-s3bucket``) warns once, not once per entry.
+        Omit to always warn, for a one-off lookup.
     :returns: the chosen version, which tier produced it, and the directory it
         came from (``None`` for a pin, a declared version or the sentinel), so
         callers can read the rest of the repo's metadata from the same place.
@@ -672,7 +703,7 @@ def resolve_repo_version(
     repo_dir = _repo_dir(repo_class_name, repo_path)
 
     if pinned:
-        logger.info(
+        logger.debug(
             f"{repo_class_name}: pinned to {pinned} by "
             f"{_local_version_env_var(repo_class_name)}"
         )
@@ -680,7 +711,7 @@ def resolve_repo_version(
 
     if prefer_local:
         if local_version:
-            logger.info(
+            logger.debug(
                 f"{repo_class_name}: using working-tree version {local_version} from "
                 f"{repo_dir} (local version override)"
             )
@@ -700,24 +731,40 @@ def resolve_repo_version(
     if bundled:
         version, artifact_dir = bundled
         _warn_shadowed_local(
-            repo_class_name, version, "bundled artifact", local_version, repo_dir
+            repo_class_name,
+            version,
+            "bundled artifact",
+            local_version,
+            repo_dir,
+            batch=shadow_batch,
         )
         return VersionResolution(version, "bundled", artifact_dir)
 
     if bom_version:
         _warn_shadowed_local(
-            repo_class_name, bom_version, "declared", local_version, repo_dir
+            repo_class_name,
+            bom_version,
+            "declared",
+            local_version,
+            repo_dir,
+            batch=shadow_batch,
         )
         return VersionResolution(bom_version, "declared", None)
 
     if local_version:
-        logger.warning(
-            f"{repo_class_name}: no bundled artifact and no declared version; falling "
-            f"back to the working tree's {local_version} from {repo_dir}"
+        _warn_once(
+            repo_class_name,
+            warned_repos,
+            f"{repo_class_name}: no bundled artifact and no declared version; "
+            f"falling back to the working tree's {local_version} from {repo_dir}",
         )
         return VersionResolution(local_version, "local-fallback", repo_dir)
 
-    logger.warning(f"VERSION not found for {repo_class_name}, using 0.1.0")
+    _warn_once(
+        repo_class_name,
+        warned_repos,
+        f"VERSION not found for {repo_class_name}, using 0.1.0",
+    )
     return VersionResolution("0.1.0", "default", None)
 
 
@@ -727,15 +774,28 @@ def _warn_shadowed_local(
     source: str,
     local_version: Optional[str],
     repo_dir: Optional[str],
+    batch: Optional[Dict[str, Tuple[str, str]]] = None,
 ) -> None:
     """Warn when the artifact version differs from a checked-out working tree.
 
     This is the case whose behaviour changed -- the tree used to win -- so it
     stays a warning, and names the way back, until the developer opts in.
+
+    :param batch: When resolving many repo classes in one pass, collect into
+        this dict instead of logging immediately -- see
+        :func:`_flush_shadowed_local_warnings`, which reports the whole batch
+        as one combined warning. Omit for a one-off lookup (e.g. resolving a
+        single app's image version): not part of any batch, so this case
+        logs at debug rather than warning -- a single instance is routine
+        (most repos only get rebuilt occasionally) and not worth surfacing on
+        every `up` the way an unreported *group* of shadowed repos would be.
     """
     if not local_version or local_version == chosen:
         return
-    logger.warning(
+    if batch is not None:
+        batch[repo_class_name] = (chosen, local_version)
+        return
+    logger.debug(
         f"{repo_class_name}: deploying version {chosen} ({source}); the working tree "
         f"at {repo_dir} is {local_version}. Set "
         f"{_local_version_env_var(repo_class_name)}=local (or "
@@ -743,13 +803,46 @@ def _warn_shadowed_local(
     )
 
 
+def _flush_shadowed_local_warnings(batch: Dict[str, Tuple[str, str]]) -> None:
+    """Emit one combined warning for every repo class collected in ``batch``.
+
+    Resolving a whole BOM this way turns what would otherwise be one warning
+    per shadowed repo -- each repeating the same env-var instructions -- into
+    a single line naming all of them, with the instructions stated once.
+    """
+    if not batch:
+        return
+    names = ", ".join(
+        f"{name} ({chosen}, local {local})"
+        for name, (chosen, local) in sorted(batch.items())
+    )
+    logger.warning(
+        f"{len(batch)} repo(s) deploying a bundled/declared version that differs "
+        f"from their local working tree: {names}. Set "
+        f"{PREFER_LOCAL_VERSIONS_ENV}=true to use working-tree versions for all "
+        f"of them, or HMD_LOCAL_VERSION_<REPO>=local per repo."
+    )
+
+
 def _get_repo_version(
     repo_class_name: str,
     bom_version: Optional[str] = None,
     repo_path: Optional[str] = None,
+    shadow_batch: Optional[Dict[str, Tuple[str, str]]] = None,
+    warned_repos: Optional[set] = None,
 ) -> str:
-    """The version :func:`resolve_repo_version` chose for this repo class."""
-    return resolve_repo_version(repo_class_name, bom_version, repo_path).version
+    """The version :func:`resolve_repo_version` chose for this repo class.
+
+    :param shadow_batch: see :func:`resolve_repo_version`.
+    :param warned_repos: see :func:`resolve_repo_version`.
+    """
+    return resolve_repo_version(
+        repo_class_name,
+        bom_version,
+        repo_path,
+        shadow_batch=shadow_batch,
+        warned_repos=warned_repos,
+    ).version
 
 
 def repo_root_candidates(
@@ -920,7 +1013,7 @@ def _post_apiop(
     else:
         resp = requests.post(url, timeout=60)
     if tolerate_exists and resp.status_code == 400 and "already" in resp.text.lower():
-        logger.info(f"{operation} idempotent skip: {resp.text}")
+        logger.debug(f"{operation} idempotent skip: {resp.text}")
         return {}
     _raise_for_status(resp, operation)
     return resp.json()
@@ -979,7 +1072,7 @@ def upsert_repo_resource_definitions(base_url: str, repo_class_name: str) -> int
                 base_url, "upsert_resource_definition", payload, tolerate_exists=True
             )
             count += 1
-            logger.info(
+            logger.debug(
                 f"Upserted ResourceDefinition {payload['resource_namespace']}/"
                 f"{payload['resource_definition_name']} from {repo_class_name}"
             )
@@ -1004,7 +1097,7 @@ def seed_base_resource_definitions(base_url: str) -> List[Dict]:
         base_url, "seed_base_resource_definitions", tolerate_exists=True
     )
     seeded = result if isinstance(result, list) else []
-    logger.info(f"Seeded {len(seeded)} base resource definitions")
+    logger.debug(f"Seeded {len(seeded)} base resource definitions")
     return seeded
 
 
@@ -1292,7 +1385,7 @@ def submit_local_resources(
                 },
             )
             submitted += 1
-            logger.info(
+            logger.debug(
                 f"Submitted local resource '{name}' "
                 f"({spec['resource_definition']['resource_definition_name']})"
             )
@@ -1361,7 +1454,7 @@ def declare_core_produces(base_url: str) -> int:
                 f"Failed to declare core produces for "
                 f"{d['resource_namespace']}/{d['resource_definition_name']}: {e}"
             )
-    logger.info(f"Declared {declared} core produced resource definition(s)")
+    logger.debug(f"Declared {declared} core produced resource definition(s)")
     return declared
 
 
@@ -1464,7 +1557,7 @@ def resync_local_resources(
     declare_core_produces(base_url)
     nodes = find_core_deployment_node(base_url, env)
     if not nodes:
-        logger.info(
+        logger.debug(
             f"No existing '{CORE_INSTANCE_NAME}' deployment found; skipping local "
             "resource resync (run a full `up` first)."
         )
@@ -1573,7 +1666,7 @@ def _inject_docker_credentials(bom: List[Dict]) -> None:
         return
     docker_config_json = local_docker_config_json()
     if not docker_config_json:
-        logger.info(
+        logger.debug(
             "No local Docker credentials found -- private image pulls (e.g. "
             "ghcr.io/hmdlabs/*) from local k3s will fail until you `docker login`"
         )
@@ -1664,7 +1757,7 @@ def _call_bom_contributor(entrypoint, config: Optional[Dict]) -> List[Dict]:
         try:
             return fn(**config) or []
         except TypeError as e:
-            logger.info(
+            logger.debug(
                 f"Plugin '{entrypoint.name}' does not accept configuration "
                 f"({e}); calling it with no arguments"
             )
@@ -1702,7 +1795,7 @@ def _collect_plugin_bom_entries(
     for entrypoint in entry_points(group=BOM_ENTRIES_ENTRY_POINT):
         seen_names.add(entrypoint.name)
         if enabled is not None and entrypoint.name not in enabled:
-            logger.info(
+            logger.debug(
                 f"Plugin '{entrypoint.name}' is installed but not enabled for this "
                 "environment; skipping its BOM entries"
             )
@@ -1798,22 +1891,22 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
     base = list(LOCAL_BOM)
     bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
     if bom_file:
-        logger.info(f"Merging BOM file into built-in LOCAL_BOM: {bom_file}")
+        logger.debug(f"Merging BOM file into built-in LOCAL_BOM: {bom_file}")
         # File entries first so they win on repo_instance_name collision (the
         # keep-first _dedupe_bom below), while built-in entries the file omits
         # (e.g. project-bucket) are still retained -- a merge, not a replace.
         base = load_bom_from_file(bom_file) + base
     else:
-        logger.info("Using built-in LOCAL_BOM")
+        logger.debug("Using built-in LOCAL_BOM")
 
     bom = list(base)
     if not _is_falsy(os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS")):
-        logger.info("ext-secrets enabled by default — appending EXT_SECRETS_BOM")
+        logger.debug("ext-secrets enabled by default — appending EXT_SECRETS_BOM")
         bom = bom + EXT_SECRETS_BOM
 
     plugin_entries = _collect_plugin_bom_entries()
     if plugin_entries:
-        logger.info(
+        logger.debug(
             f"Appending {len(plugin_entries)} BOM entrie(s) from installed plugins"
         )
         bom = bom + plugin_entries
@@ -1866,7 +1959,7 @@ def ensure_environment(base_url: str, env=None) -> Dict:
     """
     slug = env.slug if env is not None else "local"
     account_number = env.account_id if env is not None else "000000000000"
-    logger.info(f"Ensuring '{slug}' environment exists")
+    logger.debug(f"Ensuring '{slug}' environment exists")
 
     existing = _search_entities(
         base_url,
@@ -1926,7 +2019,7 @@ def ensure_deployment_set(base_url: str, name: str, env_slug: str) -> Dict:
     definition = _deployment_set_definition(env_slug)
 
     if not existing:
-        logger.info(f"Creating '{name}' deployment set")
+        logger.debug(f"Creating '{name}' deployment set")
         return _put_entity(
             base_url,
             "hmd_lang_deployment.deployment_set",
@@ -2044,15 +2137,21 @@ def seed_bom(
 
     env_slug = env.slug if env is not None else "local"
     deployment_set_name = env_slug
-    logger.info(f"Seeding BOM with {len(bom)} entries for environment '{env_slug}'")
+    logger.debug(f"Seeding BOM with {len(bom)} entries for environment '{env_slug}'")
 
     # 1. Register repo class versions
+    shadow_batch: Dict[str, Tuple[str, str]] = {}
+    warned_no_version: set = set()
     for entry in bom:
         repo_name = entry["repo_class_name"]
         bom_version = entry.get("repo_class_version")
         repo_path = repo_paths.get(repo_name)
         resolution = resolve_repo_version(
-            repo_name, bom_version=bom_version, repo_path=repo_path
+            repo_name,
+            bom_version=bom_version,
+            repo_path=repo_path,
+            shadow_batch=shadow_batch,
+            warned_repos=warned_no_version,
         )
         version = resolution.version
         # Read the rest of the repo's metadata from wherever the version came
@@ -2069,7 +2168,7 @@ def seed_bom(
         if default_config is None:
             default_config = entry.get("instance_configuration", {})
 
-        logger.info(f"Adding repo class version: {repo_name}@{version}")
+        logger.debug(f"Adding repo class version: {repo_name}@{version}")
         _post_apiop(
             base_url,
             "add_repo_class_version",
@@ -2087,6 +2186,9 @@ def seed_bom(
         # Register any ResourceDefinitions the repo declares (meta-data/resources/*.yaml)
         # so a concrete Resource of that type can be typed at deploy/submit time.
         upsert_repo_resource_definitions(base_url, repo_name)
+
+    logger.debug(f"Registered {len(bom)} repo class version(s)")
+    _flush_shadowed_local_warnings(shadow_batch)
 
     # 1b. Declare that the core RepoClass (hmd-cli-neuronsphere) produces the local
     # core resource types, before the changeset applies, so resource-type
@@ -2117,7 +2219,7 @@ def seed_bom(
         }
         for entry in bom
     ]
-    logger.info(
+    logger.debug(
         f"Creating '{change_set_name}' changeset with {len(changeset_def)} entries"
     )
     _put_entity(
@@ -2130,7 +2232,7 @@ def seed_bom(
     )
 
     # 5. Apply changeset (skip async — CLI will drive execution)
-    logger.info("Applying changeset (skip_async=True)")
+    logger.debug("Applying changeset (skip_async=True)")
     result = _post_apiop(
         base_url,
         "apply_changeset",
@@ -2141,13 +2243,13 @@ def seed_bom(
         },
     )
     csd_nid = result["csd_nid"]
-    logger.info(f"ChangeSetDeployment created: {csd_nid}")
+    logger.debug(f"ChangeSetDeployment created: {csd_nid}")
 
     # 6. Generate local deployment manifest (scripts in DAG order)
-    logger.info("Generating local deployment manifest")
+    logger.debug("Generating local deployment manifest")
     manifest = _post_apiop(base_url, f"generate_local_deployment/{csd_nid}")
     nodes = manifest.get("nodes", [])
-    logger.info(f"Got {len(nodes)} deployment nodes")
+    logger.debug(f"Got {len(nodes)} deployment nodes")
 
     return csd_nid, nodes
 
@@ -2216,7 +2318,7 @@ def destroy_instances(
 
     closure = plan_destroy(base_url, env, instance_names)
     if not closure:
-        logger.info("Destroy dry run reported nothing to destroy")
+        logger.debug("Destroy dry run reported nothing to destroy")
         return None, []
 
     collateral = sorted(set(closure) & set(keep or ()))
@@ -2230,7 +2332,7 @@ def destroy_instances(
             "environment first, or keep the instance they depend on."
         )
 
-    logger.info(
+    logger.debug(
         f"Destroying {len(closure)} instance(s) in '{env_slug}': {', '.join(closure)}"
     )
     result = _post_apiop(
@@ -2252,5 +2354,5 @@ def destroy_instances(
 
     manifest = _post_apiop(base_url, f"generate_local_deployment/{csd_nid}")
     nodes = manifest.get("nodes", [])
-    logger.info(f"Got {len(nodes)} destroy node(s)")
+    logger.debug(f"Got {len(nodes)} destroy node(s)")
     return csd_nid, nodes

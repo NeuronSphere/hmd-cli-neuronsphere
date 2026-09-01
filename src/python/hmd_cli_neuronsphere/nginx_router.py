@@ -198,7 +198,7 @@ stream {{
 """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config)
-    logger.info(f"Wrote nginx base config to {path}")
+    logger.debug(f"Wrote nginx base config to {path}")
     return path
 
 
@@ -275,7 +275,7 @@ def write_bootstrap_config(
     if path.exists() and config_serves_floci(path):
         return path
     path.write_text(bootstrap_config_text(floci_host))
-    logger.info(f"Wrote nginx bootstrap config (with the :4566 stream) to {path}")
+    logger.debug(f"Wrote nginx bootstrap config (with the :4566 stream) to {path}")
     return path
 
 
@@ -468,7 +468,7 @@ http {{
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(config)
-    logger.info(f"Wrote single-stack nginx config to {path}")
+    logger.debug(f"Wrote single-stack nginx config to {path}")
     return path
 
 
@@ -759,7 +759,7 @@ def remove_env_routes(env) -> None:
     ):
         try:
             path.unlink()
-            logger.info(f"Removed nginx fragment {path}")
+            logger.debug(f"Removed nginx fragment {path}")
         except FileNotFoundError:
             pass
         except OSError as e:
@@ -895,7 +895,7 @@ def refresh_deployed_service_routes(env, target=None) -> int:
         return 0
     for route_path, (rest_api_id, stage_name) in routes.items():
         _upsert_service_route(route_path, rest_api_id, stage_name, env=env)
-        logger.info(f"Routed /{env.slug}/{route_path}/ -> {rest_api_id}/{stage_name}")
+        logger.debug(f"Routed /{env.slug}/{route_path}/ -> {rest_api_id}/{stage_name}")
     reload()
     return len(routes)
 
@@ -1081,7 +1081,7 @@ def configure_trino_host_route(env) -> bool:
     if not upstream:
         return False
     write_env_streams(env, env_stream_entries(env, trino_upstream=upstream))
-    logger.info(
+    logger.debug(
         f"Wired Trino host route for '{env.slug}': :{env.trino_port} -> {upstream}"
     )
     return True
@@ -1126,7 +1126,7 @@ def configure_ingress_host_route(env) -> bool:
     if not upstream:
         return False
     write_env_vhosts(env, upstream)
-    logger.info(
+    logger.debug(
         f"Wired ingress vhost for '{env.slug}': "
         f"*.{env.slug}.{INGRESS_DOMAIN} -> {upstream}"
     )

@@ -97,5 +97,7 @@ def local_docker_config_json() -> Optional[str]:
     if not resolved:
         return None
 
-    logger.info(f"Resolved local Docker credentials for: {', '.join(sorted(resolved))}")
+    logger.debug(
+        f"Resolved local Docker credentials for: {', '.join(sorted(resolved))}"
+    )
     return json.dumps({"auths": resolved})

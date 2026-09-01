@@ -351,7 +351,7 @@ def compute_plan(base_url: str, env=None, manifest=None) -> ReconcilePlan:
         # The graph says DEPLOYED but the release it installed is gone from the
         # cluster -- redeploying is the only thing that can make them agree.
         if name in missing_releases:
-            logger.info(
+            logger.debug(
                 f"'{name}' is DEPLOYED in the graph but its Helm release "
                 f"'{expected_releases[name]}' is not on the cluster; "
                 f"proposing a redeploy."

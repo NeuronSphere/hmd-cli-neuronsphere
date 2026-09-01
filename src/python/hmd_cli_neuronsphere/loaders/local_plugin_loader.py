@@ -129,7 +129,7 @@ class LocalPluginLoader:
                 info = self._load_plugin_from_path(repo_path)
                 if info:
                     self._discovered_plugins[info.plugin_name] = info
-                    logger.info(
+                    logger.debug(
                         f"Loaded local plugin '{info.plugin_name}' from {repo_path}"
                     )
 
@@ -148,10 +148,11 @@ class LocalPluginLoader:
                 info = self._load_plugin_from_path(item)
                 if info and info.plugin_name not in self._discovered_plugins:
                     self._discovered_plugins[info.plugin_name] = info
-                    logger.info(
+                    logger.debug(
                         f"Discovered local plugin '{info.plugin_name}' in {item}"
                     )
 
+        logger.debug(f"Discovered {len(self._discovered_plugins)} local plugin(s)")
         return self._discovered_plugins
 
     def _is_explicitly_listed(self, plugin_name: str) -> bool:
@@ -266,7 +267,7 @@ class LocalPluginLoader:
                 return None
             assert self._discovered_plugins is not None
             self._discovered_plugins[info.plugin_name] = info
-            logger.info(
+            logger.debug(
                 f"Auto-discovered foundation plugin '{info.plugin_name}' "
                 f"from {info.repo_path}"
             )

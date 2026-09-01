@@ -198,7 +198,7 @@ def k3s_charts_enabled() -> bool:
     if os.environ.get(_ENABLE_ENV, "false").lower() not in ("true", "1", "yes"):
         return False
     if importlib.util.find_spec("hmd_cli_helm") is None:
-        logger.info(
+        logger.debug(
             "%s is set but hmd_cli_helm is not installed; running plugins as compose",
             _ENABLE_ENV,
         )
@@ -369,7 +369,9 @@ def _deploy_chart(chart: Dict[str, Any]) -> bool:
         "-di",
         _DID,
     ]
-    logger.info(f"Deploying chart '{chart['plugin_name']}' to k3s: {' '.join(command)}")
+    logger.debug(
+        f"Deploying chart '{chart['plugin_name']}' to k3s: {' '.join(command)}"
+    )
     result = subprocess.run(
         command, cwd=str(repo_root), env=env, capture_output=True, text=True
     )
@@ -395,7 +397,7 @@ def provision_k3s_chart_plugins(
     if not k3s_charts_enabled():
         return
     if not os.environ.get("KUBECONFIG"):
-        logger.info("KUBECONFIG not set; skipping k3s chart deploys")
+        logger.debug("KUBECONFIG not set; skipping k3s chart deploys")
         return
 
     ko._wait_for_node_ready()
@@ -413,4 +415,4 @@ def provision_k3s_chart_plugins(
         except Exception as e:  # best-effort: never abort `up`
             logger.warning(f"Chart '{chart['plugin_name']}' provisioning error: {e}")
     if deployed:
-        logger.info(f"Deployed k3s chart plugins: {', '.join(deployed)}")
+        logger.debug(f"Deployed k3s chart plugins: {', '.join(deployed)}")

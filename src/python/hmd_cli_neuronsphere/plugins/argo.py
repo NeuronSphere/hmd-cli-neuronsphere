@@ -70,7 +70,7 @@ def prepare_hmd_home(hmd_home: str, configs: Dict[str, bool] = {}) -> None:
     create_required_dirs(Path(hmd_home), config.get("required_dirs", []))
 
     if not os.environ.get("KUBECONFIG"):
-        logger.info("KUBECONFIG not set; deferring Argo install (k3s not ready)")
+        logger.debug("KUBECONFIG not set; deferring Argo install (k3s not ready)")
         return
 
     install_argo_on_k3s()
@@ -109,7 +109,7 @@ def install_argo_on_k3s() -> Optional[str]:
     env.setdefault("ARGO_NODEPORT", _DEFAULT_NODEPORT)
     env.setdefault("ARGO_SERVICEACCOUNT", _DEFAULT_SERVICEACCOUNT)
 
-    logger.info(f"Running Argo install script: {script}")
+    logger.debug(f"Running Argo install script: {script}")
     result = subprocess.run(
         ["bash", str(script)],
         env=env,
@@ -133,7 +133,7 @@ def install_argo_on_k3s() -> Optional[str]:
     if token:
         _store_argo_token(token)
     else:
-        logger.info(
+        logger.debug(
             "Argo install succeeded but no token emitted; transform will fall back to anonymous"
         )
 
@@ -151,10 +151,10 @@ def _store_argo_token(token: str) -> None:
     sm = _get_client("secretsmanager")
     try:
         sm.create_secret(Name="argo-token", SecretString=token)
-        logger.info("Stored argo-token in Floci Secrets Manager")
+        logger.debug("Stored argo-token in Floci Secrets Manager")
     except Exception:
         try:
             sm.put_secret_value(SecretId="argo-token", SecretString=token)
-            logger.info("Updated argo-token in Floci Secrets Manager")
+            logger.debug("Updated argo-token in Floci Secrets Manager")
         except Exception as e:
             logger.warning(f"Failed to write argo-token secret: {e}")

@@ -1,982 +1,968 @@
-.. NERD002 Port hmd CLI Ecosystem from Python to Go
+.. NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 
-NERD002 Port hmd CLI Ecosystem from Python to Go
-=================================================
+NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
+===============================================================
 
-.. req:: Eliminate Python runtime dependency and deliver hmd as a single cross-platform binary
+.. req:: Deliver the local NeuronSphere as a single Go binary requiring only Docker
     :id: HMD_CLI_NERD002
     :status: proposed
 
-    The hmd CLI ecosystem (40 ``hmd-cli-*`` repositories, each a separate pip
-    package discovered via setuptools ``entry_points``) shall be ported to Go.
-    The result is a single statically-linked binary per platform that requires
-    only Docker to be installed. The port preserves 100% command-line
-    compatibility (same command names, flags, and exit codes) while
-    incorporating NERD001's Floci/Deploy mode architecture natively. The
-    ``nsplugin.json`` format is unchanged. Microservices (``hmd-ms-*``) remain
-    Python.
+    The extend-mode local platform currently reachable only through
+    ``hmd neuronsphere`` shall be delivered as ``nsctl`` -- a single
+    statically-linked, cross-platform Go binary modeled on ``kubectl``, whose
+    only prerequisite is Docker. ``nsctl`` presents a purpose-built command
+    surface (``nsctl env start|stop|add|delete|purge``, ``nsctl load-plugin``)
+    rather than mirroring the Python CLI's, and adds a control-plane DAG-runner
+    service so ``hmd-ms-deployment`` submits deployments to a workflow engine
+    locally exactly as it submits them to Argo in the cloud. The
+    ``nsplugin.json`` format, the BACON ``manifest.json`` contract, and the
+    ``$HMD_HOME`` on-disk layout are unchanged. The Python ``hmd neuronsphere``
+    surface coexists throughout the port. All other ``hmd-cli-*`` packages,
+    all ``hmd-ms-*`` microservices, and all ``hmd-inf-*`` repos remain Python.
+
+.. note::
+
+    **This revision withdraws the original NERD002 scope.** The first version of
+    this proposal ported all 40 ``hmd-cli-*`` repositories into a single Go
+    ``hmd`` monorepo with 100% command-line compatibility, on a ~36-week plan.
+    That scope was wrong for the goal it claimed. Adoption is gated by the local
+    platform -- the thing a newcomer runs first -- not by ``hmd bartleby``,
+    ``hmd bender``, or ``hmd repo``, each of which shells out to a Python tool
+    anyway and so cannot make anyone's machine Python-free. Preserving the
+    ``hmd`` surface verbatim also preserved a surface designed for existing
+    users, at precisely the moment the point was to serve new ones. This
+    revision ports one thing, gives it a surface built for the audience, and
+    leaves the rest of the ecosystem alone.
 
 Motivation
 ----------
 
-1. **Installation friction.** Users must install Python 3.9+, pip, virtualenv,
-   and ~40 pip packages with transitive dependencies (cement, boto3, pyyaml,
-   jinja2, requests, kubernetes, pg8000, inquirerpy, colorlog, python-dotenv).
-   Conflicts with system Python and other tools are common. A single binary
-   eliminates this entirely -- the only prerequisite is Docker.
+1. **Installation friction is the adoption barrier.** Trying the local
+   NeuronSphere today requires Python 3.9+, pip, a virtualenv, and ~40 pip
+   packages with transitive dependencies (cement, boto3, pyyaml, jinja2,
+   requests, kubernetes, pg8000, inquirerpy, colorlog, python-dotenv), plus
+   version alignment across all of them. Conflicts with system Python are
+   routine. A single binary reduces this to "install Docker, download
+   ``nsctl``".
 
-2. **Startup latency.** Python interpreter startup combined with importlib
-   scanning of 40+ packages adds 1-3 seconds per invocation. Go binaries
-   start in under 10 ms.
+2. **Most of the Python is already behind a container boundary.**
+   ``LocalWorkflowRunner`` does not run ``hmd deploy`` on the host -- it runs
+   each generated deploy script inside an ``hmd-img-projectbuilder`` container
+   (``local_workflow_runner.py``, ``_execute_in_projectbuilder``). The Python
+   that performs a deploy is therefore an implementation detail of an image,
+   not a host prerequisite. What remains on the host is orchestration: Docker
+   and Compose, k3s and Floci provisioning, nginx config generation, the
+   environment registry, and the ms-deployment BOM protocol. That is the
+   portable part, and it is the part a Go binary is good at.
 
-3. **Distribution complexity.** Each ``hmd-cli-*`` repo produces a pip package.
-   Version alignment across 40 packages is fragile -- a single version mismatch
-   can break the CLI. A monorepo producing a single binary eliminates this
-   class of bugs.
+3. **Startup latency.** Python interpreter startup plus importlib scanning of
+   40+ distributions costs 1-3 s per invocation. A Go binary starts in under
+   10 ms. This matters most for the read-only commands (``env list``,
+   ``status``) that users run repeatedly.
 
-4. **Ecosystem alignment.** Docker, Kubernetes, Terraform, Helm, and Argo are
-   all written in Go. The hmd CLI shells out to all of these. Native Go
-   libraries (Docker SDK, client-go, aws-sdk-go-v2) enable deeper integration
-   and better error handling than subprocess calls.
+4. **Ecosystem alignment.** Docker, Kubernetes, Helm, Traefik and Argo are all
+   Go. The tools this CLI drives and the k3s cluster it provisions are Go
+   artifacts, and so are the two Go binaries already in this repo family (see
+   item 6).
 
-5. **NERD001 synergy.** The Floci/Deploy mode architecture (NERD001) introduces
-   new components (LocalWorkflowRunner, BOM generation, deployment graph
-   seeding) that benefit from Go's concurrency primitives and fast startup for
-   container orchestration tasks.
+5. **Parallel deploys become natural.** The local deploy manifest already
+   carries dependency edges per node and the current runner ignores them,
+   executing strictly sequentially. Go's concurrency primitives make a
+   dependency-respecting worker pool a small amount of code (SPEC011).
+
+6. **There is a precedent in this repo family.** ``hmd-cli-bartleby`` is
+   already a Go rewrite of an ``hmd`` CLI plugin, shipped via
+   ``brew install bartleby``, with its Python source retained alongside as
+   legacy and its docs stating plainly that the Python CLI "has been replaced
+   by the Go binary" and that "no Python runtime [is] required". ``nsx``
+   (in the ``neuronsphere`` repo) is a second Go binary that today shells out
+   to ``hmd neuronsphere up``. The conventions, the build pattern, and the
+   distribution channel are established.
 
 Scope
 -----
 
-**In scope (ported to Go):**
+**In scope:**
 
-All 40 ``hmd-cli-*`` repositories are consolidated into a single Go monorepo.
-The major command groups include:
+- ``hmd-cli-neuronsphere``'s **extend mode** orchestration, ported to
+  ``nsctl``: environment lifecycle, control-plane lifecycle, Floci
+  provisioning, k3s cluster and operator provisioning, nginx routing, the
+  environment registry, BOM seeding and the ms-deployment apiop protocol,
+  reconcile/delta-apply, and plugin discovery.
+- A new **DAG-runner service** for the control plane (SPEC010), replacing the
+  in-process ``LocalWorkflowRunner`` call with a submitted workflow.
+- Parallel, dependency-respecting node execution (SPEC011).
 
-- ``hmd-cli-app`` -- main entry point, controller discovery
-- ``hmd-cli-neuronsphere`` -- local NeuronSphere orchestration, plugins, Floci
-- ``hmd-cli-configure`` -- environment configuration
-- ``hmd-cli-tools`` -- shared library (env, AWS, K8s, Okta, prompts,
-  credentials, S3, version management)
-- ``hmd-cli-build`` -- build orchestration
-- ``hmd-cli-deploy`` -- deployment commands
-- ``hmd-cli-docker``, ``hmd-cli-helm``, ``hmd-cli-cdktf`` -- tool wrappers
-- ``hmd-cli-python``, ``hmd-cli-typescript`` -- language build tools
-- ``hmd-cli-bender`` -- Robot Framework test runner
-- ``hmd-cli-bartleby`` -- documentation builder
-- ``hmd-cli-repo``, ``hmd-cli-login``, ``hmd-cli-secrets``, ``hmd-cli-debug``,
-  ``hmd-cli-dbt``, ``hmd-cli-version``, ``hmd-cli-transform-can``,
-  ``hmd-cli-transform-deploy``, and all remaining CLI repos
+**Out of scope (unchanged, remain Python):**
 
-**Out of scope (remain Python):**
+- All other ``hmd-cli-*`` packages. ``hmd build``, ``hmd deploy``,
+  ``hmd bender``, ``hmd bartleby``, ``hmd repo`` and the rest are untouched;
+  a developer contributing to NeuronSphere still installs them.
+- All ``hmd-ms-*`` microservices, ``hmd-img-*`` images, ``hmd-inf-*``
+  infrastructure repos, and ``hmd-lang-*`` language packs.
+- ``hmd-img-projectbuilder``, which continues to execute every BOM node's
+  deploy script. ``nsctl`` inherits its contract rather than replacing it.
 
-- All ``hmd-ms-*`` microservices (including ``hmd-ms-deployment``,
-  ``hmd-ms-transform``, ``hmd-ms-naming``)
-- All ``hmd-img-*`` container images (including ``hmd-img-projectbuilder``)
-- All ``hmd-inf-*`` infrastructure repos (their ``src/local/`` artifacts are
-  consumed unchanged by the Go CLI)
-- All ``hmd-lib-*`` shared Python libraries (used by microservices, not CLI)
-- Robot Framework test files (``.robot``) -- these invoke the CLI as a
-  subprocess and are language-agnostic
+**Explicitly not ported -- legacy Platform mode.** ``nsctl`` implements extend
+mode only. ``HMD_LOCAL_NEURONSPHERE_MODE=platform`` remains available through
+the Python CLI for as long as it is supported there. Excluding it removes
+roughly 1,100 lines from the port: ``start_neuronsphere_platform`` /
+``stop_neuronsphere_platform`` (~500 lines), ``k3s_chart_plugins.py`` (416
+lines, reachable only from platform mode), and ``local_storage_provisioner.py``
+(210 lines, which has no call site anywhere in the package).
 
-**nsplugin.json format:** Unchanged. The Go implementation reads the same JSON
-schema. Existing ``nsplugin.json`` files across all repos work without
-modification.
+**Formats unchanged:** ``nsplugin.json``, BACON ``manifest.json`` (including
+``deploy.default_configuration`` and ``pre_build_artifacts``),
+``config_local.json``, the ``hmd_lang_deployment.change_set`` variant-C entry
+shape, ``$HMD_HOME/.config/hmd.env``, and every ``HMD_*`` /
+``HMD_LOCAL_NEURONSPHERE_ENABLE_*`` environment variable.
 
 Architecture Overview
 ---------------------
 
-All 40 CLI packages are consolidated into a single Go module in a new
-repository ``hmd-cli``. Each former ``hmd-cli-*`` package becomes a Go package
-under ``internal/``.
+``nsctl`` lives in this repository at ``src/go/nsctl/``, following the house
+Go layout established by ``hmd-cli-bartleby``, ``nsx``, and the
+``go_cli_repo`` cookiecutter in ``hmd-cookiecutter-default-repo``: ``cmd/``
+holds thin cobra adapters, ``internal/`` holds all behavior, the build runs
+from a repository-root ``Makefile`` rather than a BACON build command, and the
+version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
 ::
 
-    hmd-cli/
-    +-- go.mod
-    +-- go.sum
-    +-- cmd/
-    |   +-- hmd/
-    |       +-- main.go              # Single entry point
-    +-- internal/
-    |   +-- app/
-    |   |   +-- root.go              # Root cobra command
-    |   |   +-- registry.go          # Compile-time command registration
-    |   +-- neuronsphere/
-    |   |   +-- controller.go        # "hmd neuronsphere" subcommands
-    |   |   +-- orchestrator.go      # Start/stop/restart logic
-    |   |   +-- floci_deployer.go    # Floci AWS resource provisioning
-    |   |   +-- deploy_mode.go       # NERD001 Deploy mode startup
-    |   |   +-- bom.go               # NERD001 BOM generation
-    |   |   +-- display.go           # Startup/shutdown display
-    |   |   +-- portcheck.go         # Port conflict detection
-    |   +-- plugins/
-    |   |   +-- interface.go         # Plugin interface definition
-    |   |   +-- registry.go          # Compiled-in plugin registry
-    |   |   +-- base.go              # Shared plugin helpers
-    |   |   +-- main.go              # Main plugin (nginx, gateway, db, naming)
-    |   |   +-- telemetry.go         # OpenTelemetry/Datadog plugin
-    |   |   +-- graph.go             # JanusGraph plugin
-    |   |   +-- ministack.go         # Floci/MiniStack plugin
-    |   |   +-- airflow.go           # Airflow plugin
-    |   |   +-- transform.go         # Transform plugin
-    |   |   +-- trino.go             # Trino plugin
-    |   |   +-- clickhouse.go        # ClickHouse plugin
-    |   |   +-- hive_metastore.go    # Hive Metastore plugin
-    |   |   +-- apache_superset.go   # Superset plugin
-    |   |   +-- jupyter.go           # Jupyter plugin
-    |   |   +-- dynamodb.go          # DynamoDB plugin
-    |   |   +-- minio.go             # MinIO plugin
-    |   +-- localplugin/
-    |   |   +-- loader.go            # nsplugin.json discovery and loading
-    |   |   +-- validator.go         # nsplugin.json validation
-    |   |   +-- types.go             # LocalPluginInfo, ValidationResult
-    |   +-- configure/               # "hmd configure" subcommands
-    |   +-- build/                   # "hmd build" subcommands
-    |   +-- deploy/                  # "hmd deploy" subcommands
-    |   +-- docker/                  # "hmd docker" subcommands
-    |   +-- helm/                    # "hmd helm" subcommands
-    |   +-- cdktf/                   # "hmd cdktf" subcommands
-    |   +-- login/                   # "hmd login" subcommands
-    |   +-- secrets/                 # "hmd secrets" subcommands
-    |   +-- bender/                  # "hmd bender" subcommands
-    |   +-- bartleby/                # "hmd bartleby" subcommands
-    |   +-- repo/                    # "hmd repo" subcommands
-    |   +-- version/                 # "hmd version" subcommands
-    |   +-- tools/                   # Shared utilities (hmd-cli-tools equiv)
-    |   |   +-- env.go               # Environment loading and management
-    |   |   +-- prompt.go            # Interactive prompts
-    |   |   +-- aws.go               # AWS session factory (Floci-aware)
-    |   |   +-- s3.go                # S3 operations
-    |   |   +-- k8s.go               # Kubernetes operations
-    |   |   +-- okta.go              # Okta OAuth2 integration
-    |   |   +-- credentials.go       # System keyring management
-    |   |   +-- rds.go               # RDS management
-    |   |   +-- vpn.go               # VPN operations
-    |   +-- skills/
-    |       +-- loader.go            # AI skills loader
-    +-- embed/
-    |   +-- services/                # Docker Compose files (go:embed)
-    |   +-- external/                # Pre-build artifacts (go:embed)
-    |   +-- skills/                  # AI skill markdown files (go:embed)
-    +-- meta-data/
-    |   +-- VERSION
-    |   +-- manifest.json
-    +-- docs/
-    +-- test/                        # Robot Framework tests (unchanged)
-    +-- Makefile
-    +-- goreleaser.yml               # Cross-platform release config
+    hmd-cli-neuronsphere/
+    +-- Makefile                     # go build/test/vet, version from meta-data/VERSION
+    +-- meta-data/VERSION
+    +-- src/
+    |   +-- python/                  # unchanged; coexists through the port
+    |   +-- go/
+    |       +-- nsctl/
+    |           +-- go.mod           # github.com/neuronsphere/hmd-cli-neuronsphere
+    |           +-- main.go
+    |           +-- cmd/
+    |           |   +-- root.go
+    |           |   +-- env.go               # start/stop/add/delete/purge/list/status
+    |           |   +-- controlplane.go      # start/stop/status
+    |           |   +-- plugin.go            # load-plugin
+    |           +-- internal/
+    |               +-- registry/    # environments.json reader/writer (SPEC003)
+    |               +-- compose/     # docker compose invocation, port validation
+    |               +-- floci/       # aws-sdk-go-v2 against Floci (SPEC007)
+    |               +-- k3s/         # cluster lifecycle, operators, kubeconfig
+    |               +-- router/      # nginx config generation
+    |               +-- bom/         # ms-deployment apiop client, BOM seeding (SPEC009)
+    |               +-- reconcile/   # plan/snapshot/digests
+    |               +-- plugin/      # nsplugin.json discovery + load-plugin (SPEC005)
+    |               +-- embedfs/     # go:embed of services/ and external/ (SPEC006)
+    +-- src/go/nsrunner/             # the DAG-runner service (SPEC010)
+        +-- cmd/, internal/, Dockerfile
 
-.. spec:: CLI framework -- Cobra replacing Cement
+.. spec:: Command surface
     :id: HMD_CLI_NERD002_SPEC001
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    Replace Cement 3.0.6 with `cobra <https://github.com/spf13/cobra>`_ and
-    `viper <https://github.com/spf13/viper>`_.
+    ``nsctl`` is organised as ``nsctl <noun> <verb>`` after ``kubectl``, not as
+    a transliteration of the Cement controller tree.
 
-    **Mapping from Cement to Cobra:**
+    .. list-table::
+       :header-rows: 1
+       :widths: 45 55
+
+       * - ``nsctl``
+         - Python equivalent today
+       * - ``nsctl env start <name|default>``
+         - ``hmd neuronsphere up --env <name>``
+       * - ``nsctl env stop <name|default>``
+         - ``hmd neuronsphere down --env <name>``
+       * - ``nsctl env add --name <n> --bom-json <path>``
+         - ``hmd neuronsphere env create <n> --bom-file <path>``
+       * - ``nsctl env delete --name <n>``
+         - ``hmd neuronsphere env delete <n>``
+       * - ``nsctl env purge [<name>]``
+         - ``hmd neuronsphere down --purge [--env <n>]``
+       * - ``nsctl load-plugin <name>``
+         - (no equivalent -- see SPEC005)
+       * - ``nsctl env list`` / ``nsctl env status``
+         - ``hmd neuronsphere env list`` / ``status``
+       * - ``nsctl control-plane start|stop|status``
+         - (no equivalent -- see SPEC002)
+
+    ``start`` and ``stop`` **must be behaviourally identical** to extend-mode
+    ``up`` and ``down``, including the ``--upgrade`` and ``--prune``
+    delta-apply flags that make a restart cheap rather than a cold bootstrap.
+
+    Two deliberate departures from the Python surface:
+
+    - **``purge`` is a verb, not a flag.** Destroying an environment's Floci
+      account, k3s cluster, Postgres and graph state deserves its own word.
+      With no name it purges every environment plus the control plane, and
+      requires an interactive confirmation (or ``--yes``), preserving the
+      guard ``_confirm_full_purge`` provides today.
+    - **``env add`` takes a BOM JSON directly.** The Python ``env create``
+      splits this across ``--manifest`` (declarative, preferred) and a
+      deprecated ``--bom-file``. ``--bom-json`` accepts either shape,
+      detecting a flat array as the legacy BOM form.
+
+.. spec:: Control-plane lifecycle is explicit and separate
+    :id: HMD_CLI_NERD002_SPEC002
+    :links: HMD_CLI_NERD002
+    :status: proposed
+
+    A local NeuronSphere is **one shared control plane per ``HMD_HOME``**
+    (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-artifact-lib``, the
+    Deployment GUI, plus their Floci, nginx, Postgres and JanusGraph) serving
+    **N environments**, each a self-contained emulated AWS account with its own
+    Floci, k3s cluster, Postgres, JanusGraph and ``hmd-ms-dbaccount``.
+
+    ``nsctl env start`` starts the control plane implicitly if it is down, and
+    then **leaves it running**. ``nsctl env stop`` must never stop it, because
+    stopping it breaks every other environment and destroys the deployment
+    graph's availability for all of them.
+
+    The control plane is therefore given its own verb:
+
+    - ``nsctl control-plane start`` -- idempotent; the same work ``env start``
+      does implicitly.
+    - ``nsctl control-plane stop`` -- **the only command that stops it.**
+      Refuses (exit 3) while any environment is still running, unless
+      ``--force`` is given.
+    - ``nsctl control-plane status`` -- reports bootstrapped state, the
+      ms-deployment health probe, and which environments are up.
+
+    ``nsctl cp`` is registered as an alias.
+
+    This closes a genuine gap in the Python CLI, where the control plane has no
+    independent lifecycle at all -- it is only ever stopped as a side effect of
+    a bare ``hmd neuronsphere down``.
+
+.. spec:: The environment registry is read, never re-derived
+    :id: HMD_CLI_NERD002_SPEC003
+    :links: HMD_CLI_NERD002
+    :status: proposed
+
+    ``$HMD_HOME/.cache/neuronsphere/environments.json`` persists **every**
+    derived value for the control plane and each environment: container names,
+    compose project name, Docker network name, k3s cluster name, kubeconfig
+    path, account id, port slot, and the bootstrap record
+    (``{csd_nid, k3s_uid}``). ``env_registry.py`` computes these once, at
+    create time, and never recomputes them -- deliberately, so that changing a
+    derivation rule later cannot orphan containers or volumes named under the
+    old rule.
+
+    **``nsctl`` MUST read this file rather than re-derive any of it.** The
+    ``HMD_HOME``-to-network-name hash already exists in three independent
+    copies (``floci_deployer.py``, ``hmd-cli-bender``, and ``nsx``'s
+    ``internal/container/network.go``, which carries a "keep in sync" comment
+    counting them). A fourth copy inside ``nsctl`` would be the one nobody
+    updates. The hash is implemented only as a fallback for a never-bootstrapped
+    ``HMD_HOME``, and is exercised by a test asserting it matches the Python
+    value for a known input.
+
+    Re-derivation is not merely redundant, it is **wrong for a case that
+    exists in the field**: an environment migrated from the pre-multi-env
+    layout carries ``legacy_layout: true``, shares the control plane's Floci,
+    Postgres and graph rather than running its own, and so has containers named
+    ``floci`` and ``hmd_db`` -- matching no current naming rule at all.
+
+    Registry writes (``env add``, ``env delete``, port-slot and account-id
+    allocation, ``record_bootstrap``) must preserve the exact JSON shape,
+    including the slot arithmetic (``DEFAULT_PORT_BASE=19000``,
+    ``PORTS_PER_ENV=4``, ``MAX_ENVS=16``; slot *n* takes floci ``base+4n``,
+    trino ``+1``, graph ``+2``, spare ``+3``) and the slug rules
+    (``^[a-z0-9][a-z0-9-]{0,15}$`` plus the reserved-slug set).
+
+    **The regression fixture is the literal JSON the Python CLI emits**, not
+    Go structs marshalled and read back -- a round-trip fixture passes however
+    wrong the struct tags are.
+
+.. spec:: CLI framework -- Cobra replacing Cement
+    :id: HMD_CLI_NERD002_SPEC004
+    :links: HMD_CLI_NERD002
+    :status: proposed
+
+    ``spf13/cobra`` v1.8.0 (the house version, used by ``nsx``, ``goblin``,
+    ``bartleby`` and the ``go_cli_repo`` cookiecutter), with ``RunE``
+    everywhere and a typed error carrying an exit code.
 
     .. list-table::
        :header-rows: 1
        :widths: 40 60
 
-       * - Cement Concept
-         - Cobra Equivalent
+       * - Cement concept
+         - Go equivalent
        * - ``Controller`` class
          - ``cobra.Command`` with subcommands
-       * - ``@ex()`` decorator on method
-         - ``cobra.Command{Run: func}``
+       * - ``@ex()`` decorator on a method
+         - ``cobra.Command{RunE: func}``
        * - ``stacked_type = "nested"``
-         - Cobra parent/child command tree
-       * - ``Meta.label``
-         - ``cobra.Command.Use``
+         - cobra parent/child command tree
        * - ``self.app.pargs``
          - ``cmd.Flags()``
-       * - ``handler/hook`` system
-         - Go interfaces + init-time registration
        * - ``minimal_logger()``
-         - ``log/slog`` or ``zerolog``
+         - ``log/slog``
        * - ``shell.cmd()``
          - ``os/exec.Command``
+       * - ``importlib.metadata.version()``
+         - ``-ldflags -X`` build-time injection
 
-    **Command registration (replacing entry_points):**
+    **Per-command flags live in constructor closures, not package globals.**
+    ``nsx`` found this necessary rather than stylistic: ``t.Setenv`` panics
+    under ``t.Parallel()``, so state-dependent command tests can only run in
+    parallel if every command is constructed by a function taking its state.
+    The same reason motivates a ``--home`` flag overriding ``HMD_HOME``.
 
-    The ``hmd_cli.controllers`` entry_point group currently discovers
-    controllers at runtime via importlib. In Go, all commands are registered at
-    compile time in ``internal/app/registry.go``:
+    **Exit codes are distinct, never overloaded as counters:** ``0`` success,
+    ``1`` nsctl error, ``2`` invalid usage or refused precondition, ``3``
+    refused because a resource is in use, ``4`` a deploy node failed.
 
-    .. code-block:: go
+    ``$HMD_HOME/.config/hmd.env`` is loaded with ``joho/godotenv``, preserving
+    the current precedence (process environment wins over file). The file is
+    mode 600 and holds live secrets; it is read for the ``HMD_*`` keys and
+    never logged.
 
-        func RegisterAll(root *cobra.Command) {
-            root.AddCommand(neuronsphere.NewCommand())
-            root.AddCommand(configure.NewCommand())
-            root.AddCommand(build.NewCommand())
-            root.AddCommand(deploy.NewCommand())
-            root.AddCommand(docker.NewCommand())
-            root.AddCommand(helm.NewCommand())
-            // ... all command groups
-        }
-
-    This eliminates runtime discovery overhead and ensures all commands are
-    available immediately.
-
-    **Trade-off:** Adding a new command group requires modifying
-    ``registry.go`` and rebuilding. This is acceptable because new CLI command
-    groups are infrequent (a few per year) and the monorepo makes this a
-    single-PR change.
-
-    **Version information:** Build-time ``-ldflags`` injection replaces runtime
-    ``importlib.metadata.version()`` calls.
-
-    **Configuration:** Viper handles ``$HMD_HOME/.config/hmd.env`` loading,
-    replacing ``python-dotenv``. Environment variable precedence is preserved.
-
-.. spec:: Compiled-in plugin system replacing entry_points
-    :id: HMD_CLI_NERD002_SPEC002
-    :links: HMD_CLI_NERD002
-    :status: proposed
-
-    The current neuronsphere plugin system uses four setuptools entry_point
-    groups (``enabled``, ``prepare_hmd_home``, ``get_resources``,
-    ``render_compose_yaml``), each with 13 registered functions.
-
-    In Go, these become a single interface with a compile-time registry:
-
-    .. code-block:: go
-
-        type Plugin interface {
-            Name() string
-            Enabled(overrides map[string]bool) bool
-            GetResources() map[string]interface{}
-            PrepareHMDHome(hmdHome string, configs map[string]bool) error
-            RenderComposeYAML(
-                resources map[string]interface{},
-                cacheDir string,
-                configs map[string]bool,
-            ) (string, error)
-        }
-
-        var bundledPlugins = []Plugin{
-            &MainPlugin{},
-            &TelemetryPlugin{},
-            &GraphPlugin{},
-            &MinistackPlugin{},
-            // ... all 13 plugins
-        }
-
-    **Why not Go's ``plugin.Open()``:**
-
-    - Requires ``-buildmode=plugin`` with identical Go version and build flags
-      across host and plugin. Fragile across platforms.
-    - Produces ``.so`` shared libraries, defeating the single-binary goal.
-    - No macOS ARM64 support in many CI environments due to CGo dependency.
-
-    **Why not subprocess plugins:**
-
-    - 13+ subprocess invocations per ``hmd neuronsphere up`` adds latency.
-    - Distributing 13+ separate binaries defeats the single-binary goal.
-
-    **Decision: compiled-in plugins with interface dispatch.** This is the
-    standard Go pattern. The ``nsplugin.json``-based local plugin system
-    (SPEC003) handles the extensibility use case that entry_points served for
-    external repos.
-
-.. spec:: Local plugin system (nsplugin.json) preserved in Go
-    :id: HMD_CLI_NERD002_SPEC003
-    :links: HMD_CLI_NERD002
-    :status: proposed
-
-    The ``LocalPluginLoader`` is ported to Go as
-    ``internal/localplugin/loader.go``. The ``nsplugin.json`` format is
-    **unchanged** -- no schema changes.
-
-    **Discovery mechanisms (preserved):**
-
-    1. ``HMD_LOCAL_PLUGINS`` -- colon-separated paths to repos with
-       ``src/local/nsplugin.json``
-    2. ``HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true`` -- recursively scan
-       ``HMD_REPO_HOME`` for repos with ``src/local/nsplugin.json``
-
-    **Go implementation details:**
-
-    - ``encoding/json`` parses nsplugin.json (replaces Python ``json``)
-    - ``os.ReadDir`` scans directories (replaces ``pathlib.Path.iterdir``)
-    - ``LocalPluginInfo`` Go struct mirrors the Python dataclass exactly
-    - All plugin operations preserved: ``GetEnabledPlugins()``,
-      ``GetPluginConfig()``, ``GetComposePath()``, ``GetDBInitCompose()``,
-      ``GetTelemetryProfiles()``, ``GetEnvVars()``
-
-    **Validator** (``internal/localplugin/validator.go``) implements the same
-    checks as ``nsplugin_validator.py``:
-
-    - JSON syntax validation
-    - Required field checking (``plugin_name``, ``compose_file``)
-    - Optional field type checking
-    - Referenced file existence (compose files, configs, scripts, templates)
-    - Docker Compose file YAML validity
-    - Telemetry profile validation
-
-    **The nsplugin.json system is the extensibility boundary.** Because Go
-    compiles bundled plugins into the binary, external repos cannot add new
-    bundled plugins without a CLI release. But any repo with
-    ``src/local/nsplugin.json`` participates in the local NeuronSphere without
-    touching the CLI binary -- this is the mechanism that matters for developer
-    extensibility.
-
-.. spec:: Template rendering -- Go text/template replacing Jinja2
-    :id: HMD_CLI_NERD002_SPEC004
-    :links: HMD_CLI_NERD002
-    :status: proposed
-
-    Jinja2 templates are used in two places:
-
-    1. **Local plugin loader** (``_prepare_local_plugin``): Renders
-       user-authored templates from ``src/local/templates/`` using a context of
-       resources, plugin configs, and ``HMD_*`` environment variables.
-    2. **Plugin base** (``render_templates``): Same mechanism for external
-       artifact templates.
-
-    **Current template usage is minimal.** Examining all bundled plugins and
-    external artifacts (transform, trino, hive-metastore, airflow, clickhouse,
-    otel-collector, superset, telemetry-debug): none define ``templates``
-    entries in their ``nsplugin.json``. Templates are a capability for
-    user-authored local plugins, not heavily used by bundled ones.
-
-    **Migration approach:**
-
-    - Implement a ``TemplateRenderer`` in ``internal/plugins/base.go`` using
-      Go's standard ``text/template`` package.
-    - The context dictionary (``resources``, ``configs``, ``env``) maps to
-      Go struct or ``map[string]interface{}``.
-
-    **Syntax differences for user-authored templates:**
-
-    .. list-table::
-       :header-rows: 1
-       :widths: 50 50
-
-       * - Jinja2
-         - Go text/template
-       * - ``{{ env.HMD_HOME }}``
-         - ``{{ .Env.HMD_HOME }}``
-       * - ``{% if configs.telemetry %}``
-         - ``{{ if .Configs.telemetry }}``
-       * - ``{% for db in resources.databases %}``
-         - ``{{ range .Resources.Databases }}``
-       * - ``{{ loop.index }}``
-         - (use ``{{ $i }}`` with range index)
-
-    **Fallback option:** If Jinja2 compatibility proves critical for existing
-    user templates, `pongo2 <https://github.com/flosch/pongo2>`_ provides a
-    Django/Jinja2-compatible Go template engine. This is a last resort -- Go
-    native templates are preferred for maintainability.
-
-    **Docker Compose files are NOT templates.** The compose YAML files use
-    Docker Compose's native ``${VAR:-default}`` interpolation, which is handled
-    by Docker Compose itself. The Go CLI passes them directly to
-    ``docker compose``.
-
-.. spec:: AWS SDK -- aws-sdk-go-v2 replacing boto3
+.. spec:: Plugin discovery, and the plugin bundle
     :id: HMD_CLI_NERD002_SPEC005
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    ``ministack_deployer.py`` (renamed to ``floci_deployer.py`` per NERD001)
-    uses boto3 for SQS, S3, DynamoDB, Lambda, and API Gateway operations.
+    Plugins reach the local platform two ways today, and only one of them
+    ports directly.
 
-    **Go equivalent using aws-sdk-go-v2:**
+    **(a) Filesystem plugins port unchanged.** A repo is a plugin if it has
+    ``src/local/nsplugin.json``. Discovery is explicit colon-separated paths in
+    ``HMD_LOCAL_PLUGINS``, then a scan of ``HMD_REPO_HOME`` when
+    ``HMD_LOCAL_PLUGINS_SCAN_REPO_HOME=true``. Enablement precedence is
+    preserved exactly: the core set ``{floci, main, graph}`` is always on;
+    then explicit listing in ``HMD_LOCAL_PLUGINS``; then
+    ``env_var_override`` / ``HMD_LOCAL_NEURONSPHERE_ENABLE_<NAME>``; then
+    ``enabled_by_default`` (false, so every non-core plugin is opt-in).
+    ``ensure_foundation_plugin`` force-loads ``artifact-lib`` and
+    ``dbaccount`` regardless of user configuration.
 
-    .. code-block:: go
+    The ``nsplugin.json`` **schema is unchanged**, including the
+    extend-mode-critical ``hmdms_service`` block from which a full Floci Lambda
+    spec is synthesized (function name, ``<repo_name>:<version>`` image,
+    ``SERVICE_CONFIG`` merged from BACON ``deploy.default_configuration`` plus
+    ``src/local/config_local.json``, one ``<VAR>=s3://<bucket>`` per declared
+    bucket, and ``dependency:db-credentials`` resolved to a literal Secrets
+    Manager name). The validator (``nsplugin_validator.py``) is ported
+    check-for-check.
 
-        func NewFlociClient(endpoint string) *FlociClient {
-            cfg, _ := config.LoadDefaultConfig(context.TODO(),
-                config.WithRegion(os.Getenv("AWS_REGION")),
-                config.WithBaseEndpoint(endpoint),
-                config.WithCredentialsProvider(
-                    credentials.NewStaticCredentialsProvider(
-                        "dummykey", "dummykey", ""),
-                ),
-            )
-            return &FlociClient{
-                sqs:        sqs.NewFromConfig(cfg),
-                s3:         s3.NewFromConfig(cfg),
-                dynamodb:   dynamodb.NewFromConfig(cfg),
-                lambda_:    lambda_.NewFromConfig(cfg),
-                apigateway: apigateway.NewFromConfig(cfg),
-            }
-        }
+    **(b) Installed-package plugins are the half with no Go analogue.**
+    ``hmd-cli-plugin-ns-{telemetry,analytics-engines,orchestration,visualization}``
+    contribute through setuptools entry-point groups -- chiefly
+    ``hmd_cli_neuronsphere.get_local_bom_entries``, plus
+    ``get_post_deploy_notices`` -- and ship their own ``external/`` artifact
+    roots that ``bom_seeder`` walks during version resolution. Go cannot
+    enumerate installed Python distributions.
 
-    **Key differences from boto3:**
+    **Auditing what those four functions actually do settles the format.**
+    Their ``bom.py`` modules run 209-410 lines each, and essentially all of it
+    is a Python literal: ``repo_instance_name``, ``repo_class_name``,
+    ``deployment_id``, a nested ``instance_configuration`` dict, and a
+    ``dependencies`` map of role to instance name. The executable surface
+    across all four is four constructs and nothing else:
 
-    - boto3's high-level ``resource`` API has no Go equivalent. All calls use
-      service clients directly (already the pattern in
-      ``ministack_deployer.py``).
-    - Error handling uses ``var apiErr smithy.APIError`` type assertions
-      instead of ``ClientError.response["Error"]["Code"]`` string matching.
-    - Pagination uses paginator helpers instead of manual iteration.
-    - Context (``context.Context``) is threaded through all calls for proper
-      cancellation and timeout handling.
+    .. list-table::
+       :header-rows: 1
+       :widths: 34 66
 
-    **Centralized session factory (NERD001 SPEC011):**
-    ``internal/tools/aws.go`` provides ``NewAWSConfig()`` that automatically
-    sets the Floci endpoint when ``HMD_ENVIRONMENT=local``.
+       * - Construct in ``bom.py``
+         - Declarative equivalent
+       * - ``os.environ.get(HMD_LOCAL_NEURONSPHERE_ENABLE_<X>, "true")`` not in
+           ``{false, 0, no}`` -- all four plugins
+         - ``enabled_by: {env: ..., default: true}`` on the bundle
+       * - ``distribution("hmd-cli-plugin-ns-<sibling>")`` plus that sibling's
+           enable flag, gating a shared instance (``redis``) so two plugins do
+           not both contribute it
+         - ``contribute_if_absent: true`` on the entry
+       * - A boolean feature flag guarding one entry or one config key
+           (telemetry's ``HMD_..._TELEMETRY_COLLECT_K3S``, default false)
+         - ``when: {env: ..., default: false}`` on the entry
+       * - An env var supplying an instance name or list
+           (``HMD_LOCAL_ORCHESTRATION_TRANSFORM_BUCKETS``), and the imported
+           ``CORE_INSTANCE_NAME`` constant
+         - ``${env:VAR}`` and reserved tokens ``${core}``, ``${ext_secrets}``,
+           ``${env.deployment_id}``, ``${env.slug}``
 
-.. spec:: Docker interaction -- subprocess exec preserved
+    ``contribute_if_absent`` deserves note because it **deletes the one
+    construct that cannot port**. Both halves of the ``redis`` coordination
+    already declare, in comments, that their entries are byte-for-byte
+    identical and that ``bom_seeder`` de-dupes by ``repo_instance_name``, so
+    the ``importlib.metadata`` probe is buying only the avoidance of a de-dup
+    that is already a no-op. Declaring the entry and letting the loader
+    de-dupe is the same outcome without either bundle needing to know the
+    other exists.
+
+    **Therefore: ``load-plugin`` consumes a bundle, not an image.** A plugin
+    bundle is a zip -- in practice the repo's existing
+    ``<repo>_<version>_build.zip``, the artifact the BACON build already
+    produces and the Artifact Librarian already stores -- carrying::
+
+        <plugin>/
+          meta-data/VERSION, manifest.json
+          src/local/nsplugin.json           # unchanged
+          nsbundle.json                     # NEW: declarative BOM contribution
+          external/<repo>/...               # artifact roots, as today
+
+    ``nsctl load-plugin <path|name>`` validates ``nsbundle.json``, registers
+    the bundle under ``$HMD_HOME/.cache/neuronsphere/plugins/<name>/``, and
+    adds its ``external/`` tree to the artifact-root index used for version
+    resolution. A loaded bundle is thereafter indistinguishable from a bundled
+    one. ``nsctl load-plugin --list`` / ``--remove`` manage the set.
+
+    **Why not a Docker image that loads itself.** Running plugin-supplied code
+    to answer "what does this plugin contribute" makes every cheap read
+    expensive and every cheap read a trust decision:
+
+    - ``nsctl env plan``, ``env list`` and ``env status`` must answer *what
+      would deploy* without side effects. Behind an image, each becomes N
+      image pulls and N container runs, and is unusable offline.
+    - The reconcile digests (SPEC009) hash the declared entries. A stable
+      digest needs a stable, inspectable input; a program's output is neither
+      diffable nor reviewable.
+    - Executing a third-party image at host authority to *configure* the
+      platform is a far larger grant than reading its declarative data, and
+      it is the grant nothing else in this design asks for.
+
+    **The escape hatch already exists, one layer down.** A plugin that must
+    genuinely *run* something does so in its own deploy node -- ``src/local/
+    deploy_local.sh``, executed in ``hmd-img-projectbuilder`` by the runner
+    (SPEC010), already scoped to one instance and already sandboxed in a
+    container. Load time is for declaring; deploy time is for doing. If a
+    future plugin needs computation at load time that no primitive above
+    covers, an optional ``loader_image`` field may be added to
+    ``nsbundle.json`` -- but it is deliberately not specified here, because
+    specifying it now would make "arbitrary code" the loader's contract from
+    day one for a need no existing plugin has.
+
+    **Post-deploy notices are declarative too.** The only implementation
+    (Superset's admin login) reads the secret
+    ``superset-${env.deployment_id}-${env.slug}-admin-credentials`` and formats
+    two of its fields. That is a ``post_deploy_notices`` list of
+    ``{secret, template}`` in ``nsbundle.json``, evaluated by ``nsctl``, with
+    the same best-effort contract as today (any failure is logged, never
+    surfaced as a deploy failure).
+
+    **Migration of the four existing plugins is mechanical.** Each keeps its
+    repo, its ``external/`` artifact roots and its BACON build; ``bom.py``
+    becomes ``nsbundle.json``, the setuptools ``entry_points`` block is
+    retained so the Python CLI keeps working during coexistence (SPEC012), and
+    a test asserts the two produce the same entry list. Telemetry additionally
+    moves its ``data/otel_databases.json`` into the bundle verbatim -- it is
+    already pure data that ``bom.py`` only opens and inlines.
+
+.. spec:: Bundled artifacts and go:embed
     :id: HMD_CLI_NERD002_SPEC006
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    The current Python code shells out to ``docker compose`` via
-    ``cement.utils.shell.cmd()``. The Go port **preserves this approach**.
+    The BACON ``build.pre_build_artifacts`` mechanism unpacks other repos'
+    build outputs into ``src/python/hmd_cli_neuronsphere/external/<name>/`` at
+    build time; each contributes its ``src/local/`` tree, its ``src/helm/``
+    chart and its ``meta-data/`` (VERSION + manifest). Bundled artifacts
+    **win over** a working tree during version resolution unless the user opts
+    out via ``HMD_LOCAL_VERSION_<REPO_CLASS>`` or
+    ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS``.
 
-    **Rationale:**
-
-    - Docker Compose v2 is a standalone Go binary. Embedding the Compose
-      library would add ~50 MB to the binary and couple the CLI to a specific
-      Compose version.
-    - The current CLI invokes ``docker compose up/down/pull`` with multiple
-      ``-f`` flags. This is simple ``os/exec.Command`` in Go.
-    - Docker Compose's own variable interpolation (``${VAR:-default}``) handles
-      environment variable expansion in compose files. Reimplementing this in
-      Go would be fragile.
-
-    **Implementation:**
+    ``nsctl`` embeds the same trees with ``//go:embed``, plus the
+    ``services/docker-compose.*.yml`` files:
 
     .. code-block:: go
 
-        func (o *Orchestrator) composeCommand(
-            files []string, args ...string,
-        ) *exec.Cmd {
-            composeCMD := os.Getenv("DOCKER_COMPOSE_CMD")
-            if composeCMD == "" {
-                composeCMD = `["docker", "compose"]`
-            }
-            var base []string
-            json.Unmarshal([]byte(composeCMD), &base)
+        //go:embed services/*.yml services/*.env
+        //go:embed external/*/src/local/* external/*/meta-data/*
+        var bundled embed.FS
 
-            cmdArgs := append(base,
-                "--project-directory", filepath.Join(o.hmdHome, ".cache"),
-                "--project-name", "local_neuronsphere",
-            )
-            for _, f := range files {
-                cmdArgs = append(cmdArgs, "-f", f)
-            }
-            cmdArgs = append(cmdArgs, args...)
-            return exec.Command(cmdArgs[0], cmdArgs[1:]...)
-        }
+    ``pre_build_artifacts`` is unchanged; only the unpack destination moves.
+    At runtime the embedded FS is consulted first and a filesystem plugin of
+    the same name overrides it, preserving today's precedence. Files consumed
+    by ``docker compose`` or ``helm`` are materialised into
+    ``$HMD_HOME/.cache`` before invocation, since neither tool can read an
+    ``embed.FS``.
 
-    **Selective Docker SDK usage:** For operations requiring programmatic
-    control (inspecting container status, reading logs, health checks), use
-    ``github.com/docker/docker/client``. For orchestration (up, down, pull),
-    continue using subprocess exec.
+    **Docker Compose files are not templates.** They use Compose's native
+    ``${VAR:-default}`` interpolation, handled by Compose itself. Only
+    user-authored ``src/local/templates/`` entries are rendered, by
+    ``text/template``; no bundled plugin defines any today, so the Jinja2
+    syntax divergence has no current blast radius and a migration note in the
+    plugin development guide is sufficient.
 
-    **Port validation** (``portcheck.go``): Reimplements ``port_validator.py``
-    natively using ``net.DialTimeout`` for port probing.
-
-.. spec:: YAML/JSON handling with native Go libraries
+.. spec:: AWS SDK -- aws-sdk-go-v2 against Floci
     :id: HMD_CLI_NERD002_SPEC007
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    .. list-table::
-       :header-rows: 1
-       :widths: 20 30 50
+    ``floci_deployer.py`` drives S3, Secrets Manager, SSM, Lambda, API Gateway
+    and EKS against the Floci emulator via boto3. ``internal/floci`` uses
+    ``aws-sdk-go-v2`` with a static-credentials provider and an explicit base
+    endpoint:
 
-       * - Format
-         - Go Library
-         - Used For
-       * - YAML
-         - ``gopkg.in/yaml.v3``
-         - Docker Compose files, connections.yml
-       * - JSON
-         - ``encoding/json`` (stdlib)
-         - nsplugin.json, manifest.json, platform_bom.json, resources.json,
-           config_local.json, SERVICE_CONFIG
-       * - dotenv
-         - ``github.com/joho/godotenv``
-         - ``$HMD_HOME/.config/hmd.env``
+    .. code-block:: go
 
-    ``yaml.v3`` preserves comments and ordering when marshaling, which matters
-    for Docker Compose files that are read, modified, and written to cache.
+        cfg, err := config.LoadDefaultConfig(ctx,
+            config.WithRegion(region),
+            config.WithBaseEndpoint(endpoint),
+            config.WithCredentialsProvider(
+                credentials.NewStaticCredentialsProvider("dummykey", "dummykey", ""),
+            ),
+        )
 
-.. spec:: Interactive prompts replacing InquirerPy
+    Notes carried forward from the Python implementation:
+
+    - **Which endpoint matters.** The control plane is account
+      ``000000000000`` behind the ``neuronsphere`` alias; each environment has
+      its own Floci container and account. Deploy nodes are given the
+      environment's Floci container address, **not** the ``neuronsphere``
+      alias -- see the ``feedback_floci_two_endpoint_split`` rule.
+    - Errors are matched with ``errors.As`` on ``smithy.APIError`` rather than
+      by string-matching a response dict.
+    - ``clear_apigateway_state`` must be preserved: Floci persists API Gateway
+      v1 entities all-null and serves them back as undeletable ghosts.
+    - Secret names are produced by ``hmd_cli_tools.make_standard_name``, which
+      must be ported **bit-for-bit** -- the microservices reading those secrets
+      stay Python and compute the same name independently.
+
+.. spec:: Docker is the only host tool -- kubectl and helm run in projectbuilder
     :id: HMD_CLI_NERD002_SPEC008
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    InquirerPy is used in two places:
+    ``nsctl`` requires **``docker`` (or ``nerdctl``) on the host and nothing
+    else.** Compose orchestration stays ``docker compose``; Postgres stays
+    ``docker exec ... psql``; image staging into the k3s node's containerd stays
+    ``docker save | docker exec ... ctr images import``. Everything that today
+    needs a ``kubectl`` or ``helm`` binary on the host either moves inside
+    ``hmd-img-projectbuilder`` -- the image that already runs every real Helm
+    and CDKTF deploy as a DAG node (SPEC010) -- or is not ported at all.
 
-    1. ``hmd neuronsphere configure`` -- checkbox prompt for plugin selection
-    2. ``hmd configure`` (via ``hmd_cli_tools.prompt_tools``) -- text input
-       prompts for HMD_HOME, HMD_REPO_HOME, etc.
+    **Helm is eliminated, not relocated.** There are three host uses and none
+    survives:
 
-    **Go replacement:** `huh <https://github.com/charmbracelet/huh>`_ from the
-    Charm ecosystem. Provides text input with defaults, checkbox/multi-select,
-    confirmation, and password prompts. Active maintenance, quality TUI
-    rendering, and Bubble Tea integration for potential future TUI features.
+    1. ``env_reconcile``'s release cross-check already needs no helm binary.
+       ``k3s_operators.live_helm_releases`` lists Helm's own release Secrets
+       (``-l owner=helm``, reading ``metadata.labels.name``) and its docstring
+       states the reason outright: it is cheaper than ``helm list -A`` and needs
+       no helm on the host. It is a Kubernetes read, and moves with the rest.
+    2. ``_install_operator`` / ``_helm_upgrade`` / ``_ensure_chart_dependencies``
+       is **dead on the default path.** ``_OPERATORS`` contains exactly
+       ``ext-secrets-crds`` and ``ext-secrets``, and ``provision_k3s_operators``
+       skips both whenever ext-secrets deploys through the DAG -- which is the
+       default (``HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS`` is on unless
+       explicitly disabled) and is also true whenever a plugin's BOM already
+       contributes an ``ext-secrets`` instance. This is the tail of the
+       completed migration that moved ClickHouse, KEDA and cert-manager onto
+       BOM entries. ``nsctl`` does not port it; the opt-out becomes "declare it
+       in the BOM", which is what every other component already does.
+    3. ``helm uninstall traefik`` is a one-time migration off a helm-installed
+       Traefik onto the image-baked addon. Not ported. A cluster predating that
+       migration is handled by the Python CLI or by deleting the cluster, and
+       ``nsctl`` says so rather than silently leaving two ingress controllers.
 
-    **``prompt_for_values`` mapping:**
+    **kubectl becomes a batched exec into projectbuilder.** The ~29 host call
+    sites (22 in ``k3s_operators.py``, 7 in ``nginx_router.py``) are all plain
+    Kubernetes API operations in three groups:
 
-    The Python ``prompt_for_values(questions)`` utility accepts a dictionary of
-    ``{key: {prompt, default, hidden, required}}`` and returns results. The Go
-    equivalent is a ``PromptForValues()`` function in ``internal/tools/prompt.go``
-    that iterates over a ``[]PromptConfig`` slice and builds a ``huh.Form``.
+    - **Provisioning mutations** -- the CoreDNS custom-records ConfigMap plus a
+      ``rollout restart``; the Traefik ingress-class apply and Addon patch; node
+      topology labels; stale-Node and orphaned-PV reaping.
+    - **Waits** -- ``_wait_for_node_ready`` polling node readiness.
+    - **Reads** -- ``get svc -A -o json`` (NodePort discovery),
+      ``get ingress -A -o json`` (host routes), the ``kube-system`` namespace
+      UID behind ``cluster_incarnation_id``, and the Helm release Secrets above.
 
-.. spec:: External artifacts and go:embed
+    ``internal/k3s`` exposes one helper that runs a **script**, not a command,
+    in a throwaway projectbuilder container, and the call sites are grouped so
+    a full ``env start`` costs roughly six containers rather than twenty-nine:
+
+    .. code-block:: go
+
+        // RunKube mounts script at /tmp/kube-step.sh along with the
+        // container-rewritten kubeconfig, and returns stdout separately
+        // from stderr.
+        func (k *Kube) RunKube(
+            ctx context.Context, script []byte,
+        ) (stdout, stderr []byte, err error)
+
+    Details that follow from the container boundary, each with a precedent
+    already in the codebase:
+
+    - **Scripts are mounted, never passed as arguments** -- the same rule the
+      deploy node already follows for ``/tmp/hmd-deploy-node.sh``, and for the
+      same reason (``ARG_MAX`` and quoting).
+    - **``kubectl apply -f -`` becomes ``apply -f <mounted file>``.** Two sites
+      feed JSON on stdin today (the ingress class, the CoreDNS ConfigMap); both
+      become files in the same mount.
+    - **The kubeconfig is the in-container rewrite**, produced by the existing
+      ``_kubeconfig_for_container`` logic that repoints the server at the
+      in-network Floci EKS alias. The host-reachable kubeconfig is still written
+      to ``env.kubeconfig_path`` for the *user's* own ``kubectl``; ``nsctl``
+      never reads it.
+    - **A wait is a loop inside one container**, not repeated container starts.
+    - **stdout carries data, stderr carries diagnosis.** ``-o json`` parsing is
+      unchanged; failures buffer their output and print under the failed step,
+      exactly as ``_print_failure_detail`` does for a deploy node today.
+
+    **Why not client-go.** Vendoring ``k8s.io/client-go`` would also remove the
+    binary dependency and would be faster per call, but it trades one problem
+    for two: the Kubernetes client version becomes ``nsctl``'s to keep aligned
+    with the cluster (local k3s tracks the cloud EKS version, currently 1.34,
+    and that pin already lives in two places), and it costs tens of megabytes
+    against SPEC013's size target. The image is already version-matched to the
+    cluster it provisions and is already the pin for the CDKTF and Helm
+    toolchain. One place to pin the Kubernetes toolchain is worth more than the
+    microseconds.
+
+    **Consequence, stated plainly:** ``hmd-img-projectbuilder`` becomes a
+    prerequisite of *cluster provisioning*, not merely of deploys. A cold or
+    offline first run must have it before k3s is usable at all. ``nsctl``
+    therefore pulls it once, early in ``control-plane start``, with an explicit
+    progress line -- rather than discovering it missing midway through
+    provisioning a cluster.
+
+    Port validation (``port_validator.py``) is reimplemented natively with
+    ``net.DialTimeout``; it needs no cluster. Selective use of
+    ``github.com/docker/docker/client`` is permitted for inspection-shaped work
+    (container status, health, logs) where parsing CLI output would be fragile,
+    as ``hmd-cli-bartleby`` already does.
+
+.. spec:: ms-deployment client -- the BOM and apiop protocol
     :id: HMD_CLI_NERD002_SPEC009
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    The ``manifest.json`` ``pre_build_artifacts`` system fetches build archives
-    from 9 external repos and unpacks them into the ``external/`` directory.
-    These artifacts contain ``src/local/nsplugin.json``, Docker Compose files,
-    configuration files, and initialization scripts.
+    ``internal/bom`` re-implements ``bom_seeder.py`` (the single densest module
+    in the port, ~2,350 lines) over ``net/http``. Nothing here is a library
+    swap; it is protocol.
 
-    **In Go, external artifacts are embedded at build time:**
+    The sequence ``seed_bom`` performs, which must be reproduced exactly:
+    resolve each entry's version (bundled artifact, then declared, then working
+    tree only under an override); ``POST add_repo_class_version``;
+    ``upsert_repo_resource_definitions``; ``declare_core_produces``;
+    ``PUT`` the ``hmd_lang_deployment.environment`` / ``deployment_set`` /
+    ``change_set`` entities with the definition base64+JSON encoded; then
+    ``POST apply_changeset`` and ``POST generate_local_deployment/<csd_nid>``.
 
-    .. code-block:: go
+    **Two topological sorts exist and must not be conflated.**
 
-        //go:embed embed/external/transform/src/local/*
-        //go:embed embed/external/trino/src/local/*
-        //go:embed embed/external/airflow/src/local/*
-        //go:embed embed/external/clickhouse/src/local/*
-        //go:embed embed/external/telemetry/src/local/*
-        //go:embed embed/external/hive-metastore/src/local/*
-        //go:embed embed/external/apache_superset/src/local/*
-        //go:embed embed/external/hyperdx/src/local/*
-        //go:embed embed/external/telemetry-debug/src/local/*
-        var externalArtifacts embed.FS
+    1. ``_topo_sort_bom`` (CLI-side, *before* ``apply_changeset``) exists
+       because ``apply_changeset_to_environment`` processes changeset entries
+       in list order and resolves each entry's dependencies only against repo
+       instances already added earlier in the same call. An out-of-order merged
+       list fails with "No repo instance". This pass makes **graph
+       construction** succeed and stays sequential.
+    2. ``traverse_deployment_dag`` (service-side, Kahn's algorithm over the
+       reduced ``RepoInstanceReqRepoInstance`` edges) makes **execution order**
+       correct. This is the one SPEC011 parallelises.
 
-    **Build process:**
+    ``internal/reconcile`` ports ``change_set_builder.py`` and
+    ``env_reconcile.py``. Its ``entry_hash`` / ``definition_hash`` digests and
+    the v2 ``applied-changeset.json`` snapshot format must reproduce
+    identically to the Python implementation, or every user's first
+    ``nsctl env start`` degrades into a full redeploy. This is a golden-vector
+    test against snapshots written by the Python CLI, not a self-consistency
+    test.
 
-    1. ``pre_build_artifacts`` downloads and unpacks external archives into
-       ``embed/external/`` (same mechanism as today, different destination).
-    2. ``go build`` embeds these files via ``//go:embed`` directives.
-    3. At runtime, plugin ``base.go`` reads from the embedded filesystem first,
-       then falls back to the local plugin loader for user overrides.
-
-    **manifest.json compatibility:** The ``pre_build_artifacts`` format is
-    unchanged. A new ``go`` build command type is added alongside the existing
-    ``python``, ``docker``, ``cdktf``, and ``helm`` types.
-
-    **File operations:** Functions like ``copy_configs``,
-    ``copy_postgres_scripts``, and ``create_required_dirs`` in Python's
-    ``base.py`` become Go functions that read from ``embed.FS`` and write to
-    ``$HMD_HOME`` using ``io.Copy`` and ``os.MkdirAll``.
-
-.. spec:: hmd-cli-tools shared Go module
+.. spec:: The DAG-runner service replaces the in-process runner
     :id: HMD_CLI_NERD002_SPEC010
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    ``hmd-cli-tools`` provides shared utilities used by all CLI repos. In the
-    Go monorepo, these become packages under ``internal/tools/``:
+    **Today the CLI pulls.** ``bom_seeder`` posts ``apply_changeset`` with
+    ``skip_async: true`` -- a payload boolean whose only function is to stop
+    ``hmd-ms-deployment`` from doing what it does in the cloud, namely build an
+    Argo ``Workflow`` and ``POST`` it to the Argo server -- then posts
+    ``generate_local_deployment/<csd_nid>``, receives a node list, and executes
+    it in-process inside the CLI. The deployment therefore lives and dies with
+    the CLI process, and the control plane has no idea a workflow engine
+    exists.
 
-    .. list-table::
-       :header-rows: 1
-       :widths: 30 30 40
+    **This proposal inverts it.** ``nsrunner`` is a small Go service, built
+    from this repository and run as a container in the control-plane compose
+    project, exposing a submit API deliberately shaped like the one
+    ``deployment_manager.submit_workfow`` already speaks::
 
-       * - Python Module
-         - Go Package
-         - Notes
-       * - ``hmd_cli_tools.py`` (load/set env)
-         - ``tools/env.go``
-         - ``godotenv`` for hmd.env
-       * - ``build_tools.py``
-         - ``build/tools.go``
-         - Manifest parsing, build commands
-       * - ``credential_tools.py``
-         - ``tools/credentials.go``
-         - ``go-keyring`` for system keyring
-       * - ``core_s3_tools.py``
-         - ``tools/s3.go``
-         - aws-sdk-go-v2/service/s3
-       * - ``k8s_tools.py``
-         - ``tools/k8s.go``
-         - ``client-go`` (official K8s Go client)
-       * - ``okta_tools.py``
-         - ``tools/okta.go``
-         - ``golang.org/x/oauth2``
-       * - ``prompt_tools.py``
-         - ``tools/prompt.go``
-         - ``charmbracelet/huh``
-       * - ``rds_tools.py``
-         - ``tools/rds.go``
-         - aws-sdk-go-v2/service/rds
-       * - ``vpn_tools.py``
-         - ``tools/vpn.go``
-         - Subprocess exec (openvpn/wireguard)
-       * - ``cdktf_tools.py``
-         - ``cdktf/tools.go``
-         - Subprocess exec (cdktf CLI)
+        POST /api/v1/workflows/<namespace>
+        {"namespace": "...", "workflow": {...}}      -> {"metadata": {"name": ...}}
+        GET  /api/v1/workflows/<namespace>/<name>    -> status
+        GET  /api/v1/workflows/<namespace>/<name>/log
 
-    **AWS client factory** (``tools/aws.go``): Provides ``NewAWSConfig()`` that
-    automatically sets the Floci endpoint when ``HMD_ENVIRONMENT=local``. This
-    implements NERD001 SPEC011 natively in Go and eliminates per-CLI-repo
-    endpoint switching.
+    ``hmd-ms-deployment`` gains a runner selection alongside its Argo client;
+    ``skip_async: true`` is retired as the local marker in favour of the
+    control plane simply having a different workflow endpoint configured. The
+    changeset deployment records the returned workflow name exactly as it
+    records Argo's.
 
-.. spec:: NERD001 Floci integration in Go
+    **Node execution is inherited verbatim, not redesigned.** For each node
+    the runner performs what ``_execute_in_projectbuilder`` does today:
+
+    - ``image_cache.ensure_lambda_image`` equivalent -- stage the bare
+      ``<repo>:<version>`` tag in the host Docker cache (Floci runs Lambdas off
+      the host daemon and has no ECR).
+    - Import the image into the k3s node's containerd
+      (``docker save | ctr images import``).
+    - Resolve the repo working tree; apply the ``src/local/`` overlay into an
+      isolated temporary copy -- **the developer's tree is never mutated** --
+      or let ``deploy_local.sh`` replace the script entirely.
+    - Insert ``--local`` after the ``hmd ... deploy`` subcommand so
+      ``hmd-cli-deploy`` takes source from the mount rather than the absent
+      Artifact Librarian.
+    - ``docker run --rm --entrypoint bash`` the
+      ``hmd-img-projectbuilder`` image on the platform network, with the script
+      passed as a **mounted file** (generated scripts routinely exceed
+      ``ARG_MAX``), injecting ``AWS_ENDPOINT_URL``, ``HMD_ENVIRONMENT=local``,
+      ``HMD_HOME=/root/hmd``, ``HMD_DEPLOYMENT_SERVICE_URL``,
+      ``NS_LOCAL_PROXY``, ``HMD_LOCAL_K3S_CLUSTER_NAME`` and ``HMD_DID``, and
+      mounting the Docker socket, the rewritten kubeconfig, and the workspace.
+    - On success, read ``meta-data/resources_output/`` from the workspace and
+      submit the NERD0004 Resources to ms-deployment.
+    - Report status by ``set_deployment_status/<rid>/<status>`` and
+      ``set_change_set_deployment_status/<csd>/<status>``.
+
+    That last point is what makes the inversion tractable: **status already
+    flows over REST**, not through the CLI's memory, so moving execution out of
+    the CLI changes who calls those endpoints and nothing else.
+
+    Consequences worth stating: a deploy survives the CLI exiting;
+    ``nsctl env start`` can attach to and stream an in-flight deployment rather
+    than owning it; and a second ``nsctl env start`` against the same
+    environment can be refused by the runner rather than racing.
+
+    **Open:** the submit path's authentication (Argo's carries a bearer token
+    from Secrets Manager) and what happens to an in-flight workflow when the
+    control plane stops.
+
+.. spec:: Parallel node execution respecting dependencies
     :id: HMD_CLI_NERD002_SPEC011
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    NERD001 specifies 12 specs for Floci/Deploy mode. The Go port implements
-    all CLI-side specs natively rather than porting from Python:
+    ``LocalWorkflowRunner.run()`` is a strictly sequential ``for node in
+    nodes:`` that returns at the first failure. It has no threads, no
+    ``concurrent.futures``, and no use of the edge data.
 
-    **NERD001 SPEC001 (Floci replaces MiniStack):**
-    ``internal/neuronsphere/floci_deployer.go`` implements the deployer using
-    aws-sdk-go-v2. The Python ``_get_client()`` pattern becomes a
-    ``FlociClient`` struct with typed service clients.
+    **The edges are already in the payload.** Each node emitted by
+    ``generate_local_deployment`` is
+    ``{instance_name, repo_class_name, version, rid_nid, script, dependencies}``,
+    where ``dependencies`` is ``get_active_dependencies(...)`` -- the
+    instance's real ``RepoInstanceReqRepoInstance`` edges, transitively
+    reduced by ``build_deployment_dag`` and filtered to the instances actually
+    present in this changeset. The current runner simply never reads the field.
 
-    **NERD001 SPEC002 (Admin control plane):**
-    ``internal/neuronsphere/deploy_mode.go`` implements
-    ``StartDeployMode()`` which starts ``docker-compose.admin.yml`` and waits
-    for health checks on Floci, PostgreSQL, ms-naming, and ms-deployment.
+    **Therefore parallelism requires no change to ``hmd-ms-deployment``.**
+    ``nsrunner`` maintains an in-degree map over ``dependencies``, dispatches
+    every in-degree-zero node to a bounded worker pool, decrements successors
+    on completion, and on the first failure cancels the ``context`` so no
+    unstarted node begins while in-flight nodes are allowed to finish and
+    report.
 
-    **NERD001 SPEC003 (local_overrides.json):**
-    Embedded in the binary via ``//go:embed``. Parsed into a
-    ``LocalOverrides`` struct.
+    Parity targets taken from the cloud path, which already does exactly this
+    through Argo: a default concurrency of **4** (Argo's
+    ``spec.parallelism: 4``), and a **per-environment mutex** mirroring the
+    workflow-level ``synchronization.mutex`` keyed on the deployment set, so
+    two submissions cannot interleave on one environment. Concurrency is
+    overridable per submission.
 
-    **NERD001 SPEC004 (Platform BOM):**
-    ``internal/neuronsphere/bom.go`` implements BOM generation by walking
-    ``manifest.json`` dependency trees. BOM is embedded at build time via
-    ``//go:embed embed/platform_bom.json``.
+    **Granularity: a RepoInstance is the unit, and is not divisible.** One
+    instance is one DAG node is one generated bash script is one
+    ``hmd ... deploy`` invocation -- in the cloud and locally alike. There are
+    no sub-steps modelled anywhere, so any intra-instance concurrency would
+    have to come from inside ``hmd-cli-deploy`` / ``-helm`` / ``-cdktf`` and is
+    out of scope.
 
-    **NERD001 SPEC005 (Seed deployment graph):**
-    HTTP client calls to local ms-deployment API using ``net/http``.
+    Nodes for the core repo class (``hmd-cli-neuronsphere``) remain a pure
+    status flip that executes nothing, and destroy manifests keep their
+    reversed edge direction, arriving already reversed from the service.
 
-    **NERD001 SPEC006 (LocalWorkflowRunner):**
-    This lives in ``hmd-ms-deployment`` (Python), not in the CLI. The CLI's
-    role is to trigger changeset application via the ms-deployment API. The
-    runner itself remains Python inside the ms-deployment container.
-
-    **NERD001 SPEC007-008 (User-extensible deployments, Legacy mode):**
-    Implemented directly in the Go command handlers.
-
-    **NERD001 SPEC009-010 (nsplugin unchanged, plugin discovery):**
-    Covered by SPEC002 and SPEC003 of this NERD.
-
-    **NERD001 SPEC011 (CLI tools target Floci):**
-    Covered by SPEC010 ``tools/aws.go`` session factory.
-
-    **NERD001 SPEC012 (Phased migration):**
-    The Go port supersedes the Python-first migration. Phase 0 (Floci drop-in
-    replacement) can still be done in Python as a quick win while the Go port
-    is underway. Phases 1-4 are implemented directly in Go.
-
-.. spec:: Build system -- manifest.json compatibility
+.. spec:: Coexistence with the Python CLI
     :id: HMD_CLI_NERD002_SPEC012
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    The current build system uses ``manifest.json`` with
-    ``"commands": [["python"]]`` which triggers ``hmd python build``.
+    The Python ``hmd neuronsphere`` surface is **not** deprecated by this
+    proposal and is not removed on any schedule set here. Both front ends
+    operate on the same state and must remain interchangeable mid-project:
 
-    **New manifest.json for the Go CLI:**
+    - the same ``$HMD_HOME/.cache/neuronsphere/environments.json`` (SPEC003),
+    - the same ``$HMD_HOME`` layout, cache directories and nginx fragments,
+    - the same ms-deployment graph and the same ``applied-changeset.json``
+      digests (SPEC009),
+    - the same Docker network, compose project names and container names.
 
-    .. code-block:: json
+    A user may run ``nsctl env start dev`` and then
+    ``hmd neuronsphere status --env dev``, or the reverse, in either order. The
+    acceptance test for each ported command is exactly this: perform the
+    operation with one front end, verify with the other.
 
-        {
-            "name": "hmd-cli",
-            "description": "NeuronSphere CLI",
-            "build": {
-                "pre_build_artifacts": [
-                    ["hmd-ms-transform@1.0.811:build",
-                     "embed/external/transform"],
-                    ["hmd-inf-trino@0.1.202:build",
-                     "embed/external/trino"],
-                    ["hmd-inf-hive-metastore@0.2.70:build",
-                     "embed/external/hive-metastore"],
-                    ["hmd-app-airflow@0.4.315:build",
-                     "embed/external/airflow"],
-                    ["hmd-inf-clickhouse@0.1.23:build",
-                     "embed/external/clickhouse"],
-                    ["hmd-inf-otel-collector@0.1.158:build",
-                     "embed/external/telemetry"],
-                    ["hmd-inf-hyperdx@0.1.4:build",
-                     "embed/external/hyperdx"],
-                    ["hmd-inf-superset@0.5.228:build",
-                     "embed/external/apache_superset"],
-                    ["hmd-ms-telemetry-debug@0.1.5:build",
-                     "embed/external/telemetry-debug"]
-                ],
-                "commands": [["go"]]
-            }
-        }
+    This mirrors what ``hmd-cli-bartleby`` did -- the Go binary shipped, the
+    Python source stayed in the repo as legacy, and the switch was made by
+    documentation rather than by removal.
 
-    **``hmd go build``** is a new build command type:
+    The existing Robot Framework suites under ``test/`` invoke the CLI as a
+    subprocess and remain the behavioural specification; a parallel suite
+    parameterised on the binary under test (``hmd neuronsphere`` vs ``nsctl``)
+    is the parity harness.
 
-    1. Run ``pre_build_artifacts`` to populate ``embed/external/``.
-    2. Run ``go build -ldflags "-X main.version=${VERSION}" -o target/hmd ./cmd/hmd/``
-    3. For releases, use GoReleaser for cross-compilation.
-
-    **Bootstrap strategy:** During the transition period, the Python
-    ``hmd build`` command gains a ``go`` handler that runs ``go build``. Once
-    the Go CLI is self-hosting, it builds itself.
-
-.. spec:: Distribution -- single binary via multiple channels
+.. spec:: Build and distribution
     :id: HMD_CLI_NERD002_SPEC013
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    **Primary distribution channels:**
+    **Build.** A repository-root ``Makefile`` with ``build``/``test``/``vet``/
+    ``tidy``/``clean`` targets, binary at ``src/go/nsctl/build/nsctl``, version
+    injected via ``-ldflags "-X main.version=$(VERSION)"`` read from
+    ``meta-data/VERSION`` -- the pattern used by ``hmd-cli-bartleby``,
+    ``goblins`` and the ``go_cli_repo`` cookiecutter. ``build.commands`` in
+    ``manifest.json`` stays ``[["python"]]``; the Go build is not wired into
+    BACON, exactly as in the other Go repos here. ``pre_build_artifacts`` runs
+    first so ``//go:embed`` has files to embed (SPEC006).
 
-    1. **GitHub Releases** -- GoReleaser produces binaries for:
+    Go 1.25, cobra v1.8.0, CGO disabled.
 
-       - ``darwin/amd64``, ``darwin/arm64`` (macOS Intel + Apple Silicon)
-       - ``linux/amd64``, ``linux/arm64``
-       - ``windows/amd64``
+    **Distribution.**
 
-    2. **Homebrew tap** -- ``neuronsphere/tap/hmd``:
+    1. **Homebrew tap** -- ``neuronsphere/tap/nsctl``, the channel
+       ``bartleby`` already uses.
+    2. **GitHub Releases** via GoReleaser: ``darwin/{amd64,arm64}``,
+       ``linux/{amd64,arm64}``, ``windows/amd64``.
+    3. **Install script** -- platform-detecting curl-pipe-sh.
+    4. **Docker image** for CI.
 
-       .. code-block:: ruby
+    ``nsctl version`` reports the binary version and, when a control plane is
+    reachable, the ms-deployment version it is talking to.
 
-           class Hmd < Formula
-             desc "NeuronSphere Data Platform CLI"
-             homepage "https://github.com/neuronsphere/hmd-cli"
-             # GoReleaser auto-updates the formula
-           end
+    Binary size target under 50 MB including embedded artifacts (``kubectl``
+    ~49 MB, ``helm`` ~46 MB for reference). The target is comfortable precisely
+    because SPEC008 vendors neither ``client-go`` nor the Helm SDK.
 
-    3. **Docker image** -- ``ghcr.io/neuronsphere/hmd-cli:latest`` for CI
-       environments and users who prefer containerized tools.
-
-    4. **Install script** -- A curl-pipe-sh installer that detects platform
-       and downloads the correct binary from GitHub Releases.
-
-    **Self-update:** A new ``hmd self-update`` command checks GitHub Releases
-    for newer versions and replaces the binary in-place.
-
-    **Binary size target:** Under 50 MB including all embedded assets (compose
-    files, configs, skill markdown files). For reference: ``kubectl`` is ~49 MB,
-    ``helm`` is ~46 MB, ``terraform`` is ~85 MB.
-
-.. spec:: Backwards compatibility and migration path
+.. spec:: Gaps, risks, and mitigations
     :id: HMD_CLI_NERD002_SPEC014
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    **100% command-line compatibility.** Every ``hmd <command> <subcommand>
-    <flags>`` invocation must produce the same behavior. Robot Framework tests
-    (``test/01__smoke_tests.robot``, ``test/02__integration_tests.robot``) are
-    the compatibility specification -- they invoke the CLI as a subprocess and
-    verify output and exit codes.
+    **HIGH: reconcile digest compatibility.** If ``entry_hash`` /
+    ``definition_hash`` differ by so much as key ordering, every existing user's
+    first ``nsctl env start`` becomes a full redeploy of their environment
+    -- tens of minutes -- and reads as a bug. Mitigation: golden vectors
+    captured from the Python implementation, and an explicit
+    ``--force-full-redeploy`` escape hatch rather than a silent fallback.
 
-    **Config file compatibility -- all formats unchanged:**
+    **MEDIUM: installed-package plugin contributions.** Go cannot enumerate
+    Python distributions, so the entry-point half of the plugin system does not
+    port. Downgraded from HIGH by the audit in SPEC005: all four existing
+    plugins' contributions are static data plus four declarative constructs, so
+    the bundle format covers them without loss, and the one construct that
+    could not port (``importlib.metadata`` sibling probing) is deleted rather
+    than emulated. Residual risk is ergonomic, not structural -- a plugin is no
+    longer discovered merely by being pip-installed, so the plugin development
+    guide and each plugin's README must change in the same wave as the bundle
+    conversion.
 
-    - ``$HMD_HOME/.config/hmd.env``
-    - ``nsplugin.json``
-    - ``manifest.json`` (for service repos; CLI repo gets new ``go`` command)
-    - ``connections.yml``
-    - ``meta-data/config_local.json``
-    - ``docker-compose.*.yml`` (consumed by Docker Compose, not the CLI)
+    **MEDIUM: the inverted DAG submission touches ``hmd-ms-deployment``.**
+    This proposal is not purely additive -- it asks a Python microservice to
+    grow a second workflow-runner target. Mitigation: the runner speaks Argo's
+    submit shape, so the change is a client selection rather than a new
+    protocol; and ``skip_async: true`` remains functional throughout, so the
+    old path is a working fallback at every point.
 
-    **Environment variable compatibility -- all preserved:**
+    **MEDIUM: ``make_standard_name`` divergence.** A one-character difference
+    in secret naming produces a runtime failure in a Python microservice, far
+    from the Go code that caused it. Mitigation: a table-driven test built from
+    the Python function's outputs.
 
-    - All ``HMD_*`` variables
-    - All ``HMD_LOCAL_NEURONSPHERE_ENABLE_*`` variables
-    - ``DOCKER_COMPOSE_CMD``
-    - ``HMD_LOCAL_PLUGINS``, ``HMD_LOCAL_PLUGINS_SCAN_REPO_HOME``
+    **MEDIUM: k3s operator provisioning is intricate.** CoreDNS custom records
+    pointing ``neuronsphere`` at the environment's Floci, Traefik
+    ingress-class patching (emulating the ``alb`` class rather than editing
+    charts), node topology labels, stale-Node and orphaned-PV reaping, and
+    ``cluster_incarnation_id`` fingerprinting via the ``kube-system`` namespace
+    UID. All of it is plain Kubernetes API work, so under SPEC008 it becomes
+    ``RunKube`` scripts and ports mechanically -- but it is where the local
+    platform's hard-won bug fixes live and it must be ported wholesale, not
+    reconstructed. Batching it into per-phase scripts is the part needing care:
+    a step silently dropped from a batch fails later and elsewhere.
 
-    **Migration path for users:**
+    **LOW: Jinja2 template syntax.** No bundled plugin defines ``templates``
+    entries. User-authored templates need a syntax note; ``pongo2`` is a
+    last-resort fallback.
 
-    1. Replace ``pip install hmd-cli-*`` with single binary installation
-       (brew, curl, or GitHub Release).
-    2. No configuration changes required.
-    3. No nsplugin.json changes required.
-    4. No Docker Compose file changes required.
+    **LOW: Robot Framework parity suites.** Tests invoke a CLI as a
+    subprocess; parameterising the binary is a fixture change.
 
-    **Migration path for hmd-cli-* developers:**
+    **MEDIUM: projectbuilder becomes an earlier prerequisite.** SPEC008 makes
+    the image a dependency of cluster provisioning, not only of deploys, so a
+    cold or offline first run cannot get a working k3s without it. Mitigation:
+    pull it once, early, with an explicit progress line, and fail with the pull
+    command rather than a mid-provision kubectl error. The upside is the trade:
+    ``docker`` becomes the *only* host tool ``nsctl`` requires.
 
-    1. Port controller code from Python/Cement to Go/Cobra package.
-    2. Register command in ``internal/app/registry.go``.
-    3. Add Go tests.
-    4. Archive the old ``hmd-cli-*`` Python repo.
+    **GAP: two host-only helm paths are dropped rather than ported.** The direct
+    ``helm upgrade --install`` of ext-secrets (dead on the default path) and the
+    one-time ``helm uninstall traefik`` migration have no ``nsctl`` equivalent.
+    A cluster predating the Traefik migration, or a user who disables
+    ext-secrets without declaring it in the BOM, needs the Python CLI. Both
+    cases must be detected and named, not silently mishandled.
 
-    **Parallel operation during transition:** The Go binary can coexist with
-    the Python CLI by using a different name (``hmd2``) until cutover.
+    **GAP: Platform mode is not ported.** Users on
+    ``HMD_LOCAL_NEURONSPHERE_MODE=platform`` stay on the Python CLI. This is
+    intentional (see Scope) and is one more reason coexistence is
+    indefinite rather than transitional.
 
-.. spec:: Gaps, risks, and mitigations
+.. spec:: Phased implementation strategy
     :id: HMD_CLI_NERD002_SPEC015
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    **HIGH RISK: Scope and timeline.**
+    Each phase is independently shippable and independently useful. Phases 1
+    and 2 are verifiable against a platform brought up by the Python CLI, which
+    means the port is exercised long before it can break anything.
 
-    Porting 40 CLI repos is a large undertaking. The phased approach (SPEC016)
-    mitigates this by delivering incremental value, but the total effort is
-    substantial. If full parity is not achievable, Phase 1 (neuronsphere
-    commands) delivers the highest-value subset.
+    **Phase 0 -- Foundation.** Scaffold ``src/go/nsctl/`` from the
+    ``go_cli_repo`` cookiecutter; root ``Makefile``; cobra root with
+    ``--home``; ``hmd.env`` loading; ``nsctl version``; CI (build, vet, test).
+    *Deliverable:* the binary builds and reports its version.
 
-    **MEDIUM RISK: Cement handler/hook system.**
+    **Phase 1 -- Read-only.** ``internal/registry`` (SPEC003) including the
+    ``legacy_layout`` case and the literal-JSON fixture; ``nsctl env list``,
+    ``nsctl env status``, ``nsctl control-plane status``.
+    *Deliverable:* ``nsctl`` accurately describes a platform the Python CLI
+    brought up. The registry contract is proven before anything can mutate it.
 
-    Cement's ``handler`` and ``hook`` systems allow plugins to register
-    callbacks. The current codebase uses hooks minimally -- the primary
-    extension mechanism is entry_points, not hooks. The Go port replaces both
-    with interface-based dispatch and init-time registration. Each CLI repo
-    must be audited for hook usage during porting.
+    **Phase 2 -- Lifecycle without deploys.** Compose invocation and port
+    validation; the ``RunKube`` projectbuilder helper and the early image pull
+    (SPEC008); Floci provisioning (SPEC007); k3s cluster, operators and
+    kubeconfig; nginx routing; ``control-plane start|stop``; ``env start
+    --no-deploy``, ``env stop``, ``env purge``. ``RunKube`` lands first in this
+    phase -- k3s provisioning, ingress and route discovery all sit on it.
+    *Deliverable:* ``nsctl`` brings up a control plane and an environment's
+    infrastructure; the Python CLI can then complete the deploy.
 
-    **MEDIUM RISK: boto3 high-level abstractions.**
+    **Phase 3 -- BOM and plugins.** ``internal/plugin`` (SPEC005),
+    ``nsbundle.json`` and ``nsctl load-plugin``; convert
+    ``hmd-cli-plugin-ns-{telemetry,analytics-engines,orchestration,visualization}``
+    to bundles, each keeping its ``entry_points`` block and gaining a test that
+    ``nsbundle.json`` and ``bom.py`` yield the same entries; ``internal/bom``
+    (SPEC009) including both topological sorts and version resolution;
+    ``internal/reconcile`` with golden-vector digest tests; ``env add``,
+    ``env delete``, and ``env start`` driving the existing in-process execution
+    path.
+    *Deliverable:* full extend-mode parity with ``hmd neuronsphere up``,
+    verified by the parity harness (SPEC012).
 
-    Some CLI repos (``hmd-cli-deploy``, ``hmd-cli-cdktf``) may use boto3's
-    ``resource`` API or session abstractions not directly available in
-    aws-sdk-go-v2. Each repo must be audited and ported to service clients.
+    **Phase 4 -- The runner service.** ``src/go/nsrunner`` with the submit API
+    and inherited node execution (SPEC010); the runner selection in
+    ``hmd-ms-deployment``; ``nsctl`` attaching to and streaming an in-flight
+    deployment.
+    *Deliverable:* deploys survive the CLI exiting; ``skip_async`` retires as
+    the local marker.
 
-    **MEDIUM RISK: Python-specific libraries.**
+    **Phase 5 -- Parallelism.** In-degree scheduling, the bounded worker pool,
+    fail-fast cancellation, and the per-environment mutex (SPEC011).
+    *Deliverable:* a cold bootstrap measurably faster than the sequential
+    path, with identical outcomes.
 
-    .. list-table::
-       :header-rows: 1
-       :widths: 30 30 40
-
-       * - Python
-         - Go Replacement
-         - Risk Notes
-       * - ``pg8000``
-         - ``pgx``
-         - API differs; connection pooling model different
-       * - ``kubernetes``
-         - ``client-go``
-         - Go client is better maintained (canonical)
-       * - ``colorlog``
-         - ``zerolog`` + ``lipgloss``
-         - Output format may differ slightly
-       * - ``requests``
-         - ``net/http``
-         - Standard library, lower risk
-
-    **LOW RISK: Jinja2 template syntax differences.**
-
-    No bundled plugins currently use Jinja2 templates. User-authored local
-    plugins with templates will need syntax updates. A migration guide and
-    optional ``pongo2`` fallback mitigate this.
-
-    **LOW RISK: Robot Framework test compatibility.**
-
-    Tests invoke the CLI as a subprocess. The binary name remains ``hmd``.
-    Command names and flags are preserved. Tests should pass without
-    modification once the Go binary is on PATH.
-
-    **LOW RISK: Build system bootstrap.**
-
-    The Python CLI must build the first Go binary. After that, the Go CLI is
-    self-hosting. During the transition, both CLIs coexist.
-
-    **GAP: ``hmd-cli-bender`` Robot Framework integration.**
-
-    ``hmd-cli-bender`` wraps Robot Framework (a Python tool). The Go port of
-    bender shells out to ``robot`` or ``pabot`` as a subprocess, same as today.
-    Robot Framework itself is not ported -- users still need Python installed
-    if they run tests. However, running tests is a developer activity, not an
-    end-user activity, so this does not conflict with the "Docker + single
-    binary" goal for end users.
-
-    **GAP: ``hmd-cli-bartleby`` Sphinx documentation.**
-
-    ``hmd-cli-bartleby`` wraps Sphinx (a Python tool). Same situation as
-    bender: the Go CLI shells out to Sphinx. Developers building docs still
-    need Python. Again, this is a developer activity.
-
-    **GAP: ``hmd-cli-python`` build commands.**
-
-    ``hmd python build`` runs ``setup.py bdist_wheel``. The Go CLI shells out
-    to Python for this. Python repos still need Python to build -- only the
-    CLI itself becomes Python-free for end users.
-
-    **GAP: Cross-repo pre_build_artifacts.**
-
-    The ``pre_build_artifacts`` system downloads archives from a build service.
-    The Go build must run this step before ``go build`` so that ``//go:embed``
-    can include the artifacts. The artifact download logic must be available as
-    a standalone script or early-phase Go tool to avoid a chicken-and-egg
-    problem.
-
-    **GAP: Third-party CLI tool dependencies.**
-
-    The hmd CLI shells out to many tools beyond Docker: ``terraform``,
-    ``cdktf``, ``helm``, ``kubectl``, ``robot``, ``sphinx-build``,
-    ``python``, ``node``, ``npm``. These remain external dependencies. The
-    single-binary goal applies to the ``hmd`` binary itself, not to the
-    entire tool ecosystem. The Docker image distribution channel
-    (SPEC013) can bundle all tools for CI environments.
-
-.. spec:: Phased implementation strategy
-    :id: HMD_CLI_NERD002_SPEC016
-    :links: HMD_CLI_NERD002
-    :status: proposed
-
-    **Phase 0: Foundation (Weeks 1-4)**
-
-    - Create ``hmd-cli`` monorepo with Go module structure.
-    - Implement ``cmd/hmd/main.go`` with Cobra root command.
-    - Implement ``internal/tools/env.go`` (env loading, hmd.env management).
-    - Implement ``internal/tools/prompt.go`` (interactive prompts).
-    - Port ``hmd configure`` (simplest controller, validates the framework).
-    - Port ``hmd version``.
-    - Set up GoReleaser for cross-platform builds.
-    - Set up CI pipeline (build, test, lint).
-    - **Deliverable:** ``hmd configure`` and ``hmd version`` work from the Go
-      binary.
-
-    **Phase 1: Core neuronsphere -- Legacy mode (Weeks 5-12)**
-
-    - Implement ``internal/plugins/interface.go`` and plugin registry.
-    - Port all 13 bundled plugins to Go.
-    - Implement ``internal/localplugin/loader.go`` (LocalPluginLoader).
-    - Implement ``internal/localplugin/validator.go``.
-    - Implement ``internal/neuronsphere/orchestrator.go`` (start/stop/restart).
-    - Implement ``internal/neuronsphere/floci_deployer.go`` (NERD001 SPEC001).
-    - Embed Docker Compose files and service configs via ``//go:embed``.
-    - Implement ``pre_build_artifacts`` download in Go build pipeline.
-    - Port all ``hmd neuronsphere`` subcommands: ``up``, ``down``, ``restart``,
-      ``configure``, ``validate-plugin``, ``init-plugin``,
-      ``list-local-plugins``, ``update-images``, ``run``.
-    - **Deliverable:** Full ``hmd neuronsphere`` Legacy mode works from Go
-      binary. Robot Framework smoke tests pass.
-
-    **Phase 2: Floci Deploy mode (Weeks 13-18)**
-
-    - Implement ``internal/neuronsphere/deploy_mode.go`` (NERD001 SPEC002).
-    - Implement ``internal/neuronsphere/bom.go`` (NERD001 SPEC004).
-    - Implement deployment graph seeding (NERD001 SPEC005).
-    - Implement ``local_overrides.json`` handling (NERD001 SPEC003).
-    - Integrate with ``hmd-ms-deployment`` API for changeset application.
-    - **Deliverable:** ``hmd neuronsphere up`` with
-      ``HMD_LOCAL_NEURONSPHERE_MODE=deploy`` works end-to-end.
-
-    **Phase 3: Build and deploy tooling (Weeks 19-26)**
-
-    - Port ``hmd build`` (``hmd-cli-build``).
-    - Port ``hmd deploy`` (``hmd-cli-deploy``).
-    - Port ``hmd docker``, ``hmd helm``, ``hmd cdktf``.
-    - Port ``hmd python``, ``hmd typescript`` (build tool wrappers).
-    - Implement ``internal/tools/aws.go`` session factory (NERD001 SPEC011).
-    - **Deliverable:** ``hmd build`` and ``hmd deploy`` work from Go binary.
-      The Go CLI can build itself.
-
-    **Phase 4: Supporting commands (Weeks 27-32)**
-
-    - Port ``hmd login``, ``hmd secrets``.
-    - Port ``hmd repo`` (including plugin hooks for remotes).
-    - Port ``hmd bender`` (Robot Framework test runner wrapper).
-    - Port ``hmd bartleby`` (Sphinx documentation wrapper).
-    - Port ``hmd debug``, ``hmd dbt``.
-    - Port ``hmd transform-can``, ``hmd transform-deploy``.
-    - Port remaining CLI repos.
-    - **Deliverable:** All command groups ported. Full feature parity.
-
-    **Phase 5: Cutover and deprecation (Weeks 33-36)**
-
-    - Run both Python and Go CLIs in parallel with integration test
-      comparison.
-    - Distribute Go binary via Homebrew, GitHub Releases, install script.
-    - Announce deprecation of Python pip packages.
-    - Update all documentation.
-    - Archive individual ``hmd-cli-*`` Python repos.
-    - **Deliverable:** Go binary is the sole distribution. Python packages
-      archived.
-
-    **Total estimated timeline: ~36 weeks.** Each phase is independently
-    shippable. The Go binary coexists with the Python CLI during transition
-    by using a different binary name (e.g., ``hmd2``) until Phase 5 cutover.
+    **Phase 6 -- Distribution.** GoReleaser, the Homebrew tap, the install
+    script, and documentation making ``nsctl`` the recommended path for new
+    users while the Python CLI remains supported.
 
 Dependency Map
 --------------
@@ -985,86 +971,105 @@ Dependency Map
    :header-rows: 1
    :widths: 25 30 45
 
-   * - Python Package
-     - Go Replacement
+   * - Python
+     - Go replacement
      - Notes
    * - ``cement``
-     - ``spf13/cobra`` + ``spf13/viper``
-     - CLI framework + configuration
+     - ``spf13/cobra`` v1.8.0
+     - House CLI framework; no viper -- ``godotenv`` plus explicit precedence
    * - ``boto3`` / ``botocore``
      - ``aws/aws-sdk-go-v2``
-     - AWS client (service-specific packages)
-   * - ``pyyaml``
-     - ``gopkg.in/yaml.v3``
-     - YAML parsing
-   * - ``json`` (stdlib)
-     - ``encoding/json`` (stdlib)
-     - JSON parsing
-   * - ``jinja2``
-     - ``text/template`` (stdlib)
-     - Template rendering
+     - Service clients only; the ``resource`` API has no analogue and is
+       already unused
    * - ``requests``
      - ``net/http`` (stdlib)
-     - HTTP client
-   * - ``kubernetes``
-     - ``k8s.io/client-go``
-     - Kubernetes client (canonical Go lib)
-   * - ``pg8000``
-     - ``github.com/jackc/pgx``
-     - PostgreSQL client
-   * - ``inquirerpy``
-     - ``github.com/charmbracelet/huh``
-     - Interactive prompts
-   * - ``colorlog``
-     - ``log/slog`` + ``lipgloss``
-     - Structured colored logging
+     - The ms-deployment apiop protocol; the largest behavioural surface
+   * - ``pyyaml``
+     - ``gopkg.in/yaml.v3``
+     - Compose files, helm values, PV manifests, env manifests
+   * - ``json`` (stdlib)
+     - ``encoding/json`` (stdlib)
+     - nsplugin.json, manifest.json, environments.json, resources output
+   * - ``jinja2``
+     - ``text/template`` (stdlib)
+     - User-authored plugin templates only; unused by bundled plugins
    * - ``python-dotenv``
-     - ``github.com/joho/godotenv``
-     - .env file loading
-   * - ``importlib_metadata``
-     - (not needed)
-     - Replaced by compile-time registration
-   * - ``pathlib`` (stdlib)
-     - ``path/filepath`` (stdlib)
-     - Path manipulation
-   * - ``shutil`` (stdlib)
-     - ``io``, ``os`` (stdlib)
-     - File copy operations
+     - ``joho/godotenv``
+     - ``$HMD_HOME/.config/hmd.env``
+   * - ``InquirerPy``
+     - ``charmbracelet/huh``
+     - Plugin selection and purge confirmation
+   * - ``yaspin``
+     - ``charmbracelet/lipgloss`` (or plain lines under ``--verbose``)
+     - Step spinners; ``--verbose`` must stay pipe-safe
+   * - ``importlib.metadata``
+     - (no analogue)
+     - Entry-point plugins replaced by ``load-plugin`` (SPEC005)
+   * - ``hmd_cli_tools``
+     - ``internal/tools``
+     - Only the handful actually used: ``load_hmd_env``, ``set_hmd_env``,
+       ``make_standard_name``, ``get_version``
+   * - ``kubernetes`` / helm clients
+     - (none needed, and no ``client-go`` either)
+     - Already subprocesses; SPEC008 moves them into projectbuilder rather than
+       vendoring a Kubernetes client
+   * - ``pg8000`` / ``psycopg``
+     - (none needed)
+     - Already ``docker exec ... psql``
+   * - Docker SDK
+     - ``os/exec`` (+ ``docker/docker/client`` for inspection)
+     - Already subprocess; ``nerdctl`` selection preserved
 
 Risk Assessment
 ---------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 35 55
+   :widths: 10 38 52
 
    * - Level
      - Risk
      - Mitigation
    * - High
-     - Scope: 40 CLI repos is a large porting effort
-     - Phased delivery; Phase 1 (neuronsphere) covers the highest-value
-       subset. Each phase is independently shippable.
+     - Reconcile digests diverge, forcing a full redeploy on first use
+     - Golden vectors captured from the Python implementation; explicit
+       ``--force-full-redeploy`` rather than a silent fallback
    * - Medium
-     - boto3 abstractions differ from aws-sdk-go-v2
-     - Audit each CLI repo for boto3 usage patterns before porting.
-       ``ministack_deployer.py`` already uses low-level client calls.
+     - Entry-point plugin contributions have no Go analogue
+     - Bundle format (SPEC005) covers all four existing plugins declaratively;
+       a plugin is no longer auto-discovered by being installed, so docs and
+       READMEs change in the same wave
    * - Medium
-     - Cement handler/hook system has no direct Go equivalent
-     - Hooks are used minimally. Audit and replace with interface dispatch.
+     - A plugin needs computation at load time that no primitive covers
+     - Deploy-time execution already exists per instance
+       (``src/local/deploy_local.sh`` in projectbuilder); an optional
+       ``loader_image`` is reserved but deliberately unspecified
    * - Medium
-     - Jinja2 template syntax incompatibility
-     - No bundled templates exist. Provide migration guide. Offer pongo2
-       fallback if user-authored templates are widespread.
+     - Inverting DAG submission requires a change in ``hmd-ms-deployment``
+     - Runner speaks Argo's submit shape; ``skip_async: true`` stays functional
+       as a fallback throughout
+   * - Medium
+     - ``make_standard_name`` divergence breaks Python microservices remotely
+     - Table-driven test built from the Python function's outputs
+   * - Medium
+     - k3s operator provisioning encodes many hard-won fixes
+     - Port wholesale rather than reconstruct; it is subprocess work, so the
+       port is mechanical
+   * - Medium
+     - Re-deriving names instead of reading the registry orphans containers
+     - SPEC003 makes the registry authoritative; hash retained only as a
+       fallback, with a cross-language equality test
    * - Low
-     - Robot Framework test compatibility
-     - Tests invoke CLI as subprocess. Binary name and flags preserved.
+     - Jinja2 template syntax differences
+     - No bundled plugin uses templates; migration note; ``pongo2`` fallback
    * - Low
-     - Build system bootstrap (Go needs Python CLI to build first)
-     - Standalone Makefile + ``go build`` for initial bootstrap. Python CLI
-       gains ``hmd go build`` handler.
+     - Robot Framework parity
+     - Suites invoke the CLI as a subprocess; parameterise the binary
+   * - Medium
+     - projectbuilder is now needed to provision a cluster, not just to deploy
+     - Pull it once, early in ``control-plane start``, with an explicit
+       progress line and an actionable failure; in exchange ``docker`` is the
+       only host tool required
    * - Low
-     - Developer tool dependencies (bender needs Python, bartleby needs
-       Sphinx)
-     - These are developer activities, not end-user. Docker image bundles
-       all tools for CI.
+     - Platform mode users left behind
+     - Intentional; the Python CLI is not deprecated (SPEC012)

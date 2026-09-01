@@ -40,7 +40,10 @@ CHANGE_SET_ENTRY_KEYS = (
 
 
 def normalize_entry(
-    entry: Dict[str, Any], repo_path: Optional[str] = None
+    entry: Dict[str, Any],
+    repo_path: Optional[str] = None,
+    shadow_batch: Optional[Dict[str, Any]] = None,
+    warned_repos: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Coerce a BOM-ish dict into exactly one variant-C change_set entry.
 
@@ -55,6 +58,12 @@ def normalize_entry(
     :param repo_path: The working tree to read repo metadata from, for a repo
         declared with an explicit ``source.path`` outside ``HMD_REPO_HOME``. It
         selects *which* tree is consulted, not whether the tree's VERSION wins.
+    :param shadow_batch: see :func:`bom_seeder.resolve_repo_version`. Pass the
+        same dict across every entry in one definition so version-resolution
+        warnings for the whole definition collapse into one combined warning
+        rather than one per entry.
+    :param warned_repos: see :func:`bom_seeder.resolve_repo_version`. Pass the
+        same set across every entry in one definition for the same reason.
     """
     from .bom_seeder import _get_repo_version
 
@@ -67,6 +76,8 @@ def normalize_entry(
             repo_class_name,
             bom_version=entry.get("repo_class_version"),
             repo_path=repo_path,
+            shadow_batch=shadow_batch,
+            warned_repos=warned_repos,
         ),
         "instance_configuration": dict(entry.get("instance_configuration") or {}),
         "dependencies": dict(entry.get("dependencies") or {}),
@@ -107,7 +118,12 @@ def declared_repo_paths(manifest) -> Dict[str, str]:
     return paths
 
 
-def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
+def build_definition(
+    env=None,
+    manifest=None,
+    _shadow_batch: Optional[Dict[str, Any]] = None,
+    _warned_repos: Optional[set] = None,
+) -> List[Dict[str, Any]]:
     """The Phase B change_set definition for ``env`` under ``manifest``.
 
     Phase B is everything except the core ``local-neuronsphere`` instance, which
@@ -126,6 +142,14 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
     The result is de-duped, topologically sorted (so cross-plugin dependency
     edges resolve regardless of ``entry_points()`` scan order) and stamped with
     the environment's ``deployment_id``.
+
+    :param _shadow_batch: Internal -- lets :func:`full_definition` share one
+        version-resolution warning batch across this call and its own core-BOM
+        normalization, so the two combine into a single flushed warning
+        instead of two. Omit for a standalone call, which collects and
+        flushes its own batch.
+    :param _warned_repos: Internal counterpart to ``_shadow_batch`` for the
+        no-bundled-artifact-or-declared-version warning; same sharing rule.
     """
     from . import bom_seeder as b
 
@@ -140,7 +164,9 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
 
     bom_file = os.environ.get("HMD_LOCAL_BOM_FILE")
     if bom_file:
-        logger.info(f"Merging legacy BOM file into the manifest definition: {bom_file}")
+        logger.debug(
+            f"Merging legacy BOM file into the manifest definition: {bom_file}"
+        )
         entries.extend(b.load_bom_from_file(bom_file))
 
     entries.extend(b.LOCAL_BOM)
@@ -154,14 +180,24 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
         enabled=enabled, config=plugin_config
     )
     if plugin_entries:
-        logger.info(
+        logger.debug(
             f"Appending {len(plugin_entries)} BOM entrie(s) from enabled plugins"
         )
     entries.extend(plugin_entries)
 
+    # Shared across every entry in this definition so a repo class whose
+    # version resolution warns (shadowed by a local tree, or neither bundled
+    # nor declared) reports once for the whole definition -- not once per
+    # entry, and not once per repo class named by more than one entry.
+    own_batch = {} if _shadow_batch is None else _shadow_batch
+    own_warned: set = set() if _warned_repos is None else _warned_repos
+
     normalized = [
         normalize_entry(
-            e, repo_path=declared_paths_by_class.get(e.get("repo_class_name"))
+            e,
+            repo_path=declared_paths_by_class.get(e.get("repo_class_name")),
+            shadow_batch=own_batch,
+            warned_repos=own_warned,
         )
         for e in entries
     ]
@@ -172,10 +208,12 @@ def build_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
     b._inject_docker_credentials(normalized)
 
     definition = b.scope_bom_entries(b._topo_sort_bom(b._dedupe_bom(normalized)), env)
-    logger.info(
+    logger.debug(
         f"Built change_set definition with {len(definition)} entrie(s) "
         f"({len(repo_paths)} declared repo path override(s))"
     )
+    if _shadow_batch is None:
+        b._flush_shadowed_local_warnings(own_batch)
     return definition
 
 
@@ -187,8 +225,19 @@ def full_definition(env=None, manifest=None) -> List[Dict[str, Any]]:
     """
     from . import bom_seeder as b
 
-    core = [normalize_entry(e) for e in b.LOCAL_CORE_BOM]
-    combined = core + build_definition(env=env, manifest=manifest)
+    shadow_batch: Dict[str, Any] = {}
+    warned_repos: set = set()
+    core = [
+        normalize_entry(e, shadow_batch=shadow_batch, warned_repos=warned_repos)
+        for e in b.LOCAL_CORE_BOM
+    ]
+    combined = core + build_definition(
+        env=env,
+        manifest=manifest,
+        _shadow_batch=shadow_batch,
+        _warned_repos=warned_repos,
+    )
+    b._flush_shadowed_local_warnings(shadow_batch)
     return b.scope_bom_entries(b._topo_sort_bom(b._dedupe_bom(combined)), env)
 
 

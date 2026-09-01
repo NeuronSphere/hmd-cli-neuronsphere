@@ -206,7 +206,9 @@ class RunStatusTests(unittest.TestCase):
             side_effect=lambda csd, status: self.csd_statuses.append(status),
         ).start()
         mock.patch.object(
-            runner, "_execute_in_projectbuilder", return_value=execute_returns
+            runner,
+            "_execute_in_projectbuilder",
+            return_value=lwr._NodeResult(execute_returns),
         ).start()
         self.addCleanup(mock.patch.stopall)
         return runner
@@ -371,7 +373,7 @@ class UnresolvedWorkspaceTests(unittest.TestCase):
             ) as mock_run:
                 result = runner._execute_in_projectbuilder(node)
 
-        self.assertFalse(result)
+        self.assertFalse(result.success)
         mock_run.assert_not_called()
 
 
@@ -618,7 +620,7 @@ class EnsureNodeImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             runner = self._runner(self._repo(d, [["docker"], ["cdktf"]]))
             with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
-                self.assertTrue(runner._ensure_node_image(self._node()))
+                self.assertTrue(runner._ensure_node_image(self._node())[0])
             ensure.assert_called_once_with("hmd-ms-transform", "0.2.457")
 
     def test_unavailable_image_fails_the_node(self):
@@ -630,7 +632,9 @@ class EnsureNodeImageTests(unittest.TestCase):
                     "ensure_lambda_image",
                     side_effect=ImageUnavailable("hmd-ms-transform", "0.2.457", ["a"]),
                 ):
-                    self.assertFalse(runner._ensure_node_image(self._node()))
+                    ok, message = runner._ensure_node_image(self._node())
+                    self.assertFalse(ok)
+                    self.assertTrue(message)
 
     def test_skip_env_downgrades_failure_to_a_warning(self):
         with tempfile.TemporaryDirectory() as d:
@@ -643,28 +647,28 @@ class EnsureNodeImageTests(unittest.TestCase):
                     "ensure_lambda_image",
                     side_effect=ImageUnavailable("hmd-ms-transform", "0.2.457", ["a"]),
                 ):
-                    self.assertTrue(runner._ensure_node_image(self._node()))
+                    self.assertTrue(runner._ensure_node_image(self._node())[0])
 
     def test_helm_only_repo_is_not_staged(self):
         """No docker deploy command means no Lambda image to stage."""
         with tempfile.TemporaryDirectory() as d:
             runner = self._runner(self._repo(d, [["helm"]]))
             with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
-                self.assertTrue(runner._ensure_node_image(self._node()))
+                self.assertTrue(runner._ensure_node_image(self._node())[0])
             ensure.assert_not_called()
 
     def test_unresolvable_repo_is_not_staged(self):
         """No manifest to read (bundle-only deploy): behave as before, skip."""
         runner = self._runner(None)
         with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
-            self.assertTrue(runner._ensure_node_image(self._node()))
+            self.assertTrue(runner._ensure_node_image(self._node())[0])
         ensure.assert_not_called()
 
     def test_version_falls_back_to_the_repo_tree(self):
         with tempfile.TemporaryDirectory() as d:
             runner = self._runner(self._repo(d, [["docker"]], version="0.3.9"))
             with mock.patch.object(lwr, "ensure_lambda_image") as ensure:
-                self.assertTrue(runner._ensure_node_image(self._node(version=None)))
+                self.assertTrue(runner._ensure_node_image(self._node(version=None))[0])
             ensure.assert_called_once_with("hmd-ms-transform", "0.3.9")
 
     def test_destroy_does_not_stage(self):
@@ -682,12 +686,15 @@ class EnsureNodeImageTests(unittest.TestCase):
     def test_deploy_short_circuits_before_running_the_container(self):
         with tempfile.TemporaryDirectory() as d:
             runner = self._runner(self._repo(d, [["docker"]]))
-            with mock.patch.object(runner, "_ensure_node_image", return_value=False):
+            with mock.patch.object(
+                runner, "_ensure_node_image", return_value=(False, "unavailable")
+            ):
                 with mock.patch.object(lwr.subprocess, "run") as run:
-                    ok = runner._execute_in_projectbuilder(
+                    result = runner._execute_in_projectbuilder(
                         {**self._node(), "script": "hmd deploy"}
                     )
-            self.assertFalse(ok)
+            self.assertFalse(result.success)
+            self.assertEqual(result.stderr, "unavailable")
             run.assert_not_called()
 
 
@@ -735,7 +742,9 @@ class DeployedLambdaEndpointTests(unittest.TestCase):
                 "script": "hmd deploy --local",
             }
             with mock.patch.dict(os.environ, environ or {}, clear=True):
-                with mock.patch.object(runner, "_ensure_node_image", return_value=True):
+                with mock.patch.object(
+                    runner, "_ensure_node_image", return_value=(True, "")
+                ):
                     with mock.patch.object(lwr.subprocess, "run") as run:
                         run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
                         runner._execute_in_projectbuilder(node)

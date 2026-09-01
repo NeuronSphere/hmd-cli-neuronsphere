@@ -71,7 +71,11 @@ class LocalController(Controller):
             (
                 ["--verbose", "-V"],
                 {
-                    "help": "Show full Docker Compose output",
+                    "help": (
+                        "Show full Docker Compose output and disable the "
+                        "per-step spinners in favor of plain log lines "
+                        "(useful for piped/CI output)."
+                    ),
                     "action": "store_true",
                     "dest": "verbose",
                 },

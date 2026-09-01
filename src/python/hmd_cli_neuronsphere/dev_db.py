@@ -135,7 +135,7 @@ def register_db_resource(
     resource = _postgres_resource(
         db_name, username, host, port, secret_name, did, environment_name
     )
-    logger.info(f"Registering local postgres Resource for database '{db_name}'")
+    logger.debug(f"Registering local postgres Resource for database '{db_name}'")
     return _rest.post_apiop(
         base_url,
         "submit_resources",
@@ -163,7 +163,7 @@ def provision_and_register_db(
     """
     did = env.deployment_id if env is not None else os.environ.get("HMD_DID", "aaa")
     route_prefix = env.slug if env is not None else ""
-    logger.info(f"Provisioning database '{db_name}' via hmd_ms_dbaccount")
+    logger.debug(f"Provisioning database '{db_name}' via hmd_ms_dbaccount")
     _post_create_db_account(
         did, db_name, username, origin="dev", route_prefix=route_prefix
     )

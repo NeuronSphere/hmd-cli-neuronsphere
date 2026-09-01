@@ -2,6 +2,36 @@
 
 ## 2026-09-01
 
+- fix: Pin Floci at 1.7.0 so a plain `down` preserves the k3s cluster's volume
+
+  Every prior Floci version's `ContainerLifecycleManager` removed the spawned
+  `floci-eks-<cluster>` container **and its named volume** whenever the parent
+  `floci`/`floci-<env>` container stopped -- so even though a plain `down`
+  only stops containers (never removes them) and `stop_k3s_cluster` explicitly
+  preserves the k3s cluster's own container, the cluster's datastore was still
+  destroyed as a side effect, and every `up` got a new `kube-system` UID.
+  `_bootstrap_environment` read that as "the cluster was replaced" and
+  redeployed every k8s-backed instance, even on an otherwise-unchanged
+  restart.
+
+  Floci 1.7.0 re-adopts a still-recorded cluster's container/volume on
+  restart instead of tearing it down, controlled by two new env vars now
+  pinned explicitly in all three Floci compose files:
+  `FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN=false` (the CLI still stops the
+  k3s container itself) and `FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE=false` (its
+  volume is no longer pruned as a side effect). The image tag is now
+  `floci/floci:${HMD_LOCAL_FLOCI_VERSION:-1.7.0}`, matching every other
+  bundled image's override-var convention, where it was previously hardcoded.
+
+  A `down` then `up` cycle keeps the same `kube-system` UID end to end, so
+  `up` now takes the true restart fast-path with no k8s-instance redeploy.
+  The Helm-release cross-check that narrows a redeploy to just the
+  k8s-backed instances remains as a safety net for the cases where the
+  cluster genuinely is replaced (a Docker daemon restart evicting the
+  container, a wrapper-image mismatch forcing a recreate, or an environment
+  bootstrapped before release tracking existed). `down --purge` is
+  unaffected -- it already force-removes the container and volume directly.
+
 - feat: Mint and print an MCP API key when the control plane starts
 
   The Deployment GUI serves a read-only MCP endpoint at `/mcp/`, and the control
