@@ -249,6 +249,16 @@ def _import_image_into_k3s(ref: str, container: str, cli: str) -> bool:
     return True
 
 
+def _node_needs_kube(node: Dict) -> bool:
+    """Whether this node's deploy is likely to talk to Kubernetes.
+
+    Only used to decide whether a missing kubeconfig is worth warning about --
+    a cdktf-only repo legitimately needs none.
+    """
+    script = node.get("script") or ""
+    return "helm" in script or "kubectl" in script or bool(node.get("chart"))
+
+
 class LocalWorkflowRunner:
     """Execute deployment DAG nodes locally using Docker containers.
 
@@ -808,8 +818,17 @@ class LocalWorkflowRunner:
         ]
 
         # Make the local k3s cluster reachable to `hmd helm --local` inside the
-        # container. Best-effort: only mount if the kubeconfig exists.
+        # container. Only mounted if a kubeconfig exists -- but say so when it
+        # does not: without it the in-container kubernetes client falls back to
+        # whatever it can find and fails with a bare 401, which reads like a
+        # cluster problem rather than a missing mount.
         kubeconfig = self._kubeconfig_for_container()
+        if kubeconfig is None and _node_needs_kube(node):
+            logger.warning(
+                f"No kubeconfig for {node['instance_name']}: nothing mounted into "
+                f"projectbuilder, so any kubectl/helm step will fail to "
+                f"authenticate. Looked for {self._local_kubeconfig_candidates()}"
+            )
         if kubeconfig is not None:
             cmd.extend(
                 [
@@ -1009,6 +1028,22 @@ class LocalWorkflowRunner:
         from .floci_deployer import k3s_container_name
 
         return k3s_container_name(self.cluster_name or K3S_CLUSTER_NAME, self._target())
+
+    def _local_kubeconfig_candidates(self) -> List[str]:
+        """Every path :meth:`_local_kubeconfig_path` considers, for diagnostics."""
+        hmd_home = os.environ.get("HMD_HOME")
+        return [
+            p
+            for p in (
+                str(self.env.kubeconfig) if self.env is not None else None,
+                os.environ.get("HMD_LOCAL_K3S_KUBECONFIG"),
+                os.environ.get("KUBECONFIG"),
+                os.path.join(hmd_home, ".cache", "k3s", "kubeconfig")
+                if hmd_home
+                else None,
+            )
+            if p
+        ]
 
     def _local_kubeconfig_path(self) -> Optional[str]:
         """Resolve the k3s kubeconfig, mirroring hmd-cli-helm's lookup.
