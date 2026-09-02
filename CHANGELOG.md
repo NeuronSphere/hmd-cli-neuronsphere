@@ -2,6 +2,35 @@
 
 ## 2026-09-02
 
+- fix: Name the owning Floci account on every environment API route
+
+  One Floci serves every account and resolves which one a call belongs to from
+  the SigV4 credential scope -- the 12-digit access key *is* the account. But
+  nginx's `proxy_pass` issues an **unsigned** request, so there was nothing to
+  resolve from and every environment's API Gateway invocation landed in the
+  *default* account, where that REST API does not exist. Floci answers 404,
+  which is indistinguishable from a route that was never wired:
+
+      404 for http://hmd_proxy/local/hmd_ms_dbaccount/api/create_db_account
+
+  with `/local/hmd_ms_dbaccount/` present in the config the whole time and the
+  dbaccount Lambda up. Verified against a running stack: the same invocation
+  404s unsigned and reaches the Lambda 18/18 times with a credential scope,
+  whose date and region are structural filler -- only the account is read.
+
+  Environment routes now carry a static credential-scoped `Authorization`
+  header, injected through a `map` that fills only an *empty* one, so a caller
+  supplying its own bearer token is not silently rewritten. The control plane
+  owns the default account, so its routes are deliberately unchanged. Both
+  writers are covered: `write_env_routes` and the DAG-discovery path
+  (`_upsert_service_route`), which is how transform and Trino get theirs.
+
+- fix: Give Floci a healthcheck that can actually run
+
+  The probe shelled out to `python`, which Floci 2.0's Java/Quarkus image does
+  not ship, so the container sat permanently `unhealthy` while serving
+  normally. Uses `curl` (present in the image) instead.
+
 - fix: Address the account-qualified k3s container everywhere, not just on the
   kubeconfig path
 
@@ -35,8 +64,6 @@
   restart. It escaped the tests because they patched the three helpers
   wholesale; `test_k3s_container_naming.py` now exercises them for real against
   a mocked `docker`.
-
-## 2026-09-02
 
 - fix: Resolve the k3s container's account-qualified name (Floci 2.0)
 

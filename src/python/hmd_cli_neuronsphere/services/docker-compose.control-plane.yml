@@ -93,7 +93,11 @@ services:
       - "${HMD_HOME}/floci/data:/app/data"
       - "/var/run/docker.sock:/var/run/docker.sock"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_floci/health')"]
+      # Floci 2.0 is a Java/Quarkus image and ships no `python`, so the previous
+      # probe could never succeed -- the container sat permanently "unhealthy"
+      # while serving fine, which makes `docker ps` actively misleading and would
+      # deadlock any future `depends_on: service_healthy`.
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_floci/health"]
       interval: 10s
       timeout: 5s
       retries: 20

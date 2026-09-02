@@ -86,6 +86,10 @@ TRINO_NODEPORT = int(os.environ.get("HMD_LOCAL_TRINO_NODEPORT", "31880"))
 LEGACY_TRINO_HOST_PORT = int(os.environ.get("HMD_LOCAL_TRINO_HOST_PORT", "18080"))
 _TRINO_NODEPORT_SVC = "trino-local-nodeport"
 
+# Only the account in the credential scope is read by Floci; the region and
+# date are structural filler, kept constant so the rendered config is stable.
+_SIGV4_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
+
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -181,10 +185,23 @@ http {{
         default upgrade;
         ''      close;
     }}
+    # Selects the Floci account an API Gateway invocation resolves in. One Floci
+    # serves every account and reads the account out of the SigV4 credential
+    # scope; `proxy_pass` sends an unsigned request, so without this every
+    # environment's API lands in the *default* account and 404s. Floci does not
+    # verify the signature, so the scope alone is enough. A caller that supplies
+    # its own Authorization keeps it -- this only fills an empty one.
+    map $http_authorization $ns_auth {{
+        ''      "AWS4-HMAC-SHA256 Credential=$ns_account/20200101/{_SIGV4_REGION}/execute-api/aws4_request, SignedHeaders=host, Signature=x";
+        default $http_authorization;
+    }}
     include {_NS_DIR}/vhost.d/*.conf;
     server {{
         listen 80 default_server;
         server_name _;
+        # Declared here so `$ns_auth`'s map is valid even with no env fragment;
+        # each environment's locations override it with their own account.
+        set $ns_account "";
         include {_NS_DIR}/http.d/*.conf;
         location / {{
             return 404 '{{"error": "no route defined"}}';
@@ -301,15 +318,40 @@ def _env_floci_host(env) -> str:
     return getattr(env, "floci_alias", None) or env.floci_container
 
 
-def _api_location(path: str, upstream_host: str, gw_id: str, stage: str) -> str:
+def _api_location(
+    path: str,
+    upstream_host: str,
+    gw_id: str,
+    stage: str,
+    account_id: Optional[str] = None,
+) -> str:
     """A location proxying ``/<path>/`` to an API Gateway stage.
 
     The trailing slash on both the location and the ``proxy_pass`` target makes
     nginx strip the prefix, so the Lambda receives clean ``/api/...`` paths
     rather than ``/<path>/api/...`` (which FastAPI would 404).
+
+    ``account_id`` is required for any API owned by a non-default Floci account
+    -- i.e. every named environment. One Floci serves all accounts and resolves
+    which one from the SigV4 credential scope, but ``proxy_pass`` issues an
+    *unsigned* request, so there is nothing to resolve from and the invocation
+    lands in the default account. The REST API is not there, and Floci answers
+    404: indistinguishable from a route that was never wired, which is what made
+    this read as a missing service rather than a missing credential.
+
+    Floci parses the account out of the credential scope without verifying the
+    signature, so a static header suffices. It is injected through ``$ns_auth``
+    (see :func:`render_base_config`) rather than set directly, so a caller that
+    supplies its own ``Authorization`` keeps it.
     """
+    account = (
+        f'\n    set $ns_account "{account_id}";'
+        "\n    proxy_set_header Authorization $ns_auth;"
+        if account_id
+        else ""
+    )
     return f"""location /{path}/ {{
-    proxy_pass {upstream_host}/restapis/{gw_id}/{stage}/_user_request_/;
+    proxy_pass {upstream_host}/restapis/{gw_id}/{stage}/_user_request_/;{account}
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -581,9 +623,15 @@ def write_env_routes(
     upstream_host = f"http://{_env_floci_host(env)}:4566"
     blocks: List[str] = []
 
+    account_id = getattr(env, "account_id", None)
     for service_name, gw_id in services.items():
         route = f"{env.slug}/{service_name}"
-        blocks.append(_wrap(route, _api_location(route, upstream_host, gw_id, stage)))
+        blocks.append(
+            _wrap(
+                route,
+                _api_location(route, upstream_host, gw_id, stage, account_id),
+            )
+        )
 
     for path, upstream in (extra_locations or {}).items():
         route = f"{env.slug}/{path.strip('/')}"
@@ -803,12 +851,19 @@ def _upsert_service_route(
         fragment = _http_dir() / _env_fragment_name(env.slug)
         upstream_host = f"http://{_env_floci_host(env)}:4566"
         route = f"{env.slug}/{route_path}"
+        # Same reason as write_env_routes: an unsigned proxy_pass would resolve
+        # in the default account, where this API does not exist.
+        account_id = getattr(env, "account_id", None)
     else:
         fragment = _http_dir() / _CONTROL_PLANE_FRAGMENT
         upstream_host = "http://neuronsphere:4566"
         route = route_path
+        account_id = None
 
-    block = _wrap(route, _api_location(route, upstream_host, rest_api_id, stage_name))
+    block = _wrap(
+        route,
+        _api_location(route, upstream_host, rest_api_id, stage_name, account_id),
+    )
     _upsert_block(fragment, route, block)
     return route
 
