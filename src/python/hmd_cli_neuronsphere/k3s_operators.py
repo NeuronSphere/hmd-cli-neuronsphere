@@ -339,7 +339,7 @@ def _k3s_container(cluster, env=None) -> str:
     return k3s_container_name(cluster, target)
 
 
-def _patch_traefik_manifest(cluster: str) -> None:
+def _patch_traefik_manifest(cluster: str, env=None) -> None:
     """Make the baked-in Traefik manifest schedulable and ALB-classed.
 
     Two edits, both applied to the *file*: the Deployment is owned by a k3s
@@ -356,13 +356,21 @@ def _patch_traefik_manifest(cluster: str) -> None:
        is reached through a NodePort (see ``nginx_router.ingress_upstream``).
     2. **Set the ingress class to ``alb``** so cloud charts resolve unmodified.
 
-    Best-effort and idempotent: both edits match nothing on a second run, and on
-    a future image that already ships this way they are silent no-ops.
+    Idempotent: both edits match nothing on a second run, and on a future image
+    that already ships this way they are no-ops.
+
+    ``env`` is required for anything but the control plane. Resolving the
+    container without it yields the *unqualified* name, which does not exist for
+    an environment's cluster (Floci 2.0 qualifies it by account) -- so every
+    ``docker exec`` here failed, the return codes were discarded, and the whole
+    function was a silent no-op. The visible symptom was Traefik stuck Pending
+    with "didn't have free ports for the requested pod ports", several layers
+    from anything naming this function.
     """
-    container = _k3s_container(cluster)
+    container = _k3s_container(cluster, env)
 
     # 1. Strip the host ports that make Traefik unschedulable.
-    _docker_exec(
+    stripped = _docker_exec(
         container,
         [
             "sed",
@@ -371,6 +379,18 @@ def _patch_traefik_manifest(cluster: str) -> None:
             _TRAEFIK_MANIFEST_PATH,
         ],
     )
+    if stripped is None or stripped.returncode != 0:
+        detail = (
+            (stripped.stderr or "").strip()
+            if stripped is not None
+            else "docker unavailable"
+        )
+        logger.warning(
+            f"Could not patch the Traefik manifest in {container} ({detail}); "
+            f"the ingress controller will stay Pending if any LoadBalancer "
+            f"service holds host port 80 or 443, and no UI will be reachable."
+        )
+        return
 
     # 2. Add the ingress-class arg, unless it is already there. Inserted after
     #    the container's `args:` key, reusing its indentation. The manifest has
@@ -381,7 +401,7 @@ def _patch_traefik_manifest(cluster: str) -> None:
         ["grep", "-q", "--", _TRAEFIK_INGRESS_CLASS_ARG, _TRAEFIK_MANIFEST_PATH],
     )
     if check is not None and check.returncode != 0:
-        _docker_exec(
+        added = _docker_exec(
             container,
             [
                 "sed",
@@ -392,6 +412,11 @@ def _patch_traefik_manifest(cluster: str) -> None:
                 _TRAEFIK_MANIFEST_PATH,
             ],
         )
+        if added is None or added.returncode != 0:
+            logger.warning(
+                f"Could not set Traefik's ingress class in {container}; "
+                f"Ingresses declaring class '{_ALB_INGRESS_CLASS}' will not be served."
+            )
 
 
 def _docker_exec(container: str, args: List[str]):
@@ -494,7 +519,7 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     from .floci_deployer import K3S_CLUSTER_NAME
 
     cluster = env.k3s_cluster if env is not None else K3S_CLUSTER_NAME
-    _patch_traefik_manifest(cluster)
+    _patch_traefik_manifest(cluster, env)
     subprocess.run(
         [
             "docker",

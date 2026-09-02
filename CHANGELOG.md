@@ -2,6 +2,27 @@
 
 ## 2026-09-02
 
+- fix: Actually apply the Traefik manifest patch, so the UIs are reachable
+
+  `superset.local.neuronsphere.io` and `airflow.local.neuronsphere.io` were
+  unreachable because the ingress controller was stuck `Pending`:
+
+      0/1 nodes are available: 1 node(s) didn't have free ports for the
+      requested pod ports
+
+  k3s ServiceLB creates `svclb-*` pods for every `type: LoadBalancer` service
+  and those are `system-node-critical`, so the OTEL collector gateway's port 443
+  permanently preempts Traefik off that host port. The patch that strips
+  Traefik's unnecessary `hostPort: 80`/`443` (it is reached by NodePort) already
+  existed for exactly this reason -- it just never ran. It resolved the k3s
+  container *without* `env`, producing the unqualified name, which does not
+  exist for an environment's cluster; every `docker exec` failed and the return
+  codes were discarded.
+
+  The same silence hid the missing `alb` ingress-class arg, so airflow's
+  `ingressClassName: alb` was never served either. Both edits now report failure
+  and name the consequence.
+
 - fix: Resolve the database container by label, so `hmd_db` reaches CoreDNS
 
   The database is the one canonical name that is not a Docker *container* name:
