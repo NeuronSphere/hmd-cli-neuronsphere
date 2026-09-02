@@ -30,6 +30,7 @@ except ImportError:
     from importlib_metadata import version as distribution_version
 
 from .docker_credentials import local_docker_config_json
+from .floci_deployer import ACCOUNT_ID as _CONTROL_PLANE_ACCOUNT
 from .floci_deployer import LOCAL_DB_SUBNET_GROUP
 from .floci_deployer import DOCKER_NETWORK_NAME
 
@@ -311,26 +312,30 @@ _EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
         "enabled": True,
         "local": True,  # static creds against Floci instead of IRSA
         "name": "aws-secrets-manager",
-        "localAccessKeyId": "test",
+        "localAccessKeyId": _CONTROL_PLANE_ACCOUNT,
     },
     "parameterStoreSecretStore": {
         "enabled": True,
         "local": True,  # static creds against Floci instead of IRSA
         "name": "aws-parameter-store",
-        "localAccessKeyId": "test",
+        "localAccessKeyId": _CONTROL_PLANE_ACCOUNT,
     },
     "dockerRepoSecret": {
         "enabled": True,
         "secretStoreName": "aws-parameter-store",  # create_secret() always writes here
     },
-    # AWS_ACCESS_KEY_ID is rewritten per environment by _inject_floci_account():
+    # Defaults to the control-plane account rather than a placeholder like
+    # "test". Both resolve to the same (default) account in Floci, but a
+    # placeholder reads as "no account chosen here", which is exactly how an
+    # environment ended up silently authenticating as the control plane.
+    # Rewritten per environment by _inject_floci_account():
     # one Floci serves every account and resolves which one from the 12-digit
     # access key, so a static key here would make every environment's External
     # Secrets operator read the *same* account's secrets.
     "extraEnv": [
         {"name": "AWS_ENDPOINT_URL", "value": _FLOCI_INTERNAL_ENDPOINT},
-        {"name": "AWS_ACCESS_KEY_ID", "value": "test"},
-        {"name": "AWS_SECRET_ACCESS_KEY", "value": "test"},
+        {"name": "AWS_ACCESS_KEY_ID", "value": _CONTROL_PLANE_ACCOUNT},
+        {"name": "AWS_SECRET_ACCESS_KEY", "value": _CONTROL_PLANE_ACCOUNT},
     ],
 }
 

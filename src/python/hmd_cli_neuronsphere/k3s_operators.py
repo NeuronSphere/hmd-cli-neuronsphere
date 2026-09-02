@@ -489,7 +489,7 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
     )
 
 
-def _ext_secrets_passes() -> List[Dict[str, Any]]:
+def _ext_secrets_passes(env=None) -> List[Dict[str, Any]]:
     """Two install passes for the External Secrets operator.
 
     Pass 1 installs the operator + validating webhook (no ClusterSecretStore).
@@ -520,6 +520,15 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
     ``AWS_REGION`` here override that auto-injected default to match where CDKTF
     writes actually land, mirroring ``bom_seeder._EXT_SECRETS_LOCAL_CONFIG``.
     """
+    from .floci_deployer import account_access_key
+
+    # The account these stores resolve their lookups in. This install runs on
+    # every `up`, including the restart fast path that skips the BOM -- so
+    # leaving it at the chart's `test` default would quietly revert an
+    # environment's operator to the control plane's account after any restart,
+    # and every ExternalSecret would start reporting "Secret does not exist"
+    # for secrets that exist.
+    account = account_access_key(env)
     base: Dict[str, Any] = {
         "installCRDs": False,  # CRDs come from hmd-inf-ext-secrets-crds (first)
         "clusterSecretStore": {"enabled": False},
@@ -527,23 +536,30 @@ def _ext_secrets_passes() -> List[Dict[str, Any]]:
         "dockerRepoSecret": {"enabled": False},
         "extraEnv": [
             {"name": "AWS_ENDPOINT_URL", "value": _FLOCI_INTERNAL_ENDPOINT},
-            {"name": "AWS_ACCESS_KEY_ID", "value": "test"},
-            {"name": "AWS_SECRET_ACCESS_KEY", "value": "test"},
+            {"name": "AWS_ACCESS_KEY_ID", "value": account},
+            {"name": "AWS_SECRET_ACCESS_KEY", "value": account},
             {"name": "AWS_REGION", "value": "us-west-2"},
         ],
     }
     store = {
         **base,
         "aws_region": "us-west-2",
+        # `localAccessKeyId` is the operative one: an AWS ClusterSecretStore with
+        # `secretRef` auth reads its credentials from the Secret the chart
+        # renders from this value, and never consults the operator pod's
+        # environment. Setting only `extraEnv` above looks right and changes
+        # nothing.
         "clusterSecretStore": {
             "enabled": True,
             "local": True,
             "name": "aws-secrets-manager",
+            "localAccessKeyId": account,
         },
         "parameterStoreSecretStore": {
             "enabled": True,
             "local": True,
             "name": "aws-parameter-store",
+            "localAccessKeyId": account,
         },
         "dockerRepoSecret": {
             "enabled": True,
@@ -980,7 +996,7 @@ def _install_operator(op: Dict[str, Any], env=None) -> bool:
     # Most operators are a single release; some (ESO) need successive passes so a
     # CR the operator itself validates isn't applied before its webhook is ready.
     if op.get("passes_builder"):
-        passes = op["passes_builder"]()
+        passes = op["passes_builder"](env)
     else:
         passes = op.get("passes", [op.get("overlay") or {}])
     for overlay in passes:

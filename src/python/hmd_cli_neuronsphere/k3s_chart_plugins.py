@@ -211,13 +211,25 @@ def is_k3s_chart_plugin(plugin_name: str) -> bool:
     return any(c["plugin_name"] == plugin_name for c in _CHART_PLUGINS)
 
 
-def _floci_client(service: str):
+def _floci_client(service: str, env=None):
+    """A Floci client scoped to ``env``'s account (control plane when None).
+
+    Never ``$AWS_ACCESS_KEY_ID``: the fixtures seeded through this client are
+    read by charts running in an environment's own cluster, so seeding them into
+    the control plane's account (which is what a placeholder resolves to) leaves
+    every one of those lookups failing on a name that exists -- in the wrong
+    account. An ambient key is worse still, redirecting them into whichever
+    account a developer's real credentials name.
+    """
+    from .floci_deployer import account_access_key
+
+    account = account_access_key(env)
     return boto3.client(
         service,
         endpoint_url=FLOCI_ENDPOINT,
         region_name=_SEED_REGION,
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "test"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "test"),
+        aws_access_key_id=account,
+        aws_secret_access_key=account,
     )
 
 

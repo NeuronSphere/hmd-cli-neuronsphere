@@ -2,6 +2,39 @@
 
 ## 2026-09-02
 
+- fix: Sweep every remaining place that picked a Floci account by position
+
+  One Floci serves every account and resolves which one a caller means from the
+  12-digit access key. A placeholder (`test`, `dummykey`) is not one, so it
+  resolves to the *default* account -- and since resource names are identical
+  across accounts, the failure is silent until something is missing. Four
+  independent instances were found by sweeping rather than by the next failed
+  `up`:
+
+  - **Every environment's service Lambda** signed as `dummykey`, so its S3,
+    Secrets Manager and DynamoDB calls read the control plane's account.
+    `_apply_env_overrides` rewrote the endpoint, `HMD_DID` and DB hosts but not
+    the account -- and with one Floci serving all accounts, the endpoint no
+    longer distinguishes them, so nothing did.
+  - **The ext-secrets operator install** (`k3s_operators`) set neither store's
+    `localAccessKeyId`. It runs on every `up`, including the restart fast path
+    that skips the BOM, so it would have reverted the previous fix and brought
+    back "Secret does not exist" after any restart.
+  - **The k3s chart-plugin Floci client** seeded buckets and secrets into the
+    control plane's account for charts running in an environment's cluster.
+    (Opt-in path, so latent rather than live.)
+  - **Control-plane Lambdas** read an ambient `$AWS_ACCESS_KEY_ID`, so a
+    developer with real AWS credentials exported would have redirected them into
+    a third account.
+
+  All now go through `floci_deployer.account_access_key(env)`.
+
+- test: Guard against placeholder and ambient AWS credentials
+
+  An AST check over the package that fails on any credential set to a
+  placeholder or read from the ambient environment, with the deliberate
+  exception documented inline. It caught two sites the manual sweep had missed.
+
 - fix: Give the RDS deploys an endpoint and engine ms-dbaccount can use
 
   The admin secret carried Floci's RDS proxy endpoint, which does not survive a

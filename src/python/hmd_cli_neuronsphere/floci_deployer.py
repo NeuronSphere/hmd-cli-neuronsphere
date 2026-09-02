@@ -212,6 +212,27 @@ def _resolve_target(target: Optional[FlociTarget]) -> FlociTarget:
     return target or control_plane_target()
 
 
+def account_access_key(env=None) -> str:
+    """The access key that selects ``env``'s Floci account (control plane if None).
+
+    One Floci serves every account and resolves which one a caller means from the
+    12-digit access key id -- the key *is* the account. Anything that reaches
+    Floci therefore has to carry this: boto3 clients, Lambda environments, Helm
+    values for in-cluster operators, and HTTP callers that sign.
+
+    A single named helper because getting it wrong is silent. A placeholder like
+    ``test``/``dummykey`` resolves to the *default* account, so an environment's
+    caller reads the control plane's buckets and secrets instead of its own, and
+    the names are identical across accounts, so nothing looks wrong until
+    something is missing. Reading an ambient ``$AWS_ACCESS_KEY_ID`` is worse: a
+    developer with real AWS credentials exported silently redirects local calls
+    into a third account.
+    """
+    return (
+        env_target(env) if env is not None else control_plane_target()
+    ).access_key_id
+
+
 def _get_client(service: str, target: Optional[FlociTarget] = None):
     target = _resolve_target(target)
     return boto3.client(
@@ -221,7 +242,11 @@ def _get_client(service: str, target: Optional[FlociTarget] = None):
         # would route every environment's call into whichever account that key
         # resolves to, which is exactly the cross-account leak this replaces.
         aws_access_key_id=target.access_key_id,
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
+        # Floci does not verify the signature, so the secret is immaterial to it
+        # -- but reading it from the ambient environment is the same shape as the
+        # bug above, and an inconsistent pair invites someone to "fix" the key to
+        # match. Both come from the target.
+        aws_secret_access_key=target.access_key_id,
         region_name=target.region,
     )
 

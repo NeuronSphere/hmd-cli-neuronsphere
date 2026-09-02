@@ -81,10 +81,14 @@ class EnvironmentsDoNotContaminateEachOther(unittest.TestCase):
         )
 
     def test_the_shipped_default_is_never_mutated(self):
+        """The shipped default is the *control-plane* account, not a placeholder:
+        both resolve to the same account in Floci, but "test" reads as "no
+        account chosen here", which is how an environment silently ended up
+        authenticating as the control plane in the first place."""
         _seed(_env("local", "000000000001"))
         self.assertEqual(
             bs._EXT_SECRETS_LOCAL_CONFIG["clusterSecretStore"]["localAccessKeyId"],
-            "test",
+            bs._CONTROL_PLANE_ACCOUNT,
         )
 
 

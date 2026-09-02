@@ -21,7 +21,11 @@ import yaml
 
 from cement import App, minimal_logger, shell
 
-from .floci_deployer import COMPOSE_PROJECT_NAME, DOCKER_NETWORK_NAME
+from .floci_deployer import (
+    ACCOUNT_ID as _CONTROL_PLANE_ACCOUNT,
+    COMPOSE_PROJECT_NAME,
+    DOCKER_NETWORK_NAME,
+)
 from .loaders import LocalPluginLoader
 from .startup_display import (
     print_banner,
@@ -594,6 +598,13 @@ def _apply_env_overrides(env_vars: Dict[str, str], env, target=None) -> None:
     target = target or _env_target(env)
     env_vars["AWS_ENDPOINT_URL"] = target.internal_endpoint
     env_vars["HMD_DID"] = env.deployment_id
+    # The account selector. Since one Floci now serves every account, the
+    # endpoint rewrite above no longer distinguishes them -- only this does.
+    # Left at the spec builder's `dummykey`, every environment's Lambda resolved
+    # to the *default* account and read the control plane's buckets, secrets and
+    # tables under names identical to its own.
+    env_vars["AWS_ACCESS_KEY_ID"] = target.access_key_id
+    env_vars["AWS_SECRET_ACCESS_KEY"] = target.access_key_id
 
     service_config = env_vars.get("SERVICE_CONFIG")
     if not service_config:
@@ -792,8 +803,12 @@ def _deploy_ms_deployment_lambda(api_id: str) -> str:
         "HMD_USE_FASTAPI": "true",
         "SERVICE_CONFIG": deployment_service_config,
         "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
-        "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
-        "AWS_SECRET_ACCESS_KEY": os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
+        # The control plane's account, pinned -- NOT $AWS_ACCESS_KEY_ID. A
+        # developer with real AWS credentials exported would otherwise have the
+        # control plane's Lambdas sign as whatever account that key names, and
+        # Floci would serve them a different account's (empty) world.
+        "AWS_ACCESS_KEY_ID": _CONTROL_PLANE_ACCOUNT,
+        "AWS_SECRET_ACCESS_KEY": _CONTROL_PLANE_ACCOUNT,
         "AWS_XRAY_SDK_ENABLED": "false",
         "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
         "DD_TRACE_ENABLED": "false",
@@ -1113,8 +1128,12 @@ def _naming_lambda_env():
         "HMD_USE_FASTAPI": "true",
         "SERVICE_CONFIG": naming_service_config,
         "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
-        "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
-        "AWS_SECRET_ACCESS_KEY": os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
+        # The control plane's account, pinned -- NOT $AWS_ACCESS_KEY_ID. A
+        # developer with real AWS credentials exported would otherwise have the
+        # control plane's Lambdas sign as whatever account that key names, and
+        # Floci would serve them a different account's (empty) world.
+        "AWS_ACCESS_KEY_ID": _CONTROL_PLANE_ACCOUNT,
+        "AWS_SECRET_ACCESS_KEY": _CONTROL_PLANE_ACCOUNT,
         "AWS_XRAY_SDK_ENABLED": "false",
         "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
         "DD_TRACE_ENABLED": "false",
@@ -2001,8 +2020,10 @@ def run_local_service(
                     "HMD_DB_NAME": repo_name.replace("-", "_"),
                     "HMD_USE_FASTAPI": "true",
                     "AWS_XRAY_SDK_ENABLED": False,
-                    "AWS_ACCESS_KEY_ID": "dummykey",
-                    "AWS_SECRET_ACCESS_KEY": "dummykey",
+                    # Overwritten per environment by _apply_env_overrides();
+                    # this is the control-plane default.
+                    "AWS_ACCESS_KEY_ID": _CONTROL_PLANE_ACCOUNT,
+                    "AWS_SECRET_ACCESS_KEY": _CONTROL_PLANE_ACCOUNT,
                     "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
                     "SERVICE_CONFIG": json.dumps(service_config),
                     "DD_LAMBDA_HANDLER": "hmd_ms_base.hmd_ms_base.handler",
@@ -2130,8 +2151,10 @@ def _run_local_service_floci(
         "HMD_DB_NAME": repo_name.replace("-", "_"),
         "HMD_USE_FASTAPI": "true",
         "AWS_XRAY_SDK_ENABLED": "false",
-        "AWS_ACCESS_KEY_ID": "dummykey",
-        "AWS_SECRET_ACCESS_KEY": "dummykey",
+        # Overwritten per environment by _apply_env_overrides(); this is the
+        # control-plane default.
+        "AWS_ACCESS_KEY_ID": _CONTROL_PLANE_ACCOUNT,
+        "AWS_SECRET_ACCESS_KEY": _CONTROL_PLANE_ACCOUNT,
         "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
         "SERVICE_CONFIG": json.dumps(service_config),
     }

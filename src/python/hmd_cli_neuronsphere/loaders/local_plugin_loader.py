@@ -628,6 +628,7 @@ class LocalPluginLoader:
         # the seeder had actually written (see floci_deployer.b160612).
         from hmd_cli_tools.hmd_cli_tools import make_standard_name
 
+        from ..floci_deployer import ACCOUNT_ID as _CONTROL_PLANE_ACCOUNT
         from ..floci_deployer import FLOCI_INTERNAL_ENDPOINT, local_customer_code
 
         local_secret_base = make_standard_name(
@@ -695,10 +696,12 @@ class LocalPluginLoader:
             "HMD_USE_FASTAPI": "true",
             "SERVICE_CONFIG": json.dumps(merged_service_config),
             "AWS_DEFAULT_REGION": os.environ.get("AWS_REGION", "us-west-2"),
-            "AWS_ACCESS_KEY_ID": os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
-            "AWS_SECRET_ACCESS_KEY": os.environ.get(
-                "AWS_SECRET_ACCESS_KEY", "dummykey"
-            ),
+            # The control-plane account by default; _apply_env_overrides()
+            # rewrites it for a Lambda deployed into a named environment. Never
+            # the ambient key: a developer with real AWS credentials exported
+            # would otherwise have local Lambdas sign as that account.
+            "AWS_ACCESS_KEY_ID": _CONTROL_PLANE_ACCOUNT,
+            "AWS_SECRET_ACCESS_KEY": _CONTROL_PLANE_ACCOUNT,
             # The *control-plane* Floci -- `neuronsphere` is a Docker network
             # alias on that instance, and the hostname baked into presigned
             # URLs returned to host-side consumers (`hmd build` with
