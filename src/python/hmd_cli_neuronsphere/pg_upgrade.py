@@ -28,6 +28,7 @@ Floci has a chance to spawn a container that crash-loops.
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import List, NamedTuple, Optional
 
 from cement import minimal_logger
@@ -137,6 +138,56 @@ def rds_volumes() -> List[str]:
     return [v for v in r.stdout.split() if v.startswith(_RDS_VOLUME_PREFIX)]
 
 
+def _floci_state_text(state_dir: Optional[Path] = None) -> Optional[str]:
+    """Floci's persisted RDS instance records, as raw text.
+
+    Read from disk rather than from the API because this runs *before* Floci
+    starts. ``""`` means "no instances recorded"; ``None`` means "cannot tell" --
+    an unreadable directory must not be taken as proof of absence.
+    """
+    if state_dir is None:
+        home = os.environ.get("HMD_HOME")
+        if not home:
+            return None
+        state_dir = Path(home) / "floci" / "data"
+    if not state_dir.is_dir():
+        # Purged, or never bootstrapped: Floci has no instances to recreate.
+        return ""
+    record = state_dir / "rds-instances.json"
+    try:
+        return record.read_text() if record.is_file() else ""
+    except OSError:
+        return None
+
+
+def _is_live(volume: str, state_text: Optional[str]) -> bool:
+    """Whether any recorded RDS instance would mount ``volume``.
+
+    A volume no instance references is inert: Floci recreates containers from its
+    instance records, so it will never be mounted and cannot fail a start.
+    Blocking `up` on one is a dead end -- `down --purge` discards those records,
+    so the volume is orphaned by definition, and refusing to start over it leaves
+    no way forward.
+
+    Matched by the volume's identifying token appearing anywhere in the records
+    rather than by parsing a schema Floci does not document. When the records
+    cannot be read at all, everything is treated as live -- the conservative
+    direction, since a wrong "orphan" would skip a real incompatibility.
+    """
+    if state_text is None:
+        return True
+    if not state_text.strip():
+        return False
+    token = volume[len(_RDS_VOLUME_PREFIX) :]
+    return any(len(part) >= 8 and part in state_text for part in token.split("-"))
+
+
+def orphan_volumes(state_dir: Optional[Path] = None) -> List[str]:
+    """RDS volumes no recorded instance will mount."""
+    state_text = _floci_state_text(state_dir)
+    return [v for v in rds_volumes() if not _is_live(v, state_text)]
+
+
 def find_mismatches(image: Optional[str] = None) -> List[Mismatch]:
     """Volumes the configured image cannot start against.
 
@@ -148,8 +199,12 @@ def find_mismatches(image: Optional[str] = None) -> List[Mismatch]:
     expected = image_pg_major(image)
     if not expected:
         return []
+    state_text = _floci_state_text()
     mismatches = []
     for volume in rds_volumes():
+        if not _is_live(volume, state_text):
+            logger.debug(f"Ignoring orphaned RDS volume {volume}")
+            continue
         found = volume_pg_version(volume, image)
         if found and found != expected:
             mismatches.append(Mismatch(volume=volume, found=found, expected=expected))
@@ -181,7 +236,10 @@ def assert_compatible(image: Optional[str] = None) -> None:
         f"kept):\n\n"
         f"      hmd neuronsphere db upgrade\n\n"
         f"  Or discard it and start clean:\n\n"
-        f"      hmd neuronsphere down --purge\n"
+        f"      hmd neuronsphere down --purge\n\n"
+        f"  If the data is not worth keeping, removing the volume directly is "
+        f"equivalent:\n\n"
+        + "".join(f"      docker volume rm {m.volume}\n" for m in mismatches)
     )
 
 

@@ -1343,6 +1343,58 @@ def wait_for_rds_instance(
     return container
 
 
+def purge_rds_volumes() -> int:
+    """Remove every Floci RDS container and data volume.
+
+    ``--purge`` promises that the next ``up`` runs a full bootstrap, and an RDS
+    volume left behind breaks that promise in a way that is hard to escape: the
+    instance record is gone with Floci's state, so nothing will ever mount the
+    volume again, yet the PostgreSQL-compatibility pre-flight would still find it
+    and refuse to start.
+
+    Deliberately name-based rather than derived from an instance identifier: the
+    volumes that most need clearing are exactly the ones whose instance record no
+    longer exists.
+
+    :returns: The number of volumes removed.
+    """
+    removed = 0
+    try:
+        listed = subprocess.run(
+            [
+                "docker",
+                "volume",
+                "ls",
+                "--format",
+                "{{.Name}}",
+                "--filter",
+                "name=floci-rds-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not list RDS volumes: {e}")
+        return 0
+    for volume in [v for v in listed.stdout.split() if v.startswith("floci-rds-")]:
+        # Floci names an instance's volume after its container, so the same name
+        # clears both.
+        subprocess.run(["docker", "rm", "-f", volume], capture_output=True, timeout=60)
+        r = subprocess.run(
+            ["docker", "volume", "rm", "-f", volume], capture_output=True, timeout=60
+        )
+        if r.returncode == 0:
+            removed += 1
+        else:
+            logger.warning(
+                f"Could not remove RDS volume {volume}: {r.stderr.decode().strip()}"
+            )
+    if removed:
+        logger.debug(f"Purged {removed} RDS volume(s)")
+    return removed
+
+
 def delete_rds_instance(identifier: str, target: Optional[FlociTarget] = None) -> None:
     """Delete an RDS instance and its volume. Used only by ``down --purge``.
 

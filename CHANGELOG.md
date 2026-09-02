@@ -2,6 +2,27 @@
 
 ## 2026-09-02
 
+- fix: Stop an orphaned RDS volume from permanently blocking `up`
+
+  The PostgreSQL-compatibility check scanned every `floci-rds-*` volume,
+  including ones no instance references. That made the error a dead end: its own
+  suggested remedy, `down --purge`, discards Floci's instance records and so
+  *orphans* the volume by definition, leaving `up` refusing to start over data
+  nothing would ever mount again. Reported from a real install stuck on a
+  PostgreSQL 12 volume left over from an old experiment.
+
+  Two fixes. The check now ignores volumes no recorded instance would mount,
+  read from Floci's persisted `rds-instances.json` before it starts; an
+  unreadable state file treats everything as live, since a wrong "orphan" would
+  skip a real incompatibility. And `down --purge` now sweeps `floci-rds-*`
+  volumes by name rather than only deleting instances it can derive an
+  identifier for -- the volumes most needing removal are precisely those whose
+  instance record is already gone.
+
+  The error message also names the volume outright (`docker volume rm <name>`),
+  because both remedies it offered can fail to apply: `db upgrade` is wasted
+  work on data nobody wants, and `down --purge` may already have run.
+
 - fix: Supply every required dependency role on the environment-db BOM entry
 
   ms-deployment validates required *roles* when a changeset is applied, not when

@@ -10,6 +10,8 @@ Run directly: ``python -m pytest src/python/tests/test_pg_upgrade.py``
 """
 
 import os
+import tempfile
+from pathlib import Path
 import unittest
 from unittest import mock
 
@@ -53,6 +55,9 @@ class ImageMajorTests(unittest.TestCase):
 
 
 class MismatchTests(unittest.TestCase):
+    """Version comparison only. Liveness is mocked out as "cannot tell" (None),
+    which treats every volume as live -- see OrphanedVolumeTests for that axis."""
+
     def _find(self, image_major, volumes):
         def fake_run(args, timeout=60):
             if args[1] == "inspect":
@@ -62,10 +67,11 @@ class MismatchTests(unittest.TestCase):
             raise AssertionError(args)
 
         with mock.patch.object(pu, "_run", side_effect=fake_run):
-            with mock.patch.object(
-                pu, "volume_pg_version", side_effect=lambda v, i: volumes[v]
-            ):
-                return pu.find_mismatches("img")
+            with mock.patch.object(pu, "_floci_state_text", return_value=None):
+                with mock.patch.object(
+                    pu, "volume_pg_version", side_effect=lambda v, i: volumes[v]
+                ):
+                    return pu.find_mismatches("img")
 
     def test_matching_versions_report_nothing(self):
         self.assertEqual(self._find("14", {"floci-rds-a": "14"}), [])
@@ -86,8 +92,9 @@ class MismatchTests(unittest.TestCase):
             return _proc("floci-rds-a some-other-volume")
 
         with mock.patch.object(pu, "_run", side_effect=fake_run):
-            with mock.patch.object(pu, "volume_pg_version", return_value="14"):
-                found = pu.find_mismatches("img")
+            with mock.patch.object(pu, "_floci_state_text", return_value=None):
+                with mock.patch.object(pu, "volume_pg_version", return_value="14"):
+                    found = pu.find_mismatches("img")
         self.assertEqual([m.volume for m in found], ["floci-rds-a"])
 
 
@@ -148,6 +155,69 @@ class BackupIsNotRescannedTests(unittest.TestCase):
             return _proc(volumes)
 
         with mock.patch.object(pu, "_run", side_effect=fake_run):
-            with mock.patch.object(pu, "volume_pg_version", return_value="14"):
-                found = [m.volume for m in pu.find_mismatches("img")]
+            with mock.patch.object(pu, "_floci_state_text", return_value=None):
+                with mock.patch.object(pu, "volume_pg_version", return_value="14"):
+                    found = [m.volume for m in pu.find_mismatches("img")]
         self.assertEqual(found, ["floci-rds-a"])
+
+
+class OrphanedVolumeTests(unittest.TestCase):
+    """A volume no recorded instance will mount must not block `up`.
+
+    Floci recreates containers from its instance records, so a volume nothing
+    references is inert. Blocking on one is a *dead end*: `down --purge` discards
+    those records, which orphans the volume by definition -- so the remedy the
+    error message offered made the situation permanent rather than fixing it.
+    """
+
+    def _state(self, text):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "floci" / "data"
+            state.mkdir(parents=True)
+            if text is not None:
+                (state / "rds-instances.json").write_text(text)
+            yield state
+
+    def test_no_recorded_instances_means_every_volume_is_orphaned(self):
+        self.assertFalse(pu._is_live("floci-rds-db-ABCDEF0123456789-a90c1f", ""))
+
+    def test_a_referenced_volume_is_live(self):
+        state = '[{"id": "ABCDEF0123456789", "engine": "postgres"}]'
+        self.assertTrue(pu._is_live("floci-rds-db-ABCDEF0123456789-a90c1f", state))
+
+    def test_an_unreferenced_volume_is_orphaned(self):
+        state = '[{"id": "1111111111111111", "engine": "postgres"}]'
+        self.assertFalse(pu._is_live("floci-rds-db-ABCDEF0123456789-a90c1f", state))
+
+    def test_unreadable_state_treats_everything_as_live(self):
+        """The conservative direction: a wrong "orphan" would skip a real
+        incompatibility and let postgres fail at start instead."""
+        self.assertTrue(pu._is_live("floci-rds-db-ABCDEF0123456789-a90c1f", None))
+
+    def test_a_purged_home_records_no_instances(self):
+        with tempfile.TemporaryDirectory() as d:
+            # `down --purge` rmtree's $HMD_HOME/floci/data entirely.
+            self.assertEqual(pu._floci_state_text(Path(d) / "floci" / "data"), "")
+
+    def test_an_orphan_is_not_reported_as_a_mismatch(self):
+        def fake_run(args, timeout=60):
+            if args[1] == "inspect":
+                return _proc('["PG_MAJOR=14"]')
+            return _proc("floci-rds-db-ABCDEF0123456789-a90c1f")
+
+        with mock.patch.object(pu, "_run", side_effect=fake_run):
+            with mock.patch.object(pu, "_floci_state_text", return_value=""):
+                with mock.patch.object(pu, "volume_pg_version", return_value="12"):
+                    self.assertEqual(pu.find_mismatches("img"), [])
+
+
+class ErrorMessageEscapeTests(unittest.TestCase):
+    def test_names_the_volume_to_remove_directly(self):
+        """Both listed remedies can fail to apply -- `db upgrade` is wasted work
+        on data nobody wants, and `down --purge` has already run -- so the
+        message also names the volume itself."""
+        m = pu.Mismatch(volume="floci-rds-a", found="12", expected="14")
+        with mock.patch.object(pu, "find_mismatches", return_value=[m]):
+            with self.assertRaises(SystemExit) as ctx:
+                pu.assert_compatible("img")
+        self.assertIn("docker volume rm floci-rds-a", str(ctx.exception))

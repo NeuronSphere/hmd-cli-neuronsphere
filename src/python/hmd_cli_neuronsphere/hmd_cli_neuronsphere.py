@@ -1727,12 +1727,24 @@ def _purge_control_plane_state(verbose: bool = False) -> None:
     # plain restart by design, so a purge has to delete it explicitly.
     try:
         from . import bootstrap_dag
-        from .floci_deployer import control_plane_target, delete_rds_instance
+        from .floci_deployer import (
+            control_plane_target,
+            delete_rds_instance,
+            purge_rds_volumes,
+        )
 
         target = control_plane_target()
         delete_rds_instance(
             bootstrap_dag.control_plane_db_identifier(target), target=target
         )
+        # Then sweep by name. Deleting by identifier only reaches instances Floci
+        # still has a record of, and a purge has just discarded those records --
+        # so anything already orphaned would survive, and the PostgreSQL
+        # compatibility pre-flight would refuse to start over a volume nothing
+        # would ever mount again.
+        purged = purge_rds_volumes()
+        if purged:
+            print_step(f"  removed {purged} RDS volume(s)")
     except Exception as e:
         logger.warning(f"Could not delete the control-plane RDS instance: {e}")
     _clear_bootstrap_marker()
