@@ -223,3 +223,59 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class K3sContainerNamingTests(unittest.TestCase):
+    """Floci 2.0 qualifies the k3s container name by account.
+
+        defaultAccount ? cluster.getName() : accountId + "." + cluster.getName()
+
+    Getting this wrong is not cosmetic. `write_kubeconfig` reads the real
+    kubeconfig with `docker exec` on this name; when that fails it falls through
+    to a synthesized config carrying a placeholder token, so every later kubectl
+    call fails with "the server has asked for the client to provide credentials"
+    -- which reads like a broken cluster, not a naming mistake. It also silently
+    breaks CoreDNS records, the Traefik patch and NodePort routing.
+    """
+
+    class _Env:
+        legacy_layout = False
+
+        def __init__(self, account_id):
+            self.slug = "dev2"
+            self.account_id = account_id
+
+    def test_the_control_plane_keeps_the_unqualified_name(self):
+        name = fd.k3s_container_name("ns-local", fd.control_plane_target())
+        self.assertEqual(name, "floci-eks-ns-local")
+
+    def test_an_environment_gets_an_account_qualified_name(self):
+        target = fd.env_target(self._Env("000000000001"))
+        with mock.patch.object(fd, "_existing_container_names", return_value=set()):
+            name = fd.k3s_container_name("ns-local", target)
+        self.assertEqual(name, "floci-eks-000000000001.ns-local")
+
+    def test_a_pre_2_0_container_keeps_its_legacy_name(self):
+        """Floci claims such a container itself when the account label matches,
+        so recreating under the qualified name would orphan its workloads."""
+        target = fd.env_target(self._Env("000000000001"))
+        with mock.patch.object(
+            fd, "_existing_container_names", return_value={"floci-eks-ns-local"}
+        ):
+            name = fd.k3s_container_name("ns-local", target)
+        self.assertEqual(name, "floci-eks-ns-local")
+
+    def test_the_qualified_container_wins_when_both_exist(self):
+        target = fd.env_target(self._Env("000000000001"))
+        with mock.patch.object(
+            fd,
+            "_existing_container_names",
+            return_value={"floci-eks-ns-local", "floci-eks-000000000001.ns-local"},
+        ):
+            name = fd.k3s_container_name("ns-local", target)
+        self.assertEqual(name, "floci-eks-000000000001.ns-local")
+
+    def test_two_accounts_never_share_a_container_name(self):
+        a = fd.k3s_container_name("ns-local", fd.env_target(self._Env("000000000001")))
+        b = fd.k3s_container_name("ns-local", fd.env_target(self._Env("000000000002")))
+        self.assertNotEqual(a, b)

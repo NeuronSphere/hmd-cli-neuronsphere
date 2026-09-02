@@ -264,6 +264,19 @@ _TRAEFIK_INGRESS_CLASS_ARG = (
 )
 
 
+def _k3s_container(cluster, env=None) -> str:
+    """The k3s container's Docker name for this cluster.
+
+    Account-qualified outside the default account (Floci 2.0), so an
+    environment's is `floci-eks-<account>.<cluster>` -- see
+    floci_deployer.k3s_container_name.
+    """
+    from .floci_deployer import control_plane_target, env_target, k3s_container_name
+
+    target = env_target(env) if env is not None else control_plane_target()
+    return k3s_container_name(cluster, target)
+
+
 def _patch_traefik_manifest(cluster: str) -> None:
     """Make the baked-in Traefik manifest schedulable and ALB-classed.
 
@@ -284,7 +297,7 @@ def _patch_traefik_manifest(cluster: str) -> None:
     Best-effort and idempotent: both edits match nothing on a second run, and on
     a future image that already ships this way they are silent no-ops.
     """
-    container = f"floci-eks-{cluster}"
+    container = _k3s_container(cluster)
 
     # 1. Strip the host ports that make Traefik unschedulable.
     _docker_exec(
@@ -424,7 +437,7 @@ def _ensure_ingress_controller(timeout: int = 120, env=None) -> None:
         [
             "docker",
             "exec",
-            f"floci-eks-{cluster}",
+            _k3s_container(cluster, env),
             "kubectl",
             "apply",
             "-f",

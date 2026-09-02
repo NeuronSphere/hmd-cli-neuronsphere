@@ -572,7 +572,11 @@ class LocalWorkflowRunner:
         if sources[0] != chart_ref and not _tag(sources[0], chart_ref, cli):
             return True
 
-        container = f"floci-eks-{self.cluster_name or K3S_CLUSTER_NAME}"
+        from .floci_deployer import k3s_container_name
+
+        container = k3s_container_name(
+            self.cluster_name or K3S_CLUSTER_NAME, self._target()
+        )
         _import_image_into_k3s(chart_ref, container, cli)
         return True
 
@@ -994,6 +998,18 @@ class LocalWorkflowRunner:
             )
             return False
 
+    def _target(self):
+        from .floci_deployer import control_plane_target, env_target
+
+        return env_target(self.env) if self.env is not None else control_plane_target()
+
+    def _k3s_container(self) -> str:
+        """The k3s container's Docker name, which is account-qualified for an
+        environment (see floci_deployer.k3s_container_name)."""
+        from .floci_deployer import k3s_container_name
+
+        return k3s_container_name(self.cluster_name or K3S_CLUSTER_NAME, self._target())
+
     def _local_kubeconfig_path(self) -> Optional[str]:
         """Resolve the k3s kubeconfig, mirroring hmd-cli-helm's lookup.
 
@@ -1037,7 +1053,7 @@ class LocalWorkflowRunner:
                 cfg = yaml.safe_load(f)
             for entry in cfg.get("clusters", []):
                 cluster = entry.setdefault("cluster", {})
-                cluster["server"] = f"https://floci-eks-{self.cluster_name}:6443"
+                cluster["server"] = f"https://{self._k3s_container()}:6443"
                 cluster["insecure-skip-tls-verify"] = True
                 cluster.pop("certificate-authority-data", None)
                 cluster.pop("certificate-authority", None)

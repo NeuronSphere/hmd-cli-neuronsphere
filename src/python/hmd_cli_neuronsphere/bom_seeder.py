@@ -1304,13 +1304,18 @@ def build_local_core_resources(
     if cluster_name:
         # The endpoint is the k3s API as reached from **inside** the
         # neuronsphere_default network (where the projectbuilder deploy runs), not
-        # the host-published port. Floci names the k3s container `floci-eks-<cluster>`.
+        # the host-published port. Floci names the k3s container
+        # `floci-eks-<cluster>`, or `floci-eks-<account>.<cluster>` outside the
+        # default account -- see floci_deployer.k3s_container_name.
         # hmd-cli-helm reads this `endpoint` from the resolved kubernetes-cluster
         # Resource (NERD0006) and connects there — the Resource is the source of
         # truth for cluster addressing (auth stays environment-derived).
+        from .floci_deployer import env_target, k3s_container_name
+
         cluster_output = {
             "cluster_name": cluster_name,
-            "endpoint": cluster_endpoint or f"https://floci-eks-{cluster_name}:6443",
+            "endpoint": cluster_endpoint
+            or f"https://{k3s_container_name(cluster_name, env_target(env) if env else None)}:6443",
         }
         resources.append(
             {

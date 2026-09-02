@@ -1558,14 +1558,14 @@ def environment_status(env: LocalEnvironment) -> Dict:
         )
         return result.returncode == 0 and result.stdout.strip() == "true"
 
-    from .floci_deployer import FLOCI_ENDPOINT
+    from .floci_deployer import FLOCI_ENDPOINT, env_target, k3s_container_name
 
     containers = {
         # Shared: one Floci serves every environment's account.
         "floci": env.floci_container,
         "db": env.db_container,
         "graph": env.graph_container,
-        "k3s": f"floci-eks-{env.k3s_cluster}",
+        "k3s": k3s_container_name(env.k3s_cluster, env_target(env)),
     }
     return {
         "name": env.slug,

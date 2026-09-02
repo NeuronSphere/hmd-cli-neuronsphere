@@ -342,6 +342,62 @@ K3S_WRAPPER_IMAGE = os.environ.get(
 )
 
 
+K3S_CONTAINER_PREFIX = "floci-eks-"
+
+
+def k3s_container_name(name: str = None, target: Optional[FlociTarget] = None) -> str:
+    """The Docker name of the k3s container (and volume) Floci spawned.
+
+    Floci 2.0 qualifies the name by account for every account except the default
+    one::
+
+        defaultAccount ? cluster.getName() : accountId + "." + cluster.getName()
+
+    so an environment's cluster is ``floci-eks-<account>.<cluster>`` while the
+    control plane's stays ``floci-eks-<cluster>``. Assuming the unqualified form
+    is not a cosmetic error: ``write_kubeconfig`` reads the real kubeconfig with
+    ``docker exec`` on this name, and when that fails it falls through to a
+    synthesized config carrying a placeholder token -- so every later ``kubectl``
+    call fails with "the server has asked for the client to provide credentials",
+    which reads like a cluster problem rather than a naming one.
+
+    Resolved by looking at what actually exists rather than by rule alone, so a
+    cluster created under the pre-2.0 name keeps working: Floci itself claims
+    such a container when its ``io.floci.account`` label matches
+    (``EksClusterManager.resolveRestoredDockerName``).
+    """
+    name = name or K3S_CLUSTER_NAME
+    legacy = f"{K3S_CONTAINER_PREFIX}{name}"
+    account = (target or _resolve_target(None)).account_id
+    qualified = (
+        legacy if account == ACCOUNT_ID else f"{K3S_CONTAINER_PREFIX}{account}.{name}"
+    )
+    if qualified == legacy:
+        return legacy
+    existing = _existing_container_names()
+    if qualified in existing:
+        return qualified
+    if legacy in existing:
+        logger.debug(f"k3s cluster {name} still under its pre-2.0 name {legacy}")
+        return legacy
+    return qualified
+
+
+def _existing_container_names() -> set:
+    """Every container name on this host, running or not."""
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return {n for n in r.stdout.split() if n}
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not list containers: {e}")
+        return set()
+
+
 def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
     """Verify the configured k3s wrapper image is available, pulling it if not.
 
@@ -460,7 +516,7 @@ def _k3s_host_port(name: str) -> str:
             [
                 "docker",
                 "inspect",
-                f"floci-eks-{name}",
+                k3s_container_name(name, target),
                 "--format",
                 '{{(index (index .NetworkSettings.Ports "6443/tcp") 0).HostPort}}',
             ],
@@ -483,7 +539,7 @@ def _k3s_container_image(name: str) -> str:
             [
                 "docker",
                 "inspect",
-                f"floci-eks-{name}",
+                k3s_container_name(name, target),
                 "--format",
                 "{{.Config.Image}}",
             ],
@@ -503,7 +559,7 @@ def _k3s_container_running(name: str) -> bool:
             [
                 "docker",
                 "inspect",
-                f"floci-eks-{name}",
+                k3s_container_name(name, target),
                 "--format",
                 "{{.State.Running}}",
             ],
@@ -542,7 +598,7 @@ def _wait_for_cluster_gone(
     # fresh from the current FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
     try:
         subprocess.run(
-            ["docker", "rm", "-f", f"floci-eks-{name}"],
+            ["docker", "rm", "-f", k3s_container_name(name)],
             capture_output=True,
             timeout=15,
         )
@@ -556,7 +612,7 @@ def _wait_for_cluster_gone(
     # Service and orphaning any StatefulSet pods pinned to the dead node.
     try:
         subprocess.run(
-            ["docker", "volume", "rm", "-f", f"floci-eks-{name}"],
+            ["docker", "volume", "rm", "-f", k3s_container_name(name)],
             capture_output=True,
             timeout=15,
         )
@@ -572,7 +628,7 @@ def _k3s_container_logs(name: str) -> str:
     """
     try:
         result = subprocess.run(
-            ["docker", "logs", "--tail", "30", f"floci-eks-{name}"],
+            ["docker", "logs", "--tail", "30", k3s_container_name(name)],
             capture_output=True,
             text=True,
             timeout=5,
@@ -604,13 +660,13 @@ def wait_for_k3s_ready(
                 return cluster
             if status == "FAILED":
                 logs = _k3s_container_logs(name)
-                detail = f"\nfloci-eks-{name} logs:\n{logs}" if logs else ""
+                detail = f"\n{k3s_container_name(name)} logs:\n{logs}" if logs else ""
                 raise RuntimeError(f"k3s cluster {name} entered FAILED status{detail}")
         except ClientError as e:
             logger.debug(f"describe_cluster failed: {e}")
         time.sleep(3)
     logs = _k3s_container_logs(name)
-    detail = f"\nfloci-eks-{name} logs:\n{logs}" if logs else ""
+    detail = f"\n{k3s_container_name(name)} logs:\n{logs}" if logs else ""
     raise RuntimeError(f"k3s cluster {name} not ACTIVE after {timeout}s{detail}")
 
 
@@ -652,7 +708,13 @@ def write_kubeconfig(
     host_port = _k3s_host_port(name)
     try:
         result = subprocess.run(
-            ["docker", "exec", f"floci-eks-{name}", "cat", "/etc/rancher/k3s/k3s.yaml"],
+            [
+                "docker",
+                "exec",
+                k3s_container_name(name, target),
+                "cat",
+                "/etc/rancher/k3s/k3s.yaml",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
@@ -704,7 +766,17 @@ users:
     token: floci-local
 """
     out_path.write_text(kubeconfig)
-    logger.debug(f"Wrote synthesized kubeconfig to {out_path}")
+    # Loud, because this config cannot authenticate: `token: floci-local` is a
+    # placeholder, so every later kubectl call fails with "the server has asked
+    # for the client to provide credentials" -- an error that reads like a broken
+    # cluster rather than a kubeconfig we knowingly synthesized. Reaching here
+    # means the k3s container could not be read, usually because its name was not
+    # what we looked for (see k3s_container_name).
+    logger.warning(
+        f"Could not read a real kubeconfig for {name}; wrote a placeholder to "
+        f"{out_path}. kubectl against this cluster will fail to authenticate. "
+        f"Expected container: {k3s_container_name(name, target)}"
+    )
     return out_path
 
 
@@ -740,7 +812,7 @@ def stop_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> bool:
     """
     try:
         result = subprocess.run(
-            ["docker", "stop", f"floci-eks-{name}"],
+            ["docker", "stop", k3s_container_name(name)],
             capture_output=True,
             timeout=60,
         )
@@ -748,7 +820,7 @@ def stop_k3s_cluster(name: str = K3S_CLUSTER_NAME) -> bool:
         logger.debug(f"k3s container stop skipped for {name}: {e}")
         return False
     if result.returncode == 0:
-        logger.debug(f"Stopped k3s container: floci-eks-{name}")
+        logger.debug(f"Stopped k3s container: {k3s_container_name(name)}")
         return True
     logger.debug(f"k3s container stop for {name} returned {result.returncode}")
     return False
@@ -764,7 +836,7 @@ def start_k3s_container(name: str = K3S_CLUSTER_NAME) -> bool:
     """
     try:
         result = subprocess.run(
-            ["docker", "start", f"floci-eks-{name}"],
+            ["docker", "start", k3s_container_name(name)],
             capture_output=True,
             text=True,
             timeout=120,
@@ -773,9 +845,11 @@ def start_k3s_container(name: str = K3S_CLUSTER_NAME) -> bool:
         logger.debug(f"k3s container start failed for {name}: {e}")
         return False
     if result.returncode == 0:
-        logger.debug(f"Started k3s container: floci-eks-{name}")
+        logger.debug(f"Started k3s container: {k3s_container_name(name)}")
         return True
-    logger.warning(f"Could not start floci-eks-{name}: {(result.stderr or '').strip()}")
+    logger.warning(
+        f"Could not start {k3s_container_name(name)}: {(result.stderr or '').strip()}"
+    )
     return False
 
 
@@ -794,8 +868,8 @@ def purge_k3s_container_and_volume(name: str = K3S_CLUSTER_NAME) -> None:
     Mirrors the cleanup in `_wait_for_cluster_gone`.
     """
     for args in (
-        ["docker", "rm", "-f", f"floci-eks-{name}"],
-        ["docker", "volume", "rm", "-f", f"floci-eks-{name}"],
+        ["docker", "rm", "-f", k3s_container_name(name)],
+        ["docker", "volume", "rm", "-f", k3s_container_name(name)],
     ):
         try:
             subprocess.run(args, capture_output=True, timeout=15)
@@ -2074,7 +2148,7 @@ def _floci_eks_ip(name: str = K3S_CLUSTER_NAME, network: str = None) -> Optional
     )
     try:
         r = subprocess.run(
-            ["docker", "inspect", f"floci-eks-{name}", "--format", fmt],
+            ["docker", "inspect", k3s_container_name(name), "--format", fmt],
             capture_output=True,
             text=True,
             timeout=5,

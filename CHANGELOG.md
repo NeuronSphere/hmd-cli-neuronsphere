@@ -2,6 +2,31 @@
 
 ## 2026-09-02
 
+- fix: Resolve the k3s container's account-qualified name (Floci 2.0)
+
+  Floci 2.0 names an EKS cluster's container `floci-eks-<account>.<cluster>` for
+  every account except the default one, so an environment's k3s container is not
+  `floci-eks-<cluster>` any more. Every place that name was hardcoded broke for
+  environments -- which, since Phase 1, is where all workloads run.
+
+  The visible symptom was misleading. `write_kubeconfig` reads the real
+  kubeconfig by `docker exec` on that name; when it failed, the function fell
+  through to a synthesized config carrying a placeholder token, so the node
+  never became Ready and every kubectl call failed with "the server has asked
+  for the client to provide credentials" -- which reads like a broken cluster,
+  not a name lookup. It also silently broke the CoreDNS records that map
+  `hmd_db` and `global-graph` inside the cluster, the Traefik ingress-class
+  patch, and NodePort routing.
+
+  `floci_deployer.k3s_container_name` now resolves it once for everyone, by
+  looking at which container actually exists rather than by rule alone -- a
+  cluster created under the pre-2.0 name keeps working, matching how Floci
+  itself claims a legacy container when its `io.floci.account` label agrees.
+
+  The placeholder-kubeconfig fallback now warns loudly and names the container
+  it expected, so if this class of mismatch recurs it says so at the point of
+  failure instead of one layer away.
+
 - fix: Point `database-instance` dependencies at the real Postgres producer
 
   Removing `postgres` from the core RepoClass's produced types broke every
