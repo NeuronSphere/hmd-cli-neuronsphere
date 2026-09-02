@@ -115,9 +115,13 @@ def postgres_instance_config() -> Dict:
     data directory cannot drift apart -- the drift ``pg_upgrade`` exists to
     catch.
     """
+    from .floci_deployer import LOCAL_DB_SUBNET_GROUP
     from .pg_upgrade import configured_postgres_image, image_pg_major
 
     config = {
+        # Explicit placement: Floci's implicit "default" subnet group is unusable
+        # for any account but the first to touch EC2 in a region.
+        "db_subnet_group_name": LOCAL_DB_SUBNET_GROUP,
         "db_username": "postgres",
         # Matches what hmd-postgres-base bakes in (ENV POSTGRES_PASSWORD).
         "db_password": "admin",

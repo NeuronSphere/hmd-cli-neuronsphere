@@ -217,3 +217,42 @@ class EnvironmentDatabaseIdentityTests(unittest.TestCase):
             bom_seeder.env_db_identifier(self._Env()),
             bom_seeder.env_db_identifier(_Other()),
         )
+
+
+class SubnetGroupPlacementTests(unittest.TestCase):
+    """Both RDS deploys must name a subnet group explicitly.
+
+    Floci seeds a region's default VPC and subnets once per *region*
+    (`Ec2Service.seededRegions`) but stores them per *account*, so every account
+    after the first has no default VPC and `CreateDBInstance` fails with
+    "No subnets available for DB subnet group default". Since Phase 1 put every
+    environment in one Floci, that is the common case rather than an edge one.
+    """
+
+    def test_the_control_plane_node_names_the_group(self):
+        from hmd_cli_neuronsphere.floci_deployer import LOCAL_DB_SUBNET_GROUP
+
+        config = bd.postgres_instance_config()
+        self.assertEqual(config["db_subnet_group_name"], LOCAL_DB_SUBNET_GROUP)
+
+    def test_the_environment_entry_names_the_same_group(self):
+        from hmd_cli_neuronsphere import bom_seeder
+        from hmd_cli_neuronsphere.floci_deployer import LOCAL_DB_SUBNET_GROUP
+
+        entry = next(
+            e
+            for e in bom_seeder.LOCAL_CORE_BOM
+            if e["repo_instance_name"] == bom_seeder.ENV_DB_INSTANCE
+        )
+        self.assertEqual(
+            entry["instance_configuration"]["db_subnet_group_name"],
+            LOCAL_DB_SUBNET_GROUP,
+        )
+
+    def test_the_group_reaches_the_deploy_command(self):
+        """It travels in the heredoc config, so a rename cannot silently drop it."""
+        import json
+
+        script = _nodes()[0]["script"]
+        body = script.split("<<'EOF'\n", 1)[1].rsplit("\nEOF", 1)[0]
+        self.assertIn("db_subnet_group_name", json.loads(body))

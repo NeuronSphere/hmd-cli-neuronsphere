@@ -999,6 +999,11 @@ def provision_resources(
     # deploy` (which uses an S3 backend at hmd.<account>.<hmd_region>.tfstate) can
     # `tofu init` locally. The bucket name uses the HMD region (matching
     # HmdCdkTfStack's backend), not the cloud LocationConstraint region.
+    # Placement for any RDS instance this account deploys. Must exist before the
+    # deploy runs, and cannot be left to Floci's implicit default group -- see
+    # ensure_rds_subnet_group.
+    ensure_rds_subnet_group(target)
+
     hmd_region = os.environ.get("HMD_REGION", "reg1")
     bucket_names = [b["name"] for b in resources.get("s3_buckets", [])]
     bucket_names.append(f"hmd.{target.account_id}.{hmd_region}.tfstate")
@@ -1188,6 +1193,97 @@ def provision_plugin_databases(
 _FLOCI_LABEL_SERVICE = "io.floci.service"
 _FLOCI_LABEL_ACCOUNT = "io.floci.account"
 _FLOCI_LABEL_RESOURCE = "io.floci.resource-id"
+
+
+# The DB subnet group every local RDS instance is placed in. Explicit rather than
+# Floci's implicit "default" -- see ensure_rds_subnet_group.
+LOCAL_DB_SUBNET_GROUP = "hmd-local-db-subnets"
+
+
+def ensure_rds_subnet_group(target: Optional[FlociTarget] = None) -> Optional[str]:
+    """Create this account's VPC, subnets and DB subnet group. Idempotent.
+
+    Works around a Floci multi-account bug. ``Ec2Service.ensureDefaultResources``
+    seeds a region's default VPC and subnets, but guards on a
+    ``Set<String> seededRegions`` keyed by *region alone*, while the VPC and
+    subnet storage it writes into is namespaced per account. So the first account
+    to touch EC2 in a region marks it seeded, and every other account is skipped
+    -- leaving them with no default VPC at all.
+
+    RDS then fails ``CreateDBInstance`` with
+    ``InvalidVPCNetworkStateFault: No subnets available for DB subnet group
+    default``, because its implicit "default" group is built by listing the
+    subnets of ``vpc-default-<region>`` in the calling account.
+
+    Creating our own VPC cannot fix that path -- Floci resolves the default VPC
+    by a fixed id we cannot assign -- so we create a *named* group instead and
+    the local CDKTF overlay places instances in it explicitly, bypassing the
+    implicit lookup entirely.
+
+    Best-effort: on any failure the deploy still runs and fails with Floci's own
+    error, which is more informative than one invented here.
+
+    :returns: The subnet group name, or None if it could not be ensured.
+    """
+    target = _resolve_target(target)
+    region = target.region
+    try:
+        ec2 = _get_client("ec2", target)
+        vpcs = ec2.describe_vpcs().get("Vpcs", [])
+        if vpcs:
+            vpc_id = vpcs[0]["VpcId"]
+        else:
+            vpc_id = ec2.create_vpc(CidrBlock="172.31.0.0/16")["Vpc"]["VpcId"]
+            logger.debug(f"Created VPC {vpc_id} for account {target.account_id}")
+
+        subnets = [
+            sn
+            for sn in ec2.describe_subnets(
+                Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]
+            ).get("Subnets", [])
+        ]
+        # Two zones: a single-AZ group is enough for our instances, but a
+        # multi-AZ one costs nothing and keeps `multi_az` usable later.
+        wanted = {f"{region}a": "172.31.0.0/20", f"{region}b": "172.31.16.0/20"}
+        have = {sn.get("AvailabilityZone") for sn in subnets}
+        for az, cidr in wanted.items():
+            if az in have:
+                continue
+            try:
+                created = ec2.create_subnet(
+                    VpcId=vpc_id, CidrBlock=cidr, AvailabilityZone=az
+                )["Subnet"]
+                subnets.append(created)
+            except ClientError as e:
+                logger.debug(f"Could not create subnet in {az}: {e}")
+
+        subnet_ids = [sn["SubnetId"] for sn in subnets]
+        if not subnet_ids:
+            logger.warning(f"No subnets available in account {target.account_id}")
+            return None
+
+        rds = _get_client("rds", target)
+        try:
+            rds.create_db_subnet_group(
+                DBSubnetGroupName=LOCAL_DB_SUBNET_GROUP,
+                DBSubnetGroupDescription="Local NeuronSphere DB subnet group",
+                SubnetIds=subnet_ids,
+            )
+            logger.debug(
+                f"Created DB subnet group {LOCAL_DB_SUBNET_GROUP} "
+                f"({len(subnet_ids)} subnet(s)) in account {target.account_id}"
+            )
+        except ClientError as e:
+            if "AlreadyExists" not in str(
+                e
+            ) and "DBSubnetGroupAlreadyExists" not in str(e):
+                raise
+        return LOCAL_DB_SUBNET_GROUP
+    except Exception as e:
+        logger.warning(
+            f"Could not ensure a DB subnet group for account {target.account_id}: {e}"
+        )
+        return None
 
 
 def rds_container_name(identifier: str, target: Optional[FlociTarget] = None):

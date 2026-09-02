@@ -2,6 +2,26 @@
 
 ## 2026-09-02
 
+- fix: Create a DB subnet group per account, working around a Floci bug
+
+  `CreateDBInstance` failed for every environment with
+  "InvalidVPCNetworkStateFault: No subnets available for DB subnet group
+  default". Floci's `Ec2Service.ensureDefaultResources` seeds a region's default
+  VPC and subnets, but guards on a `Set<String> seededRegions` keyed by *region
+  alone* while writing into storage namespaced per *account* -- so the first
+  account to touch EC2 in a region marks it seeded and every other account is
+  skipped, left with no default VPC. Phase 1 made that the common case by
+  putting every environment in one Floci.
+
+  Creating our own VPC cannot fix the implicit path, since Floci resolves the
+  default VPC by a fixed id (`vpc-default-<region>`) we cannot assign. So
+  `provision_resources` now creates a VPC, two subnets and a named DB subnet
+  group per account, and both RDS deploys -- the control plane's bootstrap node
+  and each environment's BOM entry -- place their instance in it explicitly.
+
+  Best-effort: if the group cannot be ensured the deploy still runs and fails
+  with Floci's own error, which says more than one invented here would.
+
 - fix: Stop an orphaned RDS volume from permanently blocking `up`
 
   The PostgreSQL-compatibility check scanned every `floci-rds-*` volume,

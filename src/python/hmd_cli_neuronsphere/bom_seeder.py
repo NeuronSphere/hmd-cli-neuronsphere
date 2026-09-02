@@ -30,6 +30,7 @@ except ImportError:
     from importlib_metadata import version as distribution_version
 
 from .docker_credentials import local_docker_config_json
+from .floci_deployer import LOCAL_DB_SUBNET_GROUP
 from .floci_deployer import DOCKER_NETWORK_NAME
 
 logger = minimal_logger("bom_seeder")
@@ -257,7 +258,7 @@ LOCAL_CORE_BOM = [
         "repo_instance_name": ENV_DB_INSTANCE,
         "repo_class_name": ENV_DB_REPO_CLASS,
         "deployment_id": "local",
-        "instance_configuration": {},
+        "instance_configuration": {"db_subnet_group_name": LOCAL_DB_SUBNET_GROUP},
         "dependencies": {
             "base-vpc": CORE_INSTANCE_NAME,
             "datadog-lambda": CORE_INSTANCE_NAME,
