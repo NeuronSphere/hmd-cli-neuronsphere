@@ -2,6 +2,29 @@
 
 ## 2026-09-02
 
+- fix: Supply every required dependency role on the environment-db BOM entry
+
+  ms-deployment validates required *roles* when a changeset is applied, not when
+  the deploy runs, so `hmd-postgres-rds`'s cloud dependencies had to be declared
+  even though the local overlay references none of them. Without them `up`
+  failed at Phase A with "For RepoInstance, environment-db, required role,
+  rds-loggroup, not provided."
+
+  `base-vpc` is resource-typed, so presence in the map is not enough -- the
+  supplied instance is validated against what it actually produces. The core
+  RepoClass already declared producing `network.neuronsphere.io/network` for
+  repos like hmd-inf-hive-metastore, but hmd-postgres-rds names the `vpc`
+  subtype specifically, and producing a parent type does not satisfy a
+  requirement for its child. The core now declares both; Docker networking
+  substitutes for a VPC locally either way.
+
+  `datadog-lambda` and `rds-loggroup` are name-only roles that nothing validates
+  beyond presence -- there is no CloudWatch or Datadog locally.
+
+  Two regression tests read the real manifest: one asserts every required role
+  is supplied, the other that any resource-typed role pointed at the core
+  instance names a type the core declares producing.
+
 - fix: Create the CDKTF state bucket before the DAG's first CDKTF deploy
 
   `provision_resources` creates the `hmd.<account>.<region>.tfstate` bucket the

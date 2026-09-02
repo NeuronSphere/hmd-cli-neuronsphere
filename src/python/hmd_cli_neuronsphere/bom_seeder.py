@@ -202,6 +202,18 @@ CORE_PRODUCED_DEFINITIONS = [
         "version": "0.1.0",
         "role": "network",
     },
+    {
+        # And the concrete `vpc` subtype, for repos whose base-vpc dependency
+        # names it specifically rather than the abstract `network` above (e.g.
+        # hmd-postgres-rds). Producing the parent type does not satisfy a
+        # requirement for a child, so both have to be declared. Docker networking
+        # substitutes for a VPC locally either way -- an hmd-vpc deploy is never
+        # applicable.
+        "resource_namespace": "network.neuronsphere.io",
+        "resource_definition_name": "vpc",
+        "version": "0.1.0",
+        "role": "network",
+    },
 ]
 
 # BOM entry #0 — always prepended for Phase A (see seed_bom's two-phase callers in
@@ -230,15 +242,27 @@ LOCAL_CORE_BOM = [
         # against (hmd-database-account's above all). It is in the *core*
         # changeset because ms-dbaccount and every plugin database depend on it.
         #
-        # Its cloud dependencies (base-vpc, datadog-lambda, rds-loggroup) are
-        # deliberately absent: `src/local/cdktf/cdktf_local.py` in that repo
-        # replaces the Aurora-on-a-VPC stack with a plain aws_db_instance, so
-        # none of them are referenced locally.
+        # Every dependency the RepoClassVersion marks required must be supplied,
+        # even though the local overlay (`src/local/cdktf/cdktf_local.py` in that
+        # repo) replaces the Aurora-on-a-VPC stack with a plain aws_db_instance
+        # and references none of them: ms-deployment validates required *roles*
+        # at changeset apply, not at deploy ("required role, rds-loggroup, not
+        # provided").
+        #
+        # `base-vpc` is resource-typed, so the core instance must genuinely
+        # declare producing `network.neuronsphere.io/vpc` -- see
+        # CORE_PRODUCED_DEFINITIONS. `datadog-lambda` and `rds-loggroup` are
+        # name-only roles that nothing validates beyond presence; there is no
+        # CloudWatch or Datadog locally, and the overlay creates neither.
         "repo_instance_name": ENV_DB_INSTANCE,
         "repo_class_name": ENV_DB_REPO_CLASS,
         "deployment_id": "local",
         "instance_configuration": {},
-        "dependencies": {},
+        "dependencies": {
+            "base-vpc": CORE_INSTANCE_NAME,
+            "datadog-lambda": CORE_INSTANCE_NAME,
+            "rds-loggroup": CORE_INSTANCE_NAME,
+        },
     },
 ]
 

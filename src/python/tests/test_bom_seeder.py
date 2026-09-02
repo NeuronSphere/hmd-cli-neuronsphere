@@ -16,6 +16,8 @@ service or Docker required.
 """
 
 import os
+from pathlib import Path
+import json
 import unittest
 from unittest import mock
 
@@ -393,7 +395,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 7)
+        self.assertEqual(n, 8)
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -410,6 +412,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
                 # the core RepoClass as a producer too would give the same
                 # environment two.
                 "graph-database",
+                "vpc",
                 "microservice",
                 "network",
             },
@@ -846,3 +849,59 @@ class SeedBomIdempotencyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequiredRolesAreSuppliedTests(unittest.TestCase):
+    """Every dependency a RepoClassVersion marks required must be in the BOM entry.
+
+    ms-deployment validates required *roles* when the changeset is applied, not
+    when the deploy runs -- so a missing one fails `up` with "required role, X,
+    not provided" long before the deploy that would (or would not) have used it.
+    A local overlay ignoring a dependency does not exempt the entry from
+    declaring it.
+    """
+
+    def _manifest_dependencies(self, repo_class_name):
+        repo_home = os.environ.get("HMD_REPO_HOME")
+        if not repo_home:
+            self.skipTest("HMD_REPO_HOME not set")
+        path = Path(repo_home) / repo_class_name / "meta-data" / "manifest.json"
+        if not path.is_file():
+            self.skipTest(f"{repo_class_name} not checked out")
+        return json.loads(path.read_text())["deploy"].get("dependencies", {})
+
+    def test_the_environment_db_entry_supplies_every_required_role(self):
+        deps = self._manifest_dependencies(b.ENV_DB_REPO_CLASS)
+        required = {
+            role
+            for role, dep in deps.items()
+            if str(dep.get("required", "")).lower() == "true"
+        }
+        entry = next(
+            e for e in b.LOCAL_CORE_BOM if e["repo_instance_name"] == b.ENV_DB_INSTANCE
+        )
+        missing = required - set(entry.get("dependencies", {}))
+        self.assertEqual(missing, set(), f"unsupplied required role(s): {missing}")
+
+    def test_a_resource_typed_required_role_has_a_local_producer(self):
+        """A resource-typed role is validated against what the supplied instance
+        actually produces, so presence in the map is not enough."""
+        deps = self._manifest_dependencies(b.ENV_DB_REPO_CLASS)
+        produced = {
+            (d["resource_namespace"], d["resource_definition_name"])
+            for d in b.CORE_PRODUCED_DEFINITIONS
+        }
+        entry = next(
+            e for e in b.LOCAL_CORE_BOM if e["repo_instance_name"] == b.ENV_DB_INSTANCE
+        )
+        for role, target in entry.get("dependencies", {}).items():
+            resource = (deps.get(role) or {}).get("resource")
+            if not resource or target != b.CORE_INSTANCE_NAME:
+                continue
+            key = (resource["resource_namespace"], resource["resource_definition_name"])
+            self.assertIn(
+                key,
+                produced,
+                f"role {role!r} needs {key[0]}/{key[1]}, which the core "
+                f"RepoClass does not declare producing",
+            )
