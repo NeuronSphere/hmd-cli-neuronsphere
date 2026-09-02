@@ -2,6 +2,35 @@
 
 ## 2026-09-02
 
+- feat: Detect a PostgreSQL major-version bump before it breaks start-up
+
+  Floci recreates an RDS instance's container from the *current* postgres image
+  on every start while reusing the instance's volume, so bumping the major
+  version in `hmd-postgres-base` leaves the old data directory behind and the
+  new binary refuses it. Nothing reported that at the point of the change --
+  Floci still calls the instance `available` -- so the first symptom was
+  whatever connected next failing, a layer removed from the cause.
+
+  `up` now compares the image's `PG_MAJOR` against the `PG_VERSION` file
+  postgres writes into its own data directory. Both are readable without
+  starting anything, so the check is cheap and runs before Floci can spawn a
+  container that crash-loops. On a mismatch it names the volumes and offers both
+  ways out. Anything indeterminate (image not pulled, Docker unavailable, volume
+  not yet initialised) yields no mismatch rather than a false alarm, because
+  this gates `up`.
+
+  `hmd neuronsphere db upgrade` migrates in place -- Floci looks for the volume
+  by the name it derived when it spawned the container, so a differently-named
+  copy would be ignored. It dumps with a stock `postgres:<old>-alpine` (the
+  configured image cannot read that data directory, which is the whole problem),
+  clears the volume so the new image runs `initdb`, and restores. The old data
+  is copied to `hmd-pgbackup-<volume>-pg<major>` first and never deleted.
+
+  That backup name deliberately sits outside Floci's `floci-rds-` namespace: a
+  backup inside it would be rescanned by the check and, holding the old data
+  directory by definition, reported as a mismatch forever -- leaving `up`
+  blocked after a migration that had already succeeded.
+
 - feat: Deploy each environment's Postgres as a Floci RDS instance too
 
   Completes the migration the control plane started. `hmd-postgres-rds` is now

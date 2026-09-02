@@ -843,6 +843,45 @@ networks:
         )
 
     @ex(
+        help=(
+            "Migrate Floci RDS data directories after a PostgreSQL major-version "
+            "bump (dump, re-initialise, restore; keeps a backup volume)"
+        ),
+        arguments=[
+            (
+                ["--check"],
+                {
+                    "help": "Only report what would be migrated",
+                    "action": "store_true",
+                    "dest": "check",
+                },
+            ),
+        ],
+    )
+    def db_upgrade(self):
+        from .pg_upgrade import configured_postgres_image, find_mismatches, upgrade_all
+
+        image = configured_postgres_image()
+        mismatches = find_mismatches(image)
+        if not mismatches:
+            print(f"\n  Nothing to migrate — every RDS volume matches {image}.\n")
+            return
+        print(f"\n  Configured image: {image}\n")
+        for m in mismatches:
+            print(
+                f"    {m.volume}: PostgreSQL {m.found} data, image ships {m.expected}"
+            )
+        if self.app.pargs.check:
+            print("\n  Re-run without --check to migrate.\n")
+            return
+        print(
+            "\n  Migrating. Each volume is copied to <volume>-pg<major>-backup "
+            "first;\n  that backup is never deleted.\n"
+        )
+        upgraded = upgrade_all(image)
+        print(f"\n  Migrated {upgraded} of {len(mismatches)} volume(s).\n")
+
+    @ex(
         help="Register an existing DB (created without dbaccount) as a NERD Resource",
         arguments=[
             (["db_name"], {"help": "Database name", "action": "store"}),

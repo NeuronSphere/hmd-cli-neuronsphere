@@ -438,6 +438,46 @@ longer published, and that ``4566`` now arrives via ``hmd_proxy``.
 
 Fresh ``$HMD_HOME`` s always get the split layout.
 
+Upgrading PostgreSQL
+~~~~~~~~~~~~~~~~~~~~
+
+Floci recreates an RDS instance's container from the **current**
+``FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE`` on every start, while reusing the
+instance's named volume. A postgres *major*-version bump in ``hmd-postgres-base``
+therefore leaves the old data directory behind, and the new binary refuses it:
+
+.. code-block:: text
+
+    FATAL:  database files are incompatible with server
+    DETAIL: The data directory was initialized by PostgreSQL version 14,
+            which is not compatible with this version 16.3.
+
+Nothing reports that at the point of the change — Floci still calls the instance
+``available``, because it has recorded it — so the first symptom would be
+whatever connects next failing, a layer removed from the cause.
+
+``up`` therefore checks before Floci starts, comparing the image's ``PG_MAJOR``
+against the ``PG_VERSION`` file postgres writes into its own data directory. Both
+are readable without starting anything, so the check costs nothing and runs early
+enough that no container has crash-looped yet. On a mismatch it names the
+volumes, and offers the two ways out:
+
+.. code-block:: bash
+
+    hmd neuronsphere db upgrade --check   # report what would be migrated
+    hmd neuronsphere db upgrade           # dump, re-initialise, restore
+    hmd neuronsphere down --purge         # or discard the data
+
+``db upgrade`` works in place, because Floci looks for the volume by the name it
+derived when it spawned the container; a differently-named copy would simply be
+ignored. It dumps with a stock ``postgres:<old>-alpine`` (the configured image
+cannot read that data directory — that is the whole problem), clears the volume
+so the new image runs ``initdb``, and restores. The old data directory is copied
+to ``hmd-pgbackup-<volume>-pg<major>`` first and **never deleted** — this
+rewrites a database, and a migration that destroys its only copy is not one worth
+offering. That backup deliberately sits outside Floci's ``floci-rds-`` namespace,
+so it is neither rescanned by the check nor mistaken by Floci for a live volume.
+
 Upgrading past the single-Floci collapse (breaking)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

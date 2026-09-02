@@ -879,6 +879,9 @@ def _seed_telemetry_profiles(
         logger.warning(f"Telemetry profile seeding failed: {e}")
 
 
+from . import pg_upgrade  # noqa: E402
+
+
 def _assert_no_legacy_env_floci_state() -> None:
     """Refuse to start over state from the container-per-environment layout.
 
@@ -1028,6 +1031,10 @@ def start_neuronsphere(
 
     ensure_neuronsphere_hosts_entry()
     _assert_no_legacy_env_floci_state()
+    # Before Floci starts: it would otherwise recreate the RDS container from an
+    # image that cannot read the existing data directory, and the failure would
+    # surface later as an unrelated connection error.
+    pg_upgrade.assert_compatible()
 
     mode = _resolve_mode()
     if mode == "extend":
