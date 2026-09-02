@@ -299,15 +299,22 @@ _FLOCI_INTERNAL_ENDPOINT = os.environ.get(
 # any `-f values-file` content -- an `aws_region` key here would be silently clobbered.
 _EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
     "installCRDs": False,  # CRDs come from hmd-inf-ext-secrets-crds (a prior BOM entry)
+    # `localAccessKeyId` is the account selector, rewritten per environment by
+    # _inject_floci_account(). It is what the ClusterSecretStore actually
+    # authenticates with: the store uses `secretRef` auth against the Secret the
+    # chart renders from these values, so the operator's pod environment has no
+    # bearing on which account its lookups resolve in.
     "clusterSecretStore": {
         "enabled": True,
-        "local": True,  # static test creds against Floci instead of IRSA
+        "local": True,  # static creds against Floci instead of IRSA
         "name": "aws-secrets-manager",
+        "localAccessKeyId": "test",
     },
     "parameterStoreSecretStore": {
         "enabled": True,
-        "local": True,  # static test creds against Floci instead of IRSA
+        "local": True,  # static creds against Floci instead of IRSA
         "name": "aws-parameter-store",
+        "localAccessKeyId": "test",
     },
     "dockerRepoSecret": {
         "enabled": True,
@@ -1733,6 +1740,19 @@ def _inject_floci_account(bom: List[Dict], env=None) -> None:
     environment's operator would authenticate as the same account and resolve the
     control plane's secrets instead of its own -- silently, since the secret names
     are identical across environments.
+
+    Two distinct places carry that key, and only one of them is the operative
+    one. ``extraEnv`` puts ``AWS_ACCESS_KEY_ID`` in the operator pod's
+    environment, but an AWS ``ClusterSecretStore`` configured with ``secretRef``
+    auth reads its credentials from the Kubernetes Secret the chart renders --
+    the pod's environment is never consulted. Setting only ``extraEnv`` left the
+    store signing as the chart's default ``test``, which Floci resolves to the
+    default account, and every environment-scoped lookup failed with
+
+        error processing spec.data[0] (key: broker_..._local_local_reg1_...),
+        err: Secret does not exist
+
+    for a secret that existed all along in the environment's own account.
     """
     targets = [e for e in bom if e.get("repo_class_name") == "hmd-inf-ext-secrets"]
     if not targets:
@@ -1743,13 +1763,28 @@ def _inject_floci_account(bom: List[Dict], env=None) -> None:
         env_target(env) if env is not None else control_plane_target()
     ).access_key_id
     for entry in targets:
-        config = entry.setdefault("instance_configuration", {})
+        # Copy before mutating. `EXT_SECRETS_BOM` holds one shared
+        # `instance_configuration` object (built once at import from
+        # `_EXT_SECRETS_LOCAL_CONFIG`), and a shallow copy of the *entry* still
+        # points at it -- so writing through it would give every environment
+        # whichever account was seeded last, and would permanently contaminate
+        # the module-level default for the rest of the process.
+        config = dict(entry.get("instance_configuration") or {})
+        entry["instance_configuration"] = config
         extra_env = [dict(v) for v in config.get("extraEnv", [])]
         for var in extra_env:
             if var.get("name") == "AWS_ACCESS_KEY_ID":
                 var["value"] = account
         if extra_env:
             config["extraEnv"] = extra_env
+        # The operative one: what the ClusterSecretStore signs its lookups with.
+        # Copied before mutating -- `_EXT_SECRETS_LOCAL_CONFIG` is shared by
+        # reference through a shallow `dict(...)`, so writing in place would set
+        # every environment's account to whichever was seeded last.
+        for store in ("clusterSecretStore", "parameterStoreSecretStore"):
+            store_config = config.get(store)
+            if isinstance(store_config, dict) and store_config.get("local"):
+                config[store] = {**store_config, "localAccessKeyId": account}
 
 
 # The dependency role every repo uses for "the Postgres instance my databases

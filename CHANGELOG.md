@@ -2,6 +2,28 @@
 
 ## 2026-09-02
 
+- fix: Sign External Secrets lookups as the environment's own Floci account
+
+  The operator authenticated as the chart's default `test`, which Floci resolves
+  to the default account, so every environment-scoped lookup failed against a
+  secret that existed all along in the environment's own account:
+
+      error processing spec.data[0] (key: broker_hmd-inf-transform-broker_local_
+      local_reg1_hmdtr1), err: Secret does not exist
+
+  The access key appears in two places in the chart's values and only one is
+  operative. `extraEnv` sets `AWS_ACCESS_KEY_ID` in the operator pod, which
+  `_inject_floci_account` already rewrote -- but an AWS `ClusterSecretStore`
+  using `secretRef` auth reads its credentials from the Kubernetes Secret the
+  chart renders from `clusterSecretStore.localAccessKeyId`, and never consults
+  the pod environment. Both stores now carry the account.
+
+  Also copies `instance_configuration` before mutating it. `EXT_SECRETS_BOM`
+  holds one shared object built at import, so writing through it gave every
+  environment whichever account was seeded last and permanently rewrote the
+  shipped default -- silent, because the secret names are identical across
+  environments.
+
 - fix: Compare against the PostgreSQL image the platform will actually run
 
   The pre-flight compatibility check reconstructed the image from
