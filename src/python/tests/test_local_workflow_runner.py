@@ -867,6 +867,38 @@ class DeferredTrackingTests(unittest.TestCase):
             },
         )
 
+    def test_replay_reports_only_what_landed(self):
+        """A 404 means the entity was never registered -- which is the current
+        state for bootstrap nodes -- so counting attempts would report a
+        recording that did not happen."""
+        runner = self._runner()
+        runner._set_status("rid-1", "DEPLOYED")
+        runner._set_status("rid-2", "DEPLOYED")
+        response = mock.Mock(status_code=404)
+        error = lwr.requests.RequestException("404")
+        error.response = response
+        with mock.patch.object(lwr.requests, "post", side_effect=error):
+            self.assertEqual(runner.replay_into("http://x"), 0)
+
+    def test_a_replay_404_is_not_logged_as_an_error(self):
+        runner = self._runner()
+        runner._set_status("rid-1", "DEPLOYED")
+        error = lwr.requests.RequestException("404")
+        error.response = mock.Mock(status_code=404)
+        with mock.patch.object(lwr.requests, "post", side_effect=error):
+            with mock.patch.object(lwr.logger, "error") as err:
+                runner.replay_into("http://x")
+        err.assert_not_called()
+
+    def test_a_failure_outside_replay_is_still_an_error(self):
+        runner = LocalWorkflowRunner("http://x")
+        error = lwr.requests.RequestException("boom")
+        error.response = mock.Mock(status_code=500)
+        with mock.patch.object(lwr.requests, "post", side_effect=error):
+            with mock.patch.object(lwr.logger, "error") as err:
+                runner._set_status("rid-1", "DEPLOYED")
+        err.assert_called_once()
+
     def test_replay_is_not_repeated(self):
         runner = self._runner()
         runner._set_status("rid-1", "DEPLOYED")

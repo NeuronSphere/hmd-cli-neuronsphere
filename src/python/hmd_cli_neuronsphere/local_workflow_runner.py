@@ -300,6 +300,10 @@ class LocalWorkflowRunner:
         self.repo_paths = dict(repo_paths or {})
         self.verbose = verbose
         self.tracking = tracking
+        # True only while replay_into is flushing, so a 404 for an entity that was
+        # never registered can be logged as the known gap it is rather than as a
+        # failure of this run.
+        self._replaying = False
         # (method_name, args) recorded while tracking is off, replayed in order
         # by replay_into(). Ordering matters: a Resource submission is keyed by
         # the RepoInstanceDeployment id its status update settles.
@@ -961,13 +965,15 @@ class LocalWorkflowRunner:
         self._post_resources(rid_nid, resources, node["instance_name"])
         return len(resources)
 
-    def _post_resources(self, rid_nid: str, resources: List[Dict], instance_name: str):
+    def _post_resources(
+        self, rid_nid: str, resources: List[Dict], instance_name: str
+    ) -> bool:
         """POST produced Resources, or buffer them when tracking is off."""
         if not self.tracking:
             self._deferred.append(
                 ("_post_resources", (rid_nid, resources, instance_name))
             )
-            return
+            return False
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/submit_resources",
@@ -981,10 +987,12 @@ class LocalWorkflowRunner:
             logger.debug(
                 f"Tracked {len(resources)} produced resource(s) for {instance_name}"
             )
+            return True
         except requests.RequestException as e:
-            logger.warning(
-                f"Failed to submit produced resources for {instance_name}: {e}"
+            self._log_tracking_failure(
+                f"submit produced resources for {instance_name}", e
             )
+            return False
 
     def _local_kubeconfig_path(self) -> Optional[str]:
         """Resolve the k3s kubeconfig, mirroring hmd-cli-helm's lookup.
@@ -1046,47 +1054,81 @@ class LocalWorkflowRunner:
     def replay_into(self, base_url: str) -> int:
         """Flush everything buffered while ``tracking`` was off.
 
-        Called once the deployment service the bootstrap DAG just deployed is
-        serving, so its graph ends up recording the nodes that brought it up --
-        including the Resources they produced. Ordering is preserved because a
-        Resource submission is keyed by the RepoInstanceDeployment its status
-        update settles.
+        Ordering is preserved because a Resource submission is keyed by the
+        RepoInstanceDeployment its status update settles.
 
-        :returns: The number of deferred calls replayed.
+        .. note::
+
+           Bootstrap-DAG nodes currently carry **locally generated** ids
+           (``bootstrap_dag._rid``), which no ms-deployment entity corresponds
+           to, so replaying their statuses returns 404 and records nothing.
+           Recording the control-plane bring-up in the graph needs those
+           entities created first -- a control-plane BOM seeded and applied the
+           way an environment's is -- which is not done yet. The 404s are logged
+           at debug rather than error for that reason, and this returns how many
+           calls actually *landed* so a caller cannot report success that did
+           not happen.
+
+        :returns: The number of deferred calls that succeeded.
         """
         self.base_url = base_url
         self.tracking = True
+        self._replaying = True
         deferred, self._deferred = self._deferred, []
-        for method, args in deferred:
-            getattr(self, method)(*args)
+        succeeded = 0
+        try:
+            for method, args in deferred:
+                if getattr(self, method)(*args):
+                    succeeded += 1
+        finally:
+            self._replaying = False
         if deferred:
-            logger.debug(f"Replayed {len(deferred)} deferred call(s) into {base_url}")
-        return len(deferred)
+            logger.debug(
+                f"Replayed {succeeded}/{len(deferred)} deferred call(s) into {base_url}"
+            )
+        return succeeded
 
-    def _set_status(self, rid_nid: str, status: str):
-        """Update a RepoInstanceDeployment status."""
+    def _set_status(self, rid_nid: str, status: str) -> bool:
+        """Update a RepoInstanceDeployment status. True if it landed."""
         if not self.tracking:
             self._deferred.append(("_set_status", (rid_nid, status)))
-            return
+            return False
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/set_deployment_status/{rid_nid}/{status}",
                 timeout=30,
             )
             resp.raise_for_status()
+            return True
         except requests.RequestException as e:
-            logger.error(f"Failed to set RID status {rid_nid} to {status}: {e}")
+            self._log_tracking_failure(f"set RID status {rid_nid} to {status}", e)
+            return False
 
-    def _set_csd_status(self, csd_nid: str, status: str):
-        """Update a ChangeSetDeployment status."""
+    def _set_csd_status(self, csd_nid: str, status: str) -> bool:
+        """Update a ChangeSetDeployment status. True if it landed."""
         if not self.tracking:
             self._deferred.append(("_set_csd_status", (csd_nid, status)))
-            return
+            return False
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/set_change_set_deployment_status/{csd_nid}/{status}",
                 timeout=30,
             )
             resp.raise_for_status()
+            return True
         except requests.RequestException as e:
-            logger.error(f"Failed to set CSD status {csd_nid} to {status}: {e}")
+            self._log_tracking_failure(f"set CSD status {csd_nid} to {status}", e)
+            return False
+
+    def _log_tracking_failure(self, what: str, e: Exception) -> None:
+        """Report a failed status/Resource call at the right volume.
+
+        A 404 while replaying is the known gap described in :meth:`replay_into`
+        -- the entity was never registered -- not a failure of this run, and
+        eight of them at ERROR read like the bootstrap broke when it did not.
+        """
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if self._replaying and status == 404:
+            logger.debug(f"Could not {what}: no such entity (not registered)")
+        else:
+            logger.error(f"Failed to {what}: {e}")

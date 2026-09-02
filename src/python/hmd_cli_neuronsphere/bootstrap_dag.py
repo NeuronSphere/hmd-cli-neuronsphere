@@ -16,11 +16,13 @@ Why a DAG rather than a straight-line sequence of imperative calls:
   ``database.neuronsphere.io/postgres`` Resource is a real one, read from
   ``meta-data/resources_output/``, rather than a record hand-seeded by
   ``bom_seeder`` to describe a container compose happened to start.
-* **The control plane appears in its own graph.** After the replay, ms-deployment
-  reports the instances that bootstrapped it as ``DEPLOYED``, with their
-  Resources attached.
-* **The dependency order is explicit** and reads the way the cloud's does:
-  everything ms-deployment needs is ahead of it.
+* **The dependency order is explicit**, and reads the way the cloud's does.
+
+Not yet true: the control plane does **not** appear in its own graph. Bootstrap
+nodes carry locally generated ids (:func:`_rid`) that no ms-deployment entity
+corresponds to, so the buffered status updates and Resource submissions 404 on
+replay and record nothing. Making them real needs a control-plane BOM seeded and
+applied the way an environment's is, so the entities exist to report against.
 
 Nodes that provision what the deployment service itself depends on cannot be
 deployed *through* that service, so they carry a ``handler`` (see

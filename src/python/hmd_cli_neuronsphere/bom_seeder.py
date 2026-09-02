@@ -1747,6 +1747,40 @@ def _inject_floci_account(bom: List[Dict], env=None) -> None:
             config["extraEnv"] = extra_env
 
 
+# The dependency role every repo uses for "the Postgres instance my databases
+# live on" (hmd-database-account declares it; the plugin BOMs supply it).
+_DATABASE_INSTANCE_ROLE = "database-instance"
+
+
+def _repoint_database_instance(bom: List[Dict]) -> None:
+    """Point ``database-instance`` dependencies at the real Postgres producer.
+
+    Mutates ``bom`` in place. Installed plugin packages map this role to
+    ``CORE_INSTANCE_NAME``, which was correct while the core RepoClass declared
+    producing ``database.neuronsphere.io/postgres`` to stand in for the always-on
+    ``hmd_db`` container. That producer is now a real ``hmd-postgres-rds``
+    deploy, so the core instance no longer satisfies the role and ms-deployment
+    rejects the changeset:
+
+        For RepoInstance, hive-metastore-db-account, role, database-instance:
+        supplied instance, local-neuronsphere, satisfies neither the required
+        resource type ... nor a suggested repo_class.
+
+    Normalised here rather than fixed in each plugin because plugins ship as
+    independent pip packages: editing them would make the local platform require
+    a coordinated release across every one, and an older installed plugin would
+    still break. Rewriting the assembled BOM keeps any version working.
+    """
+    for entry in bom:
+        deps = entry.get("dependencies") or {}
+        if deps.get(_DATABASE_INSTANCE_ROLE) == CORE_INSTANCE_NAME:
+            deps[_DATABASE_INSTANCE_ROLE] = ENV_DB_INSTANCE
+            logger.debug(
+                f"{entry.get('repo_instance_name')}: repointed "
+                f"{_DATABASE_INSTANCE_ROLE} at {ENV_DB_INSTANCE}"
+            )
+
+
 def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     """Drop later entries whose ``repo_instance_name`` was already seen (idempotent)."""
     seen = set()
@@ -1983,6 +2017,7 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
 
     _inject_docker_credentials(bom)
     _inject_floci_account(bom, env)
+    _repoint_database_instance(bom)
     return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
 

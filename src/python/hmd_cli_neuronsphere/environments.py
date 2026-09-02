@@ -458,9 +458,12 @@ def ensure_control_plane(
     if ms_deployment_available:
         print_step("Waiting for ms-deployment...")
         _wait_for_ms_deployment(_MS_DEPLOYMENT_URL)
-        # The DAG that brought the control plane up now records itself in the
-        # graph it just deployed -- including the Postgres instance's produced
-        # `database.neuronsphere.io/postgres` Resource.
+        # Flush what the DAG buffered while ms-deployment did not exist. Today
+        # this records nothing: bootstrap nodes carry locally generated ids that
+        # no ms-deployment entity corresponds to, so the calls 404 (see
+        # LocalWorkflowRunner.replay_into). Kept, and reporting only what
+        # actually landed, so it starts working the moment those entities are
+        # registered rather than silently claiming to already.
         replayed = runner.replay_into(_MS_DEPLOYMENT_URL)
         if replayed:
             print_step(f"  recorded {replayed} bootstrap event(s)")

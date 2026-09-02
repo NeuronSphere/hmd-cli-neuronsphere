@@ -2,6 +2,33 @@
 
 ## 2026-09-02
 
+- fix: Point `database-instance` dependencies at the real Postgres producer
+
+  Removing `postgres` from the core RepoClass's produced types broke every
+  plugin BOM that maps `database-instance` to `CORE_INSTANCE_NAME` -- correct
+  while the core stood in for the always-on `hmd_db` container, wrong now that a
+  real `hmd-postgres-rds` deploy produces it. `up` failed with "supplied
+  instance, local-neuronsphere, satisfies neither the required resource type ...
+  nor a suggested repo_class."
+
+  Normalised in the assembled BOM rather than fixed in each plugin: plugins ship
+  as independent pip packages, so editing them would make the local platform
+  require a coordinated release across all of them, and an older installed
+  plugin would still break.
+
+- fix: Stop the bootstrap replay claiming a recording it did not make
+
+  Bootstrap-DAG nodes carry locally generated ids, which no ms-deployment entity
+  corresponds to, so replaying their statuses 404s and records nothing. It
+  logged eight ERRORs and then reported "recorded 8 bootstrap event(s)".
+
+  `replay_into` now returns how many calls actually landed, and a 404 during
+  replay is logged at debug as the known gap it is rather than as a failure of
+  the run. The claim that the control plane appears in its own graph is
+  withdrawn from the module docstring until the entities are really registered
+  -- which needs a control-plane BOM seeded and applied the way an
+  environment's is.
+
 - fix: Create a DB subnet group per account, working around a Floci bug
 
   `CreateDBInstance` failed for every environment with

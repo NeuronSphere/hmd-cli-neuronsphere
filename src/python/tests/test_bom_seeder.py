@@ -905,3 +905,58 @@ class RequiredRolesAreSuppliedTests(unittest.TestCase):
                 f"role {role!r} needs {key[0]}/{key[1]}, which the core "
                 f"RepoClass does not declare producing",
             )
+
+
+class DatabaseInstanceRepointingTests(unittest.TestCase):
+    """`database-instance` must resolve to the real Postgres producer.
+
+    Installed plugin packages map the role to CORE_INSTANCE_NAME, which was
+    correct while the core RepoClass stood in as the postgres producer. It is a
+    real hmd-postgres-rds deploy now, so ms-deployment rejects the changeset:
+    "supplied instance, local-neuronsphere, satisfies neither the required
+    resource type ... nor a suggested repo_class."
+
+    Normalised in the assembled BOM rather than fixed in each plugin, because
+    plugins ship as independent packages -- an older installed one would still
+    supply the core instance.
+    """
+
+    def test_a_core_instance_target_is_repointed(self):
+        bom = [
+            {
+                "repo_instance_name": "hive-metastore-db-account",
+                "dependencies": {"database-instance": b.CORE_INSTANCE_NAME},
+            }
+        ]
+        b._repoint_database_instance(bom)
+        self.assertEqual(bom[0]["dependencies"]["database-instance"], b.ENV_DB_INSTANCE)
+
+    def test_an_explicit_target_is_left_alone(self):
+        bom = [
+            {
+                "repo_instance_name": "x",
+                "dependencies": {"database-instance": "some-other-db"},
+            }
+        ]
+        b._repoint_database_instance(bom)
+        self.assertEqual(bom[0]["dependencies"]["database-instance"], "some-other-db")
+
+    def test_other_roles_are_untouched(self):
+        bom = [
+            {
+                "repo_instance_name": "x",
+                "dependencies": {"eks-cluster": b.CORE_INSTANCE_NAME},
+            }
+        ]
+        b._repoint_database_instance(bom)
+        self.assertEqual(bom[0]["dependencies"]["eks-cluster"], b.CORE_INSTANCE_NAME)
+
+    def test_the_resolved_bom_never_points_the_role_at_the_core_instance(self):
+        for entry in b._resolve_bom():
+            target = (entry.get("dependencies") or {}).get("database-instance")
+            if target is not None:
+                self.assertNotEqual(
+                    target,
+                    b.CORE_INSTANCE_NAME,
+                    f"{entry['repo_instance_name']} still points at the core instance",
+                )
