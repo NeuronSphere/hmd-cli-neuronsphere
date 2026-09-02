@@ -2,6 +2,24 @@
 
 ## 2026-09-02
 
+- fix: Resolve the database container by label, so `hmd_db` reaches CoreDNS
+
+  The database is the one canonical name that is not a Docker *container* name:
+  Floci spawns RDS backends opaquely and the CLI gives them a network alias. But
+  `docker inspect` resolves container names, never aliases, so the CoreDNS pass
+  asked for `hmd_db-local`, got "no such object", and skipped the record without
+  a word. The live ConfigMap held `neuronsphere`, `global-graph` and `hmd_proxy`
+  -- all real container names -- and no database entry, so:
+
+      nc: getaddrinfo for host "hmd_db-local" port 5432: Name or service not known
+
+  Resolved through Floci's own labels (`io.floci.account` +
+  `io.floci.resource-id`), the same lookup the rest of the CLI already uses, and
+  registered under *both* names the database is addressed by: `hmd_db` for
+  unmodified cloud charts, `hmd_db-<slug>` for what the connection secrets
+  carry. A database that still cannot be resolved is now a warning naming the
+  consequence, not silence.
+
 - fix: Sweep every remaining place that picked a Floci account by position
 
   One Floci serves every account and resolves which one a caller means from the

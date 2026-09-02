@@ -101,6 +101,44 @@ def _run(args: List[str], env=None, **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(args, env=proc_env, **kwargs)
 
 
+def _rds_container_for(env=None) -> Optional[str]:
+    """The real Docker name of the Postgres container backing ``env``.
+
+    Needed because the database is the one canonical name that is *not* a
+    container name. Floci spawns RDS backends with opaque names
+    (``floci-rds-db-<HEX>-<suffix>``) and the CLI gives them a network alias
+    (``hmd_db``, ``hmd_db-<slug>``) -- but ``docker inspect`` resolves container
+    names, never aliases, so asking it for the alias simply fails and the record
+    is skipped. That is why `hmd_db` was absent from the live CoreDNS ConfigMap
+    while `global-graph` and `hmd_proxy`, which *are* container names, were
+    present.
+
+    Resolved through the same label lookup Floci's own naming requires
+    (``io.floci.account`` + ``io.floci.resource-id``).
+    """
+    from .floci_deployer import (
+        control_plane_target,
+        env_target,
+        rds_container_name,
+    )
+
+    try:
+        if env is not None and not getattr(env, "legacy_layout", False):
+            from . import bom_seeder
+
+            target = env_target(env)
+            identifier = bom_seeder.env_db_identifier(env)
+        else:
+            from .bootstrap_dag import control_plane_db_identifier
+
+            target = control_plane_target()
+            identifier = control_plane_db_identifier(target)
+        return rds_container_name(identifier, target) or None
+    except Exception as e:  # never abort the CoreDNS pass over this
+        logger.debug(f"Could not resolve the RDS container for CoreDNS: {e}")
+        return None
+
+
 def _resolve_floci_ip(container: str) -> Optional[str]:
     """Return the given container's IP on the k3s Docker network."""
     fmt = (
@@ -194,7 +232,6 @@ def _ensure_coredns_floci_entry(env=None) -> None:
     # backend directly is also what keeps the port at 5432 for unmodified cloud
     # charts, instead of Floci's 7001-7099 RDS proxy range.
     aliased = [
-        (_DB_CONTAINER, env_db),
         (_GRAPH_CONTAINER, env_graph),
         # The control plane is shared; charts that need it address it explicitly.
         ("neuronsphere-control", _FLOCI_CONTAINER),
@@ -204,12 +241,24 @@ def _ensure_coredns_floci_entry(env=None) -> None:
         ip = _resolve_floci_ip(container)
         if ip:
             entries.append((canonical, ip))
-    # Also register the real container name so in-network clients that address
-    # it directly (rather than via the canonical alias) resolve too.
-    if env_db != _DB_CONTAINER:
-        ip = _resolve_floci_ip(env_db)
-        if ip:
-            entries.append((env_db, ip))
+    # The database, under *both* names it is addressed by. `hmd_db` is what
+    # unmodified cloud charts use; `hmd_db-<slug>` is what the connection secrets
+    # carry, because on the Docker network plain `hmd_db` is the control plane's
+    # database and an environment's Lambdas must not reach that one. Both have to
+    # answer inside the cluster, since a chart and the secret it consumes
+    # disagree about which name they use.
+    db_container = _rds_container_for(env)
+    db_ip = _resolve_floci_ip(db_container) if db_container else None
+    if db_ip:
+        entries.append((_DB_CONTAINER, db_ip))
+        if env_db != _DB_CONTAINER:
+            entries.append((env_db, db_ip))
+    else:
+        logger.warning(
+            f"Could not resolve the database container for '{getattr(env, 'slug', 'control plane')}'; "
+            f"{_DB_CONTAINER}/{env_db} will not resolve inside the cluster and "
+            f"every chart addressing the database by name will fail to connect."
+        )
 
     server = "".join(_block(host, ip) for host, ip in entries)
     configmap = {
