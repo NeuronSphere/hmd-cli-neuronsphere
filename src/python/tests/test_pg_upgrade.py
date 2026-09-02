@@ -25,10 +25,77 @@ def _proc(stdout="", returncode=0, stderr=""):
 class ConfiguredImageTests(unittest.TestCase):
     def test_tracks_the_compose_default(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(
-                pu.configured_postgres_image(),
-                "ghcr.io/neuronsphere/hmd-postgres-base:stable",
-            )
+            with mock.patch.object(
+                pu, "_running_floci_postgres_image", return_value=None
+            ):
+                self.assertEqual(
+                    pu.configured_postgres_image(),
+                    "ghcr.io/neuronsphere/hmd-postgres-base:stable",
+                )
+
+    def test_registry_falls_back_to_the_running_floci(self):
+        """HMD_LOCAL_NS_CONTAINER_REGISTRY is a cement config value, not an
+        ambient environment variable, so reconstructing the image from os.environ
+        alone silently produced the wrong registry -- and then reported a
+        mismatch against an image the platform was never going to run."""
+        with mock.patch.dict(
+            os.environ, {"HMD_POSTGRES_BASE_VERSION": "0.2"}, clear=True
+        ):
+            with mock.patch.object(
+                pu,
+                "_running_floci_postgres_image",
+                return_value="ghcr.io/hmdlabs/hmd-postgres-base:0.2.11",
+            ):
+                self.assertEqual(
+                    pu.configured_postgres_image(),
+                    "ghcr.io/hmdlabs/hmd-postgres-base:0.2",
+                )
+
+    def test_an_explicit_version_beats_the_running_container(self):
+        """The hazard being detected is a *pending* change: an `up` that changes
+        the version recreates Floci with it, so the environment wins."""
+        with mock.patch.dict(
+            os.environ, {"HMD_POSTGRES_BASE_VERSION": "9.9"}, clear=True
+        ):
+            with mock.patch.object(
+                pu,
+                "_running_floci_postgres_image",
+                return_value="ghcr.io/hmdlabs/hmd-postgres-base:0.2.11",
+            ):
+                self.assertTrue(
+                    pu.configured_postgres_image().endswith(":9.9"),
+                    pu.configured_postgres_image(),
+                )
+
+    def test_falls_back_to_the_running_image_entirely(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch.object(
+                pu,
+                "_running_floci_postgres_image",
+                return_value="ghcr.io/hmdlabs/hmd-postgres-base:0.2.11",
+            ):
+                self.assertEqual(
+                    pu.configured_postgres_image(),
+                    "ghcr.io/hmdlabs/hmd-postgres-base:0.2.11",
+                )
+
+
+class SplitImageTests(unittest.TestCase):
+    def test_registry_and_tag(self):
+        self.assertEqual(
+            pu._split_image("ghcr.io/hmdlabs/hmd-postgres-base:0.2.11"),
+            ("ghcr.io/hmdlabs", "0.2.11"),
+        )
+
+    def test_an_untagged_image_has_no_tag(self):
+        self.assertEqual(
+            pu._split_image("ghcr.io/hmdlabs/img"), ("ghcr.io/hmdlabs", None)
+        )
+
+    def test_a_host_port_is_not_mistaken_for_a_tag(self):
+        self.assertEqual(
+            pu._split_image("localhost:5000/img"), ("localhost:5000", None)
+        )
 
     def test_an_explicit_floci_override_wins(self):
         # The same variable the compose file passes to Floci, so the check and
@@ -64,6 +131,8 @@ class MismatchTests(unittest.TestCase):
                 return _proc(f'["PG_MAJOR={image_major}"]')
             if args[1] == "volume":
                 return _proc(" ".join(volumes))
+            if args[1] == "ps":
+                return _proc("ghcr.io/hmdlabs/hmd-postgres-base:0.2.11")
             raise AssertionError(args)
 
         with mock.patch.object(pu, "_run", side_effect=fake_run):
@@ -89,6 +158,8 @@ class MismatchTests(unittest.TestCase):
         def fake_run(args, timeout=60):
             if args[1] == "inspect":
                 return _proc('["PG_MAJOR=16"]')
+            if args[1] == "ps":
+                return _proc("ghcr.io/hmdlabs/hmd-postgres-base:0.2.11")
             return _proc("floci-rds-a some-other-volume")
 
         with mock.patch.object(pu, "_run", side_effect=fake_run):
@@ -221,3 +292,47 @@ class ErrorMessageEscapeTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 pu.assert_compatible("img")
         self.assertIn("docker volume rm floci-rds-a", str(ctx.exception))
+
+
+class ErrorNamesTheImagesTests(unittest.TestCase):
+    """The message has to identify *which* image, not just a major version.
+
+    Reported as a false alarm: the check compared against
+    `ghcr.io/neuronsphere/hmd-postgres-base:0.2` (PostgreSQL 14) while Floci was
+    actually running `ghcr.io/hmdlabs/hmd-postgres-base:0.2.11` (PostgreSQL 12).
+    Both halves of the name were wrong, so "image ships 14" described no image
+    on the machine and there was no way to tell the report was about a different
+    registry.
+    """
+
+    def _blocked(self):
+        m = pu.Mismatch(
+            volume="floci-rds-a",
+            found="12",
+            expected="14",
+            image="ghcr.io/hmdlabs/hmd-postgres-base:0.2",
+            made_by="ghcr.io/hmdlabs/hmd-postgres-base:0.2.11",
+        )
+        with mock.patch.object(pu, "find_mismatches", return_value=[m]):
+            with self.assertRaises(SystemExit) as caught:
+                pu.assert_compatible()
+        return str(caught.exception)
+
+    def test_names_the_incoming_image(self):
+        self.assertIn(
+            "ghcr.io/hmdlabs/hmd-postgres-base:0.2 (PostgreSQL 14)", self._blocked()
+        )
+
+    def test_names_the_image_that_wrote_the_data(self):
+        self.assertIn(
+            "written by ghcr.io/hmdlabs/hmd-postgres-base:0.2.11", self._blocked()
+        )
+
+    def test_offers_pinning_before_destroying_anything(self):
+        """A floating tag moving is the common cause, and pinning keeps the data
+        -- so it must come before `down --purge` in the remedies."""
+        out = self._blocked()
+        self.assertIn("HMD_POSTGRES_BASE_VERSION=0.2.11", out)
+        self.assertLess(
+            out.index("HMD_POSTGRES_BASE_VERSION=0.2.11"), out.index("--purge")
+        )

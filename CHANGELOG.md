@@ -2,6 +2,37 @@
 
 ## 2026-09-02
 
+- fix: Compare against the PostgreSQL image the platform will actually run
+
+  The pre-flight compatibility check reconstructed the image from
+  `HMD_LOCAL_NS_CONTAINER_REGISTRY` and `HMD_POSTGRES_BASE_VERSION`. The first
+  is a cement config value, not an ambient environment variable, so it silently
+  fell back to `ghcr.io/neuronsphere` while Floci was configured with
+  `ghcr.io/hmdlabs`. The check then blocked `up` citing "image ships 14" for an
+  image that existed nowhere on the machine, against volumes whose containers
+  were up and serving on 12.
+
+  Both halves are now resolved the way compose resolves them, falling back to
+  the running Floci's own `FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE` -- the one
+  place the substituted values are recorded -- rather than to a guess. An
+  explicit `HMD_POSTGRES_BASE_VERSION` still wins, because the hazard being
+  detected is precisely a *pending* version change.
+
+  Each volume's `PG_VERSION` is now read with the image that wrote it, found
+  from the container mounting it, so the check needs no image that is not
+  already pulled.
+
+- fix: Say which images disagree, and offer a remedy that keeps the data
+
+  The error named only major versions, so a wrong-registry comparison was
+  indistinguishable from a real incompatibility. It now names the incoming
+  image and the image that wrote each data directory.
+
+  Since the usual cause is a floating tag moving under an unchanged config --
+  `:0.2` advanced from PostgreSQL 12 to 14 while `:0.2.11` stayed on 12 -- the
+  first remedy offered is now pinning the image that wrote the data, ahead of
+  migrating or purging.
+
 - fix: Name the owning Floci account on every environment API route
 
   One Floci serves every account and resolves which one a call belongs to from

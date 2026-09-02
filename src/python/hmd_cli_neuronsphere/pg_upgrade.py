@@ -48,24 +48,99 @@ class Mismatch(NamedTuple):
     volume: str
     found: str
     expected: str
+    image: str = ""
+    made_by: str = ""
 
 
 def _run(args, timeout: int = 60) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 
 
-def configured_postgres_image() -> str:
-    """The image Floci will spawn RDS containers from.
+def _running_floci_postgres_image() -> Optional[str]:
+    """What the *running* Floci is configured to spawn RDS containers from.
 
-    Mirrors the default in the compose files; an override there is passed through
-    the same environment variables, so reading them keeps the two in step.
+    ``HMD_LOCAL_NS_CONTAINER_REGISTRY`` is a cement config value, not an ambient
+    environment variable, so reconstructing the image from ``os.environ`` alone
+    silently falls back to the ``ghcr.io/neuronsphere`` default even when compose
+    resolved something else. Reading it back off the container closes that gap:
+    whatever compose substituted is recorded there verbatim.
     """
-    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
-    version = os.environ.get("HMD_POSTGRES_BASE_VERSION", "stable")
-    return os.environ.get(
-        "FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE",
-        f"{registry}/hmd-postgres-base:{version}",
+    r = _run(
+        ["docker", "inspect", "floci", "--format", "{{json .Config.Env}}"], timeout=15
     )
+    if r.returncode != 0:
+        return None
+    try:
+        env = json.loads(r.stdout.strip() or "[]") or []
+    except json.JSONDecodeError:
+        return None
+    for entry in env:
+        if entry.startswith("FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE="):
+            return entry.split("=", 1)[1] or None
+    return None
+
+
+def _split_image(image: str) -> tuple:
+    """``registry/name:tag`` -> ``(registry, tag)``; either may be None."""
+    repo, _, tag = image.rpartition(":")
+    if "/" not in repo:  # no tag was present; the colon belonged to a host:port
+        repo, tag = image, ""
+    registry, _, _name = repo.rpartition("/")
+    return (registry or None), (tag or None)
+
+
+def configured_postgres_image() -> str:
+    """The image Floci will spawn RDS containers from after this ``up``.
+
+    Resolved the way compose will resolve it, which is *not* simply reading two
+    environment variables: the registry comes from a cement config value that may
+    never reach ``os.environ``. So each half falls back to the running Floci's
+    own configured image -- the one place the substituted values are recorded --
+    before falling back to the compose defaults.
+
+    Deliberately not just "what Floci is running now": an ``up`` that changes
+    ``HMD_POSTGRES_BASE_VERSION`` recreates the Floci container with the new
+    value, and the hazard this detects is exactly that pending change. The
+    explicit environment variable therefore wins over the running container.
+    """
+    explicit = os.environ.get("FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE")
+    if explicit:
+        return explicit
+    current = _running_floci_postgres_image()
+    cur_registry, cur_tag = _split_image(current) if current else (None, None)
+    registry = (
+        os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY")
+        or cur_registry
+        or "ghcr.io/neuronsphere"
+    )
+    version = os.environ.get("HMD_POSTGRES_BASE_VERSION") or cur_tag or "stable"
+    return f"{registry}/hmd-postgres-base:{version}"
+
+
+def volume_container_image(volume: str) -> Optional[str]:
+    """The image of the container that mounts ``volume``, if one exists.
+
+    This is what actually initialised the data directory, so it is both the
+    right image to read ``PG_VERSION`` with (it is present locally by
+    definition) and the most useful thing to name in an error: "pin this" is a
+    cheaper remedy than "discard your data".
+    """
+    r = _run(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"volume={volume}",
+            "--format",
+            "{{.Image}}",
+        ],
+        timeout=15,
+    )
+    if r.returncode != 0:
+        return None
+    images = [line.strip() for line in r.stdout.splitlines() if line.strip()]
+    return images[0] if images else None
 
 
 def image_pg_major(image: str) -> Optional[str]:
@@ -205,9 +280,21 @@ def find_mismatches(image: Optional[str] = None) -> List[Mismatch]:
         if not _is_live(volume, state_text):
             logger.debug(f"Ignoring orphaned RDS volume {volume}")
             continue
-        found = volume_pg_version(volume, image)
+        # Read PG_VERSION with the image that wrote it, not the incoming one:
+        # the incoming image may not be pulled yet, and a `docker run` here
+        # would turn a pre-flight into a pull.
+        made_by = volume_container_image(volume)
+        found = volume_pg_version(volume, made_by or image)
         if found and found != expected:
-            mismatches.append(Mismatch(volume=volume, found=found, expected=expected))
+            mismatches.append(
+                Mismatch(
+                    volume=volume,
+                    found=found,
+                    expected=expected,
+                    image=image,
+                    made_by=made_by or "",
+                )
+            )
     return mismatches
 
 
@@ -221,19 +308,37 @@ def assert_compatible(image: Optional[str] = None) -> None:
     mismatches = find_mismatches(image)
     if not mismatches:
         return
+    incoming = mismatches[0].image or configured_postgres_image()
     lines = "\n".join(
-        f"      {m.volume}: initialised by PostgreSQL {m.found}, "
-        f"image ships {m.expected}"
+        f"      {m.volume}: PostgreSQL {m.found}"
+        + (f" (written by {m.made_by})" if m.made_by else "")
         for m in mismatches
     )
+    # The cheapest remedy is almost always to pin the image that wrote the data,
+    # because this usually means a *floating* tag moved under an unchanged
+    # config -- not that anyone chose to upgrade. Naming that tag turns the
+    # error from "your data is stuck" into a one-line fix, so it goes first.
+    pins = sorted({m.made_by for m in mismatches if m.made_by})
+    pin_hint = ""
+    if len(pins) == 1:
+        _registry, tag = _split_image(pins[0])
+        if tag:
+            pin_hint = (
+                f"  Most likely a floating tag moved. To keep the data, pin the "
+                f"image that\n  wrote it:\n\n"
+                f"      HMD_POSTGRES_BASE_VERSION={tag} hmd neuronsphere up\n\n"
+            )
     raise SystemExit(
-        f"\n  ERROR: the configured PostgreSQL image cannot read existing "
-        f"database files.\n\n{lines}\n\n"
+        f"\n  ERROR: the PostgreSQL image this `up` would use cannot read the "
+        f"existing\n  database files.\n\n"
+        f"      incoming image: {incoming} (PostgreSQL {mismatches[0].expected})\n\n"
+        f"{lines}\n\n"
         f"  Floci recreates an RDS instance's container from the current image "
         f"on every\n  start but keeps its volume, so a major-version bump leaves "
         f"the data behind.\n\n"
-        f"  Migrate the data (dump, re-initialise, restore -- a backup volume is "
-        f"kept):\n\n"
+        f"{pin_hint}"
+        f"  Or migrate the data (dump, re-initialise, restore -- a backup volume "
+        f"is kept):\n\n"
         f"      hmd neuronsphere db upgrade\n\n"
         f"  Or discard it and start clean:\n\n"
         f"      hmd neuronsphere down --purge\n\n"
