@@ -60,6 +60,82 @@ class NodeShapeTests(unittest.TestCase):
         self.assertNotIn("handler", postgres)
         self.assertIn("deploy", postgres["script"])
 
+
+class DeployScriptGrammarTests(unittest.TestCase):
+    """The generated command must match `hmd deploy`'s real argument surface.
+
+    This exists because an earlier version invented a positional tool name
+    (`hmd deploy ... cdktf`), which `hmd deploy` rejects -- it takes flags and
+    reads `manifest.json`'s `deploy.commands` to know which tool to run. The
+    failure only appeared at `up`, inside a projectbuilder container, as
+    "invalid choice: 'cdktf'".
+    """
+
+    # Verified against `hmd --help` / `hmd deploy --help` in
+    # ghcr.io/hmdlabs/hmd-img-projectbuilder.
+    GLOBAL_FLAGS = {"--repo-name", "--repo-version", "--hmd-region", "--debug"}
+    DEPLOY_FLAGS = {
+        "--instance-name",
+        "--environment",
+        "--deployment-id",
+        "--config-file",
+        "--local",
+        "--register",
+        "--destroy",
+        "--account",
+        "--artifact-root",
+        "--repo-instance-deployment-id",
+        "--status-file",
+    }
+
+    def _command_line(self):
+        from hmd_cli_neuronsphere.local_workflow_runner import _localize_deploy_script
+
+        script = _localize_deploy_script(_nodes()[0]["script"])
+        return script.splitlines()[0]
+
+    def test_every_flag_used_is_one_the_cli_accepts(self):
+        known = self.GLOBAL_FLAGS | self.DEPLOY_FLAGS
+        used = {t for t in self._command_line().split() if t.startswith("--")}
+        self.assertTrue(used, "no flags in the generated command")
+        self.assertEqual(used - known, set(), "unknown flag(s) in the deploy command")
+
+    def test_there_is_no_positional_tool_name(self):
+        """`hmd deploy`'s only positional is `status`; a tool name there is the
+        bug this class was added for."""
+        line = self._command_line()
+        after = line.split(" deploy ", 1)[1]
+        positionals = [
+            t for t in after.split() if not t.startswith("-") and not t.startswith("<<")
+        ]
+        # Every remaining bare word must be a flag's value, never a subcommand.
+        tokens = after.split()
+        for i, tok in enumerate(tokens):
+            if tok in positionals:
+                self.assertTrue(
+                    i > 0 and tokens[i - 1].startswith("--"),
+                    f"{tok!r} is a positional, not a flag value",
+                )
+
+    def test_localizing_inserts_local_right_after_deploy(self):
+        self.assertIn(" deploy --local ", self._command_line())
+
+    def test_the_config_arrives_as_a_quoted_heredoc(self):
+        script = _nodes()[0]["script"]
+        self.assertIn("--config-file STDIN <<'EOF'", script)
+        self.assertTrue(script.rstrip().endswith("EOF"))
+
+    def test_the_config_overrides_the_aurora_defaults(self):
+        """The manifest's default_configuration describes Aurora; left to it, the
+        local aws_db_instance would get engine_version 17.9 and db.r7g.large."""
+        import json
+
+        script = _nodes()[0]["script"]
+        body = script.split("<<'EOF'\n", 1)[1].rsplit("\nEOF", 1)[0]
+        config = json.loads(body)
+        self.assertEqual(config["db_username"], "postgres")
+        self.assertNotEqual(config.get("instance_type"), "db.r7g.large")
+
     def test_service_nodes_carry_handlers(self):
         """They provision what the deployment service needs, so they cannot be
         deployed *through* it."""

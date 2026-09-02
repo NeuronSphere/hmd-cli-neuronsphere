@@ -30,6 +30,7 @@ shape: moving such a node onto the projectbuilder path later is a per-node
 change here, and the ordering it participates in is already correct.
 """
 
+import json
 import os
 import uuid
 from typing import Callable, Dict, List, Optional
@@ -84,15 +85,95 @@ def node(
     return entry
 
 
-def deploy_script(repo_class_name: str) -> str:
+def _repo_version(repo_class_name: str) -> str:
+    """The version the deploy is invoked with, from the repo's own VERSION file.
+
+    ms-deployment resolves this from the registered RepoClassVersion; during
+    bootstrap there is no registry to ask, so it comes from the working tree
+    that is about to be mounted and deployed.
+    """
+    from .bom_seeder import _get_repo_version
+
+    try:
+        return _get_repo_version(repo_class_name)
+    except Exception as e:  # a version we cannot resolve must not abort `up`
+        logger.warning(f"Could not resolve a version for {repo_class_name}: {e}")
+        return "0.1"
+
+
+def postgres_instance_config() -> Dict:
+    """Configuration for the control-plane Postgres deploy.
+
+    Must be passed explicitly and cannot be left to the manifest: the cloud
+    ``default_configuration`` describes Aurora (``db_engine:
+    aurora-postgresql``, ``engine_version: 17.9``, ``instance_type:
+    db.r7g.large``) and would otherwise override the local overlay's defaults
+    with values a plain ``aws_db_instance`` cannot use.
+
+    ``engine_version`` is read from the image Floci will actually spawn rather
+    than hardcoded, so the declared version and the binary that initialises the
+    data directory cannot drift apart -- the drift ``pg_upgrade`` exists to
+    catch.
+    """
+    from .pg_upgrade import configured_postgres_image, image_pg_major
+
+    config = {
+        "db_username": "postgres",
+        # Matches what hmd-postgres-base bakes in (ENV POSTGRES_PASSWORD).
+        "db_password": "admin",
+        "instance_type": "db.t3.micro",
+        "allocated_storage": 20,
+    }
+    major = image_pg_major(configured_postgres_image())
+    if major:
+        config["engine_version"] = major
+    return config
+
+
+def deploy_script(
+    repo_class_name: str,
+    instance_name: str,
+    repo_version: str,
+    *,
+    environment: str = "local",
+    deployment_id: str = CONTROL_PLANE_DEPLOYMENT_ID,
+    config: Optional[Dict] = None,
+) -> str:
     """The deploy command a projectbuilder node runs.
 
-    Mirrors what ms-deployment's ``deploy_base.deploy_node`` generates for a
-    cdktf repo; ``LocalWorkflowRunner._localize_deploy_script`` then inserts
-    ``--local`` so the deploy takes its code from the mounted workspace rather
-    than an Artifact Librarian that does not exist locally.
+    Mirrors what ms-deployment's ``deploy_base.deploy_node`` generates: the repo
+    identity is carried by *global* ``hmd`` flags ahead of the ``deploy``
+    subcommand, and the resolved instance configuration arrives on stdin as a
+    heredoc. There is no per-tool positional -- ``hmd deploy`` reads
+    ``manifest.json``'s ``deploy.commands`` to know this is a cdktf repo.
+
+    ``LocalWorkflowRunner._localize_deploy_script`` then inserts ``--local``
+    directly after ``deploy``, so the deploy takes its code from the mounted
+    workspace rather than an Artifact Librarian that does not exist locally.
+
+    Two deliberate omissions from the generated form, both because
+    ms-deployment does not exist yet while this runs:
+
+    * no ``--register``, which would have the deploy report completion to it;
+    * no ``HMD_REPO_INSTANCE_DEPLOYMENT_ID`` export, which newer hmd-cli-deploy
+      reads as the default for ``--repo-instance-deployment-id`` and uses to
+      submit produced Resources.
+
+    The runner records both itself, buffered until the replay.
+
+    The heredoc delimiter is quoted (``<<'EOF'``) so the shell performs no
+    parameter or backslash expansion on the JSON body.
     """
-    return f"hmd deploy --instance-name {CONTROL_PLANE_DB_INSTANCE} cdktf"
+    region = os.environ.get("HMD_REGION", "reg1")
+    body = json.dumps(config or {}, indent=2)
+    return (
+        f"hmd --debug --repo-name {repo_class_name} --repo-version {repo_version} "
+        f"--hmd-region {region} deploy "
+        f"--instance-name {instance_name} --environment {environment} "
+        f"--deployment-id {deployment_id} --config-file STDIN <<'EOF'\n"
+        f"{body}\n"
+        f"EOF"
+    )
 
 
 def control_plane_nodes(
@@ -115,13 +196,20 @@ def control_plane_nodes(
     free of the control-plane lifecycle it describes -- and so a test can build
     the DAG without deploying anything.
     """
+    config = dict(postgres_config or postgres_instance_config())
+    version = _repo_version(CONTROL_PLANE_DB_REPO_CLASS)
     postgres = node(
         CONTROL_PLANE_DB_INSTANCE,
         CONTROL_PLANE_DB_REPO_CLASS,
-        script=deploy_script(CONTROL_PLANE_DB_REPO_CLASS),
+        repo_class_version=version,
+        script=deploy_script(
+            CONTROL_PLANE_DB_REPO_CLASS,
+            CONTROL_PLANE_DB_INSTANCE,
+            version,
+            config=config,
+        ),
     )
-    if postgres_config:
-        postgres["instance_configuration"] = dict(postgres_config)
+    postgres["instance_configuration"] = config
 
     return [
         postgres,

@@ -2,6 +2,34 @@
 
 ## 2026-09-02
 
+- fix: Generate a deploy command `hmd deploy` actually accepts
+
+  The bootstrap DAG's Postgres node invented a positional tool name
+  (`hmd deploy --instance-name ... cdktf`). `hmd deploy` has no such positional
+  -- its only one is `status`, and it reads `manifest.json`'s `deploy.commands`
+  to know which tool to run -- so `up` failed inside projectbuilder with
+  "argument command: invalid choice: 'cdktf'".
+
+  The command now mirrors what ms-deployment's `deploy_base.deploy_node`
+  emits: repo identity on *global* `hmd` flags ahead of the subcommand
+  (`--repo-name`, `--repo-version`, `--hmd-region`), and the instance
+  configuration on stdin as a quoted heredoc. Two omissions are deliberate,
+  both because ms-deployment does not exist yet while this runs: no
+  `--register`, and no `HMD_REPO_INSTANCE_DEPLOYMENT_ID` export. The runner
+  records both itself, buffered until the replay.
+
+  The configuration must be passed explicitly rather than left to the manifest:
+  its `default_configuration` describes Aurora (`engine_version: 17.9`,
+  `instance_type: db.r7g.large`) and would otherwise override the local
+  overlay's defaults with values a plain `aws_db_instance` cannot use.
+  `engine_version` is read from the image Floci will actually spawn, so the
+  declared version cannot drift from the binary that initialises the data
+  directory.
+
+  New tests check the generated command against `hmd deploy`'s real argument
+  surface -- every flag it uses, and that it contains no positional -- since
+  the original bug was inventing a CLI rather than reading it.
+
 - feat: Detect a PostgreSQL major-version bump before it breaks start-up
 
   Floci recreates an RDS instance's container from the *current* postgres image
