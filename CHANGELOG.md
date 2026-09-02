@@ -2,6 +2,23 @@
 
 ## 2026-09-02
 
+- fix: Create the CDKTF state bucket before the DAG's first CDKTF deploy
+
+  `provision_resources` creates the `hmd.<account>.<region>.tfstate` bucket the
+  CDKTF S3 backend uses, and it had been folded into the DAG node that runs
+  *after* the Postgres deploy. `tofu init` fails outright against a bucket that
+  does not exist, so the control plane's first real deploy could never succeed:
+  "Failed to get existing workspaces: S3 bucket does not exist."
+
+  It now runs before the DAG. Nothing in it needs the database: the admin secret
+  records `hmd_db` as the host, which is the alias the instance is given once it
+  is up.
+
+  A regression test pins the bucket name, which is derived twice -- here and by
+  `hmd_lib_cdktf`'s S3Backend inside the projectbuilder container. A divergence
+  produces the same "bucket does not exist" error, which reads like a
+  provisioning failure rather than a naming one.
+
 - fix: Generate a deploy command `hmd deploy` actually accepts
 
   The bootstrap DAG's Postgres node invented a positional tool name

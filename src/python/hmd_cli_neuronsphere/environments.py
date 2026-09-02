@@ -370,9 +370,6 @@ def ensure_control_plane(
             target=target,
         )
         ensure_core_databases_direct(container=container)
-        resources: Dict[str, List] = {"s3_buckets": []}
-        _aggregate_hmdms_resources(local_loader, resources)
-        provision_resources(resources, local_loader=local_loader, target=target)
         return True
 
     def _deploy_naming(node, destroy):
@@ -410,6 +407,16 @@ def ensure_control_plane(
             print(f"  Warning: ms-deployment not available: {e}")
             return False
         return True
+
+    # Before the DAG, because its first node is a real CDKTF deploy and CDKTF
+    # keeps its state in the `hmd.<account>.<region>.tfstate` bucket this creates
+    # -- `tofu init` fails outright against a bucket that does not exist yet.
+    # Nothing here needs the database: the admin secret records `hmd_db` as the
+    # host, which is the alias the instance gets once it is up.
+    print_step("Provisioning control-plane Floci resources...")
+    resources: Dict[str, List] = {"s3_buckets": []}
+    _aggregate_hmdms_resources(local_loader, resources)
+    provision_resources(resources, local_loader=local_loader, target=target)
 
     runner = LocalWorkflowRunner(
         _MS_DEPLOYMENT_URL,

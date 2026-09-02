@@ -189,3 +189,40 @@ class ClearApigatewayState(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TfstateBucketAgreementTests(unittest.TestCase):
+    """The tfstate bucket name is derived twice and must agree.
+
+    `provision_resources` creates it; `hmd_lib_cdktf.HmdCdkTfStack` points its
+    S3Backend at it from inside the projectbuilder container. A divergence makes
+    `tofu init` fail with "S3 bucket does not exist" -- which reads like a
+    provisioning failure rather than a naming one, and only at deploy time.
+
+    The library's source is read as text rather than imported: importing it pulls
+    in the jsii/CDKTF native runtime, which a unit test should not need.
+    """
+
+    def _backend_line(self):
+        import importlib.util
+
+        spec = importlib.util.find_spec("hmd_lib_cdktf.hmd_lib_cdktf")
+        if spec is None or not spec.origin:
+            self.skipTest("hmd_lib_cdktf is not installed")
+        for line in Path(spec.origin).read_text().splitlines():
+            if "tfstate" in line and "bucket=" in line:
+                return line.strip()
+        self.skipTest("no tfstate backend line found in hmd_lib_cdktf")
+
+    def test_both_sides_name_the_bucket_the_same_way(self):
+        backend = self._backend_line()
+        self.assertIn("hmd.", backend)
+        self.assertIn(".tfstate", backend)
+        # account before region, matching provision_resources' f-string.
+        self.assertLess(backend.index("account"), backend.index("hmd_region"), backend)
+
+    def test_the_cli_builds_the_same_shape(self):
+        import inspect
+
+        source = inspect.getsource(fd.provision_resources)
+        self.assertIn('f"hmd.{target.account_id}.{hmd_region}.tfstate"', source)
