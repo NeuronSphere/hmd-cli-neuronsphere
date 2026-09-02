@@ -1279,6 +1279,17 @@ def _alias_environment_database(env: LocalEnvironment) -> None:
             f"Could not alias {identifier} as {env.db_container}; consumers "
             f"addressing that name will fail to connect"
         )
+        return
+
+    # Re-apply the in-cluster records now that the database container exists.
+    # `provision_k3s_operators` runs long before Phase A creates the RDS
+    # instance, so its CoreDNS pass had no container to resolve and simply
+    # skipped `hmd_db` -- leaving every chart in k3s unable to resolve the one
+    # name they all address the database by. Idempotent: it rewrites the whole
+    # `coredns-custom` ConfigMap.
+    from .k3s_operators import refresh_coredns_records
+
+    refresh_coredns_records(env)
 
 
 def _run_full_bootstrap(

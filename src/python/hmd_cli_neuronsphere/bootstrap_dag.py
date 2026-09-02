@@ -52,6 +52,11 @@ CONTROL_PLANE_DB_REPO_CLASS = "hmd-postgres-rds"
 # id of its own to keep their standard names distinct.
 CONTROL_PLANE_DEPLOYMENT_ID = "cp"
 
+# The DNS alias the CLI gives the control-plane RDS container on the Docker
+# network (environments._CANONICAL_DB_HOST). Consumers address the database by
+# this name on 5432, never through Floci's 7001-7099 proxy range.
+CONTROL_PLANE_DB_HOST = "hmd_db"
+
 
 def _rid(instance_name: str) -> str:
     """A RepoInstanceDeployment id for a bootstrap node.
@@ -124,6 +129,12 @@ def postgres_instance_config() -> Dict:
         # Explicit placement: Floci's implicit "default" subnet group is unusable
         # for any account but the first to touch EC2 in a region.
         "db_subnet_group_name": LOCAL_DB_SUBNET_GROUP,
+        # Address the backend container directly rather than Floci's RDS proxy,
+        # which does not survive a Floci restart. `ensure_rds_network_alias`
+        # creates this name; recording it in the admin secret is what lets
+        # ms-dbaccount reconnect after a restart.
+        "db_host": CONTROL_PLANE_DB_HOST,
+        "db_port": 5432,
         "db_username": "postgres",
         # Matches what hmd-postgres-base bakes in (ENV POSTGRES_PASSWORD).
         "db_password": "admin",

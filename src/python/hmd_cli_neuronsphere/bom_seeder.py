@@ -258,6 +258,9 @@ LOCAL_CORE_BOM = [
         "repo_instance_name": ENV_DB_INSTANCE,
         "repo_class_name": ENV_DB_REPO_CLASS,
         "deployment_id": "local",
+        # `db_host`/`db_port` are filled in per environment by
+        # _inject_env_db_endpoint(): the alias is `hmd_db-<slug>`, so it cannot
+        # be a constant here.
         "instance_configuration": {"db_subnet_group_name": LOCAL_DB_SUBNET_GROUP},
         "dependencies": {
             "base-vpc": CORE_INSTANCE_NAME,
@@ -1787,6 +1790,33 @@ def _inject_floci_account(bom: List[Dict], env=None) -> None:
                 config[store] = {**store_config, "localAccessKeyId": account}
 
 
+def _inject_env_db_endpoint(bom: List[Dict], env=None) -> None:
+    """Point the environment's Postgres deploy at its own DNS alias.
+
+    Mutates ``bom`` in place. Floci publishes an RDS instance's endpoint as its
+    own IP on a port from the 7001-7099 proxy range, and that proxy is not
+    restored when Floci restarts -- connections are reset while the backend
+    container keeps serving. ``ensure_rds_network_alias`` gives the container a
+    stable name on the Docker network for exactly this reason; recording that
+    name in the admin secret is what makes it reachable to ms-dbaccount, whose
+    only route to the database is what the secret says.
+
+    The alias is ``hmd_db-<slug>``, so it cannot be a constant in the BOM.
+    """
+    if env is None:
+        return
+    host = getattr(env, "db_container", None)
+    if not host:
+        return
+    for entry in bom:
+        if entry.get("repo_instance_name") != ENV_DB_INSTANCE:
+            continue
+        config = dict(entry.get("instance_configuration") or {})
+        config["db_host"] = host
+        config["db_port"] = 5432
+        entry["instance_configuration"] = config
+
+
 # The dependency role every repo uses for "the Postgres instance my databases
 # live on" (hmd-database-account declares it; the plugin BOMs supply it).
 _DATABASE_INSTANCE_ROLE = "database-instance"
@@ -2057,6 +2087,7 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
 
     _inject_docker_credentials(bom)
     _inject_floci_account(bom, env)
+    _inject_env_db_endpoint(bom, env)
     _repoint_database_instance(bom)
     return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
@@ -2279,6 +2310,11 @@ def seed_bom(
         bom = _resolve_bom(env=env)
     else:
         bom = scope_bom_entries(bom, env)
+    # Applied here rather than only in `resolve_plugin_bom` because Phase A seeds
+    # `LOCAL_CORE_BOM` directly -- and the environment's Postgres, which is what
+    # this rewrites, is a Phase A entry. Idempotent, so the Phase B pass through
+    # the same funnel is harmless.
+    _inject_env_db_endpoint(bom, env)
     repo_paths = repo_paths or {}
 
     env_slug = env.slug if env is not None else "local"

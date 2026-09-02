@@ -122,6 +122,19 @@ def _resolve_floci_ip(container: str) -> Optional[str]:
     return None
 
 
+def refresh_coredns_records(env=None) -> None:
+    """Re-apply the canonical-name records after a backing container appears.
+
+    The records are written once during `provision_k3s_operators`, which runs
+    before the environment's database and graph containers exist -- any name
+    that does not resolve on the Docker network at that moment is skipped, so
+    `hmd_db` was simply missing and every chart addressing it failed to resolve.
+    Callers invoke this once the container is up; it rewrites the whole
+    ConfigMap, so it is idempotent and safe to repeat.
+    """
+    _ensure_coredns_floci_entry(env)
+
+
 def _ensure_coredns_floci_entry(env=None) -> None:
     """Map the canonical NeuronSphere hostnames to this environment's containers.
 

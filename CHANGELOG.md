@@ -2,6 +2,23 @@
 
 ## 2026-09-02
 
+- fix: Give the RDS deploys an endpoint and engine ms-dbaccount can use
+
+  The admin secret carried Floci's RDS proxy endpoint, which does not survive a
+  Floci restart, and an engine string ms-dbaccount silently refuses to act on.
+  Both planes now pass the DNS alias the CLI creates -- `hmd_db` for the control
+  plane, `hmd_db-<slug>` per environment -- and port 5432, into the deploy
+  configuration that `hmd-postgres-rds`'s local overlay records.
+
+- fix: Register the database in CoreDNS once it exists
+
+  `provision_k3s_operators` writes the in-cluster canonical-name records long
+  before Phase A creates the RDS instance, and skips any name that does not
+  resolve on the Docker network at that moment. So `hmd_db` was absent from the
+  live `coredns-custom` ConfigMap entirely, and every chart addressing the
+  database by that name failed to resolve it. The records are re-applied once
+  the alias is in place.
+
 - fix: Sign External Secrets lookups as the environment's own Floci account
 
   The operator authenticated as the chart's default `test`, which Floci resolves
