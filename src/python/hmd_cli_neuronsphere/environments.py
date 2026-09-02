@@ -1458,7 +1458,7 @@ def stop_environment(
         if purge:
             delete_k3s_cluster(env.k3s_cluster, target=env_target(env))
         else:
-            stop_k3s_cluster(env.k3s_cluster)
+            stop_k3s_cluster(env.k3s_cluster, target=env_target(env))
     except Exception as e:
         logger.debug(f"k3s cluster stop/delete skipped: {e}")
 
@@ -1478,7 +1478,7 @@ def stop_environment(
     nginx_router.reload()
 
     if purge:
-        purge_k3s_container_and_volume(env.k3s_cluster)
+        purge_k3s_container_and_volume(env.k3s_cluster, target=env_target(env))
         # The database is a Floci RDS instance, not a compose container, so
         # `compose down` above does not touch it -- and its volume deliberately
         # survives a plain restart (FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE is

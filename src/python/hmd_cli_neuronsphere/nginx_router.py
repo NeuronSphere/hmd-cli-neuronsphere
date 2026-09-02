@@ -1058,7 +1058,7 @@ def _ensure_trino_nodeport(namespace, selector, port, target_port, env=None) -> 
 
 def trino_upstream(env) -> Optional[str]:
     """``<floci-eks ip>:<nodePort>`` for this env's Trino, or None if absent."""
-    from .floci_deployer import _floci_eks_ip
+    from .floci_deployer import _floci_eks_ip, env_target
 
     found = _find_trino_coordinator_service(env)
     if not found:
@@ -1067,7 +1067,7 @@ def trino_upstream(env) -> Optional[str]:
     namespace, selector, port, target_port = found
     if not _ensure_trino_nodeport(namespace, selector, port, target_port, env):
         return None
-    ip = _floci_eks_ip(env.k3s_cluster)
+    ip = _floci_eks_ip(env.k3s_cluster, target=env_target(env))
     if not ip:
         logger.warning("Could not resolve floci-eks IP; Trino host route not wired.")
         return None
@@ -1101,7 +1101,7 @@ def configure_trino_host_route(env) -> bool:
 
 def ingress_upstream(env) -> Optional[str]:
     """``<floci-eks ip>:<nodePort>`` for this env's ingress controller, or None."""
-    from .floci_deployer import _floci_eks_ip
+    from .floci_deployer import _floci_eks_ip, env_target
 
     if not _ensure_nodeport(
         _TRAEFIK_NODEPORT_SVC,
@@ -1113,7 +1113,7 @@ def ingress_upstream(env) -> Optional[str]:
         env=env,
     ):
         return None
-    ip = _floci_eks_ip(env.k3s_cluster)
+    ip = _floci_eks_ip(env.k3s_cluster, target=env_target(env))
     if not ip:
         logger.warning("Could not resolve floci-eks IP; ingress route not wired.")
         return None

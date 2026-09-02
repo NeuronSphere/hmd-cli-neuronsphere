@@ -126,7 +126,9 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
-        start.assert_called_once_with("neuronsphere")
+        # The account-selecting target must reach the docker-name resolver:
+        # an environment's container is `floci-eks-<account>.<cluster>`.
+        start.assert_called_once_with("neuronsphere", target=fd.control_plane_target())
         delete.assert_not_called()
         self.assertEqual(eks.create_cluster.call_count, 1)
 
@@ -152,7 +154,9 @@ class EnsureK3sClusterSelfHeal(unittest.TestCase):
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.ensure_k3s_cluster(name="neuronsphere")
-        start.assert_called_once_with("neuronsphere")
+        # The account-selecting target must reach the docker-name resolver:
+        # an environment's container is `floci-eks-<account>.<cluster>`.
+        start.assert_called_once_with("neuronsphere", target=fd.control_plane_target())
         self._assert_recreated(delete, eks)
 
     def test_missing_container_is_recreated(self):

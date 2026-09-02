@@ -2,6 +2,42 @@
 
 ## 2026-09-02
 
+- fix: Address the account-qualified k3s container everywhere, not just on the
+  kubeconfig path
+
+  Floci 2.0 names the container and volume it spawns
+  `floci-eks-<account>.<cluster>` for every account but the default one, and
+  each named environment is its own account. Seven Docker call sites still
+  resolved the name without a target, so they defaulted to the control plane's
+  account and addressed a container that does not exist:
+
+  - `write_kubeconfig`'s `docker exec` fell through to a synthesized config
+    carrying `token: floci-local`, so every later kubectl call failed with a
+    bare `401 Unauthorized` — surfacing as an unrelated-looking cert-manager
+    install failure in `hmd_cli_helm.create_namespace_if_not_exists`;
+  - `stop_k3s_cluster`/`start_k3s_container` silently no-opped, so `down` left
+    the container running and `up` could not restart it in place, forcing a
+    full BOM redeploy;
+  - `purge_k3s_container_and_volume` left both behind, and the adopted
+    datastore made the next cluster register as a second, permanently NotReady
+    Node;
+  - `_floci_eks_ip` returned None, so host ingress and Trino routes were never
+    wired.
+
+  `purge` now names both volume forms rather than guessing, since
+  `docker volume rm` on a missing name is a no-op and a missed volume is the
+  costlier error.
+
+- fix: Repair a NameError on the k3s "cluster already exists" path
+
+  `_k3s_container_image`, `_k3s_container_running` and `_k3s_host_port`
+  referenced a `target` they had no parameter for. That path runs on every
+  restart. It escaped the tests because they patched the three helpers
+  wholesale; `test_k3s_container_naming.py` now exercises them for real against
+  a mocked `docker`.
+
+## 2026-09-02
+
 - fix: Resolve the k3s container's account-qualified name (Floci 2.0)
 
   Floci 2.0 names an EKS cluster's container `floci-eks-<account>.<cluster>` for

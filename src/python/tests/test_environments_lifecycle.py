@@ -87,7 +87,9 @@ class StopEnvironmentTests(unittest.TestCase):
 
     def test_plain_stop_preserves_the_cluster(self):
         fd, cli, reg = self._stop(purge=False)
-        fd.stop_k3s_cluster.assert_called_once_with("ns-dev2-abc")
+        fd.stop_k3s_cluster.assert_called_once_with(
+            "ns-dev2-abc", target=fd.env_target.return_value
+        )
         fd.delete_k3s_cluster.assert_not_called()
         fd.purge_k3s_container_and_volume.assert_not_called()
         reg.clear_bootstrap.assert_not_called()
@@ -101,7 +103,9 @@ class StopEnvironmentTests(unittest.TestCase):
         fd.delete_k3s_cluster.assert_called_once()
         self.assertEqual(fd.delete_k3s_cluster.call_args.args[0], "ns-dev2-abc")
         fd.stop_k3s_cluster.assert_not_called()
-        fd.purge_k3s_container_and_volume.assert_called_once_with("ns-dev2-abc")
+        fd.purge_k3s_container_and_volume.assert_called_once_with(
+            "ns-dev2-abc", target=fd.env_target.return_value
+        )
         reg.clear_bootstrap.assert_called_once()
 
     def test_purge_removes_containers(self):
