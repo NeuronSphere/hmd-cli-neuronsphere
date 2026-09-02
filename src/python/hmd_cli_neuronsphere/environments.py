@@ -250,7 +250,6 @@ def ensure_control_plane(
         _exec,
         _get_base_command,
         _naming_lambda_env,
-        _wait_for_hmd_db,
         _wait_for_ms_deployment,
         update_images,
     )
@@ -522,7 +521,6 @@ def start_environment(
         _deploy_hmdms_service_lambdas,
         _exec,
         _get_base_command,
-        _wait_for_hmd_db,
     )
 
     print_section(f"Environment: {env.slug}")
@@ -560,14 +558,10 @@ def start_environment(
         else:
             _exec(command)
 
-        # The environment brings up only its own Postgres and JanusGraph; the
-        # Floci serving its account is the control plane's, already healthy well
-        # before an environment starts.
-        with spinner_step(
-            "Waiting for environment containers...", verbose=verbose
-        ) as step:
-            _wait_for_hmd_db(container=env.db_container)
-            step.ok()
+        # Nothing to wait for here any more: the Floci serving this
+        # environment's account is the control plane's (already healthy), and its
+        # Postgres is an RDS instance the core changeset has not deployed yet --
+        # `_run_full_bootstrap` waits for and aliases it between the phases.
 
         nginx_router.write_env_streams(env)
         nginx_router.reload()
@@ -1253,6 +1247,30 @@ def _reconcile_environment(
     return ok and bool(ok_run)
 
 
+def _alias_environment_database(env: LocalEnvironment) -> None:
+    """Give this environment's RDS container its canonical DNS name.
+
+    Every consumer addresses the environment's Postgres as ``hmd_db-<slug>`` on
+    the Docker network (and as plain ``hmd_db`` inside its k3s cluster, via
+    CoreDNS). Floci names the container it spawns opaquely and finds it by label,
+    so the alias is what preserves those names -- and keeps the port at 5432
+    rather than routing through Floci's RDS proxy range, which does not survive a
+    Floci restart. Best-effort: a failure here surfaces as a connection error
+    from the consumer, which is more legible than aborting the bootstrap.
+    """
+    from . import bom_seeder
+    from .floci_deployer import ensure_rds_network_alias, env_target
+
+    identifier = bom_seeder.env_db_identifier(env)
+    if not ensure_rds_network_alias(
+        identifier, env.db_container, target=env_target(env)
+    ):
+        logger.warning(
+            f"Could not alias {identifier} as {env.db_container}; consumers "
+            f"addressing that name will fail to connect"
+        )
+
+
 def _run_full_bootstrap(
     env: LocalEnvironment,
     runner,
@@ -1297,12 +1315,18 @@ def _run_full_bootstrap(
         except Exception as e:
             logger.warning(f"Local resource submission failed (non-fatal): {e}")
 
-        # Phase A must still run through the runner -- even though its one node
-        # is a hardcoded no-op -- so the RID transitions DEPLOY_NEXT -> DEPLOYED.
-        # Skipping it would leave the core instance permanently DEPLOY_NEXT and
-        # break the reconcile fast-path.
+        # Phase A runs through the runner both to deploy this environment's
+        # Postgres and so the core instance's RID transitions DEPLOY_NEXT ->
+        # DEPLOYED. Skipping it would leave that instance permanently
+        # DEPLOY_NEXT and break the reconcile fast-path.
         runner.run(csd_nid_a, nodes_a)
         core_succeeded = list(runner.last_succeeded)
+
+        # Between the phases, deliberately: Phase A created the RDS instance and
+        # every Phase-B entry addresses it as `hmd_db-<slug>` -- ms-dbaccount
+        # above all. Floci names the container it spawned opaquely, so the alias
+        # is what makes that name resolve.
+        _alias_environment_database(env)
 
         print_step("Seeding deployment graph (Phase B)...")
         phase_b = resolve_plugin_bom(env=env, manifest=manifest)
@@ -1445,6 +1469,22 @@ def stop_environment(
 
     if purge:
         purge_k3s_container_and_volume(env.k3s_cluster)
+        # The database is a Floci RDS instance, not a compose container, so
+        # `compose down` above does not touch it -- and its volume deliberately
+        # survives a plain restart (FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE is
+        # pinned false), which is exactly what a purge has to undo.
+        try:
+            from . import bom_seeder
+            from .floci_deployer import delete_rds_instance, env_target
+
+            delete_rds_instance(
+                bom_seeder.env_db_identifier(env), target=env_target(env)
+            )
+        except Exception as e:
+            # A purge must still tear down everything else it can; the RDS
+            # instance is the one piece whose id we derive rather than read back,
+            # so it is also the one that can fail to resolve.
+            logger.warning(f"Could not delete {env.slug}'s RDS instance: {e}")
         if not env.legacy_layout:
             shutil.rmtree(env.state_path, ignore_errors=True)
         env_registry.clear_bootstrap(env)

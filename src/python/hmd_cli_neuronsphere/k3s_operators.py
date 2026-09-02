@@ -174,6 +174,12 @@ def _ensure_coredns_floci_entry(env=None) -> None:
     ]
     # Canonical name -> this environment's container (best-effort: a name that
     # doesn't resolve on the Docker network is simply skipped).
+    #
+    # `hmd_db` resolves through the network alias the CLI puts on the Floci-spawned
+    # RDS container (`environments._alias_environment_database`), not through a
+    # compose container name -- Floci names what it spawns opaquely. Aliasing the
+    # backend directly is also what keeps the port at 5432 for unmodified cloud
+    # charts, instead of Floci's 7001-7099 RDS proxy range.
     aliased = [
         (_DB_CONTAINER, env_db),
         (_GRAPH_CONTAINER, env_graph),

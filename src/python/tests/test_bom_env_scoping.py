@@ -182,23 +182,36 @@ class BuildLocalCoreResourcesTests(unittest.TestCase):
     def _by_name(self, resources):
         return {r["resource_name"]: r for r in resources}
 
-    def test_db_and_graph_point_at_the_environments_containers(self):
+    def test_the_graph_points_at_the_environments_container(self):
         res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        self.assertEqual(res["hmd_db"]["output"]["host"], "hmd_db-dev2")
         self.assertEqual(
             res["global-graph"]["output"]["endpoint"],
             "ws://global-graph-dev2:8182/gremlin",
         )
 
+    def test_postgres_is_not_hand_seeded(self):
+        """The Postgres Resource is produced by a real hmd-postgres-rds deploy.
+
+        Seeding one here as well would give ms-deployment two producers of
+        `database.neuronsphere.io/postgres` in the same environment, and a
+        `database-instance` dependency could resolve to the hand-written record
+        describing a container that no longer exists.
+        """
+        res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
+        self.assertNotIn("hmd_db", res)
+        seeded = {
+            r["resource_definition"]["resource_definition_name"] for r in res.values()
+        }
+        self.assertNotIn("postgres", seeded)
+
     def test_resource_and_instance_names_are_not_env_scoped(self):
         res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        self.assertIn("hmd_db", res)
         self.assertIn("global-graph", res)
-        self.assertEqual(res["hmd_db"]["instance_name"], b.CORE_INSTANCE_NAME)
+        self.assertEqual(res["global-graph"]["instance_name"], b.CORE_INSTANCE_NAME)
 
     def test_deployment_id_tag_added_alongside_environment_tag(self):
         res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        tags = {t["key"]: t["value"] for t in res["hmd_db"]["tags"]}
+        tags = {t["key"]: t["value"] for t in res["global-graph"]["tags"]}
         # `environment` carries the environment's name -- its Environment.type,
         # and what the generated deploy runs with as `--environment`.
         self.assertEqual(tags["environment"], "dev2")
@@ -206,16 +219,15 @@ class BuildLocalCoreResourcesTests(unittest.TestCase):
 
     def test_environment_tag_defaults_to_local_without_an_env(self):
         res = self._by_name(b.build_local_core_resources())
-        tags = {t["key"]: t["value"] for t in res["hmd_db"]["tags"]}
+        tags = {t["key"]: t["value"] for t in res["global-graph"]["tags"]}
         self.assertEqual(tags["environment"], "local")
 
     def test_without_env_the_control_plane_defaults_are_kept(self):
         res = self._by_name(b.build_local_core_resources())
-        self.assertEqual(res["hmd_db"]["output"]["host"], "hmd_db")
         self.assertEqual(
             res["global-graph"]["output"]["endpoint"], "ws://global-graph:8182/gremlin"
         )
-        tags = {t["key"] for t in res["hmd_db"]["tags"]}
+        tags = {t["key"] for t in res["global-graph"]["tags"]}
         self.assertNotIn("deployment_id", tags)
 
     def test_service_resources_carry_the_env_tag(self):

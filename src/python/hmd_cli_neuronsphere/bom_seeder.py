@@ -164,19 +164,6 @@ CORE_PRODUCED_DEFINITIONS = [
         "role": "ingress-controller",
     },
     {
-        # hmd-postgres-rds already declares producing (parenting from) this exact
-        # type (see its meta-data/resources/aurora-postgres.yaml). Declaring the
-        # same identity here lets any repo's resource-typed dependency on it (e.g.
-        # hmd-database-account.database-instance) resolve against the always-on
-        # shared local Postgres (the `hmd_db` container) instead of requiring a
-        # real hmd-postgres-rds CDKTF deploy (which would stand up a separate
-        # Floci RDS instance nothing local actually needs).
-        "resource_namespace": "database.neuronsphere.io",
-        "resource_definition_name": "postgres",
-        "version": "0.1.0",
-        "role": "database",
-    },
-    {
         # hmd-inf-neptune declares producing this exact type (see its
         # meta-data/manifest.json deploy.resources). JanusGraph -- already part of
         # core, running unconditionally via docker-compose.graph.yml -- substitutes
@@ -222,10 +209,33 @@ CORE_PRODUCED_DEFINITIONS = [
 # proper DEPLOY_NEXT environment instance of `hmd-cli-neuronsphere` (with all the
 # env/instance/deployment/RCV edges); LocalWorkflowRunner hardcodes CORE_REPO_CLASS
 # as a no-op node, so it's marked DEPLOYED without the runner executing anything.
+# This environment's Postgres, deployed as a Floci RDS instance by the same
+# RepoClass the cloud uses. `repo_instance` is unique by name *per Environment*,
+# so the name is constant across environments (like CORE_INSTANCE_NAME) while
+# each deploy lands in its own emulated AWS account.
+ENV_DB_INSTANCE = "environment-db"
+ENV_DB_REPO_CLASS = "hmd-postgres-rds"
+
 LOCAL_CORE_BOM = [
     {
         "repo_instance_name": CORE_INSTANCE_NAME,
         "repo_class_name": CORE_REPO_CLASS,
+        "deployment_id": "local",
+        "instance_configuration": {},
+        "dependencies": {},
+    },
+    {
+        # Produces this environment's `database.neuronsphere.io/postgres`
+        # Resource, which is what every `database-instance` dependency resolves
+        # against (hmd-database-account's above all). It is in the *core*
+        # changeset because ms-dbaccount and every plugin database depend on it.
+        #
+        # Its cloud dependencies (base-vpc, datadog-lambda, rds-loggroup) are
+        # deliberately absent: `src/local/cdktf/cdktf_local.py` in that repo
+        # replaces the Aurora-on-a-VPC stack with a plain aws_db_instance, so
+        # none of them are referenced locally.
+        "repo_instance_name": ENV_DB_INSTANCE,
+        "repo_class_name": ENV_DB_REPO_CLASS,
         "deployment_id": "local",
         "instance_configuration": {},
         "dependencies": {},
@@ -1162,6 +1172,29 @@ def build_service_resources(services: Optional[List[Dict]], env=None) -> List[Di
     return resources
 
 
+def env_db_identifier(env) -> str:
+    """The DBInstanceIdentifier this environment's Postgres node creates.
+
+    Mirrors what the CDKTF overlay derives from ``HmdCdkTfStack.base_name``
+    (``make_standard_name``, lowercased with hyphens). The CLI looks the instance
+    up by this id to find its container and alias it, so the two derivations must
+    agree -- a mismatch leaves the database running but unreachable by name.
+    """
+    from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+    from .floci_deployer import local_customer_code
+
+    base = make_standard_name(
+        ENV_DB_INSTANCE,
+        ENV_DB_REPO_CLASS,
+        env.deployment_id,
+        env.slug,
+        os.environ.get("HMD_REGION", "reg1"),
+        local_customer_code(),
+    )
+    return base.replace("_", "-").lower()
+
+
 def build_local_core_resources(
     *,
     network_name: str = DOCKER_NETWORK_NAME,
@@ -1194,7 +1227,6 @@ def build_local_core_resources(
     name stays ``local-neuronsphere`` in every environment -- repo_instance is
     unique by name per Environment, so it is not ambiguous.
     """
-    db_host = env.db_container if env is not None else "hmd_db"
     graph_host = env.graph_container if env is not None else "global-graph"
 
     # `environment` carries the environment's slug -- its Environment.type, and
@@ -1225,25 +1257,6 @@ def build_local_core_resources(
             },
             "output": {"network_name": network_name, "driver": "bridge"},
             "tags": common_tags + [{"key": "platform", "value": "local"}],
-        },
-        {
-            # This environment's own Postgres, which its ms-dbaccount Lambda
-            # provisions plugin databases against. Satisfies any repo's
-            # resource-typed dependency on database.neuronsphere.io/postgres (e.g.
-            # hmd-database-account.database-instance) without a real
-            # hmd-postgres-rds deploy -- see CORE_PRODUCED_DEFINITIONS. The
-            # Resource *name* stays `hmd_db` in every environment; only the host
-            # differs, because each environment runs its own container.
-            "instance_name": CORE_INSTANCE_NAME,
-            "repo_class_name": CORE_REPO_CLASS,
-            "resource_name": "hmd_db",
-            "resource_definition": {
-                "resource_namespace": "database.neuronsphere.io",
-                "resource_definition_name": "postgres",
-                "version": "0.1.0",
-            },
-            "output": {"host": db_host, "port": 5432},
-            "tags": common_tags,
         },
         {
             # JanusGraph substitutes for Amazon Neptune locally. Satisfies any

@@ -92,3 +92,52 @@ class HandlerWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnvironmentDatabaseIdentityTests(unittest.TestCase):
+    """The identifier the CLI looks the RDS instance up by.
+
+    It is *derived* on both sides -- by the CDKTF overlay from
+    ``HmdCdkTfStack.base_name``, and here -- rather than read back from Floci. A
+    divergence therefore leaves a database that is running but unreachable by
+    name, with no error at the point of the mistake, so these pin the shape.
+    """
+
+    class _Env:
+        slug = "dev2"
+        deployment_id = "dev2"
+
+    def _identifier(self):
+        from hmd_cli_neuronsphere import bom_seeder
+
+        return bom_seeder.env_db_identifier(self._Env())
+
+    def test_is_a_valid_rds_identifier(self):
+        # RDS identifiers are lowercase alphanumerics and hyphens.
+        ident = self._identifier()
+        self.assertRegex(ident, r"^[a-z0-9-]+$")
+
+    def test_names_the_instance_and_repo_class(self):
+        from hmd_cli_neuronsphere import bom_seeder
+
+        ident = self._identifier()
+        self.assertIn(bom_seeder.ENV_DB_INSTANCE, ident)
+        self.assertIn("hmd-postgres-rds", ident)
+
+    def test_the_control_plane_and_an_environment_never_collide(self):
+        from hmd_cli_neuronsphere import floci_deployer
+
+        cp = bd.control_plane_db_identifier(floci_deployer.control_plane_target())
+        self.assertNotEqual(cp, self._identifier())
+
+    def test_two_environments_get_distinct_identifiers(self):
+        from hmd_cli_neuronsphere import bom_seeder
+
+        class _Other:
+            slug = "dev3"
+            deployment_id = "dev3"
+
+        self.assertNotEqual(
+            bom_seeder.env_db_identifier(self._Env()),
+            bom_seeder.env_db_identifier(_Other()),
+        )

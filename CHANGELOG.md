@@ -2,6 +2,31 @@
 
 ## 2026-09-02
 
+- feat: Deploy each environment's Postgres as a Floci RDS instance too
+
+  Completes the migration the control plane started. `hmd-postgres-rds` is now
+  the first real node of every environment's core changeset, so a
+  `database-instance` dependency -- `hmd-database-account`'s above all --
+  resolves against a Resource a real deploy produced.
+
+  The hand-seeded `hmd_db` Resource and the `database.neuronsphere.io/postgres`
+  entry in `CORE_PRODUCED_DEFINITIONS` are therefore **deleted**, not
+  re-pointed. Keeping them would give an environment two producers of the same
+  type, and a dependency could resolve to the hand-written record describing a
+  container that no longer exists.
+
+  The container is aliased `hmd_db-<slug>` between the two changeset phases --
+  after Phase A creates it, before any Phase-B entry addresses it -- and CoreDNS
+  maps plain `hmd_db` to it inside the environment's cluster, so cloud charts
+  still run unmodified. `down --purge` now deletes the RDS instance and its
+  volume in both scopes: the volume deliberately survives a plain restart
+  (`FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE` is pinned false), which is exactly
+  what a purge has to undo.
+
+  The `db` service is gone from the environment compose file, and the pre-DAG
+  database wait with it: there is nothing to wait for before the changeset that
+  creates the database has run.
+
 - feat: Bootstrap the control plane with a DAG whose last node is ms-deployment
 
   The control plane's Postgres is now deployed by the real `hmd-postgres-rds`

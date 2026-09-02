@@ -1716,6 +1716,18 @@ def _purge_control_plane_state(verbose: bool = False) -> None:
     ``stop_neuronsphere_extend``, which purges every environment first.
     """
     print_step("Purging control-plane state (Floci, PostgreSQL, graph)...")
+    # The control-plane database is a Floci RDS instance whose volume survives a
+    # plain restart by design, so a purge has to delete it explicitly.
+    try:
+        from . import bootstrap_dag
+        from .floci_deployer import control_plane_target, delete_rds_instance
+
+        target = control_plane_target()
+        delete_rds_instance(
+            bootstrap_dag.control_plane_db_identifier(target), target=target
+        )
+    except Exception as e:
+        logger.warning(f"Could not delete the control-plane RDS instance: {e}")
     _clear_bootstrap_marker()
     for rel in ("floci/data", "postgresql/data", "graph_db"):
         target = _hmd_home / rel

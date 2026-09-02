@@ -22,18 +22,33 @@ Topology
                              hosts ms-dbaccount + that env's HMDMS Lambdas
                            account 000000000002  ("dev2")    + k3s ns-dev2-<hash>
 
+      floci-rds-<opaque>   postgres  (RDS instances, one per account,
+                           aliased hmd_db / hmd_db-<env>)
+
     env "local"            compose project ns-<hash>-env-local
-      hmd_db-local         postgres
       global-graph-local   janusgraph
 
     env "dev2"             compose project ns-<hash>-env-dev2
-      hmd_db-dev2          postgres
       global-graph-dev2    janusgraph
 
 Each environment is a self-contained emulated AWS account: its own account inside
 the shared Floci, its own EKS/k3s cluster, its own Postgres, its own JanusGraph
 and its own ``hmd-ms-dbaccount`` — mirroring the cloud, where every account
 carries its own dbaccount, RDS and Neptune.
+
+Postgres is that mirror taken literally: it is a **Floci RDS instance deployed by
+``hmd-postgres-rds``** — the same RepoClass the cloud uses, with a
+``src/local/cdktf`` overlay swapping the Aurora-on-a-VPC stack for a plain
+``aws_db_instance`` — rather than a compose container. The control plane's is
+deployed by its bootstrap DAG (see :doc:`modes`) and each environment's by the
+first phase of its own changeset, so a ``database-instance`` dependency resolves
+against a Resource that a real deploy produced.
+
+Floci names the container it spawns opaquely and finds it by label, so the CLI
+gives it the canonical network alias — ``hmd_db`` for the control plane,
+``hmd_db-<env>`` for an environment. That is what keeps every consumer
+unchanged, and keeps the port at 5432 rather than routing through Floci's
+7001-7099 RDS proxy range, which is not re-established after a Floci restart.
 
 There is exactly **one Floci container**. Floci isolates accounts internally,
 resolving which one a request belongs to from the SigV4 access key id it is
@@ -452,9 +467,10 @@ Limitations
   account, cluster and deployment-id level, not at L3.
 - ``compose_substitute`` plugin containers stay control-plane-scoped and shared,
   because their compose files hardcode ``container_name``.
-- Each environment runs Postgres + JanusGraph + a k3s cluster. The Floci that
-  serves its account is shared with every other environment, so a second
-  environment costs noticeably less than the first. Use
+- Each environment runs a Postgres container (spawned by Floci as an RDS
+  instance), JanusGraph and a k3s cluster. The Floci that serves its account is
+  shared with every other environment, so a second environment costs noticeably
+  less than the first. Use
   ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`` or
   ``HMD_LOCAL_NEURONSPHERE_ENABLE_K3S=false`` to trim one.
 - Platform (legacy) mode has no environments; ``--env`` is rejected there.

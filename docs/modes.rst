@@ -17,8 +17,9 @@ rather than starting the whole platform as Docker Compose containers.
 - a Docker network (``neuronsphere_default``);
 - a **Floci** instance emulating the control-plane AWS account
   (``000000000000``);
-- PostgreSQL, with ``hmd_ms_naming`` / ``hmd_ms_deployment`` / ``deployment_gui``
-  created directly;
+- PostgreSQL — a **Floci RDS instance** deployed by ``hmd-postgres-rds`` and
+  aliased ``hmd_db``, with ``hmd_ms_naming`` / ``hmd_ms_deployment`` /
+  ``deployment_gui`` created directly on it;
 - **JanusGraph**;
 - ``hmd-ms-deployment``, ``hmd-ms-naming`` and ``hmd-ms-artifact-lib`` as Floci
   Lambdas behind the nginx proxy;
@@ -33,7 +34,8 @@ rather than starting the whole platform as Docker Compose containers.
   access key id a request is signed with, and namespaces every storage-backed
   service beneath it);
 - its own **k3s** cluster on that Floci's EKS emulation;
-- its own **PostgreSQL** and **JanusGraph**;
+- its own **PostgreSQL** (a Floci RDS instance deployed by ``hmd-postgres-rds``
+  in the environment's own core changeset) and **JanusGraph**;
 - its own ``hmd-ms-dbaccount``, matching the cloud, where every account carries
   its own dbaccount, RDS and Neptune;
 - the Local BOM deployed into it.
@@ -61,9 +63,14 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
    followed by the selected environment's (``hmd_db-<env>``,
    ``global-graph-<env>``). The environment has no Floci of its own -- it is an
    account inside the control plane's.
-2. The control-plane databases are created directly via ``psql``; the
-   control-plane Lambdas deploy behind the API Gateway proxy. The environment's
-   own ``ms-dbaccount`` then provisions that environment's databases.
+2. The control plane is brought up by a **bootstrap DAG** whose last node is
+   ``hmd-ms-deployment`` itself: ``hmd-postgres-rds`` deploys its database as a
+   Floci RDS instance, the core databases are created directly via ``psql``, and
+   the control-plane Lambdas deploy behind the API Gateway proxy. Because that
+   DAG runs before the deployment service exists, its status updates and produced
+   Resources are buffered and replayed into the graph once the service is
+   serving. The environment's own ``ms-dbaccount`` then provisions that
+   environment's databases.
 3. On the **first** ``up`` (bootstrap), the base NERD0004 ResourceDefinition
    catalog is seeded (``seed_base_resource_definitions``) and the concrete local
    Resources — the Docker network and the k3s cluster — are submitted, tagged

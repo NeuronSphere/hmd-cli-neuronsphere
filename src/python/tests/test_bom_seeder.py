@@ -79,8 +79,16 @@ class ResolveBomTests(unittest.TestCase):
     def test_resolve_bom_is_core_plus_plugin_bom(self):
         full_names = [e["repo_instance_name"] for e in b._resolve_bom()]
         plugin_names = [e["repo_instance_name"] for e in b.resolve_plugin_bom()]
-        self.assertEqual(full_names[0], b.CORE_INSTANCE_NAME)
-        self.assertEqual(full_names[1:], plugin_names)
+        core_names = [e["repo_instance_name"] for e in b.LOCAL_CORE_BOM]
+        self.assertEqual(full_names[: len(core_names)], core_names)
+        self.assertEqual(full_names[len(core_names) :], plugin_names)
+
+    def test_the_core_bom_provisions_the_environments_database(self):
+        """Everything with a `database-instance` dependency resolves against it,
+        so it belongs in the core changeset rather than the plugin one."""
+        core = {e["repo_instance_name"]: e for e in b.LOCAL_CORE_BOM}
+        self.assertIn(b.ENV_DB_INSTANCE, core)
+        self.assertEqual(core[b.ENV_DB_INSTANCE]["repo_class_name"], "hmd-postgres-rds")
 
     def test_ext_secrets_on_by_default(self):
         names = [e["repo_instance_name"] for e in b._resolve_bom()]
@@ -254,7 +262,7 @@ class CoreResourceTests(unittest.TestCase):
             types,
             {
                 "docker-network",
-                "postgres",
+                # No "postgres": produced by the hmd-postgres-rds deploy.
                 "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
@@ -269,7 +277,7 @@ class CoreResourceTests(unittest.TestCase):
         # are omitted).
         res = b.build_local_core_resources(cluster_name=None)
         types = {r["resource_definition"]["resource_definition_name"] for r in res}
-        self.assertEqual(types, {"docker-network", "postgres", "graph-database"})
+        self.assertEqual(types, {"docker-network", "graph-database"})
 
     def test_service_microservice_resources(self):
         services = [
@@ -302,7 +310,7 @@ class CoreResourceTests(unittest.TestCase):
             types,
             {
                 "docker-network",
-                "postgres",
+                # No "postgres": produced by the hmd-postgres-rds deploy.
                 "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
@@ -385,7 +393,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 8)
+        self.assertEqual(n, 7)
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -398,7 +406,9 @@ class DeclareCoreProducesTests(unittest.TestCase):
                 "compute-node",
                 "docker-network",
                 "ingress-controller",
-                "postgres",
+                # No "postgres": hmd-postgres-rds produces it now, so declaring
+                # the core RepoClass as a producer too would give the same
+                # environment two.
                 "graph-database",
                 "microservice",
                 "network",

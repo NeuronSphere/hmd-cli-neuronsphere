@@ -2,14 +2,14 @@ version: "3.7"
 
 # One named local environment: a self-contained emulated AWS account.
 #
-# There is deliberately NO Floci service here. Every environment is an emulated
+# There is deliberately NO Floci or Postgres service here. Every environment is an emulated
 # *account* inside the single control-plane Floci, selected per-request by the
 # 12-digit account id used as the SigV4 access key
 # (`floci_deployer.FlociTarget.access_key_id`) -- so its k3s/EKS cluster,
 # Lambdas, buckets and secrets are all namespaced by account rather than
-# separated by container. What remains here is the state a Floci account cannot
-# hold: this environment's own Postgres and JanusGraph, mirroring the cloud where
-# every account carries its own RDS and Neptune.
+# separated by container. Its Postgres is likewise inside that account -- a
+# Floci RDS instance deployed by `hmd-postgres-rds` in the environment's own core
+# changeset, exactly as the cloud deploys it. What remains here is JanusGraph.
 #
 # NO service here publishes a host port. Everything is reached through
 # `hmd_proxy`: HTTP at http://localhost/<slug>/<service>/. That is what allows
@@ -24,35 +24,6 @@ version: "3.7"
 # charts work unmodified.
 
 services:
-  # TODO(phase-2): this environment's Postgres becomes a Floci RDS instance
-  # deployed by `hmd-postgres-rds` through the environment's own BOM, the way the
-  # control plane's already is (see bootstrap_dag). Until that BOM entry exists,
-  # an environment would have no database at all, so the compose service stays.
-  db:
-    container_name: ${NS_ENV_DB_CONTAINER}
-    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
-    environment:
-      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-none}
-      HMD_DID: ${NS_ENV_DEPLOYMENT_ID}
-      HMD_ENVIRONMENT: local
-      HMD_REGION: ${HMD_REGION:-reg1}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - neuronsphere_default
-    volumes:
-      - type: bind
-        source: ${NS_ENV_STATE_DIR}/postgresql/data
-        target: /var/lib/postgresql/data
-      # Deliberately no docker-entrypoint-initdb.d mount, matching the control
-      # plane: databases are created the cloud-parity way, by this
-      # environment's own ms-dbaccount Lambda. Mounting the shared
-      # always-initdb.d dir pulled in stale scripts that aborted the init chain
-      # and stalled postgres startup for minutes on a fresh boot.
-
   graph:
     container_name: ${NS_ENV_GRAPH_CONTAINER}
     image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
