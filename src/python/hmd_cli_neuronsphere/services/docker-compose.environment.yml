@@ -24,6 +24,10 @@ version: "3.7"
 # charts work unmodified.
 
 services:
+  # TODO(phase-2): this environment's Postgres becomes a Floci RDS instance
+  # deployed by `hmd-postgres-rds` through the environment's own BOM, the way the
+  # control plane's already is (see bootstrap_dag). Until that BOM entry exists,
+  # an environment would have no database at all, so the compose service stays.
   db:
     container_name: ${NS_ENV_DB_CONTAINER}
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}

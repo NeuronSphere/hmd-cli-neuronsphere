@@ -32,36 +32,6 @@ services:
       # without recreating the container (see nginx_router).
       - "${HMD_HOME}/.cache/nginx:/etc/nginx/ns:ro"
 
-  db:
-    container_name: hmd_db
-    environment:
-      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
-      HMD_DID: ${HMD_DID:-aaa}
-      HMD_ENVIRONMENT: local
-      HMD_REGION: ${HMD_REGION}
-    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    # No host port: databases are not reachable from the host. Use
-    # `docker exec hmd_db psql -U postgres` for a shell.
-    networks:
-      - neuronsphere_default
-    volumes:
-      - type: bind
-        source: ${HMD_HOME}/postgresql/data
-        target: /var/lib/postgresql/data
-      # NOTE: extend mode intentionally does NOT mount postgres
-      # docker-entrypoint-initdb.d scripts. Databases are created the
-      # cloud-parity way — foundational control-plane DBs via
-      # `ensure_core_databases_direct` (direct psql) and plugin DBs via the
-      # dbaccount Lambda (`provision_plugin_databases`). Mounting the shared
-      # `always-initdb.d` dir pulled in stale/broken scripts (e.g. an airflow
-      # script with a bad interpreter) that abort the init chain and stall
-      # postgres startup for minutes on a fresh boot.
-
   # Single Floci environment (control plane == workload account). The former
   # split admin/workload Floci instances were collapsed into this one; the
   # `neuronsphere-workload` network alias is retained so in-network consumers
@@ -102,6 +72,15 @@ services:
       FLOCI_HOSTNAME: neuronsphere
       FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      # RDS: Floci runs a real postgres container per DB instance. Pinning the
+      # image keeps local parity with what `hmd-postgres-base` provides
+      # (extensions, the baked dbs_init.sh) instead of Floci's postgres:16-alpine
+      # default. It must stay pinned: Floci recreates the backend container from
+      # the *current* value on every start while reusing the instance's named
+      # volume, so changing the postgres major version fails the container with
+      # "database files are incompatible" and needs a purge.
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+      FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
       # two broken kube-apiserver overrides Floci injects
@@ -198,13 +177,11 @@ services:
       DJANGO_SUPERUSER_USERNAME: ${HMD_LOCAL_GUI_SUPERUSER:-testadmin}
       DJANGO_SUPERUSER_EMAIL: ${HMD_LOCAL_GUI_SUPERUSER_EMAIL:-testadmin@example.com}
       DJANGO_SUPERUSER_PASSWORD: ${HMD_LOCAL_GUI_SUPERUSER_PASSWORD:-testpassword}
-    # `db` being healthy means postgres accepts connections, not that the GUI's
-    # own database exists -- ensure_core_databases_direct creates that after
-    # `compose up` returns -- which is why migrate retries below rather than
-    # failing the container on the first attempt.
-    depends_on:
-      db:
-        condition: service_healthy
+    # No depends_on: the database is an RDS instance inside Floci, created by
+    # the control-plane bootstrap DAG after `compose up` returns, and reachable
+    # as `hmd_db` only once its container is aliased. The migrate loop below is
+    # what waits for it -- which it already had to do, since the GUI's own
+    # database was created after compose returned even when `db` was a service.
     command:
       - /bin/sh
       - -c

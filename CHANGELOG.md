@@ -2,6 +2,55 @@
 
 ## 2026-09-02
 
+- feat: Bootstrap the control plane with a DAG whose last node is ms-deployment
+
+  The control plane's Postgres is now deployed by the real `hmd-postgres-rds`
+  RepoClass as a Floci RDS instance, through the same projectbuilder path every
+  other deploy takes -- so its `database.neuronsphere.io/postgres` Resource is
+  genuinely produced and read from `meta-data/resources_output/`, rather than a
+  record hand-seeded to describe a container compose happened to start.
+
+  That is possible because `LocalWorkflowRunner.run` takes a plain ordered list
+  of node dicts and never asks the deployment service for them. Its only
+  coupling is three callbacks, so a new `tracking=False` buffers them and
+  `replay_into()` flushes them once ms-deployment is serving. The control plane
+  therefore ends up recorded in the graph it just deployed, which it never was
+  before.
+
+  A node may now carry a `handler` callable instead of a deploy script,
+  generalising the existing `CORE_REPO_CLASS` no-op special case. The nodes
+  after the database (core databases, ms-naming, artifact-lib, ms-deployment)
+  use it: they provision what the deployment service needs and so cannot be
+  deployed *through* it. Each closure is the step that used to run inline in
+  `ensure_control_plane`, unchanged. Moving one onto the projectbuilder path
+  later is a per-node change, and the ordering it participates in is already
+  right.
+
+- feat: Keep `hmd_db` as the canonical hostname now that Floci owns the container
+
+  Floci names the RDS backend it spawns opaquely
+  (`floci-rds-db-<HEX>-<suffix>`) and finds it by label, not by name. Rather
+  than rewrite every consumer -- compose peers (the Deployment GUI, Hive
+  metastore, Trino, Airflow, Superset), `_psql`, and cloud Helm charts running
+  unmodified in k3s -- `ensure_rds_network_alias` gives the container the
+  `hmd_db` alias on the NeuronSphere network. Docker refuses to add an alias to
+  an existing endpoint, so it disconnects and reconnects; that is safe because
+  it runs immediately after creation, before anything has connected, and is
+  skipped when the alias is already present.
+
+  This also keeps the port at 5432 rather than routing through Floci's
+  7001-7099 RDS proxy -- which matters because that proxy is not re-established
+  after a Floci restart.
+
+  The `db` service is gone from the control-plane compose file. The Deployment
+  GUI loses its `depends_on`, which it did not really need: its own database
+  was created after `compose up` returned even when `db` was a service, so its
+  migrate retry loop was always what waited.
+
+  Note the environment compose file still runs a `db` service. The
+  per-environment migration to RDS needs its own BOM entry and is not done yet;
+  removing the service first would leave an environment with no database.
+
 - feat: Collapse the per-environment Flocis into one multi-account Floci
 
   An environment used to run its own Floci container alongside its Postgres,

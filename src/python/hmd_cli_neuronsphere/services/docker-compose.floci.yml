@@ -27,6 +27,15 @@ services:
       FLOCI_HOSTNAME: floci
       FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      # RDS: Floci runs a real postgres container per DB instance. Pinning the
+      # image keeps local parity with what `hmd-postgres-base` provides
+      # (extensions, the baked dbs_init.sh) instead of Floci's postgres:16-alpine
+      # default. It must stay pinned: Floci recreates the backend container from
+      # the *current* value on every start while reusing the instance's named
+      # volume, so changing the postgres major version fails the container with
+      # "database files are incompatible" and needs a purge.
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+      FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Floci hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
       # spawning k3s, but kube-apiserver only accepts etcd3 (kine speaks etcd3

@@ -36,6 +36,13 @@ logger = minimal_logger("environments")
 # Deployed into the control-plane Floci, never into an environment's.
 CONTROL_PLANE_PLUGINS = ["artifact-lib"]
 
+# The one name the whole platform uses for the control-plane Postgres: compose
+# peers (the Deployment GUI, Hive metastore, Trino, Airflow, Superset), `_psql`,
+# and cloud Helm charts running unmodified in k3s. Floci names the RDS backend
+# container it spawns opaquely, so the container is aliased to this on the
+# NeuronSphere network rather than every consumer being rewritten.
+_CANONICAL_DB_HOST = "hmd_db"
+
 _MS_DEPLOYMENT_URL = "http://localhost/hmd_ms_deployment"
 
 
@@ -221,16 +228,20 @@ def ensure_control_plane(
         so plugin discovery (a filesystem scan) runs once per `up`, not once
         per caller. A fresh one is constructed when omitted.
     """
+    from . import bootstrap_dag
     from .floci_deployer import (
         DOCKER_NETWORK_NAME,
         clear_apigateway_state,
         control_plane_target,
         ensure_core_databases_direct,
+        ensure_rds_network_alias,
         provision_resources,
         resolve_image_uri,
         setup_service,
         wait_for_floci,
+        wait_for_rds_instance,
     )
+    from .local_workflow_runner import LocalWorkflowRunner
     from .hmd_cli_neuronsphere import (
         _aggregate_hmdms_resources,
         _deploy_hmdms_service_lambdas,
@@ -331,53 +342,94 @@ def ensure_control_plane(
             )
             return False
 
-    with spinner_step("Waiting for PostgreSQL (hmd_db)...", verbose=verbose) as step:
-        _wait_for_hmd_db()
-        step.ok()
-
-    # The control plane has no dbaccount of its own -- dbaccount is
-    # per-environment, matching the cloud -- so its databases are created
-    # directly and deterministically.
-    print_step("Ensuring control-plane databases...")
-    ensure_core_databases_direct()
-
-    resources: Dict[str, List] = {"s3_buckets": []}
-    _aggregate_hmdms_resources(local_loader, resources)
-    print_step("Provisioning control-plane Floci resources...")
-    provision_resources(resources, local_loader=local_loader, target=target)
-
+    # --- the control-plane bootstrap DAG ------------------------------------
+    #
+    # The control plane is brought up by a deployment DAG whose last node is
+    # ms-deployment itself, so its Postgres is deployed by the real
+    # `hmd-postgres-rds` RepoClass through the same projectbuilder path every
+    # other deploy takes, and the whole bring-up is recorded in the deployment
+    # graph once that service is serving (see bootstrap_dag).
+    #
+    # The nodes after the database carry handlers rather than deploy scripts:
+    # they provision what the deployment service needs, so they cannot be
+    # deployed *through* it. Each closure is the step that used to run inline
+    # here, unchanged.
     service_api_ids: Dict[str, str] = {}
-
-    print_step("Deploying ms-deployment Lambda...")
     ms_deployment_available = False
-    try:
-        service_api_ids["hmd_ms_deployment"] = _deploy_ms_deployment_lambda(None)
-        ms_deployment_available = True
-    except Exception as e:
-        logger.warning(f"ms-deployment Lambda deploy failed: {e}")
-        print(f"  Warning: ms-deployment not available: {e}")
 
-    print_step("Deploying ms-naming Lambda...")
-    naming_env, naming_image = _naming_lambda_env()
-    if naming_image is None:
-        raise RuntimeError(
-            "hmd-ms-naming image not cached locally. "
-            "Run `hmd build` in hmd-ms-naming and retry."
+    def _ensure_databases(node, destroy):
+        # dbaccount is per-environment (matching the cloud), so the control
+        # plane has none and its databases are created directly.
+        container = wait_for_rds_instance(
+            bootstrap_dag.control_plane_db_identifier(target), target=target
         )
-    service_api_ids["hmd_ms_naming"] = setup_service(
-        "hmd_ms_naming", naming_image, naming_env, target=target
-    )
+        if not container:
+            return False
+        ensure_rds_network_alias(
+            bootstrap_dag.control_plane_db_identifier(target),
+            _CANONICAL_DB_HOST,
+            target=target,
+        )
+        ensure_core_databases_direct(container=container)
+        resources: Dict[str, List] = {"s3_buckets": []}
+        _aggregate_hmdms_resources(local_loader, resources)
+        provision_resources(resources, local_loader=local_loader, target=target)
+        return True
 
-    # artifact-lib (and any other control-plane HMDMS plugin).
-    cp_deployed = _deploy_hmdms_service_lambdas(
-        None,
-        local_loader,
-        plugin_filter=CONTROL_PLANE_PLUGINS,
-        target=target,
+    def _deploy_naming(node, destroy):
+        naming_env, naming_image = _naming_lambda_env()
+        if naming_image is None:
+            raise RuntimeError(
+                "hmd-ms-naming image not cached locally. "
+                "Run `hmd build` in hmd-ms-naming and retry."
+            )
+        service_api_ids["hmd_ms_naming"] = setup_service(
+            "hmd_ms_naming", naming_image, naming_env, target=target
+        )
+        return True
+
+    def _deploy_artifact_lib(node, destroy):
+        for spec in _deploy_hmdms_service_lambdas(
+            None,
+            local_loader,
+            plugin_filter=CONTROL_PLANE_PLUGINS,
+            target=target,
+            verbose=verbose,
+        ):
+            service_api_ids[spec["function_name"]] = spec["api_id"]
+        return True
+
+    def _deploy_deployment(node, destroy):
+        nonlocal ms_deployment_available
+        try:
+            service_api_ids["hmd_ms_deployment"] = _deploy_ms_deployment_lambda(None)
+            ms_deployment_available = True
+        except Exception as e:
+            # Kept non-fatal, as it was inline: the rest of the control plane is
+            # still worth having, and `up` reports the degraded state.
+            logger.warning(f"ms-deployment Lambda deploy failed: {e}")
+            print(f"  Warning: ms-deployment not available: {e}")
+            return False
+        return True
+
+    runner = LocalWorkflowRunner(
+        _MS_DEPLOYMENT_URL,
+        env=None,
         verbose=verbose,
+        # ms-deployment is this DAG's last node, so there is nothing to report
+        # to until it finishes. Buffered now, replayed below.
+        tracking=False,
     )
-    for spec in cp_deployed:
-        service_api_ids[spec["function_name"]] = spec["api_id"]
+    bootstrap_csd = bootstrap_dag.csd_nid()
+    runner.run(
+        bootstrap_csd,
+        bootstrap_dag.control_plane_nodes(
+            ensure_databases=_ensure_databases,
+            deploy_naming=_deploy_naming,
+            deploy_artifact_lib=_deploy_artifact_lib,
+            deploy_ms_deployment=_deploy_deployment,
+        ),
+    )
 
     from .floci_deployer import deploy_api_gateway
 
@@ -400,6 +452,12 @@ def ensure_control_plane(
     if ms_deployment_available:
         print_step("Waiting for ms-deployment...")
         _wait_for_ms_deployment(_MS_DEPLOYMENT_URL)
+        # The DAG that brought the control plane up now records itself in the
+        # graph it just deployed -- including the Postgres instance's produced
+        # `database.neuronsphere.io/postgres` Resource.
+        replayed = runner.replay_into(_MS_DEPLOYMENT_URL)
+        if replayed:
+            print_step(f"  recorded {replayed} bootstrap event(s)")
         reg.control_plane.bootstrapped = True
         env_registry.save(reg)
 

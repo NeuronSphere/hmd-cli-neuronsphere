@@ -1178,6 +1178,198 @@ def provision_plugin_databases(
             )
 
 
+# ---------------------------------------------------------------------------
+# RDS (the Postgres backing an account)
+# ---------------------------------------------------------------------------
+
+# Floci labels every container it manages. The RDS backend's *name* is opaque
+# (`floci-rds-db-<HEX>-<suffix>`) and not derived from the DBInstanceIdentifier,
+# so these labels -- not the name -- are the way to find it.
+_FLOCI_LABEL_SERVICE = "io.floci.service"
+_FLOCI_LABEL_ACCOUNT = "io.floci.account"
+_FLOCI_LABEL_RESOURCE = "io.floci.resource-id"
+
+
+def rds_container_name(identifier: str, target: Optional[FlociTarget] = None):
+    """The Docker container backing an RDS instance, or None.
+
+    Needed because the control-plane databases are still created with
+    ``docker exec ... psql`` (see :func:`ensure_core_databases_direct`), and
+    because CoreDNS aliases ``hmd_db`` straight at this container so charts keep
+    addressing port 5432 rather than Floci's 7001-7099 proxy range.
+    """
+    target = _resolve_target(target)
+    filters = [
+        f"label={_FLOCI_LABEL_SERVICE}=rds",
+        f"label={_FLOCI_LABEL_ACCOUNT}={target.account_id}",
+        f"label={_FLOCI_LABEL_RESOURCE}={identifier}",
+    ]
+    cmd = ["docker", "ps", "--format", "{{.Names}}"]
+    for f in filters:
+        cmd += ["--filter", f]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not list RDS containers for {identifier}: {e}")
+        return None
+    names = [n for n in r.stdout.split() if n]
+    if not names:
+        logger.debug(
+            f"No running RDS container for {identifier} in account {target.account_id}"
+        )
+        return None
+    return names[0]
+
+
+def rds_container_ip(
+    identifier: str, target: Optional[FlociTarget] = None, network: str = None
+) -> Optional[str]:
+    """IP of an RDS backend container on the NeuronSphere Docker network."""
+    container = rds_container_name(identifier, target)
+    if not container:
+        return None
+    fmt = (
+        '{{with index .NetworkSettings.Networks "'
+        + (network or DOCKER_NETWORK_NAME)
+        + '"}}{{.IPAddress}}{{end}}'
+    )
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", container, "--format", fmt],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        ip = r.stdout.strip()
+        return ip or None
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not resolve IP for {container}: {e}")
+        return None
+
+
+def ensure_rds_network_alias(
+    identifier: str,
+    alias: str,
+    target: Optional[FlociTarget] = None,
+    network: str = None,
+) -> bool:
+    """Give an RDS backend container a stable DNS name on the NS network.
+
+    Floci names the container it spawns opaquely
+    (``floci-rds-db-<HEX>-<suffix>``), but the whole local platform addresses the
+    database as ``hmd_db`` -- compose peers (the Deployment GUI, Hive metastore,
+    Trino, Airflow, Superset), ``_psql``, and cloud Helm charts running unmodified
+    in k3s. Aliasing the container restores that one canonical name instead of
+    rewriting every consumer, and keeps the port at 5432 rather than routing
+    through Floci's 7001-7099 proxy range.
+
+    Docker refuses to add an alias to an existing endpoint, so this disconnects
+    and reconnects. That is safe here because it runs immediately after the
+    instance is created, before anything has connected, and it is skipped
+    entirely when the alias is already present -- so a restart does not churn the
+    container's networking.
+
+    :returns: True if the alias is in place afterwards.
+    """
+    network = network or DOCKER_NETWORK_NAME
+    container = rds_container_name(identifier, target)
+    if not container:
+        logger.warning(f"No RDS container for {identifier}; cannot alias as {alias}")
+        return False
+    fmt = (
+        '{{with index .NetworkSettings.Networks "'
+        + network
+        + '"}}{{json .Aliases}}{{end}}'
+    )
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", container, "--format", fmt],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        current = json.loads(r.stdout.strip() or "null") or []
+    except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as e:
+        logger.debug(f"Could not read aliases for {container}: {e}")
+        current = []
+    if alias in current:
+        return True
+    for args in (
+        ["docker", "network", "disconnect", network, container],
+        ["docker", "network", "connect", "--alias", alias, network, container],
+    ):
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.warning(f"{' '.join(args)}: {e}")
+            return False
+        if r.returncode != 0:
+            logger.warning(f"{' '.join(args)} failed: {r.stderr.strip()}")
+            return False
+    logger.debug(f"Aliased {container} as {alias} on {network}")
+    return True
+
+
+def wait_for_rds_instance(
+    identifier: str, target: Optional[FlociTarget] = None, timeout: int = 300
+) -> Optional[str]:
+    """Block until an RDS instance is ``available``, returning its container.
+
+    Two conditions, because they are genuinely different: Floci reports the
+    instance ``available`` as soon as it has recorded it, while the postgres
+    container behind it may still be running its first-boot init. Callers need
+    the second -- a database that accepts connections.
+    """
+    target = _resolve_target(target)
+    rds = _get_client("rds", target)
+    start = time.time()
+    container = None
+    while time.time() - start < timeout:
+        try:
+            instances = rds.describe_db_instances(DBInstanceIdentifier=identifier)
+            status = instances["DBInstances"][0]["DBInstanceStatus"]
+        except ClientError as e:
+            logger.debug(f"describe_db_instances({identifier}): {e}")
+            status = None
+        if status == "available":
+            container = rds_container_name(identifier, target)
+            if container and _psql("SELECT 1", container=container).returncode == 0:
+                return container
+        time.sleep(3)
+    logger.warning(
+        f"RDS instance {identifier} not ready after {timeout}s "
+        f"(container={container})"
+    )
+    return container
+
+
+def delete_rds_instance(identifier: str, target: Optional[FlociTarget] = None) -> None:
+    """Delete an RDS instance and its volume. Used only by ``down --purge``.
+
+    ``FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE`` is pinned false so a plain restart
+    keeps the data, which means a purge has to remove the named volume itself --
+    the same shape as ``purge_k3s_container_and_volume``.
+    """
+    target = _resolve_target(target)
+    container = rds_container_name(identifier, target)
+    try:
+        _get_client("rds", target).delete_db_instance(
+            DBInstanceIdentifier=identifier, SkipFinalSnapshot=True
+        )
+    except ClientError as e:
+        logger.debug(f"delete_db_instance({identifier}): {e}")
+    # Floci names the volume after the container it backs.
+    if container:
+        for args in (
+            ["docker", "rm", "-f", container],
+            ["docker", "volume", "rm", "-f", container],
+        ):
+            try:
+                subprocess.run(args, capture_output=True, timeout=30)
+            except (subprocess.SubprocessError, OSError) as e:
+                logger.debug(f"{' '.join(args)}: {e}")
+
+
 def _psql(
     sql: str, dbname: str = "postgres", container: str = "hmd_db"
 ) -> subprocess.CompletedProcess:

@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import requests
 import yaml
@@ -267,6 +267,7 @@ class LocalWorkflowRunner:
         env=None,
         repo_paths=None,
         verbose: bool = False,
+        tracking: bool = True,
     ):
         """
         :param base_url: ms-deployment base URL (e.g., http://localhost/hmd_ms_deployment)
@@ -284,12 +285,25 @@ class LocalWorkflowRunner:
         :param verbose: Disables per-node spinner animation in favor of plain
             start/result lines -- set from the `up`/`down` command's own
             --verbose flag, for log- and CI-friendly output.
+        :param tracking: When False, status updates and produced Resources are
+            buffered instead of POSTed, to be flushed later by
+            :meth:`replay_into`. This is what lets the control-plane bootstrap
+            DAG run *before* ``hmd-ms-deployment`` exists -- it is the last node
+            in that DAG -- and still record every node that ran once it does.
+            Without it the three callbacks would simply fail their connections
+            and the bootstrap instances would never appear in the deployment
+            graph at all.
         """
         self.base_url = base_url
         self.env = env
         self.cluster_name = cluster_name or (env.k3s_cluster if env else None)
         self.repo_paths = dict(repo_paths or {})
         self.verbose = verbose
+        self.tracking = tracking
+        # (method_name, args) recorded while tracking is off, replayed in order
+        # by replay_into(). Ordering matters: a Resource submission is keyed by
+        # the RepoInstanceDeployment id its status update settles.
+        self._deferred: List[Tuple[str, tuple]] = []
         # Instance names the most recent run() settled successfully. A partial
         # run is normal (the DAG stops at the first failure), and the reconcile
         # snapshot must record exactly what landed -- no more, so a failed entry
@@ -402,7 +416,7 @@ class LocalWorkflowRunner:
                 f"{verb_ing} {instance_name} ({repo_class_name})",
                 verbose=self.verbose,
             ) as step:
-                result = self._execute_in_projectbuilder(node, destroy=destroy)
+                result = self._execute_node(node, destroy=destroy)
                 if result.success:
                     self._set_status(rid_nid, success_status)
                     succeeded.append(instance_name)
@@ -420,6 +434,32 @@ class LocalWorkflowRunner:
 
         self._set_csd_status(csd_nid, final_csd_status)
         return True
+
+    def _execute_node(self, node: Dict, destroy: bool = False) -> "_NodeResult":
+        """Run one node, in a projectbuilder container or via a Python handler.
+
+        A node may carry ``handler``: a callable taking ``(node, destroy)`` and
+        returning True/False (or None for success). It exists for the
+        control-plane bootstrap DAG, whose first nodes provision infrastructure
+        the deployment service itself needs and so cannot yet be deployed
+        *through* that service -- the core databases, and the control-plane
+        Lambdas that `floci_deployer.setup_service` still installs directly.
+
+        Keeping those as real DAG nodes rather than imperative pre-steps is the
+        point: the DAG's shape (ms-deployment last, everything it depends on
+        ahead of it) is correct from day one, and moving a node onto the
+        projectbuilder path later is a per-node change here rather than a
+        restructuring.
+        """
+        handler = node.get("handler")
+        if handler is None:
+            return self._execute_in_projectbuilder(node, destroy=destroy)
+        try:
+            ok = handler(node, destroy)
+        except Exception as e:
+            logger.error(f"Handler for {node['instance_name']} raised: {e}")
+            return _NodeResult(False, stderr=str(e))
+        return _NodeResult(ok is None or bool(ok))
 
     def _ensure_node_image(self, node: Dict) -> "tuple[bool, str]":
         """Stage the Docker image this node's Lambda will run from, on the host.
@@ -915,7 +955,19 @@ class LocalWorkflowRunner:
 
         if not resources:
             return 0
+        # Buffer the *payload*, never the workspace: the overlay workspace is a
+        # temp dir the caller deletes as soon as the node finishes, so a deferred
+        # replay would have nothing left to read.
+        self._post_resources(rid_nid, resources, node["instance_name"])
+        return len(resources)
 
+    def _post_resources(self, rid_nid: str, resources: List[Dict], instance_name: str):
+        """POST produced Resources, or buffer them when tracking is off."""
+        if not self.tracking:
+            self._deferred.append(
+                ("_post_resources", (rid_nid, resources, instance_name))
+            )
+            return
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/submit_resources",
@@ -927,15 +979,12 @@ class LocalWorkflowRunner:
             )
             resp.raise_for_status()
             logger.debug(
-                f"Tracked {len(resources)} produced resource(s) for "
-                f"{node['instance_name']}"
+                f"Tracked {len(resources)} produced resource(s) for {instance_name}"
             )
-            return len(resources)
         except requests.RequestException as e:
             logger.warning(
-                f"Failed to submit produced resources for {node['instance_name']}: {e}"
+                f"Failed to submit produced resources for {instance_name}: {e}"
             )
-            return 0
 
     def _local_kubeconfig_path(self) -> Optional[str]:
         """Resolve the k3s kubeconfig, mirroring hmd-cli-helm's lookup.
@@ -994,8 +1043,31 @@ class LocalWorkflowRunner:
             logger.warning(f"Could not rewrite kubeconfig for in-container use: {e}")
             return path
 
+    def replay_into(self, base_url: str) -> int:
+        """Flush everything buffered while ``tracking`` was off.
+
+        Called once the deployment service the bootstrap DAG just deployed is
+        serving, so its graph ends up recording the nodes that brought it up --
+        including the Resources they produced. Ordering is preserved because a
+        Resource submission is keyed by the RepoInstanceDeployment its status
+        update settles.
+
+        :returns: The number of deferred calls replayed.
+        """
+        self.base_url = base_url
+        self.tracking = True
+        deferred, self._deferred = self._deferred, []
+        for method, args in deferred:
+            getattr(self, method)(*args)
+        if deferred:
+            logger.debug(f"Replayed {len(deferred)} deferred call(s) into {base_url}")
+        return len(deferred)
+
     def _set_status(self, rid_nid: str, status: str):
         """Update a RepoInstanceDeployment status."""
+        if not self.tracking:
+            self._deferred.append(("_set_status", (rid_nid, status)))
+            return
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/set_deployment_status/{rid_nid}/{status}",
@@ -1007,6 +1079,9 @@ class LocalWorkflowRunner:
 
     def _set_csd_status(self, csd_nid: str, status: str):
         """Update a ChangeSetDeployment status."""
+        if not self.tracking:
+            self._deferred.append(("_set_csd_status", (csd_nid, status)))
+            return
         try:
             resp = requests.post(
                 f"{self.base_url}/apiop/set_change_set_deployment_status/{csd_nid}/{status}",

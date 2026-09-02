@@ -807,3 +807,126 @@ class DeployedLambdaEndpointTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeferredTrackingTests(unittest.TestCase):
+    """The runner can execute a DAG before ms-deployment exists.
+
+    The control-plane bootstrap DAG deploys the deployment service itself, as its
+    last node. Its three callbacks into that service therefore have nowhere to go
+    while it runs: with ``tracking=False`` they buffer instead, and
+    ``replay_into`` flushes them once the service is serving. Without this the
+    calls would simply fail their connections and the nodes that brought the
+    control plane up would never appear in its own graph.
+    """
+
+    def _runner(self):
+        return LocalWorkflowRunner("http://unused", tracking=False)
+
+    def test_status_updates_are_buffered_not_posted(self):
+        runner = self._runner()
+        with mock.patch.object(lwr.requests, "post") as post:
+            runner._set_status("rid-1", "DEPLOYED")
+            runner._set_csd_status("csd-1", "COMPLETED")
+        post.assert_not_called()
+
+    def test_replay_posts_in_order(self):
+        runner = self._runner()
+        runner._set_csd_status("csd-1", "STARTED")
+        runner._set_status("rid-1", "DEPLOYED")
+        runner._post_resources("rid-1", [{"resource_name": "hmd_db"}], "postgres")
+        runner._set_csd_status("csd-1", "COMPLETED")
+
+        with mock.patch.object(lwr.requests, "post") as post:
+            post.return_value = mock.Mock(raise_for_status=lambda: None)
+            replayed = runner.replay_into("http://hmd_proxy/hmd_ms_deployment")
+
+        self.assertEqual(replayed, 4)
+        urls = [c.args[0] for c in post.call_args_list]
+        self.assertEqual(
+            urls,
+            [
+                "http://hmd_proxy/hmd_ms_deployment/apiop/set_change_set_deployment_status/csd-1/STARTED",
+                "http://hmd_proxy/hmd_ms_deployment/apiop/set_deployment_status/rid-1/DEPLOYED",
+                "http://hmd_proxy/hmd_ms_deployment/apiop/submit_resources",
+                "http://hmd_proxy/hmd_ms_deployment/apiop/set_change_set_deployment_status/csd-1/COMPLETED",
+            ],
+        )
+
+    def test_replay_carries_the_produced_resources(self):
+        runner = self._runner()
+        runner._post_resources("rid-1", [{"resource_name": "hmd_db"}], "postgres")
+        with mock.patch.object(lwr.requests, "post") as post:
+            post.return_value = mock.Mock(raise_for_status=lambda: None)
+            runner.replay_into("http://x")
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {
+                "repo_instance_deployment_id": "rid-1",
+                "resources": [{"resource_name": "hmd_db"}],
+            },
+        )
+
+    def test_replay_is_not_repeated(self):
+        runner = self._runner()
+        runner._set_status("rid-1", "DEPLOYED")
+        with mock.patch.object(lwr.requests, "post") as post:
+            post.return_value = mock.Mock(raise_for_status=lambda: None)
+            self.assertEqual(runner.replay_into("http://x"), 1)
+            self.assertEqual(runner.replay_into("http://x"), 0)
+        self.assertEqual(post.call_count, 1)
+
+    def test_tracking_is_on_by_default(self):
+        runner = LocalWorkflowRunner("http://x")
+        with mock.patch.object(lwr.requests, "post") as post:
+            post.return_value = mock.Mock(raise_for_status=lambda: None)
+            runner._set_status("rid-1", "DEPLOYED")
+        post.assert_called_once()
+
+
+class HandlerNodeTests(unittest.TestCase):
+    """A node may run a Python handler instead of a projectbuilder container.
+
+    The bootstrap DAG's first nodes provision what the deployment service itself
+    needs, so they cannot be deployed *through* it. Keeping them as real nodes
+    means the DAG's shape is right from the start and moving one onto the
+    projectbuilder path later is a per-node change.
+    """
+
+    def _runner(self):
+        return LocalWorkflowRunner("http://x", tracking=False)
+
+    def test_handler_runs_instead_of_a_container(self):
+        called = []
+        node = {
+            "instance_name": "core-databases",
+            "repo_class_name": "hmd-postgres-rds",
+            "rid_nid": "rid-1",
+            "handler": lambda n, destroy: called.append((n["instance_name"], destroy)),
+        }
+        runner = self._runner()
+        with mock.patch.object(runner, "_execute_in_projectbuilder") as pb:
+            result = runner._execute_node(node)
+        pb.assert_not_called()
+        self.assertTrue(result.success)
+        self.assertEqual(called, [("core-databases", False)])
+
+    def test_a_handler_returning_false_fails_the_node(self):
+        node = {"instance_name": "x", "handler": lambda n, d: False}
+        self.assertFalse(self._runner()._execute_node(node).success)
+
+    def test_a_raising_handler_fails_the_node_rather_than_the_run(self):
+        def boom(node, destroy):
+            raise RuntimeError("no database")
+
+        result = self._runner()._execute_node({"instance_name": "x", "handler": boom})
+        self.assertFalse(result.success)
+        self.assertIn("no database", result.stderr)
+
+    def test_a_node_without_a_handler_still_uses_projectbuilder(self):
+        runner = self._runner()
+        node = {"instance_name": "x", "repo_class_name": "hmd-inf-trino"}
+        with mock.patch.object(runner, "_execute_in_projectbuilder") as pb:
+            pb.return_value = lwr._NodeResult(True)
+            runner._execute_node(node)
+        pb.assert_called_once()
