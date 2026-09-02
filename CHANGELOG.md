@@ -1,5 +1,64 @@
 # Changelog
 
+## 2026-09-02
+
+- feat: Collapse the per-environment Flocis into one multi-account Floci
+
+  An environment used to run its own Floci container alongside its Postgres,
+  JanusGraph and k3s cluster -- roughly 1.5-2.5 GB each, the footprint
+  limitation `docs/environments.rst` already called out. Floci isolates accounts
+  within a single container, resolving which one a request belongs to from the
+  SigV4 access key id it is signed with (a 12-digit AKID *is* the account) and
+  namespacing every storage-backed service beneath it. So the `floci` service is
+  gone from `docker-compose.environment.yml`, and an environment is now an
+  account inside the control plane's Floci.
+
+  `FlociTarget` gains `access_key_id`, and that field alone selects the account:
+  `env_target()` returns the same endpoint, container and alias as the control
+  plane, differing only in the account. Because every caller already went
+  through `_get_client`, the existing call sites became account-correct without
+  being touched.
+
+  `_get_client` now signs with `target.access_key_id` rather than
+  `$AWS_ACCESS_KEY_ID`. An ambient key was harmless while accounts were
+  separated by endpoint; now it would silently route an environment's calls into
+  whichever account that key names. The same fix is threaded into the two places
+  that build credentials by hand: the projectbuilder containers running deploy
+  nodes, and the External Secrets operator's chart values (a new
+  `_inject_floci_account`, mirroring `_inject_docker_credentials`) -- otherwise
+  every environment's operator authenticates as one account and resolves the
+  control plane's secrets instead of its own, silently, since the secret names
+  are identical across environments.
+
+  Also removed as a consequence: `floci_container`/`floci_alias` as persisted
+  registry fields (now derived constants, so stale per-environment values in an
+  existing registry fall away on load), the per-environment Floci stream
+  listener in nginx, the per-environment Floci health wait, the now-dead
+  `_wait_for_container_health`, and the `FLOCI` column in `env list`, which
+  pointed at a port nothing listens on. The port-slot layout is deliberately
+  unchanged -- `trino_port`/`graph_port`/`spare_port` are offsets from the slot
+  base, and slot 0's spare port is the Deployment GUI's published 19003, so
+  reclaiming one unused port would move every environment's Trino and the GUI.
+
+- feat: Refuse to start over pre-collapse per-environment Floci state
+
+  That state cannot be migrated: Floci keys persisted records by an account
+  prefix whose on-disk format it does not document. Ignoring it would be worse
+  than failing -- an environment's Lambdas, gateways, buckets and secrets would
+  appear to have vanished while `up` reported success. `up` now names the
+  environments involved and points at `down --purge`. Legacy-layout
+  environments are exempt: their "own" Floci data dir *is* the control plane's.
+
+- fix: Upgrade Floci 1.7.0 -> 2.0.1
+
+  The only breaking change across the 2.0 boundary is a Step Functions JSONata
+  fix, and `stepfunctions` is not in `FLOCI_SERVICES`. 2.0.0 lands several
+  things the local platform wants directly: EKS cluster restoration after
+  restart, Lambda ARN/function-URL invocations resolving in the owning account,
+  API Gateway v2 routing requests to the API-owning account (all three
+  load-bearing for multi-account), and RDS matching AWS's real defaults so a
+  second `terraform plan` reports no changes.
+
 ## 2026-09-01
 
 - fix: Pin Floci at 1.7.0 so a plain `down` preserves the k3s cluster's volume

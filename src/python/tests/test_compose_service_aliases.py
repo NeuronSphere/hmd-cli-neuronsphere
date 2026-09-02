@@ -88,14 +88,16 @@ class FlociHostnameTests(unittest.TestCase):
         aliases = floci["networks"]["neuronsphere_default"]["aliases"]
         self.assertIn("neuronsphere", aliases)
 
-    def test_an_environment_publishes_its_own_container_name(self):
+    def test_an_environment_defines_no_floci_of_its_own(self):
+        """One Floci serves every account.
+
+        A second Floci on the network would also re-register the `floci` service
+        key as an alias, making that name ambiguous again -- and, worse, would
+        give the environment a separate store that the account-scoped one is
+        supposed to have replaced.
+        """
         doc = yaml.safe_load((SERVICES / "docker-compose.environment.yml").read_text())
-        floci = doc["services"]["floci"]
-        # Already unique per environment, and deliberately coupled to
-        # env_target().internal_endpoint.
-        self.assertEqual(
-            floci["environment"]["FLOCI_HOSTNAME"], "${NS_ENV_FLOCI_CONTAINER}"
-        )
+        self.assertNotIn("floci", doc["services"])
 
 
 if __name__ == "__main__":

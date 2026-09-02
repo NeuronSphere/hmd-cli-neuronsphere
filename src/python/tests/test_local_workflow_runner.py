@@ -699,32 +699,30 @@ class EnsureNodeImageTests(unittest.TestCase):
 
 
 class DeployedLambdaEndpointTests(unittest.TestCase):
-    """A deployed Lambda must be handed *its own* environment's Floci endpoint.
+    """A deploy must run against *its own* environment's emulated AWS account.
 
-    hmd-lib-cdktf-factories stamps ``AWS_ENDPOINT_URL`` onto every local Lambda
-    it deploys, and takes the value from the deployer's own environment. That
-    only works because the runner exports the environment's Floci here.
+    One Floci serves every account, so the endpoint is the same for all of them
+    and the **credentials** are what select the account: Floci reads the account
+    id straight off a 12-digit SigV4 access key id.
 
-    The failure this guards against is silent: ``neuronsphere`` is a Docker
-    network alias on the *control-plane* Floci, and only CoreDNS inside the k3s
-    cluster remaps it to the environment's. Floci runs Lambdas as containers on
-    the raw Docker network, so a Lambda handed the bare alias reads secrets and
-    SSM parameters from the control-plane account -- where a service's DB
-    credentials do not exist ("Unable to read secret name: ...").
+    The failure this guards against is silent rather than loud. Signed with the
+    wrong key, a deploy still succeeds -- it just creates the environment's CDKTF
+    resources, and reads its secrets and SSM parameters, in another account.
+    Downstream that surfaces far away as a service's DB credentials not existing
+    ("Unable to read secret name: ...").
     """
 
     class _Env:
-        def __init__(self, slug, legacy=False):
+        def __init__(self, slug, legacy=False, account_id="000000000002"):
             self.slug = slug
             self.deployment_id = slug
             self.k3s_cluster = f"ns-{slug}"
-            self.floci_container = f"floci-{slug}"
-            self.floci_alias = f"neuronsphere-{slug}"
+            self.account_id = account_id
             self.legacy_layout = legacy
             self.kubeconfig = f"/nonexistent/{slug}/kubeconfig"
 
-    def _endpoint_passed_to_docker(self, env, environ=None):
-        """Run a node and return the AWS_ENDPOINT_URL the container was given."""
+    def _endpoint_passed_to_docker(self, env, environ=None, _want="AWS_ENDPOINT_URL"):
+        """Run a node and return one env var the container was given."""
         with tempfile.TemporaryDirectory() as d:
             meta = os.path.join(d, "meta-data")
             os.makedirs(meta)
@@ -750,29 +748,54 @@ class DeployedLambdaEndpointTests(unittest.TestCase):
                         runner._execute_in_projectbuilder(node)
             cmd = run.call_args[0][0]
 
+        return self._env_var(cmd, _want)
+
+    def _env_var(self, cmd, name):
         for arg in cmd:
-            if arg.startswith("AWS_ENDPOINT_URL="):
+            if arg.startswith(f"{name}="):
                 return arg.split("=", 1)[1]
-        self.fail(f"no AWS_ENDPOINT_URL in {cmd}")
+        self.fail(f"no {name} in {cmd}")
 
-    def test_environment_deploy_targets_its_own_floci(self):
-        endpoint = self._endpoint_passed_to_docker(self._Env("dev2"))
-        self.assertEqual(endpoint, "http://floci-dev2:4566")
+    def _akid_passed_to_docker(self, env):
+        return self._endpoint_passed_to_docker(env, _want="AWS_ACCESS_KEY_ID")
 
-    def test_environment_deploy_never_gets_the_control_plane_alias(self):
-        # The whole point: `neuronsphere` means the control plane out here.
-        endpoint = self._endpoint_passed_to_docker(self._Env("local"))
-        self.assertNotIn("//neuronsphere:", endpoint)
-        self.assertEqual(endpoint, "http://floci-local:4566")
+    def test_every_deploy_reaches_the_one_floci(self):
+        for env in (self._Env("dev2"), self._Env("local"), None):
+            with self.subTest(env=getattr(env, "slug", None)):
+                self.assertEqual(
+                    self._endpoint_passed_to_docker(env), "http://neuronsphere:4566"
+                )
 
-    def test_legacy_environment_still_uses_the_control_plane(self):
-        # A legacy-layout environment shares the control-plane Floci.
-        endpoint = self._endpoint_passed_to_docker(self._Env("local", legacy=True))
-        self.assertEqual(endpoint, "http://neuronsphere:4566")
+    def test_environment_deploy_signs_as_its_own_account(self):
+        akid = self._akid_passed_to_docker(self._Env("dev2", account_id="000000000002"))
+        self.assertEqual(akid, "000000000002")
+
+    def test_environment_deploy_never_signs_as_the_control_plane(self):
+        # The whole point: signing as 000000000000 puts this environment's
+        # resources in the control plane's account.
+        akid = self._akid_passed_to_docker(
+            self._Env("local", account_id="000000000001")
+        )
+        self.assertNotEqual(akid, "000000000000")
+
+    def test_an_ambient_access_key_cannot_redirect_the_account(self):
+        akid = self._endpoint_passed_to_docker(
+            self._Env("dev2", account_id="000000000002"),
+            environ={"AWS_ACCESS_KEY_ID": "000000000009"},
+            _want="AWS_ACCESS_KEY_ID",
+        )
+        self.assertEqual(akid, "000000000002")
+
+    def test_legacy_environment_signs_as_the_control_plane(self):
+        # A legacy-layout environment *is* the control-plane account.
+        akid = self._akid_passed_to_docker(self._Env("local", legacy=True))
+        self.assertEqual(akid, "000000000000")
 
     def test_no_environment_uses_the_control_plane(self):
-        endpoint = self._endpoint_passed_to_docker(None)
-        self.assertEqual(endpoint, "http://neuronsphere:4566")
+        self.assertEqual(
+            self._endpoint_passed_to_docker(None, _want="AWS_ACCESS_KEY_ID"),
+            "000000000000",
+        )
 
     def test_explicit_override_wins(self):
         endpoint = self._endpoint_passed_to_docker(

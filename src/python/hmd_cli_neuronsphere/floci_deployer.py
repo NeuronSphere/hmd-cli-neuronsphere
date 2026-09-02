@@ -46,8 +46,14 @@ FLOCI_WORKLOAD_INTERNAL_ENDPOINT = FLOCI_INTERNAL_ENDPOINT
 
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 ACCOUNT_ID = "000000000000"
-# Single-account local: workload deployments share the control-plane account.
+# Retained alias: the former split "workload" Floci is the control-plane account.
 WORKLOAD_ACCOUNT_ID = ACCOUNT_ID
+
+# The one Floci container. Every environment is an *account* inside it, reached
+# by signing with that account's 12-digit id (see FlociTarget.access_key_id), so
+# there is no per-environment container or alias to derive.
+CONTROL_PLANE_FLOCI_CONTAINER = "floci"
+CONTROL_PLANE_FLOCI_ALIAS = "neuronsphere"
 
 # Local default when HMD_CUSTOMER_CODE is not configured. Must match the value
 # the ms-dbaccount Lambda + workflow runner deploy with, or admin/user DB
@@ -124,28 +130,33 @@ def ensure_neuronsphere_hosts_entry() -> None:
 
 @dataclass(frozen=True)
 class FlociTarget:
-    """Which Floci instance an API call is aimed at.
+    """Which emulated AWS account an API call is aimed at.
 
-    There is one Floci for the control plane and one per named environment
-    (each emulating its own AWS account). Every function that talks to Floci
-    takes an optional ``target``; omitting it means the control plane, so all
-    pre-existing call sites keep their original behaviour.
+    There is exactly **one** Floci container. The control plane and every named
+    environment are separate *accounts* inside it, not separate containers.
+    Every function that talks to Floci takes an optional ``target``; omitting it
+    means the control plane, so all pre-existing call sites keep their original
+    behaviour.
 
-    ``endpoint`` is reachable from the host (the control plane's published
-    :4566, or an env's ``hmd_proxy`` stream port); ``internal_endpoint`` is the
+    ``access_key_id`` is what actually selects the account, and it is the whole
+    point of this type. Floci resolves the account from the SigV4 Access Key Id
+    on the request: a 12-digit AKID *is* the account id, and every
+    storage-backed service (S3, DynamoDB, SQS, Lambda, Secrets Manager, IAM,
+    EKS, RDS...) namespaces its data under it. Sign with the wrong AKID and the
+    call silently lands in the wrong account rather than failing.
+
+    ``endpoint`` is reachable from the host; ``internal_endpoint`` is the
     in-Docker-network address baked into API Gateway invoke URLs and handed to
-    Lambdas as ``AWS_ENDPOINT_URL``.
+    Lambdas as ``AWS_ENDPOINT_URL``. Both are now the same for every target --
+    only ``access_key_id`` differs.
 
-    ``container`` and ``alias`` are deliberately distinct. ``container`` is the
-    Docker container name -- use it for ``docker exec``/``docker inspect`` and
-    nothing else. ``alias`` is the name that may be put *on the wire* (nginx
-    upstreams, ``AWS_ENDPOINT_URL``, chart hostnames): it is always an explicit
-    ``networks.<net>.aliases`` entry, never a Compose *service key*. Compose
-    registers every service key as a network alias in every project sharing the
-    network, and both docker-compose.control-plane.yml and
-    docker-compose.environment.yml key their Floci service ``floci`` -- so
-    ``floci`` round-robins across the control-plane and every environment's
-    Floci, silently splitting API Gateway and Lambda state between accounts.
+    ``container`` and ``alias`` remain distinct. ``container`` is the Docker
+    container name -- use it for ``docker exec``/``docker inspect`` and nothing
+    else. ``alias`` is the name that may be put *on the wire* (nginx upstreams,
+    ``AWS_ENDPOINT_URL``, chart hostnames): it is an explicit
+    ``networks.<net>.aliases`` entry, never a Compose *service key*, because
+    Compose registers every service key as a network alias on the shared
+    network.
     """
 
     name: str
@@ -155,36 +166,45 @@ class FlociTarget:
     container: str
     alias: str
     region: str = REGION
+    # Defaults to the control-plane account so a hand-built target without an
+    # explicit AKID keeps addressing the account it always did.
+    access_key_id: str = ACCOUNT_ID
 
 
 def control_plane_target() -> FlociTarget:
-    """The control-plane Floci -- ms-deployment, ms-naming, artifact-lib."""
+    """The control-plane Floci account -- ms-deployment, ms-naming, artifact-lib."""
     return FlociTarget(
         name="control-plane",
         endpoint=FLOCI_ENDPOINT,
         internal_endpoint=FLOCI_INTERNAL_ENDPOINT,
         account_id=ACCOUNT_ID,
-        container="floci",
-        alias="neuronsphere",
+        container=CONTROL_PLANE_FLOCI_CONTAINER,
+        alias=CONTROL_PLANE_FLOCI_ALIAS,
+        access_key_id=ACCOUNT_ID,
     )
 
 
 def env_target(env) -> FlociTarget:
     """The Floci account belonging to ``env`` (an ``env_registry.LocalEnvironment``).
 
-    A legacy-layout environment shares the control-plane Floci (see
-    ``env_registry._legacy_environment``), so it resolves to the same endpoints
-    and account as the control plane.
+    Same container, same endpoints and same alias as the control plane -- the
+    environment is a distinct *account* within the single Floci, selected by
+    signing with its 12-digit account id as the access key.
+
+    A legacy-layout environment *is* the control-plane account (see
+    ``env_registry._legacy_environment``), so it resolves to that target
+    outright.
     """
     if getattr(env, "legacy_layout", False):
         return control_plane_target()
     return FlociTarget(
         name=env.slug,
-        endpoint=f"http://localhost:{env.floci_port}",
-        internal_endpoint=f"http://{env.floci_container}:4566",
+        endpoint=FLOCI_ENDPOINT,
+        internal_endpoint=FLOCI_INTERNAL_ENDPOINT,
         account_id=env.account_id,
-        container=env.floci_container,
-        alias=env.floci_alias,
+        container=CONTROL_PLANE_FLOCI_CONTAINER,
+        alias=CONTROL_PLANE_FLOCI_ALIAS,
+        access_key_id=env.account_id,
     )
 
 
@@ -197,7 +217,10 @@ def _get_client(service: str, target: Optional[FlociTarget] = None):
     return boto3.client(
         service,
         endpoint_url=target.endpoint,
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "dummykey"),
+        # The account selector -- NOT $AWS_ACCESS_KEY_ID. An ambient credential
+        # would route every environment's call into whichever account that key
+        # resolves to, which is exactly the cross-account leak this replaces.
+        aws_access_key_id=target.access_key_id,
         aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "dummykey"),
         region_name=target.region,
     )

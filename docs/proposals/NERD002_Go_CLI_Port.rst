@@ -210,14 +210,19 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     A local NeuronSphere is **one shared control plane per ``HMD_HOME``**
     (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-artifact-lib``, the
-    Deployment GUI, plus their Floci, nginx, Postgres and JanusGraph) serving
-    **N environments**, each a self-contained emulated AWS account with its own
-    Floci, k3s cluster, Postgres, JanusGraph and ``hmd-ms-dbaccount``.
+    Deployment GUI, plus the single Floci, nginx, Postgres and JanusGraph)
+    serving **N environments**, each a self-contained emulated AWS account with
+    its own k3s cluster, Postgres, JanusGraph and ``hmd-ms-dbaccount``.
+
+    The Floci is shared: an environment is an *account* inside the control
+    plane's single Floci container, not a container of its own (SPEC007), which
+    is what makes a second environment cost noticeably less than the first.
 
     ``nsctl env start`` starts the control plane implicitly if it is down, and
-    then **leaves it running**. ``nsctl env stop`` must never stop it, because
-    stopping it breaks every other environment and destroys the deployment
-    graph's availability for all of them.
+    then **leaves it running**. ``nsctl env stop`` must never stop it: stopping
+    it now takes every other environment's emulated AWS with it -- their
+    Lambdas, gateways, buckets and secrets, not just the deployment graph's
+    availability.
 
     The control plane is therefore given its own verb:
 
@@ -260,14 +265,20 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     Re-derivation is not merely redundant, it is **wrong for a case that
     exists in the field**: an environment migrated from the pre-multi-env
-    layout carries ``legacy_layout: true``, shares the control plane's Floci,
-    Postgres and graph rather than running its own, and so has containers named
-    ``floci`` and ``hmd_db`` -- matching no current naming rule at all.
+    layout carries ``legacy_layout: true``, shares the control plane's Postgres
+    and graph rather than running its own, and so has a container named
+    ``hmd_db`` -- matching no current naming rule at all.
+
+    Note ``floci_container``/``floci_alias`` are **not** registry fields. Every
+    environment shares the one Floci, so both are derived constants (``floci``
+    and ``neuronsphere``); a registry written by an older CLI still carries
+    per-environment values, and the loader drops them. The field that does the
+    work is ``account_id`` (SPEC007).
 
     Registry writes (``env add``, ``env delete``, port-slot and account-id
     allocation, ``record_bootstrap``) must preserve the exact JSON shape,
     including the slot arithmetic (``DEFAULT_PORT_BASE=19000``,
-    ``PORTS_PER_ENV=4``, ``MAX_ENVS=16``; slot *n* takes floci ``base+4n``,
+    ``PORTS_PER_ENV=4``, ``MAX_ENVS=16``; slot *n* takes its base at ``base+4n``,
     trino ``+1``, graph ``+2``, spare ``+3``) and the slug rules
     (``^[a-z0-9][a-z0-9-]{0,15}$`` plus the reserved-slug set).
 
@@ -493,8 +504,8 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     :links: HMD_CLI_NERD002
     :status: proposed
 
-    ``floci_deployer.py`` drives S3, Secrets Manager, SSM, Lambda, API Gateway
-    and EKS against the Floci emulator via boto3. ``internal/floci`` uses
+    ``floci_deployer.py`` drives S3, Secrets Manager, SSM, Lambda, API Gateway,
+    RDS and EKS against the Floci emulator via boto3. ``internal/floci`` uses
     ``aws-sdk-go-v2`` with a static-credentials provider and an explicit base
     endpoint:
 
@@ -504,17 +515,32 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
             config.WithRegion(region),
             config.WithBaseEndpoint(endpoint),
             config.WithCredentialsProvider(
-                credentials.NewStaticCredentialsProvider("dummykey", "dummykey", ""),
+                // The account selector -- see below. NOT a dummy value, and
+                // never read from the ambient AWS_ACCESS_KEY_ID.
+                credentials.NewStaticCredentialsProvider(accountID, "dummykey", ""),
             ),
         )
 
     Notes carried forward from the Python implementation:
 
-    - **Which endpoint matters.** The control plane is account
-      ``000000000000`` behind the ``neuronsphere`` alias; each environment has
-      its own Floci container and account. Deploy nodes are given the
-      environment's Floci container address, **not** the ``neuronsphere``
-      alias -- see the ``feedback_floci_two_endpoint_split`` rule.
+    - **The access key selects the account, and the endpoint does not.** There
+      is exactly one Floci container behind the ``neuronsphere`` alias. The
+      control plane and every environment are separate *accounts* inside it,
+      and Floci resolves which one a request belongs to from the SigV4 access
+      key id it is signed with -- a 12-digit access key *is* the account --
+      namespacing every storage-backed service beneath it.
+
+      So the Go port must carry the account on the target, exactly as
+      ``floci_deployer.FlociTarget.access_key_id`` does, and thread it through
+      every credential-building site: the SDK config above, the projectbuilder
+      containers that run deploy nodes, and the External Secrets operator's
+      chart values. **Signing with the wrong key does not fail** -- the call
+      succeeds against the wrong account, which is why an ambient
+      ``AWS_ACCESS_KEY_ID`` must never be used here.
+
+      This supersedes the earlier container-per-environment rule (each
+      environment addressed by its own Floci container address rather than the
+      ``neuronsphere`` alias), which no longer applies.
     - Errors are matched with ``errors.As`` on ``smithy.APIError`` rather than
       by string-matching a response dict.
     - ``clear_apigateway_state`` must be preserved: Floci persists API Gateway
@@ -871,7 +897,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     the Python function's outputs.
 
     **MEDIUM: k3s operator provisioning is intricate.** CoreDNS custom records
-    pointing ``neuronsphere`` at the environment's Floci, Traefik
+    pointing ``neuronsphere`` at the shared Floci, Traefik
     ingress-class patching (emulating the ``alb`` class rather than editing
     charts), node topology labels, stale-Node and orphaned-PV reaping, and
     ``cluster_incarnation_id`` fingerprinting via the ``kube-system`` namespace

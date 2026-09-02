@@ -35,6 +35,14 @@ logger = minimal_logger("env_registry")
 REGISTRY_VERSION = 1
 DEFAULT_ENV_NAME = "local"
 
+# There is one Floci container for the whole install. Every environment is an
+# emulated AWS *account* inside it, selected per-request by signing with that
+# account's 12-digit id (``floci_deployer.FlociTarget.access_key_id``) -- so
+# unlike the container-per-environment layout this replaces, there is no
+# per-environment Floci container or network alias to derive.
+CONTROL_PLANE_FLOCI_CONTAINER = "floci"
+CONTROL_PLANE_FLOCI_ALIAS = "neuronsphere"
+
 # Host ports hmd_proxy publishes for env-scoped nginx `stream{}` listeners. The
 # whole range is published up front by the control-plane compose file (a
 # compose `ports:` list is static), and individual listeners inside it are
@@ -91,8 +99,6 @@ class LocalEnvironment:
     account_id: str
     deployment_id: str
     core_instance_name: str
-    floci_container: str
-    floci_alias: str
     db_container: str
     graph_container: str
     state_dir: str
@@ -107,9 +113,31 @@ class LocalEnvironment:
     legacy_layout: bool = False
     bootstrap: Dict[str, Any] = field(default_factory=dict)
 
+    # -- the single Floci ---------------------------------------------------
+    # Derived, not persisted: every environment shares the one Floci container
+    # and its `neuronsphere` alias, and is told apart by `account_id` alone.
+    # Registries written by an older CLI still carry per-environment values for
+    # these; load() drops unknown keys, so those simply fall away.
+    @property
+    def floci_container(self) -> str:
+        return CONTROL_PLANE_FLOCI_CONTAINER
+
+    @property
+    def floci_alias(self) -> str:
+        return CONTROL_PLANE_FLOCI_ALIAS
+
     # -- derived host ports ------------------------------------------------
     @property
     def floci_port(self) -> int:
+        """The slot's base port.
+
+        No longer carries a Floci stream listener -- the single Floci is reached
+        on the control plane's :4566 -- but the slot layout is deliberately
+        unchanged: `trino_port`, `graph_port` and `spare_port` are offsets from
+        it, and slot 0's spare port is the Deployment GUI's published 19003
+        (`bom_seeder._DEFAULT_GUI_PORT`). Renumbering to reclaim one port would
+        move every environment's Trino and the GUI.
+        """
         return self.port_base + self.port_slot * PORTS_PER_ENV
 
     @property
@@ -157,21 +185,28 @@ class LocalEnvironment:
         return self.slug == DEFAULT_ENV_NAME
 
     def state_dirs(self) -> List[Path]:
-        """Every directory that must exist before the env compose file starts."""
+        """Every directory that must exist before the env compose file starts.
+
+        ``floci_data_dir`` is deliberately absent: the environment's Floci state
+        lives inside the single control-plane Floci's data dir, namespaced by
+        account. The property is kept only so
+        :func:`legacy_env_floci_state` can spot a pre-collapse install.
+        """
         return [
-            self.floci_data_dir,
             self.postgres_data_dir,
             self.graph_data_dir,
             self.kubeconfig_path.parent,
         ]
 
     def compose_env(self) -> Dict[str, str]:
-        """``NS_ENV_*`` variables consumed by ``docker-compose.environment.yml``."""
+        """``NS_ENV_*`` variables consumed by ``docker-compose.environment.yml``.
+
+        No ``NS_ENV_FLOCI_*``: that compose file no longer defines a Floci
+        service.
+        """
         return {
             "NS_ENV_SLUG": self.slug,
             "NS_ENV_ACCOUNT_ID": self.account_id,
-            "NS_ENV_FLOCI_CONTAINER": self.floci_container,
-            "NS_ENV_FLOCI_ALIAS": self.floci_alias,
             "NS_ENV_DB_CONTAINER": self.db_container,
             "NS_ENV_GRAPH_CONTAINER": self.graph_container,
             "NS_ENV_STATE_DIR": str(self.state_path),
@@ -337,8 +372,6 @@ def _build_environment(reg: Registry, name: str) -> LocalEnvironment:
         # unique by name *per Environment*, so `local-neuronsphere` in `dev2` is
         # a different instance than the one in `local`. This matches the cloud.
         core_instance_name="local-neuronsphere",
-        floci_container=f"floci-{slug}",
-        floci_alias=f"neuronsphere-{slug}",
         db_container=f"hmd_db-{slug}",
         graph_container=f"global-graph-{slug}",
         state_dir=str(environments_root() / slug),
@@ -364,8 +397,6 @@ def _legacy_environment(marker: Optional[Dict[str, Any]]) -> LocalEnvironment:
         account_id=CONTROL_PLANE_ACCOUNT_ID,
         deployment_id=DEFAULT_ENV_NAME,
         core_instance_name="local-neuronsphere",
-        floci_container="floci",
-        floci_alias="neuronsphere",
         db_container="hmd_db",
         graph_container="global-graph",
         state_dir=str(_hmd_home()),
@@ -436,6 +467,34 @@ def load() -> Registry:
         reg.control_plane.bootstrapped = True
         logger.debug("Migrated pre-multi-environment layout into the env registry.")
     return reg
+
+
+def legacy_env_floci_state(reg: Registry) -> List["LocalEnvironment"]:
+    """Environments still holding state from the container-per-environment layout.
+
+    Before the multi-account collapse each environment ran its own Floci with its
+    own ``<state_dir>/floci/data``. That state cannot be merged into the single
+    Floci: it is namespaced on disk by account prefix in a format Floci does not
+    document, so anything we did here would be a guess.
+
+    Silently ignoring those directories would be worse than failing -- the
+    environment's Lambdas, API gateways, buckets and secrets would appear to have
+    vanished while `up` reported success. So `up` refuses and asks for a purge;
+    see ``hmd_cli_neuronsphere._assert_no_legacy_env_floci_state``.
+
+    A legacy-layout environment is exempt: its "own" Floci data dir *is* the
+    control plane's, which is still exactly where its state belongs.
+    """
+    stale = []
+    for env in reg.environments.values():
+        if getattr(env, "legacy_layout", False):
+            continue
+        try:
+            if env.floci_data_dir.is_dir() and any(env.floci_data_dir.iterdir()):
+                stale.append(env)
+        except OSError:
+            continue
+    return stale
 
 
 def save(reg: Registry) -> None:

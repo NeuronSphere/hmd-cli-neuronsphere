@@ -1162,7 +1162,6 @@ class EnvController(Controller):
                                 "account_id": e.account_id,
                                 "deployment_id": e.deployment_id,
                                 "k3s_cluster": e.k3s_cluster,
-                                "floci_port": e.floci_port,
                                 "trino_port": e.trino_port,
                                 "legacy_layout": e.legacy_layout,
                                 "bootstrapped": bool(e.bootstrap.get("csd_nid")),
@@ -1180,14 +1179,12 @@ class EnvController(Controller):
             print("      hmd neuronsphere env create <name>\n")
             return
 
-        print(
-            f"\n  {'':1} {'NAME':<16} {'ACCOUNT':<14} {'FLOCI':<7} {'TRINO':<7} ROUTES"
-        )
+        print(f"\n  {'':1} {'NAME':<16} {'ACCOUNT':<14} {'TRINO':<7} ROUTES")
         for e in envs:
             marker = "*" if e.slug == reg.default_env else " "
             print(
                 f"  {marker} {e.slug:<16} {e.account_id:<14} "
-                f"{e.floci_port:<7} {e.trino_port:<7} http://localhost/{e.slug}/"
+                f"{e.trino_port:<7} http://localhost/{e.slug}/"
             )
         print("\n  * = default (used when --env is omitted)\n")
 

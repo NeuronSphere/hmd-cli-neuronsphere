@@ -2,14 +2,17 @@ version: "3.7"
 
 # One named local environment: a self-contained emulated AWS account.
 #
-# Each environment gets its own Floci (its own account id and state), its own
-# Postgres and its own JanusGraph -- mirroring the cloud, where every account
-# carries its own RDS and Neptune. Its k3s/EKS cluster is spawned by *this*
-# Floci, and `hmd-ms-dbaccount` is deployed into it.
+# There is deliberately NO Floci service here. Every environment is an emulated
+# *account* inside the single control-plane Floci, selected per-request by the
+# 12-digit account id used as the SigV4 access key
+# (`floci_deployer.FlociTarget.access_key_id`) -- so its k3s/EKS cluster,
+# Lambdas, buckets and secrets are all namespaced by account rather than
+# separated by container. What remains here is the state a Floci account cannot
+# hold: this environment's own Postgres and JanusGraph, mirroring the cloud where
+# every account carries its own RDS and Neptune.
 #
 # NO service here publishes a host port. Everything is reached through
-# `hmd_proxy`: HTTP at http://localhost/<slug>/<service>/, and the environment's
-# Floci through an nginx stream on its allocated port. That is what allows
+# `hmd_proxy`: HTTP at http://localhost/<slug>/<service>/. That is what allows
 # several environments to run side by side.
 #
 # Every NS_ENV_* value comes from the environment registry
@@ -17,55 +20,10 @@ version: "3.7"
 # `environments.py` before compose is invoked. Container names are
 # slug-suffixed because a Docker network alias must be unique on the shared
 # network; inside each cluster CoreDNS maps the canonical names
-# (hmd_db, global-graph, neuronsphere) back to that environment's containers,
-# so cloud Helm charts work unmodified.
+# (hmd_db, global-graph) back to that environment's containers, so cloud Helm
+# charts work unmodified.
 
 services:
-  floci:
-    image: floci/floci:${HMD_LOCAL_FLOCI_VERSION:-1.7.0}
-    container_name: ${NS_ENV_FLOCI_CONTAINER}
-    environment:
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,ecr,eks,secretsmanager,rds
-      # Persistent state lives in this environment's own data dir. Floci writes
-      # API Gateway *v1* entities with all-null fields and rehydrates them on
-      # start, so `clear_apigateway_state` drops those files on every `up`;
-      # every other service persists correctly.
-      FLOCI_STORAGE_MODE: persistent
-      # Floci 1.7.0: keep the spawned k3s container's volume across a Floci
-      # restart -- see the matching comment in docker-compose.control-plane.yml
-      # and the k3s-cluster-persistence note in docs/modes.rst.
-      FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN: "false"
-      FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE: "false"
-      FLOCI_LAMBDA_EXECUTOR: docker
-      FLOCI_DEFAULT_REGION: ${AWS_REGION:-us-west-2}
-      # This environment's emulated AWS account -- distinct from the control
-      # plane's 000000000000 and from every other environment's.
-      FLOCI_DEFAULT_ACCOUNT_ID: ${NS_ENV_ACCOUNT_ID}
-      FLOCI_HOSTNAME: ${NS_ENV_FLOCI_CONTAINER}
-      FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
-      FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
-      FLOCI_SERVICES_EKS_MOCK: "false"
-      # Floci hardcodes two broken kube-apiserver overrides when spawning k3s
-      # (--kube-apiserver-arg=storage-backend=sqlite3 and
-      # etcd-servers=unix:///tmp/kine.sock) that crash-loop the apiserver. The
-      # hmd-img-k3s-floci wrapper entrypoint drops them.
-      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.2}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
-    volumes:
-      - "${NS_ENV_STATE_DIR}/floci/data:/app/data"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_floci/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-    networks:
-      neuronsphere_default:
-        aliases:
-          - ${NS_ENV_FLOCI_ALIAS}
-
   db:
     container_name: ${NS_ENV_DB_CONTAINER}
     image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}

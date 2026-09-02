@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   floci:
-    image: floci/floci:${HMD_LOCAL_FLOCI_VERSION:-1.7.0}
+    image: floci/floci:${HMD_LOCAL_FLOCI_VERSION:-2.0.1}
     container_name: floci
     ports:
       - "4566:4566"

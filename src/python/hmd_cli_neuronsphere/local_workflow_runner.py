@@ -635,19 +635,18 @@ class LocalWorkflowRunner:
             os.environ.get("HMD_LOCAL_INCONTAINER_RESOURCE_SUBMIT")
         )
 
-        # The Floci account this deploy targets: the environment's own, resolved
-        # by its real container name. NOT the `neuronsphere` alias -- that is a
-        # network alias on the *control-plane* Floci, so using it here would
-        # silently create the environment's CDKTF resources in the wrong account.
-        # (Inside the k3s cluster, CoreDNS does point `neuronsphere` at this
-        # environment's Floci; the projectbuilder container is not in the
-        # cluster, so it must address the container directly.)
-        if self.env is not None and not getattr(self.env, "legacy_layout", False):
-            default_endpoint = f"http://{self.env.floci_container}:4566"
-        else:
-            default_endpoint = "http://neuronsphere:4566"
+        # The Floci account this deploy targets. One Floci serves every account,
+        # so the endpoint is the same for all of them and the *credentials* are
+        # what select the account -- see `access_key_id` below. Getting that wrong
+        # silently creates the environment's CDKTF resources in another account
+        # rather than failing.
+        from .floci_deployer import control_plane_target, env_target
+
+        target = (
+            env_target(self.env) if self.env is not None else control_plane_target()
+        )
         floci_endpoint = os.environ.get(
-            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", default_endpoint
+            "FLOCI_WORKLOAD_ENDPOINT_DOCKER", target.internal_endpoint
         )
 
         # Resolve the repo path and any src/local overlay, then decide the
@@ -716,8 +715,11 @@ class LocalWorkflowRunner:
             DOCKER_NETWORK_NAME,
             "-e",
             f"AWS_ENDPOINT_URL={floci_endpoint}",
+            # The account selector: Floci reads the account id straight off a
+            # 12-digit access key. An ambient $AWS_ACCESS_KEY_ID would put every
+            # environment's CDKTF state in the same account.
             "-e",
-            f"AWS_ACCESS_KEY_ID={os.environ.get('AWS_ACCESS_KEY_ID', 'dummykey')}",
+            f"AWS_ACCESS_KEY_ID={target.access_key_id}",
             "-e",
             f"AWS_SECRET_ACCESS_KEY={os.environ.get('AWS_SECRET_ACCESS_KEY', 'dummykey')}",
             "-e",

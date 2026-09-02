@@ -1,19 +1,25 @@
-"""Which Floci an API call reaches (``floci_deployer`` targets).
+"""Which emulated AWS account an API call reaches (``floci_deployer`` targets).
 
-``FlociTarget`` carries two names for the same container and they are not
-interchangeable. ``container`` is for ``docker exec``/``docker inspect``.
-``alias`` is the only one that may go on the wire, because Compose registers
-every *service key* as a network alias in every project sharing the network --
-and both docker-compose.control-plane.yml and docker-compose.environment.yml
-key their Floci service ``floci``. Addressing ``floci`` therefore round-robins
-between the control-plane Floci and every environment's, splitting API Gateway
-and Lambda state across emulated AWS accounts; the visible symptom is Floci
-answering ``{"message":"Invalid API id specified"}`` for a gateway it never saw.
+There is one Floci container. The control plane and every named environment are
+separate *accounts* inside it, and ``FlociTarget.access_key_id`` is what selects
+one: Floci resolves the account from the SigV4 access key id on the request, so a
+12-digit AKID *is* the account. Every storage-backed service namespaces its data
+under it.
+
+That makes the access key the load-bearing field, and getting it wrong fails
+silently -- the call succeeds against the wrong account rather than erroring.
+
+``container`` and ``alias`` remain distinct: ``container`` is for
+``docker exec``/``docker inspect``, ``alias`` is the only one that may go on the
+wire, because Compose registers every *service key* as a network alias on the
+shared network.
 
 Run directly: ``python -m pytest src/python/tests/test_floci_targets.py``
 """
 
+import os
 import unittest
+from unittest import mock
 
 from hmd_cli_neuronsphere import floci_deployer as fd
 
@@ -26,12 +32,9 @@ AMBIGUOUS_SERVICE_KEYS = {"floci", "db", "graph", "proxy"}
 class _Env:
     legacy_layout = False
 
-    def __init__(self, slug):
+    def __init__(self, slug, account_id="000000000002"):
         self.slug = slug
-        self.floci_container = f"floci-{slug}"
-        self.floci_alias = f"neuronsphere-{slug}"
-        self.floci_port = 19004
-        self.account_id = "000000000002"
+        self.account_id = account_id
 
 
 class _LegacyEnv(_Env):
@@ -49,19 +52,62 @@ class ControlPlaneTargetTests(unittest.TestCase):
         # named `floci` -- the ambiguity is only in DNS.
         self.assertEqual(fd.control_plane_target().container, "floci")
 
+    def test_signs_as_the_control_plane_account(self):
+        target = fd.control_plane_target()
+        self.assertEqual(target.access_key_id, "000000000000")
+        self.assertEqual(target.access_key_id, target.account_id)
+
 
 class EnvTargetTests(unittest.TestCase):
-    def test_addresses_its_own_alias(self):
+    def test_shares_the_single_floci(self):
         target = fd.env_target(_Env("dev2"))
-        self.assertEqual(target.alias, "neuronsphere-dev2")
-        self.assertEqual(target.container, "floci-dev2")
+        cp = fd.control_plane_target()
+        self.assertEqual(target.alias, cp.alias)
+        self.assertEqual(target.container, cp.container)
+        self.assertEqual(target.endpoint, cp.endpoint)
+        self.assertEqual(target.internal_endpoint, cp.internal_endpoint)
+
+    def test_is_told_apart_only_by_its_account(self):
+        target = fd.env_target(_Env("dev2", account_id="000000000002"))
+        self.assertEqual(target.account_id, "000000000002")
+        self.assertEqual(target.access_key_id, "000000000002")
+        self.assertNotEqual(
+            target.access_key_id, fd.control_plane_target().access_key_id
+        )
+
+    def test_two_environments_never_share_an_account(self):
+        a = fd.env_target(_Env("dev2", account_id="000000000002"))
+        b = fd.env_target(_Env("dev3", account_id="000000000003"))
+        self.assertNotEqual(a.access_key_id, b.access_key_id)
 
     def test_a_legacy_env_resolves_to_the_control_plane(self):
-        """A legacy-layout env shares the control-plane Floci, so it shares its
-        names -- including the container name ``floci``."""
+        """A legacy-layout env *is* the control-plane account."""
         target = fd.env_target(_LegacyEnv("local"))
         self.assertEqual(target, fd.control_plane_target())
         self.assertEqual(target.alias, "neuronsphere")
+
+
+class ClientCredentialTests(unittest.TestCase):
+    """The client must sign with the target's account, not an ambient key.
+
+    An ambient ``$AWS_ACCESS_KEY_ID`` used to be harmless -- accounts were
+    separated by endpoint. Now it would silently route every environment's call
+    into whichever account that key names.
+    """
+
+    def _akid(self, target, environ):
+        with mock.patch.dict(os.environ, environ, clear=True):
+            client = fd._get_client("s3", target)
+        return client._request_signer._credentials.access_key
+
+    def test_uses_the_targets_account_over_an_ambient_key(self):
+        target = fd.env_target(_Env("dev2", account_id="000000000002"))
+        self.assertEqual(
+            self._akid(target, {"AWS_ACCESS_KEY_ID": "000000000009"}), "000000000002"
+        )
+
+    def test_defaults_to_the_control_plane_account(self):
+        self.assertEqual(self._akid(None, {}), "000000000000")
 
 
 class NoTargetNamesAnAmbiguousHostTests(unittest.TestCase):

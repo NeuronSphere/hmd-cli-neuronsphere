@@ -424,40 +424,6 @@ def _env_compose_files() -> List[str]:
     return [str(_services_dir() / "docker-compose.environment.yml")]
 
 
-def _wait_for_container_health(container: str, timeout: int = 180) -> bool:
-    """Wait for a container to report healthy (or at least be running).
-
-    Used before the environment's Floci has an nginx stream route, so its health
-    cannot yet be polled over HTTP.
-    """
-    import json as _json
-    import subprocess
-    import time
-
-    start = time.time()
-    while time.time() - start < timeout:
-        result = subprocess.run(
-            ["docker", "inspect", container],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            try:
-                state = _json.loads(result.stdout)[0]["State"]
-            except (ValueError, KeyError, IndexError):
-                state = {}
-            health = (state.get("Health") or {}).get("Status")
-            if health == "healthy":
-                return True
-            if health is None and state.get("Running"):
-                return True
-            if health == "unhealthy":
-                logger.debug(f"{container} reported unhealthy; still waiting")
-        time.sleep(3)
-    logger.warning(f"{container} did not become healthy within {timeout}s")
-    return False
-
-
 def start_environment(
     env: LocalEnvironment,
     verbose: bool = False,
@@ -536,14 +502,12 @@ def start_environment(
         else:
             _exec(command)
 
-        # The environment's Floci has no host port of its own; its stream route
-        # must exist before it can be polled over HTTP, and the container must
-        # exist before the route can point anywhere. So: wait on the container,
-        # then publish the route, then verify over HTTP.
+        # The environment brings up only its own Postgres and JanusGraph; the
+        # Floci serving its account is the control plane's, already healthy well
+        # before an environment starts.
         with spinner_step(
             "Waiting for environment containers...", verbose=verbose
         ) as step:
-            _wait_for_container_health(env.floci_container)
             _wait_for_hmd_db(container=env.db_container)
             step.ok()
 
@@ -1352,7 +1316,9 @@ def create_environment(
     print_header(f"Creating environment '{env.slug}'")
     print_step(f"  account {env.account_id}, cluster {env.k3s_cluster}")
     print_step(f"  routes  http://localhost/{env.slug}/<service>/")
-    print_step(f"  Floci   http://localhost:{env.floci_port}")
+    from .floci_deployer import FLOCI_ENDPOINT
+
+    print_step(f"  Floci   {FLOCI_ENDPOINT} (account {env.account_id})")
 
     if manifest_file:
         installed = install_manifest(env.slug, manifest_file)
@@ -1484,7 +1450,10 @@ def environment_status(env: LocalEnvironment) -> Dict:
         )
         return result.returncode == 0 and result.stdout.strip() == "true"
 
+    from .floci_deployer import FLOCI_ENDPOINT
+
     containers = {
+        # Shared: one Floci serves every environment's account.
         "floci": env.floci_container,
         "db": env.db_container,
         "graph": env.graph_container,
@@ -1501,7 +1470,7 @@ def environment_status(env: LocalEnvironment) -> Dict:
         "bootstrapped": bool(env.bootstrap.get("csd_nid")),
         "routes": {
             "services": f"http://localhost/{env.slug}/<service>/",
-            "floci": f"http://localhost:{env.floci_port}",
+            "floci": FLOCI_ENDPOINT,
             "trino": f"localhost:{env.trino_port}",
             **(
                 {

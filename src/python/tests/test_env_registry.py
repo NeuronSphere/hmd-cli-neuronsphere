@@ -70,7 +70,9 @@ class CreateAndResolveTests(_TempHome):
         env = er.create_env("dev2")
         self.assertEqual(env.slug, "dev2")
         self.assertEqual(env.deployment_id, "dev2")
-        self.assertEqual(env.floci_container, "floci-dev2")
+        # Shared: one Floci serves every account.
+        self.assertEqual(env.floci_container, "floci")
+        self.assertEqual(env.floci_alias, "neuronsphere")
         self.assertEqual(env.db_container, "hmd_db-dev2")
         self.assertEqual(env.graph_container, "global-graph-dev2")
         self.assertEqual(env.core_instance_name, "local-neuronsphere")
@@ -223,7 +225,8 @@ class LegacyMigrationTests(_TempHome):
         self.assertEqual(reg.environments, {})
         env = er.ensure_default_env()
         self.assertFalse(env.legacy_layout)
-        self.assertEqual(env.floci_container, "floci-local")
+        self.assertEqual(env.floci_container, "floci")
+        # Its own account inside that shared Floci is what makes it distinct.
         self.assertNotEqual(env.account_id, er.CONTROL_PLANE_ACCOUNT_ID)
 
     def test_migration_does_not_rewrite_an_existing_registry(self):
@@ -239,8 +242,6 @@ class ComposeEnvTests(_TempHome):
         for key in (
             "NS_ENV_SLUG",
             "NS_ENV_ACCOUNT_ID",
-            "NS_ENV_FLOCI_CONTAINER",
-            "NS_ENV_FLOCI_ALIAS",
             "NS_ENV_DB_CONTAINER",
             "NS_ENV_GRAPH_CONTAINER",
             "NS_ENV_STATE_DIR",
@@ -249,11 +250,56 @@ class ComposeEnvTests(_TempHome):
             self.assertTrue(exported.get(key), f"{key} missing or empty")
         self.assertTrue(all(isinstance(v, str) for v in exported.values()))
 
+    def test_exports_no_floci_placeholders(self):
+        """The environment compose file no longer defines a Floci service."""
+        exported = er.create_env("dev2").compose_env()
+        self.assertNotIn("NS_ENV_FLOCI_CONTAINER", exported)
+        self.assertNotIn("NS_ENV_FLOCI_ALIAS", exported)
+
     def test_state_dirs_are_all_under_the_cache_env_dir(self):
         env = er.create_env("dev2")
         root = er.environments_root() / "dev2"
         for path in env.state_dirs():
             self.assertTrue(str(path).startswith(str(root)), path)
+
+    def test_state_dirs_no_longer_include_a_floci_data_dir(self):
+        """An environment's Floci state lives in the shared Floci, keyed by account.
+
+        Creating the old per-environment directory would resurrect exactly the
+        state `_assert_no_legacy_env_floci_state` refuses to start over.
+        """
+        env = er.create_env("dev2")
+        self.assertNotIn(env.floci_data_dir, env.state_dirs())
+
+
+class LegacyFlociStateTests(_TempHome):
+    """Pre-collapse per-environment Floci state must be detected, never ignored.
+
+    It cannot be migrated (Floci keys persisted records by an undocumented
+    account prefix), and silently skipping it would make an environment's
+    Lambdas, gateways, buckets and secrets vanish while `up` reported success.
+    """
+
+    def test_an_empty_or_absent_dir_is_not_stale(self):
+        er.create_env("dev2")
+        self.assertEqual(er.legacy_env_floci_state(er.load()), [])
+
+    def test_a_populated_dir_is_reported(self):
+        env = er.create_env("dev2")
+        env.floci_data_dir.mkdir(parents=True, exist_ok=True)
+        (env.floci_data_dir / "s3.json").write_text("{}")
+        self.assertEqual(
+            [e.slug for e in er.legacy_env_floci_state(er.load())], ["dev2"]
+        )
+
+    def test_a_legacy_layout_env_is_exempt(self):
+        """Its "own" Floci data dir *is* the control plane's -- where it belongs."""
+        reg = er.load()
+        env = er._legacy_environment({})
+        env.floci_data_dir.mkdir(parents=True, exist_ok=True)
+        (env.floci_data_dir / "s3.json").write_text("{}")
+        reg.environments[env.slug] = env
+        self.assertEqual(er.legacy_env_floci_state(reg), [])
 
 
 if __name__ == "__main__":

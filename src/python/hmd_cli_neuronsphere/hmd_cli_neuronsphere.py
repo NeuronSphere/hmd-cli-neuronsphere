@@ -879,6 +879,36 @@ def _seed_telemetry_profiles(
         logger.warning(f"Telemetry profile seeding failed: {e}")
 
 
+def _assert_no_legacy_env_floci_state() -> None:
+    """Refuse to start over state from the container-per-environment layout.
+
+    Environments used to run their own Floci with their own
+    ``<state_dir>/floci/data``; they are now accounts inside the single
+    control-plane Floci. That old state cannot be migrated -- Floci namespaces
+    persisted records by an undocumented account key prefix -- and starting
+    anyway would abandon each environment's Lambdas, gateways, buckets and
+    secrets while reporting success. Fail loudly with the one command that fixes
+    it instead.
+    """
+    from . import env_registry
+
+    try:
+        stale = env_registry.legacy_env_floci_state(env_registry.load())
+    except Exception as e:  # a registry we cannot read is not this check's problem
+        logger.debug(f"Skipping legacy Floci state check: {e}")
+        return
+    if not stale:
+        return
+    names = ", ".join(sorted(e.slug for e in stale))
+    raise SystemExit(
+        f"\n  ERROR: environment(s) {names} still hold state from the "
+        f"per-environment Floci layout.\n\n"
+        f"  Every environment is now an account inside the single Floci, and that "
+        f"older\n  state cannot be migrated into it. Start clean with:\n\n"
+        f"      hmd neuronsphere down --purge\n"
+    )
+
+
 def _resolve_mode() -> str:
     """Resolve the operating mode, mapping legacy names to current names.
 
@@ -997,6 +1027,7 @@ def start_neuronsphere(
     from .floci_deployer import ensure_neuronsphere_hosts_entry
 
     ensure_neuronsphere_hosts_entry()
+    _assert_no_legacy_env_floci_state()
 
     mode = _resolve_mode()
     if mode == "extend":

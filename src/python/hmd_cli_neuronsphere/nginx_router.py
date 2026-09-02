@@ -285,20 +285,18 @@ def write_bootstrap_config(
 
 
 def _env_floci_host(env) -> str:
-    """The environment Floci's DNS name -- its explicit network alias.
+    """The DNS name of the Floci serving ``env`` -- always ``neuronsphere``.
 
-    Never its Compose *service key*. Compose registers each service key as a
-    network alias in every project sharing the network, and both
-    docker-compose.control-plane.yml and docker-compose.environment.yml key
-    their Floci service ``floci``, so ``floci`` resolves round-robin to the
-    control-plane Floci *and* every environment's. A route built on it reaches
-    the wrong emulated AWS account roughly half the time, which surfaces as
-    Floci answering ``{"message":"Invalid API id specified"}`` for a gateway
-    that was created in the other account.
+    Every environment shares the single Floci container and is distinguished by
+    the account its requests are signed for, not by hostname. This still reads
+    the explicit network *alias* rather than the Compose service key ``floci``:
+    Compose registers each service key as a network alias on the shared network,
+    so ``floci`` can resolve to more than one container.
 
-    A legacy-layout environment shares the control-plane Floci, and its
-    ``floci_alias`` is ``neuronsphere`` -- correct, and the reason this must
-    read the alias rather than ``floci_container`` (which is ``floci`` there).
+    Note this host only selects the container. An HTTP route through it reaches
+    whichever account the *upstream request* is signed for, so per-environment
+    API Gateway routes stay distinct by rest-api id, which Floci scopes per
+    account.
     """
     return getattr(env, "floci_alias", None) or env.floci_container
 
@@ -601,13 +599,18 @@ def write_env_routes(
 def write_env_streams(env, entries: Optional[List[Tuple[int, str]]] = None) -> Path:
     """Write an environment's stream fragment.
 
-    :param entries: ``[(host_port, upstream)]``. Defaults to the environment's
-        Floci on its allocated port. All ports must fall inside the range
-        ``hmd_proxy`` publishes (see ``env_registry.env_port_range``) -- a
-        listener outside it is unreachable from the host.
+    :param entries: ``[(host_port, upstream)]``, defaulting to none. All ports
+        must fall inside the range ``hmd_proxy`` publishes (see
+        ``env_registry.env_port_range``) -- a listener outside it is unreachable
+        from the host.
+
+    There is no per-environment Floci listener: one Floci serves every account
+    and is already streamed on the control plane's :4566
+    (:func:`write_control_plane_streams`). Host-side callers pick the account
+    with their credentials, not with a port.
     """
     if entries is None:
-        entries = [(env.floci_port, f"{_env_floci_host(env)}:4566")]
+        entries = []
 
     blocks = [
         _wrap(
@@ -627,7 +630,7 @@ def env_stream_entries(
     env, trino_upstream: Optional[str] = None
 ) -> List[Tuple[int, str]]:
     """Assemble an environment's full stream listener list."""
-    entries = [(env.floci_port, f"{_env_floci_host(env)}:4566")]
+    entries: List[Tuple[int, str]] = []
     if trino_upstream:
         entries.append((env.trino_port, trino_upstream))
         # The default env additionally keeps the historical fixed Trino port so

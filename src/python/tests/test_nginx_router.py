@@ -22,8 +22,10 @@ from hmd_cli_neuronsphere import nginx_router as nr
 class _Env:
     def __init__(self, slug, port_base=19000, slot=0):
         self.slug = slug
-        self.floci_container = f"floci-{slug}"
-        self.floci_alias = f"neuronsphere-{slug}"
+        # One Floci serves every account; environments differ by account id, not
+        # by hostname (env_registry.LocalEnvironment.floci_container/_alias).
+        self.floci_container = "floci"
+        self.floci_alias = "neuronsphere"
         self.db_container = f"hmd_db-{slug}"
         self.graph_container = f"global-graph-{slug}"
         self.k3s_cluster = f"ns-{slug}-abc"
@@ -224,14 +226,25 @@ class EnvRouteTests(_TempHome):
         nr.write_env_routes(env, {"hmd_ms_transform": "gw9"})
         text = (self.http_dir() / "10-env-dev2.conf").read_text()
         self.assertIn("location /dev2/hmd_ms_transform/ {", text)
-        self.assertIn("http://neuronsphere-dev2:4566/restapis/gw9/local/", text)
+        self.assertIn("http://neuronsphere:4566/restapis/gw9/local/", text)
 
-    def test_env_streams_use_the_allocated_port(self):
+    def test_env_streams_default_to_no_listeners(self):
+        """There is no per-environment Floci listener to publish.
+
+        One Floci serves every account and is already streamed on the control
+        plane's :4566; a host-side caller picks the account with its credentials,
+        not with a port.
+        """
         env = _Env("dev2", slot=1)
         nr.write_env_streams(env)
         text = (self.stream_dir() / "10-env-dev2.conf").read_text()
-        self.assertIn(f"listen {env.floci_port};", text)
-        self.assertIn("neuronsphere-dev2:4566", text)
+        self.assertNotIn("listen ", text)
+        self.assertEqual(nr.env_stream_entries(env), [])
+
+    def test_env_streams_still_publish_a_trino_listener(self):
+        env = _Env("dev2", slot=1)
+        entries = nr.env_stream_entries(env, trino_upstream="10.0.0.5:31880")
+        self.assertIn((env.trino_port, "10.0.0.5:31880"), entries)
 
     def test_environments_do_not_share_fragments(self):
         a, bb = _Env("alpha", slot=0), _Env("beta", slot=1)

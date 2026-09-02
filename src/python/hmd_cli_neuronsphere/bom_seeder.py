@@ -278,6 +278,10 @@ _EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
         "enabled": True,
         "secretStoreName": "aws-parameter-store",  # create_secret() always writes here
     },
+    # AWS_ACCESS_KEY_ID is rewritten per environment by _inject_floci_account():
+    # one Floci serves every account and resolves which one from the 12-digit
+    # access key, so a static key here would make every environment's External
+    # Secrets operator read the *same* account's secrets.
     "extraEnv": [
         {"name": "AWS_ENDPOINT_URL", "value": _FLOCI_INTERNAL_ENDPOINT},
         {"name": "AWS_ACCESS_KEY_ID", "value": "test"},
@@ -1677,6 +1681,34 @@ def _inject_docker_credentials(bom: List[Dict]) -> None:
         ] = docker_config_json
 
 
+def _inject_floci_account(bom: List[Dict], env=None) -> None:
+    """Point any ``hmd-inf-ext-secrets`` entry at ``env``'s emulated AWS account.
+
+    Mutates ``bom`` in place. The External Secrets operator runs *inside* the
+    environment's k3s cluster and reads from the single Floci, which resolves the
+    account from the SigV4 access key id. Left at the shipped placeholder, every
+    environment's operator would authenticate as the same account and resolve the
+    control plane's secrets instead of its own -- silently, since the secret names
+    are identical across environments.
+    """
+    targets = [e for e in bom if e.get("repo_class_name") == "hmd-inf-ext-secrets"]
+    if not targets:
+        return
+    from .floci_deployer import control_plane_target, env_target
+
+    account = (
+        env_target(env) if env is not None else control_plane_target()
+    ).access_key_id
+    for entry in targets:
+        config = entry.setdefault("instance_configuration", {})
+        extra_env = [dict(v) for v in config.get("extraEnv", [])]
+        for var in extra_env:
+            if var.get("name") == "AWS_ACCESS_KEY_ID":
+                var["value"] = account
+        if extra_env:
+            config["extraEnv"] = extra_env
+
+
 def _dedupe_bom(bom: List[Dict]) -> List[Dict]:
     """Drop later entries whose ``repo_instance_name`` was already seen (idempotent)."""
     seen = set()
@@ -1912,6 +1944,7 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
         bom = bom + plugin_entries
 
     _inject_docker_credentials(bom)
+    _inject_floci_account(bom, env)
     return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
 

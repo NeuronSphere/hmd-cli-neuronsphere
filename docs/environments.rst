@@ -15,24 +15,36 @@ Topology
       hmd_proxy            nginx — the ONLY container with published ports
       hmd_db               postgres      (no host port)
       global-graph         janusgraph    (no host port)
-      floci                account 000000000000
-                           hosts ms-deployment, ms-naming, artifact-lib
+      floci                THE Floci — every account lives in this one container
+                           account 000000000000
+                             hosts ms-deployment, ms-naming, artifact-lib
+                           account 000000000001  ("local")   + k3s ns-local-<hash>
+                             hosts ms-dbaccount + that env's HMDMS Lambdas
+                           account 000000000002  ("dev2")    + k3s ns-dev2-<hash>
 
     env "local"            compose project ns-<hash>-env-local
-      floci-local          account 000000000001      + k3s ns-local-<hash>
-                           hosts ms-dbaccount + this env's HMDMS Lambdas
       hmd_db-local         postgres
       global-graph-local   janusgraph
 
     env "dev2"             compose project ns-<hash>-env-dev2
-      floci-dev2           account 000000000002      + k3s ns-dev2-<hash>
       hmd_db-dev2          postgres
       global-graph-dev2    janusgraph
 
-Each environment is a self-contained emulated AWS account: its own Floci, its
-own EKS/k3s cluster, its own Postgres, its own JanusGraph and its own
-``hmd-ms-dbaccount`` — mirroring the cloud, where every account carries its own
-dbaccount, RDS and Neptune.
+Each environment is a self-contained emulated AWS account: its own account inside
+the shared Floci, its own EKS/k3s cluster, its own Postgres, its own JanusGraph
+and its own ``hmd-ms-dbaccount`` — mirroring the cloud, where every account
+carries its own dbaccount, RDS and Neptune.
+
+There is exactly **one Floci container**. Floci isolates accounts internally,
+resolving which one a request belongs to from the SigV4 access key id it is
+signed with — a 12-digit access key *is* the account — and namespacing every
+storage-backed service (S3, DynamoDB, SQS, Lambda, Secrets Manager, IAM, EKS,
+RDS) beneath it. The CLI never relies on an ambient ``$AWS_ACCESS_KEY_ID`` for
+this: ``floci_deployer.FlociTarget.access_key_id`` carries the account for every
+call, and is threaded through the boto3 client factory, the projectbuilder
+containers that run deploy nodes, and the External Secrets operator's chart
+values. Signing with the wrong key does not fail — it quietly reads and writes
+another account.
 
 Because every environment has its own Postgres, **database and user names are
 identical across environments** (``hmd_ms_transform`` and friends). Nothing is
@@ -75,11 +87,12 @@ than deleted, and the Docker network stays. The deployment graph in PostgreSQL,
 the registry's ``csd_nid`` and ``k3s_uid``, and the applied-changeset snapshot
 all survive, so the next ``up`` reconciles rather than redeploying.
 
-The exception is the k3s cluster itself: Floci removes the ``floci-eks-<cluster>``
-container and volume when the environment's ``floci-<env>`` container stops, so
-its datastore is lost either way. ``up`` handles that by redeploying only the
-instances that had a Helm release on the old cluster, leaving the Floci-side
-ones (S3 buckets, cdktf stacks, Lambdas) alone -- see :doc:`modes`.
+As of Floci 1.7.0 the k3s cluster's datastore survives a plain ``down`` as well:
+the ``floci-eks-<cluster>`` container and volume are re-adopted on restart rather
+than torn down, so the ``kube-system`` UID is unchanged and ``up`` takes the true
+fast path. The applied-changeset snapshot's Helm-release cross-check remains as a
+safety net for the cases where the cluster genuinely is replaced -- see
+:doc:`modes`.
 
 ``down --purge`` destroys instead: it deletes the k3s cluster *and* its
 ``floci-eks-<cluster>`` volume, removes the containers and the Docker network,
@@ -338,7 +351,8 @@ that environment's own containers:
    * - name in-cluster
      - resolves to
    * - ``neuronsphere``, ``neuronsphere-workload``
-     - ``floci-<env>``
+     - the one ``floci`` (which account is selected by the caller's credentials,
+       not by this name)
    * - ``hmd_db``
      - ``hmd_db-<env>``
    * - ``global-graph``
@@ -409,6 +423,28 @@ longer published, and that ``4566`` now arrives via ``hmd_proxy``.
 
 Fresh ``$HMD_HOME`` s always get the split layout.
 
+Upgrading past the single-Floci collapse (breaking)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Environments used to run their **own** Floci container, with their own state
+under ``$HMD_HOME/.cache/environments/<slug>/floci/data``. They are now accounts
+inside the single control-plane Floci, and that older state **cannot be
+migrated**: Floci keys persisted records by an account prefix whose on-disk
+format it does not document, so any conversion would be a guess.
+
+``up`` therefore refuses to start when it finds a non-empty per-environment
+``floci/data``, and names the environments involved. Silently ignoring those
+directories would be worse than failing — the environment's Lambdas, API
+gateways, buckets and secrets would appear to have vanished while ``up``
+reported success. Start clean:
+
+.. code-block:: bash
+
+    hmd neuronsphere down --purge
+
+A ``legacy_layout`` environment is exempt: its "own" Floci data dir *is* the
+control plane's, which is still exactly where its state belongs.
+
 Limitations
 -----------
 
@@ -416,7 +452,9 @@ Limitations
   account, cluster and deployment-id level, not at L3.
 - ``compose_substitute`` plugin containers stay control-plane-scoped and shared,
   because their compose files hardcode ``container_name``.
-- Each environment runs Floci + Postgres + JanusGraph + a k3s cluster
-  (roughly 1.5–2.5 GB). Use ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`` or
+- Each environment runs Postgres + JanusGraph + a k3s cluster. The Floci that
+  serves its account is shared with every other environment, so a second
+  environment costs noticeably less than the first. Use
+  ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`` or
   ``HMD_LOCAL_NEURONSPHERE_ENABLE_K3S=false`` to trim one.
 - Platform (legacy) mode has no environments; ``--env`` is rejected there.

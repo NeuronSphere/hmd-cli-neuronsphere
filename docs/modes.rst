@@ -28,7 +28,10 @@ rather than starting the whole platform as Docker Compose containers.
 
 **Each named environment** is a self-contained emulated AWS account:
 
-- its own **Floci** (its own account id and state);
+- its own **account** inside the single control-plane Floci (there is one Floci
+  container for the whole install; Floci resolves the account from the SigV4
+  access key id a request is signed with, and namespaces every storage-backed
+  service beneath it);
 - its own **k3s** cluster on that Floci's EKS emulation;
 - its own **PostgreSQL** and **JanusGraph**;
 - its own ``hmd-ms-dbaccount``, matching the cloud, where every account carries
@@ -55,8 +58,9 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 **How it works:**
 
 1. The control-plane containers (``db``, ``floci``, ``proxy``, ``graph``) start,
-   followed by the selected environment's (``floci-<env>``, ``hmd_db-<env>``,
-   ``global-graph-<env>``).
+   followed by the selected environment's (``hmd_db-<env>``,
+   ``global-graph-<env>``). The environment has no Floci of its own -- it is an
+   account inside the control plane's.
 2. The control-plane databases are created directly via ``psql``; the
    control-plane Lambdas deploy behind the API Gateway proxy. The environment's
    own ``ms-dbaccount`` then provisions that environment's databases.
@@ -82,7 +86,7 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
       As of Floci 1.7.0, the k3s cluster's datastore now survives a plain
       ``down`` too. Earlier versions' ``ContainerLifecycleManager`` removed the
       ``floci-eks-<cluster>`` container **and its volume** whenever the
-      environment's own ``floci-<env>`` container stopped, so every restart got
+      Floci container stopped, so every restart got
       a cluster with a new ``kube-system`` UID; 1.7.0 re-adopts the existing
       container/volume on restart instead (``FLOCI_SERVICES_EKS_KEEP_RUNNING_ON_SHUTDOWN``
       and ``FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE`` control this and are both
