@@ -2,6 +2,21 @@
 
 ## 2026-09-03
 
+- feat: Drop the control-plane graph entirely
+
+  It ran unconditionally alongside the control plane and nothing read it:
+  ms-deployment, ms-naming, artifact-lib and dbaccount all declare a single
+  `postgres` engine. That is a JVM removed from every install. An existing
+  `global-graph` container is left in place and pointed out rather than deleted
+  -- nothing in the platform starts it any more, but it is the user's container,
+  and its data is a bind mount that survives either way.
+
+- fix: Restart the graph container on the fast path
+
+  Floci stops its Neptune container on shutdown and, unlike RDS, never brings it
+  back -- the cluster keeps reporting `available` while nothing answers on 8182.
+  A reconciling `up` runs no DAG, so nothing would otherwise start it.
+
 - feat: Move the graph from a compose JanusGraph to a lazily-provisioned Floci Neptune
 
   Every environment ran a JVM graph container unconditionally, whether or not

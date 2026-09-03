@@ -13,8 +13,6 @@ Topology
 
     control plane          compose project local_neuronsphere-<hash>
       hmd_proxy            nginx — the ONLY container with published ports
-      hmd_db               postgres      (no host port)
-      global-graph         janusgraph    (no host port)
       floci                THE Floci — every account lives in this one container
                            account 000000000000
                              hosts ms-deployment, ms-naming, artifact-lib
@@ -22,19 +20,44 @@ Topology
                              hosts ms-dbaccount + that env's HMDMS Lambdas
                            account 000000000002  ("dev2")    + k3s ns-dev2-<hash>
 
-      floci-rds-<opaque>   postgres  (RDS instances, one per account,
-                           aliased hmd_db / hmd_db-<env>)
+      floci-rds-<opaque>       postgres  (RDS instances, one per account,
+                               aliased hmd_db / hmd_db-<env>)
+      floci-neptune-<opaque>   gremlin-server  (only where a BOM needs a graph,
+                               aliased global-graph / global-graph-<env>)
 
     env "local"            compose project ns-<hash>-env-local
-      global-graph-local   janusgraph
+                           (no containers of its own)
 
     env "dev2"             compose project ns-<hash>-env-dev2
-      global-graph-dev2    janusgraph
 
 Each environment is a self-contained emulated AWS account: its own account inside
-the shared Floci, its own EKS/k3s cluster, its own Postgres, its own JanusGraph
-and its own ``hmd-ms-dbaccount`` — mirroring the cloud, where every account
-carries its own dbaccount, RDS and Neptune.
+the shared Floci, its own EKS/k3s cluster, its own Postgres, optionally its own
+graph, and its own ``hmd-ms-dbaccount`` — mirroring the cloud, where every
+account carries its own dbaccount, RDS and Neptune.
+
+The graph is **provisioned lazily**. It used to run as a JanusGraph compose
+container in every environment plus one in the control plane, whether or not
+anything read it — and nothing in the control plane ever did, since
+ms-deployment, ms-naming, artifact-lib and dbaccount are all Postgres-only. It
+is now a Floci Neptune cluster deployed by ``hmd-inf-neptune``, added to the BOM
+only when an entry declares a ``database.neuronsphere.io/graph-database``
+dependency (``graph-db`` for Trino, ``neptune-db`` for Transform). A default
+``up`` runs no graph at all. ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false``
+suppresses it even when something asks.
+
+Floci backs the cluster with the same ``hmd-img-gremlin-server`` image the
+compose service used, so consumers are unchanged: they still address
+``ws://global-graph:8182/gremlin``. Three of its behaviours are worth knowing:
+
+* Its Gremlin **proxy is not restored after a Floci restart** — connections are
+  reset while the backend container serves normally. So every recorded endpoint
+  is the container's DNS alias on 8182, never ``DBCluster["Endpoint"]``.
+* Floci **stops the container but never restarts it**, unlike RDS, so ``up``
+  restarts it explicitly.
+* Floci **mounts no volume**: the graph lives in the container's writable layer,
+  written by a shutdown hook on ``graph.close()``. Stopping must therefore be
+  graceful — a ``docker kill`` loses the graph with no error and no file — and
+  ``down --purge`` removes the container deliberately.
 
 Postgres is that mirror taken literally: it is a **Floci RDS instance deployed by
 ``hmd-postgres-rds``** — the same RepoClass the cloud uses, with a

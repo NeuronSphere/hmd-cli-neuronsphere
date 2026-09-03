@@ -19,6 +19,7 @@ lets several environments coexist on one machine (see ``nginx_router``).
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -79,14 +80,50 @@ def control_plane_compose_files(local_loader: LocalPluginLoader) -> List[str]:
                 files.append(str(compose_path))
                 print_step(f"  compose_substitute (plugin): {plugin_name}")
 
-    if _graph_enabled():
-        graph_compose = _services_dir() / "docker-compose.graph.yml"
-        if graph_compose.exists() and str(graph_compose) not in files:
-            files.append(str(graph_compose))
-            os.makedirs(_hmd_home() / "graph_db", exist_ok=True)
-            print_step("  control plane: graph (JanusGraph/Neptune)")
+    # No graph here. The control plane's own services -- ms-deployment,
+    # ms-naming, artifact-lib, dbaccount -- are all Postgres-only (their
+    # SERVICE_CONFIGs declare a single `postgres` engine), so the JanusGraph
+    # that used to run unconditionally alongside them had no reader at all.
+    # An environment's graph is now a lazily-provisioned Floci Neptune cluster;
+    # see bom_seeder.graph_bom_entry.
+    _notice_orphaned_control_plane_graph()
 
     return files
+
+
+_LEGACY_GRAPH_CONTAINER = "global-graph"
+
+
+def _notice_orphaned_control_plane_graph() -> None:
+    """Point out a control-plane graph left over from before it was removed.
+
+    Deliberately not deleted here: it is the user's container, and while nothing
+    in the control plane reads it, someone may have been using it directly. Its
+    data lives in a bind mount under HMD_HOME and survives removal either way.
+    """
+    try:
+        r = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--format",
+                "{{.Names}}",
+                "--filter",
+                f"name=^{_LEGACY_GRAPH_CONTAINER}$",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return
+    if r.returncode == 0 and r.stdout.strip():
+        print_step(
+            f"  note: '{_LEGACY_GRAPH_CONTAINER}' is left over from a previous "
+            f"install and is no longer started or used. Remove it with "
+            f"`docker rm -f {_LEGACY_GRAPH_CONTAINER}` when convenient."
+        )
 
 
 # The Deployment GUI's own published registry -- its manifest's
@@ -1038,6 +1075,12 @@ def _bootstrap_environment(
             f"'{env.slug}' already bootstrapped — reconciling "
             "(skipping BOM seeding and DAG execution)."
         )
+        # Floci stops its Neptune container on shutdown and never restarts it,
+        # so on this path -- the fast restart, which runs no DAG -- the graph
+        # would otherwise stay down while its cluster still reports `available`.
+        # Also re-publishes the CoreDNS record, which the k3s pass skipped while
+        # the container was stopped.
+        _alias_environment_graph(env)
         print_step("Resyncing core resources...")
         try:
             count = resync_local_resources(
@@ -1304,12 +1347,26 @@ def _alias_environment_graph(env: LocalEnvironment) -> None:
     from . import bom_seeder
     from .floci_deployer import ensure_neptune_network_alias, env_target
 
-    identifier = bom_seeder.graph_cluster_identifier(env)
-    from .floci_deployer import neptune_container_name
+    try:
+        identifier = bom_seeder.graph_cluster_identifier(env)
+    except Exception as e:
+        # Unlike the database, a graph is optional -- most environments have
+        # none -- so an unresolvable identifier means "nothing to alias", not a
+        # failure worth interrupting `up` for.
+        logger.debug(f"No graph identifier for '{getattr(env, 'slug', '?')}': {e}")
+        return
+    from .floci_deployer import neptune_container_name, start_neptune_container
 
     if neptune_container_name(identifier, env_target(env)) is None:
-        logger.debug(f"No graph deployed for '{env.slug}'; nothing to alias")
-        return
+        # Not running -- but Floci stops its Neptune container on shutdown and,
+        # unlike RDS, never brings it back, so a stopped one is the normal state
+        # after a restart. The cluster still reports `available` while nothing
+        # answers on 8182, which is why this is worth trying before concluding
+        # there is no graph.
+        if not start_neptune_container(identifier, env_target(env)):
+            logger.debug(f"No graph deployed for '{env.slug}'; nothing to alias")
+            return
+        print_step(f"  restarted the graph container for '{env.slug}'")
     if not ensure_neptune_network_alias(
         identifier, env.graph_container, target=env_target(env)
     ):
