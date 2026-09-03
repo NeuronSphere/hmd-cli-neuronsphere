@@ -1292,6 +1292,41 @@ def _alias_environment_database(env: LocalEnvironment) -> None:
     refresh_coredns_records(env)
 
 
+def _alias_environment_graph(env: LocalEnvironment) -> None:
+    """Give this environment's graph container its canonical DNS name.
+
+    A no-op unless a graph was actually provisioned -- it is lazy now, deployed
+    only when a BOM entry declares a ``database.neuronsphere.io/graph-database``
+    dependency. When there is one, the alias is what keeps consumers on
+    ``global-graph:8182`` instead of Floci's Gremlin proxy, which is not restored
+    after a Floci restart.
+    """
+    from . import bom_seeder
+    from .floci_deployer import ensure_neptune_network_alias, env_target
+
+    identifier = bom_seeder.graph_cluster_identifier(env)
+    from .floci_deployer import neptune_container_name
+
+    if neptune_container_name(identifier, env_target(env)) is None:
+        logger.debug(f"No graph deployed for '{env.slug}'; nothing to alias")
+        return
+    if not ensure_neptune_network_alias(
+        identifier, env.graph_container, target=env_target(env)
+    ):
+        logger.warning(
+            f"Could not alias {identifier} as {env.graph_container}; consumers "
+            f"addressing that name will fail to connect"
+        )
+        return
+
+    # Publish the in-cluster records now that the name resolves on the Docker
+    # network -- the CoreDNS pass skips any canonical name it cannot resolve at
+    # the time it runs, and this one only became resolvable a moment ago.
+    from .k3s_operators import refresh_coredns_records
+
+    refresh_coredns_records(env)
+
+
 def _run_full_bootstrap(
     env: LocalEnvironment,
     runner,
@@ -1358,6 +1393,11 @@ def _run_full_bootstrap(
         if not runner.run(csd_nid, nodes):
             print("\n  Warning: some deployments failed")
             ok = False
+
+        # After Phase B, not with the database: the graph is a Phase B entry
+        # (added only when something in the BOM requires one), so its container
+        # does not exist until these deployments have run.
+        _alias_environment_graph(env)
 
         # Seed the drift snapshot from what actually deployed across both
         # phases, so the next `up` reports real changes rather than treating
@@ -1506,6 +1546,19 @@ def stop_environment(
             # instance is the one piece whose id we derive rather than read back,
             # so it is also the one that can fail to resolve.
             logger.warning(f"Could not delete {env.slug}'s RDS instance: {e}")
+        try:
+            from . import bom_seeder
+            from .floci_deployer import delete_neptune_cluster, env_target
+
+            # Floci mounts no volume for Neptune: the graph lives in the
+            # container's writable layer, so removing the container *is* the
+            # data deletion. Nothing else in `down` touches it, which is what
+            # lets a plain restart keep the graph.
+            delete_neptune_cluster(
+                bom_seeder.graph_cluster_identifier(env), target=env_target(env)
+            )
+        except Exception as e:
+            logger.warning(f"Could not delete {env.slug}'s graph cluster: {e}")
         if not env.legacy_layout:
             shutil.rmtree(env.state_path, ignore_errors=True)
         env_registry.clear_bootstrap(env)

@@ -166,18 +166,6 @@ CORE_PRODUCED_DEFINITIONS = [
         "role": "ingress-controller",
     },
     {
-        # hmd-inf-neptune declares producing this exact type (see its
-        # meta-data/manifest.json deploy.resources). JanusGraph -- already part of
-        # core, running unconditionally via docker-compose.graph.yml -- substitutes
-        # for Neptune locally, so any repo's resource-typed dependency on a
-        # graph-database (e.g. hmd-inf-trino.graph-db) resolves here instead of
-        # requiring an (impossible) local Neptune deploy.
-        "resource_namespace": "database.neuronsphere.io",
-        "resource_definition_name": "graph-database",
-        "version": "0.1.0",
-        "role": "graph",
-    },
-    {
         # hmd-ms-deployment/hmd-ms-naming/hmd-ms-dbaccount/hmd-ms-artifact-lib are
         # bootstrapped-before-ms-deployment-exists Lambdas the CLI owns directly --
         # never registered as RepoClass/RepoInstance entities (their own manifests'
@@ -1267,8 +1255,6 @@ def build_local_core_resources(
     name stays ``local-neuronsphere`` in every environment -- repo_instance is
     unique by name per Environment, so it is not ambiguous.
     """
-    graph_host = env.graph_container if env is not None else "global-graph"
-
     # `environment` carries the environment's slug -- its Environment.type, and
     # what a consumer's deploy is invoked with as `--environment`. Resource
     # queries scope by environment through `find_resources_by_selector`'s
@@ -1297,23 +1283,6 @@ def build_local_core_resources(
             },
             "output": {"network_name": network_name, "driver": "bridge"},
             "tags": common_tags + [{"key": "platform", "value": "local"}],
-        },
-        {
-            # JanusGraph substitutes for Amazon Neptune locally. Satisfies any
-            # repo's resource-typed dependency on
-            # database.neuronsphere.io/graph-database (e.g. hmd-inf-trino.graph-db)
-            # -- see CORE_PRODUCED_DEFINITIONS. Like Postgres, each environment
-            # runs its own.
-            "instance_name": CORE_INSTANCE_NAME,
-            "repo_class_name": CORE_REPO_CLASS,
-            "resource_name": "global-graph",
-            "resource_definition": {
-                "resource_namespace": "database.neuronsphere.io",
-                "resource_definition_name": "graph-database",
-                "version": "0.1.0",
-            },
-            "output": {"endpoint": f"ws://{graph_host}:8182/gremlin"},
-            "tags": common_tags,
         },
     ]
     if cluster_name:
@@ -1822,6 +1791,104 @@ def _inject_env_db_endpoint(bom: List[Dict], env=None) -> None:
         entry["instance_configuration"] = config
 
 
+# -- The graph database -----------------------------------------------------
+#
+# Provisioned lazily: a default `up` deploys no graph at all. It used to run
+# unconditionally as a compose container in every environment, which was a JVM
+# per environment that most local work never touches.
+GRAPH_INSTANCE = "global-graph"
+GRAPH_REPO_CLASS = "hmd-inf-neptune"
+
+# The roles consumers ask for a `database.neuronsphere.io/graph-database` under.
+# Matching on the role rather than re-reading every repo's manifest keeps this
+# to the assembled BOM, which is the only thing available at seed time.
+GRAPH_ROLES = ("graph-db", "neptune-db")
+
+
+def graph_enabled() -> bool:
+    """Hard override for the lazy default.
+
+    ``HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`` suppresses the graph even when
+    a consumer asks for one (that consumer then fails to resolve its dependency,
+    which is the intended, visible outcome of turning it off). Unset means "only
+    if something needs it", which is the point of making this lazy.
+    """
+    return os.environ.get(
+        "HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH", "true"
+    ).lower() not in ("false", "0", "no")
+
+
+def bom_requires_graph(bom: List[Dict]) -> bool:
+    """True if anything in ``bom`` declares a dependency on a graph database."""
+    return any(
+        role in (entry.get("dependencies") or {})
+        for entry in bom
+        for role in GRAPH_ROLES
+    )
+
+
+def graph_cluster_identifier(env=None) -> str:
+    """The Neptune DBClusterIdentifier the graph node creates.
+
+    Must match what ``src/local/deploy_local.sh`` derives, because the CLI looks
+    the cluster up by this id to find its container and alias it.
+    """
+    from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+    from .floci_deployer import local_customer_code
+
+    base = make_standard_name(
+        GRAPH_INSTANCE,
+        GRAPH_REPO_CLASS,
+        env.deployment_id if env is not None else "local",
+        "local",
+        os.environ.get("HMD_REGION", "reg1"),
+        local_customer_code(),
+    )
+    return base.replace("_", "-").lower()
+
+
+def graph_bom_entry(env=None) -> Dict:
+    """The BOM entry that provisions this environment's graph."""
+    host = getattr(env, "graph_container", None) or "global-graph"
+    return {
+        "repo_instance_name": GRAPH_INSTANCE,
+        "repo_class_name": GRAPH_REPO_CLASS,
+        "deployment_id": "local",
+        "instance_configuration": {
+            # Addressed by the DNS alias the CLI attaches to the Floci-spawned
+            # container, never Floci's Gremlin proxy -- that proxy is not
+            # restored after a Floci restart.
+            "graph_host": host,
+            "graph_port": 8182,
+        },
+        "dependencies": {"base-vpc": CORE_INSTANCE_NAME},
+    }
+
+
+def _repoint_graph_database(bom: List[Dict]) -> None:
+    """Point graph dependencies at the real producer instead of the core instance.
+
+    Mutates ``bom`` in place. Installed plugin packages map these roles to
+    ``CORE_INSTANCE_NAME``, which was correct while the core RepoClass declared
+    producing ``database.neuronsphere.io/graph-database`` to stand in for the
+    always-on JanusGraph container. That producer is now a real
+    ``hmd-inf-neptune`` deploy, so the core instance no longer satisfies the
+    role. Normalised here rather than in each plugin for the same reason
+    :func:`_repoint_database_instance` is: plugins ship as independent packages,
+    and an older installed one would otherwise break.
+    """
+    for entry in bom:
+        deps = entry.get("dependencies") or {}
+        for role in GRAPH_ROLES:
+            if deps.get(role) == CORE_INSTANCE_NAME:
+                deps[role] = GRAPH_INSTANCE
+                logger.debug(
+                    f"{entry.get('repo_instance_name')}: repointed {role} "
+                    f"at {GRAPH_INSTANCE}"
+                )
+
+
 # The dependency role every repo uses for "the Postgres instance my databases
 # live on" (hmd-database-account declares it; the plugin BOMs supply it).
 _DATABASE_INSTANCE_ROLE = "database-instance"
@@ -2094,6 +2161,10 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
     _inject_floci_account(bom, env)
     _inject_env_db_endpoint(bom, env)
     _repoint_database_instance(bom)
+    # Lazy: only deploy a graph when something in this BOM actually wants one.
+    if graph_enabled() and bom_requires_graph(bom):
+        bom = bom + [graph_bom_entry(env)]
+        _repoint_graph_database(bom)
     return scope_bom_entries(_topo_sort_bom(_dedupe_bom(bom)), env)
 
 

@@ -182,12 +182,28 @@ class BuildLocalCoreResourcesTests(unittest.TestCase):
     def _by_name(self, resources):
         return {r["resource_name"]: r for r in resources}
 
-    def test_the_graph_points_at_the_environments_container(self):
+    def test_the_graph_is_not_hand_seeded(self):
+        """Like Postgres, the graph is produced by a real deploy now.
+
+        `hmd-inf-neptune` emits the `graph-database` Resource, and only when
+        something in the BOM asks for a graph -- so a default `up` seeds none.
+        A hand-written record here would give ms-deployment a second producer
+        describing a container that may not exist.
+        """
         res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        self.assertEqual(
-            res["global-graph"]["output"]["endpoint"],
-            "ws://global-graph-dev2:8182/gremlin",
-        )
+        self.assertNotIn("global-graph", res)
+        seeded = {
+            r["resource_definition"]["resource_definition_name"] for r in res.values()
+        }
+        self.assertNotIn("graph-database", seeded)
+
+    def test_the_graph_entry_points_at_the_environments_container(self):
+        entry = b.graph_bom_entry(_Env("dev2"))
+        config = entry["instance_configuration"]
+        self.assertEqual(config["graph_host"], "global-graph-dev2")
+        # 8182 directly, never Floci's Gremlin proxy port -- that proxy is not
+        # restored after a Floci restart.
+        self.assertEqual(config["graph_port"], 8182)
 
     def test_postgres_is_not_hand_seeded(self):
         """The Postgres Resource is produced by a real hmd-postgres-rds deploy.
@@ -204,30 +220,34 @@ class BuildLocalCoreResourcesTests(unittest.TestCase):
         }
         self.assertNotIn("postgres", seeded)
 
+    def _network(self, env=None):
+        """The docker-network Resource -- core's remaining hand-seeded record,
+        and so where the tagging contract is now asserted."""
+        res = b.build_local_core_resources(env=env)
+        return next(
+            r
+            for r in res
+            if r["resource_definition"]["resource_definition_name"] == "docker-network"
+        )
+
     def test_resource_and_instance_names_are_not_env_scoped(self):
-        res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        self.assertIn("global-graph", res)
-        self.assertEqual(res["global-graph"]["instance_name"], b.CORE_INSTANCE_NAME)
+        self.assertEqual(
+            self._network(_Env("dev2"))["instance_name"], b.CORE_INSTANCE_NAME
+        )
 
     def test_deployment_id_tag_added_alongside_environment_tag(self):
-        res = self._by_name(b.build_local_core_resources(env=_Env("dev2")))
-        tags = {t["key"]: t["value"] for t in res["global-graph"]["tags"]}
+        tags = {t["key"]: t["value"] for t in self._network(_Env("dev2"))["tags"]}
         # `environment` carries the environment's name -- its Environment.type,
         # and what the generated deploy runs with as `--environment`.
         self.assertEqual(tags["environment"], "dev2")
         self.assertEqual(tags["deployment_id"], "dev2")
 
     def test_environment_tag_defaults_to_local_without_an_env(self):
-        res = self._by_name(b.build_local_core_resources())
-        tags = {t["key"]: t["value"] for t in res["global-graph"]["tags"]}
+        tags = {t["key"]: t["value"] for t in self._network()["tags"]}
         self.assertEqual(tags["environment"], "local")
 
     def test_without_env_the_control_plane_defaults_are_kept(self):
-        res = self._by_name(b.build_local_core_resources())
-        self.assertEqual(
-            res["global-graph"]["output"]["endpoint"], "ws://global-graph:8182/gremlin"
-        )
-        tags = {t["key"] for t in res["global-graph"]["tags"]}
+        tags = {t["key"] for t in self._network()["tags"]}
         self.assertNotIn("deployment_id", tags)
 
     def test_service_resources_carry_the_env_tag(self):

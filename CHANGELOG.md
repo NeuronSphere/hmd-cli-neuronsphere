@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-09-03
+
+- feat: Move the graph from a compose JanusGraph to a lazily-provisioned Floci Neptune
+
+  Every environment ran a JVM graph container unconditionally, whether or not
+  anything used it. The graph is now a Floci Neptune cluster deployed by the
+  real `hmd-inf-neptune` repo class, and only when something in the BOM declares
+  a `database.neuronsphere.io/graph-database` dependency -- so a default `up`
+  runs no graph at all.
+
+  Floci spawns `hmd-img-gremlin-server` (rebuilt on TinkerPop for this role) as
+  the backend. Consumers are unaffected: the CLI aliases that container as
+  `global-graph-<slug>` and CoreDNS maps the canonical `global-graph` to it, so
+  unmodified cloud charts and `ws://global-graph:8182/gremlin` keep working.
+
+  Three Floci behaviours shape the lifecycle, all found by experiment:
+
+  - Its Gremlin proxy is **not restored after a Floci restart**, so the recorded
+    endpoint is the container alias on 8182, never `DBCluster["Endpoint"]`.
+  - Floci **stops the container but never restarts it**, unlike RDS, so
+    `start_neptune_container` exists.
+  - Floci mounts **no volume**; the graph lives in the container's writable
+    layer and is written by a shutdown hook, so `stop_neptune_container` stops
+    gracefully with a 60s timeout -- a kill loses the graph silently -- and
+    `down --purge` removes the container deliberately.
+
+  `graph-database` is no longer a core-produced type and the hand-seeded
+  `global-graph` Resource is gone: a real producer emits it. Consumer roles
+  (`graph-db`, `neptune-db`) that installed plugins pin to the core instance are
+  normalised in the assembled BOM, the same way `database-instance` is, so no
+  coordinated plugin release is needed.
+
 ## 2026-09-02
 
 - fix: Actually apply the Traefik manifest patch, so the UIs are reachable

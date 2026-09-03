@@ -1417,6 +1417,48 @@ def ensure_rds_subnet_group(target: Optional[FlociTarget] = None) -> Optional[st
         return None
 
 
+def floci_container_name(
+    service: str, identifier: str, target: Optional[FlociTarget] = None
+):
+    """The Docker container Floci spawned for one of its managed resources.
+
+    Floci names these opaquely (``floci-rds-db-<HEX>-<suffix>``) but labels every
+    one of them, so the label triple is the only reliable way to find it --
+    ``docker inspect`` on the DNS alias we later attach does not work, because an
+    alias is not an object.
+
+    :param service: the ``io.floci.service`` value (``rds``, ``neptune``).
+    :param identifier: the resource id Floci recorded (``io.floci.resource-id``).
+    """
+    target = _resolve_target(target)
+    filters = [
+        f"label={_FLOCI_LABEL_SERVICE}={service}",
+        f"label={_FLOCI_LABEL_ACCOUNT}={target.account_id}",
+        f"label={_FLOCI_LABEL_RESOURCE}={identifier}",
+    ]
+    cmd = ["docker", "ps", "--format", "{{.Names}}"]
+    for f in filters:
+        cmd += ["--filter", f]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not list {service} containers for {identifier}: {e}")
+        return None
+    names = [n for n in r.stdout.split() if n]
+    if not names:
+        logger.debug(
+            f"No running {service} container for {identifier} "
+            f"in account {target.account_id}"
+        )
+        return None
+    return names[0]
+
+
+def neptune_container_name(identifier: str, target: Optional[FlociTarget] = None):
+    """The gremlin-server container backing a Floci Neptune cluster, or None."""
+    return floci_container_name("neptune", identifier, target)
+
+
 def rds_container_name(identifier: str, target: Optional[FlociTarget] = None):
     """The Docker container backing an RDS instance, or None.
 
@@ -1503,6 +1545,17 @@ def ensure_rds_network_alias(
     if not container:
         logger.warning(f"No RDS container for {identifier}; cannot alias as {alias}")
         return False
+    return _ensure_network_alias(container, alias, network)
+
+
+def _ensure_network_alias(container: str, alias: str, network: str) -> bool:
+    """Attach ``alias`` to ``container`` on ``network``, if not already there.
+
+    Docker refuses to add an alias to an existing endpoint, so this disconnects
+    and reconnects -- safe because it runs right after the container is created,
+    before anything has connected, and it is skipped entirely when the alias is
+    already present, so a restart does not churn networking.
+    """
     fmt = (
         '{{with index .NetworkSettings.Networks "'
         + network
@@ -1535,6 +1588,189 @@ def ensure_rds_network_alias(
             return False
     logger.debug(f"Aliased {container} as {alias} on {network}")
     return True
+
+
+# ---------------------------------------------------------------------------
+# Neptune (the local graph database)
+# ---------------------------------------------------------------------------
+#
+# Floci emulates a Neptune cluster by spawning a real gremlin-server container
+# (hmd-img-gremlin-server; see the compose files' NEPTUNE_DEFAULT_IMAGE). Three
+# properties of that emulation shape everything below, all established by
+# experiment rather than documentation:
+#
+# * Its Gremlin proxy is **not restored after a Floci restart** -- connections
+#   are reset while the backend container keeps serving. So consumers address
+#   the container directly on 8182 through a DNS alias, exactly as they do the
+#   RDS backends on 5432.
+# * Floci **stops the container on shutdown but never restarts it**, unlike RDS.
+#   The lifecycle is therefore ours: see `start_neptune_container`.
+# * Floci mounts **no volume**; the graph lives in the container's writable
+#   layer, written by an `onShutDown` hook on `graph.close()`. That makes a
+#   graceful `docker stop` load-bearing -- a `kill` loses the graph.
+
+NEPTUNE_PORT = 8182
+
+
+def wait_for_neptune_cluster(
+    identifier: str, target: Optional[FlociTarget] = None, timeout: int = 300
+) -> Optional[str]:
+    """Block until a Neptune cluster is ``available``, returning its container.
+
+    ``describe_db_cluster_endpoints`` is unsupported by Floci's Neptune
+    (``UnsupportedOperation``), and ``hmd_cli_tools.cdktf_tools.get_neptune_endpoint``
+    uses exactly that call -- so cluster state is read from
+    ``describe_db_clusters`` instead.
+
+    Returns None on timeout rather than raising: the caller decides whether an
+    absent graph is fatal, and locally it usually is not.
+    """
+    client = _get_client("neptune", target)
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        try:
+            clusters = client.describe_db_clusters(DBClusterIdentifier=identifier)
+            status = (clusters.get("DBClusters") or [{}])[0].get("Status")
+            if status != last:
+                logger.debug(f"Neptune cluster {identifier} status: {status}")
+                last = status
+            if status == "available":
+                container = neptune_container_name(identifier, target)
+                if container:
+                    return container
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code not in ("DBClusterNotFoundFault", "ResourceNotFoundException"):
+                logger.debug(f"describe_db_clusters({identifier}) failed: {e}")
+        time.sleep(2)
+    logger.warning(
+        f"Neptune cluster {identifier} did not become available within {timeout}s"
+    )
+    return None
+
+
+def ensure_neptune_network_alias(
+    identifier: str,
+    alias: str,
+    target: Optional[FlociTarget] = None,
+    network: str = None,
+) -> bool:
+    """Give the graph container a stable DNS name, bypassing Floci's proxy.
+
+    Same reasoning as :func:`ensure_rds_network_alias`: the alias is what keeps
+    consumers on ``global-graph:8182`` instead of a proxy port that does not
+    survive a restart.
+    """
+    container = neptune_container_name(identifier, target)
+    if not container:
+        logger.warning(
+            f"No Neptune container for {identifier}; cannot alias as {alias}"
+        )
+        return False
+    return _ensure_network_alias(container, alias, network or DOCKER_NETWORK_NAME)
+
+
+def stop_neptune_container(
+    identifier: str, target: Optional[FlociTarget] = None
+) -> bool:
+    """Stop the graph container **gracefully** -- never kill it.
+
+    TinkerGraph only writes its ``graphLocation`` file from ``Graph.close()``,
+    which the image's ``onShutDown`` hook calls. A SIGKILL skips that hook, so
+    the graph is silently lost: no error, no file, an empty graph next start.
+    """
+    container = neptune_container_name(identifier, target)
+    if not container:
+        return False
+    try:
+        # The default 10s SIGTERM grace is not obviously enough for a JVM to run
+        # a shutdown hook and serialise the graph, and being wrong here loses
+        # data silently.
+        r = subprocess.run(
+            ["docker", "stop", "--timeout", "60", container],
+            capture_output=True,
+            timeout=90,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not stop the graph container {container}: {e}")
+        return False
+    if r.returncode == 0:
+        logger.debug(f"Stopped graph container {container} (graph persisted)")
+        return True
+    return False
+
+
+def start_neptune_container(
+    identifier: str, target: Optional[FlociTarget] = None
+) -> bool:
+    """Start a stopped graph container.
+
+    Necessary because Floci stops its Neptune container on shutdown and, unlike
+    RDS, never brings it back -- the cluster still reports ``available`` while
+    nothing answers on 8182.
+    """
+    name = _stopped_floci_container("neptune", identifier, target)
+    if not name:
+        return False
+    try:
+        r = subprocess.run(
+            ["docker", "start", name], capture_output=True, text=True, timeout=60
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not start the graph container {name}: {e}")
+        return False
+    if r.returncode == 0:
+        logger.debug(f"Started graph container {name}")
+        return True
+    logger.warning(f"Could not start {name}: {(r.stderr or '').strip()}")
+    return False
+
+
+def _stopped_floci_container(
+    service: str, identifier: str, target: Optional[FlociTarget] = None
+) -> Optional[str]:
+    """Like :func:`floci_container_name` but including non-running containers."""
+    target = _resolve_target(target)
+    cmd = ["docker", "ps", "-a", "--format", "{{.Names}}"]
+    for f in (
+        f"label={_FLOCI_LABEL_SERVICE}={service}",
+        f"label={_FLOCI_LABEL_ACCOUNT}={target.account_id}",
+        f"label={_FLOCI_LABEL_RESOURCE}={identifier}",
+    ):
+        cmd += ["--filter", f]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    names = [n for n in r.stdout.split() if n]
+    return names[0] if names else None
+
+
+def delete_neptune_cluster(
+    identifier: str, target: Optional[FlociTarget] = None
+) -> None:
+    """Delete a Neptune cluster and remove its container.
+
+    Only ``down --purge`` should call this: the graph lives in the container's
+    writable layer, so removing the container discards the data.
+    """
+    client = _get_client("neptune", target)
+    try:
+        client.delete_db_cluster(DBClusterIdentifier=identifier, SkipFinalSnapshot=True)
+        logger.debug(f"Deleted Neptune cluster {identifier}")
+    except ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code not in ("DBClusterNotFoundFault", "ResourceNotFoundException"):
+            logger.warning(f"Could not delete Neptune cluster {identifier}: {e}")
+    name = _stopped_floci_container("neptune", identifier, target)
+    if name:
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", name], capture_output=True, timeout=30
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug(f"Could not remove {name}: {e}")
 
 
 def wait_for_rds_instance(

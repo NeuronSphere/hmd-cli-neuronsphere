@@ -139,6 +139,35 @@ def _rds_container_for(env=None) -> Optional[str]:
         return None
 
 
+def _neptune_container_for(env=None) -> Optional[str]:
+    """The gremlin-server container backing ``env``'s graph, if one is deployed.
+
+    Same reason as :func:`_rds_container_for`: once the graph is a Floci-spawned
+    Neptune cluster rather than a compose service, ``global-graph-<slug>`` is a
+    network *alias*, and `docker inspect` cannot resolve an alias. Returns None
+    when no graph is deployed, which is the normal case -- the graph is
+    provisioned lazily.
+    """
+    from .floci_deployer import (
+        control_plane_target,
+        env_target,
+        neptune_container_name,
+    )
+
+    try:
+        from . import bom_seeder
+
+        target = (
+            env_target(env)
+            if env is not None and not getattr(env, "legacy_layout", False)
+            else control_plane_target()
+        )
+        return neptune_container_name(bom_seeder.graph_cluster_identifier(env), target)
+    except Exception as e:  # never abort the CoreDNS pass over this
+        logger.debug(f"Could not resolve the graph container for CoreDNS: {e}")
+        return None
+
+
 def _resolve_floci_ip(container: str) -> Optional[str]:
     """Return the given container's IP on the k3s Docker network."""
     fmt = (
@@ -232,7 +261,6 @@ def _ensure_coredns_floci_entry(env=None) -> None:
     # backend directly is also what keeps the port at 5432 for unmodified cloud
     # charts, instead of Floci's 7001-7099 RDS proxy range.
     aliased = [
-        (_GRAPH_CONTAINER, env_graph),
         # The control plane is shared; charts that need it address it explicitly.
         ("neuronsphere-control", _FLOCI_CONTAINER),
         (_PROXY_CONTAINER, _PROXY_CONTAINER),
@@ -253,11 +281,29 @@ def _ensure_coredns_floci_entry(env=None) -> None:
         entries.append((_DB_CONTAINER, db_ip))
         if env_db != _DB_CONTAINER:
             entries.append((env_db, db_ip))
+
+    # The graph, under both its names, for the same reason. Absent is normal:
+    # it is provisioned only when something in the BOM asks for one, so a
+    # missing record here is not worth warning about the way the database is.
     else:
         logger.warning(
-            f"Could not resolve the database container for '{getattr(env, 'slug', 'control plane')}'; "
-            f"{_DB_CONTAINER}/{env_db} will not resolve inside the cluster and "
-            f"every chart addressing the database by name will fail to connect."
+            f"Could not resolve the database container for "
+            f"'{getattr(env, 'slug', 'control plane')}'; {_DB_CONTAINER}/{env_db} "
+            f"will not resolve inside the cluster and every chart addressing the "
+            f"database by name will fail to connect."
+        )
+
+    graph_container = _neptune_container_for(env)
+    graph_ip = _resolve_floci_ip(graph_container) if graph_container else None
+    if graph_ip:
+        entries.append((_GRAPH_CONTAINER, graph_ip))
+        if env_graph != _GRAPH_CONTAINER:
+            entries.append((env_graph, graph_ip))
+    else:
+        logger.debug(
+            f"No graph container for '{getattr(env, 'slug', 'control plane')}'; "
+            f"{_GRAPH_CONTAINER} will not resolve in-cluster (expected unless a "
+            f"BOM entry requires a graph-database)."
         )
 
     server = "".join(_block(host, ip) for host, ip in entries)

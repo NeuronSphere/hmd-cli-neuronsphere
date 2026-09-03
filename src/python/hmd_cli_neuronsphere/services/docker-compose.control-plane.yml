@@ -81,6 +81,17 @@ services:
       # "database files are incompatible" and needs a purge.
       FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
       FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      # Floci emulates a Neptune cluster by spawning a real gremlin-server
+      # container, and this is the image it spawns. The stock TinkerPop image is
+      # unusable as a Neptune backend: it runs TinkerGraph in memory (nothing
+      # persists) with a LONG id manager that rejects the string NIDs
+      # hmd-entity-storage writes. hmd-img-gremlin-server 0.3 is built on
+      # TinkerPop with `*IdManager=ANY`, a persisted graphLocation and a
+      # shutdown hook that actually writes it -- see that repo's CHANGELOG.
+      # Pinned, not floating: Floci recreates the backend container from the
+      # current value, and the graph lives in that container's writable layer.
+      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3}
+      FLOCI_SERVICES_NEPTUNE_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
       # two broken kube-apiserver overrides Floci injects

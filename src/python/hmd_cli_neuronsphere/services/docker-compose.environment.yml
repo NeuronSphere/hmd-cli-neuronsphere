@@ -23,21 +23,18 @@ version: "3.7"
 # (hmd_db, global-graph) back to that environment's containers, so cloud Helm
 # charts work unmodified.
 
-services:
-  graph:
-    container_name: ${NS_ENV_GRAPH_CONTAINER}
-    image: "${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-stable}"
-    environment:
-      - gremlinserver.scriptEngines.gremlin-groovy.plugins[org.apache.tinkerpop.gremlin.jsr223.ScriptFileGremlinPlugin].files[0]=scripts/init.groovy
-    healthcheck:
-      test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
-      interval: 30s
-      timeout: 1m30s
-      retries: 5
-    volumes:
-      - "${NS_ENV_STATE_DIR}/graph_db:/var/lib/janusgraph"
-    networks:
-      - neuronsphere_default
+# The graph is no longer here. It is a Floci Neptune cluster, provisioned
+# lazily by the `hmd-inf-neptune` BOM entry only when something in the BOM
+# declares a `database.neuronsphere.io/graph-database` dependency -- so a
+# default `up` runs no graph at all, instead of a JVM per environment that most
+# local work never touches. Floci spawns the same hmd-img-gremlin-server image
+# this service used to run, and the CLI aliases that container as
+# `global-graph-<slug>` so consumers are unaffected.
+#
+# This file now defines no services of its own; it is kept because the network
+# declaration below is what `compose` needs to attach the project, and because
+# a per-environment service may well come back.
+services: {}
 
 networks:
   neuronsphere_default:

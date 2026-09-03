@@ -813,6 +813,18 @@ class LocalWorkflowRunner:
             f"HMD_REGION={os.environ.get('HMD_REGION', 'reg1')}",
             "-e",
             f"HMD_HOSTNAME={os.environ.get('HMD_HOSTNAME', 'localhost')}",
+            # The node's own identity and resolved configuration. `hmd deploy`
+            # gets these on its command line and stdin, but a `deploy_local.sh`
+            # override replaces that command entirely -- without them it cannot
+            # derive the resource identifier `make_standard_name` produces, nor
+            # read the values the CLI resolved for it (e.g. the DNS alias a
+            # Floci-spawned container will answer on).
+            "-e",
+            f"HMD_INSTANCE_NAME={node.get('instance_name', '')}",
+            "-e",
+            f"HMD_REPO_NAME={node.get('repo_class_name', '')}",
+            "-e",
+            f"HMD_INSTANCE_CONFIG={json.dumps(node.get('instance_configuration') or {})}",
             "-v",
             "/var/run/docker.sock:/var/run/docker.sock",
         ]

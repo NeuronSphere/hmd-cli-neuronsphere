@@ -265,7 +265,6 @@ class CoreResourceTests(unittest.TestCase):
             {
                 "docker-network",
                 # No "postgres": produced by the hmd-postgres-rds deploy.
-                "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
                 "ingress-controller",
@@ -279,7 +278,7 @@ class CoreResourceTests(unittest.TestCase):
         # are omitted).
         res = b.build_local_core_resources(cluster_name=None)
         types = {r["resource_definition"]["resource_definition_name"] for r in res}
-        self.assertEqual(types, {"docker-network", "graph-database"})
+        self.assertEqual(types, {"docker-network"})
 
     def test_service_microservice_resources(self):
         services = [
@@ -313,7 +312,6 @@ class CoreResourceTests(unittest.TestCase):
             {
                 "docker-network",
                 # No "postgres": produced by the hmd-postgres-rds deploy.
-                "graph-database",
                 "kubernetes-cluster",
                 "compute-node",
                 "ingress-controller",
@@ -395,7 +393,7 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 8)
+        self.assertEqual(n, 7)
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -410,8 +408,9 @@ class DeclareCoreProducesTests(unittest.TestCase):
                 "ingress-controller",
                 # No "postgres": hmd-postgres-rds produces it now, so declaring
                 # the core RepoClass as a producer too would give the same
-                # environment two.
-                "graph-database",
+                # environment two. No "graph-database" either, for the same
+                # reason -- hmd-inf-neptune produces it, and only when something
+                # in the BOM actually asks for a graph.
                 "vpc",
                 "microservice",
                 "network",
