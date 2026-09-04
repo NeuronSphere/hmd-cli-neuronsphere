@@ -2,6 +2,24 @@
 
 ## 2026-09-04
 
+- feat: Add `nsctl repo add`, `repo remove`, `repo list` and `env apply`
+
+  The daily-usage surface. `repo add`/`remove` edit the environment manifest
+  and nothing else; `env apply` deploys the substrate plus everything the
+  manifest declares. Editing the file by hand is equivalent -- the verbs are
+  wrappers, not a second source of truth.
+
+  `repo list` shows declarations beside the deployment graph, including
+  instances deployed but declared nowhere, which is what a deleted line leaves
+  behind. It degrades to the manifest half when the deployment service is
+  unreachable rather than failing.
+
+- feat: Resolve an environment's deployed instances from the graph
+
+  `InstanceStatus` joins repo_instance, repo_instance_deployment and the edge
+  between them, scoped by deployment_id. The status is not on repo_instance,
+  so filtering that entity for it returns a 500.
+
 - feat: Build BOM entries from an environment manifest
 
   `bom.Declared` turns a manifest's declarations into changeset entries that

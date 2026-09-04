@@ -8,6 +8,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -24,8 +25,16 @@ const DefaultMSDeploymentURL = "http://localhost/hmd_ms_deployment"
 // Overridable so a test can point somewhere it controls: a hardcoded localhost
 // would make every unit test depend on whatever is running on this machine.
 func msDeploymentURL(opts *Options) string {
-	if v := opts.lookup("HMD_LOCAL_MS_DEPLOYMENT_URL"); v != "" {
-		return v
+	return MSDeploymentURL(opts.Lookup)
+}
+
+// MSDeploymentURL is where to reach the deployment service, for a caller that
+// has a lookup but no Options.
+func MSDeploymentURL(lookup func(string) string) string {
+	if lookup != nil {
+		if v := lookup("HMD_LOCAL_MS_DEPLOYMENT_URL"); v != "" {
+			return v
+		}
 	}
 	return DefaultMSDeploymentURL
 }
@@ -66,7 +75,32 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	// The cluster entry only makes sense when k3s is enabled: without it the
 	// eks-cluster node deploys a cluster nothing will run.
-	entries := bom.Substrate(bomEnv, k3sEnabled(opts))
+	substrate := bom.Substrate(bomEnv, k3sEnabled(opts))
+
+	// Everything above the substrate is what the manifest declares. An
+	// environment with none is not an error -- that is the empty environment,
+	// and it gets a cluster and a database with nothing on them.
+	declared, err := manifest.Load(opts.Home, env.Slug, opts.Lookup)
+	if err != nil {
+		return nserr.Wrap(nserr.Usage, err)
+	}
+	var (
+		declaredRepos []manifest.Repo
+		repoPaths     map[string]string
+	)
+	if declared != nil {
+		declaredRepos = declared.Repos
+		repoPaths = bom.RepoPaths(declaredRepos, opts.Lookup)
+		opts.step("Manifest %s declares %d instance(s)", declared.Path, len(declaredRepos))
+		if unsupported := declared.Unsupported(); len(unsupported) > 0 {
+			// Said rather than ignored: these configure plugin discovery, which
+			// nsctl does not implement, and a user who wrote them is entitled
+			// to know they changed nothing.
+			opts.warn("the manifest sets %s, which nsctl does not implement; those keys had no effect",
+				strings.Join(unsupported, " and "))
+		}
+	}
+	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
 
 	// Floci spawns its database backend from an image reference pinned into its
 	// own configuration, and a reference that resolves nowhere fails the
@@ -89,6 +123,9 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	}
 
 	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
+	for class, path := range repoPaths {
+		resolver.Paths[class] = path
+	}
 	seeder := &bom.Seeder{Client: client, Versions: resolver}
 
 	opts.step("Seeding the substrate changeset...")
@@ -114,6 +151,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			K3sCluster:           env.K3sCluster,
 			Kubeconfig:           env.Kubeconfig,
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
+			RepoPaths:            repoPaths,
 			DeploymentID:         env.DeploymentID,
 			Region:               names.Region,
 			CustomerCode:         names.CustomerCode,
@@ -149,7 +187,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				opts.warn("%v", relErr)
 			} else if released {
 				opts.step("  released the CLI-created DB subnet group; retrying so base-vpc can own it")
-				csdNid, nodes, err = seeder.Seed(ctx, bomEnv, bom.Substrate(bomEnv, k3sEnabled(opts)))
+				csdNid, nodes, err = seeder.Seed(ctx, bomEnv, entries)
 				if err != nil {
 					return nserr.Wrap(nserr.Fail, err)
 				}

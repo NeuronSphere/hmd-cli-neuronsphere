@@ -28,22 +28,13 @@ import (
 // every local resource-typed dependency resolves against.
 const CoreRepoClass = "hmd-cli-neuronsphere"
 
-// Status values ms-deployment accepts for a RepoInstanceDeployment.
-//
-// These are closed sets and the service rejects anything outside them with a
-// 400 naming the whole list. There is no in-progress state at all -- no
-// DEPLOYING -- so a node goes straight from DEPLOY_NEXT to its outcome.
+// The protocol's status values live with the client that speaks it. Aliased
+// here so the call sites below read as the runner's own vocabulary.
 const (
-	StatusDeployed = "DEPLOYED"
-	StatusFailed   = "FAILED"
-)
-
-// ChangeSetDeployment statuses are a different set again: CREATED, STARTED,
-// COMPLETED, FAILED, DESTROYED. A finished deployment is COMPLETED, not
-// DEPLOYED.
-const (
-	CSDStatusCompleted = "COMPLETED"
-	CSDStatusFailed    = "FAILED"
+	StatusDeployed     = msdeploy.StatusDeployed
+	StatusFailed       = msdeploy.StatusFailed
+	CSDStatusCompleted = msdeploy.CSDStatusCompleted
+	CSDStatusFailed    = msdeploy.CSDStatusFailed
 )
 
 // deployCmd matches the generated `hmd ... deploy ...` command line.

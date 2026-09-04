@@ -52,6 +52,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		newEnvStatusCommand(opts),
 		newEnvStartCommand(opts),
 		newEnvStopCommand(opts),
+		newEnvApplyCommand(opts),
 	)
 	return env
 }
@@ -93,6 +94,41 @@ with it.`,
 		},
 	}
 	cmd.Flags().BoolVar(&noDeploy, "no-deploy", false, "Bring up the infrastructure without reconciling the BOM")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	return cmd
+}
+
+func newEnvApplyCommand(opts *Options) *cobra.Command {
+	var verbose bool
+	cmd := &cobra.Command{
+		Use:   "apply [name]",
+		Short: "Reconcile an environment to its manifest",
+		Long: `Deploys the environment substrate and everything the manifest declares.
+
+The manifest at $HMD_HOME/environments/<name>.yaml is the desired state.
+Editing it by hand and running this is the same operation as ` + "`nsctl repo add`" + `,
+which edits that file and reconciles for you.
+
+This is what ` + "`env start`" + ` runs at the end, so applying after an edit does not
+need a restart. An environment with no manifest gets the substrate alone.`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			return environment.Apply(cmd.Context(), &environment.Options{
+				Home: home, Lookup: opts.Lookup, Verbose: verbose,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}, name)
+		},
+	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
 	return cmd
 }

@@ -123,6 +123,7 @@ nothing on them. Everything above that is a RepoClass you add.`,
 
 	root.AddCommand(
 		newEnvCommand(opts),
+		newRepoCommand(opts),
 		newControlPlaneCommand(opts),
 		newVersionCommand(opts),
 	)
