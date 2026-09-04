@@ -29,9 +29,13 @@ type Options struct {
 	// NoDeploy skips the BOM reconcile, bringing up only the infrastructure.
 	// Until the deploy path lands it is the only supported mode.
 	NoDeploy bool
-	Verbose  bool
-	Out      io.Writer
-	Err      io.Writer
+	// ForceRedeploy deploys every declared instance whether or not the graph
+	// already has it, bypassing drift detection entirely. The escape hatch for
+	// a digest that disagrees with reality.
+	ForceRedeploy bool
+	Verbose       bool
+	Out           io.Writer
+	Err           io.Writer
 }
 
 func (o *Options) lookup(key string) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/reconcile"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
@@ -122,6 +123,38 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	}
 
+	// What is already deployed and current does not need deploying again. The
+	// graph answers the first half; the snapshot of the last apply answers the
+	// second, since the graph records that an instance is DEPLOYED but not
+	// what it was deployed *from*.
+	plan := reconcile.Degraded(entries)
+	if opts.ForceRedeploy {
+		opts.step("Redeploying everything, as asked")
+	} else if status, err := client.InstanceStatus(ctx, env.DeploymentID); err != nil {
+		// Fail safe rather than fail closed: an unreadable graph means nothing
+		// is known, so everything is deployed rather than silently skipped.
+		opts.warn("could not read the deployment graph, so nothing is assumed about what is deployed: %v", err)
+	} else {
+		plan = reconcile.Compute(entries, status, reconcile.LoadSnapshot(env.StateDir), nil)
+		opts.step("Plan: %s", plan.Summary())
+		for _, name := range plan.Remove {
+			// Reported, never acted on. Removing a line from a manifest is not
+			// an instruction to destroy what it deployed.
+			opts.warn("%s is deployed but no longer declared; nsctl leaves it running", name)
+		}
+		if plan.Empty() {
+			// Record the digests anyway: an environment deployed before
+			// snapshots existed has none, and without one drift is invisible
+			// forever.
+			if err := reconcile.WriteSnapshot(env.StateDir, entries, nil); err != nil {
+				opts.warn("%v", err)
+			}
+			opts.step("  everything declared is already deployed and current")
+			return nil
+		}
+		entries = plan.Deploy()
+	}
+
 	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
 	for class, path := range repoPaths {
 		resolver.Paths[class] = path
@@ -199,7 +232,32 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(run.Succeeded))
+
+	// Record only what is known good: everything the run settled, plus what
+	// the plan already found deployed and current. Recording a digest for an
+	// entry that failed would make the next run read it as up to date.
+	if err := reconcile.WriteSnapshot(env.StateDir, settled(plan, run.Succeeded), nil); err != nil {
+		opts.warn("%v", err)
+	}
 	return nil
+}
+
+// settled is the entries whose recorded digest is trustworthy after a run.
+func settled(plan *reconcile.Plan, succeeded []string) []bom.Entry {
+	known := make(map[string]bool, len(succeeded)+len(plan.Unchanged))
+	for _, name := range succeeded {
+		known[name] = true
+	}
+	for _, name := range plan.Unchanged {
+		known[name] = true
+	}
+	out := make([]bom.Entry, 0, len(known))
+	for _, e := range plan.Desired {
+		if known[e.RepoInstanceName] {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // subnetGroupCollision reports the one failure the migration above repairs.

@@ -58,7 +58,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 }
 
 func newEnvStartCommand(opts *Options) *cobra.Command {
-	var noDeploy, verbose bool
+	var noDeploy, verbose, force bool
 	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start an environment's infrastructure",
@@ -89,17 +89,20 @@ with it.`,
 			}
 			return environment.Start(cmd.Context(), &environment.Options{
 				Home: home, Lookup: opts.Lookup, NoDeploy: noDeploy, Verbose: verbose,
-				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+				ForceRedeploy: force,
+				Out:           cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}, name)
 		},
 	}
 	cmd.Flags().BoolVar(&noDeploy, "no-deploy", false, "Bring up the infrastructure without reconciling the BOM")
+	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
+		"Deploy everything declared, ignoring what the graph says is already deployed")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
 	return cmd
 }
 
 func newEnvApplyCommand(opts *Options) *cobra.Command {
-	var verbose bool
+	var verbose, force bool
 	cmd := &cobra.Command{
 		Use:   "apply [name]",
 		Short: "Reconcile an environment to its manifest",
@@ -124,12 +127,14 @@ need a restart. An environment with no manifest gets the substrate alone.`,
 				name = args[0]
 			}
 			return environment.Apply(cmd.Context(), &environment.Options{
-				Home: home, Lookup: opts.Lookup, Verbose: verbose,
+				Home: home, Lookup: opts.Lookup, Verbose: verbose, ForceRedeploy: force,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}, name)
 		},
 	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
+		"Deploy everything declared, ignoring what the graph says is already deployed")
 	return cmd
 }
 
