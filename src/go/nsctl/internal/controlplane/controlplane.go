@@ -144,15 +144,14 @@ func CheckNoLegacyEnvFlociState(reg *registry.Registry) error {
 
 // Start brings the control plane up.
 //
-// Deliberately not ported yet: the control-plane bootstrap DAG. The Python runs
-// it on *every* start -- it deploys the control-plane Postgres through the real
-// hmd-postgres-rds RepoClass and redeploys the naming, artifact-lib and
-// ms-deployment Lambdas -- and it needs the projectbuilder execution path that
-// lands with the deploy work. On an already-bootstrapped HMD_HOME that work is
-// idempotent and Floci's persistent state carries the Lambdas and gateways
-// across a restart, so this recovers the gateway ids by listing them instead of
-// re-deriving them from a DAG run. A never-bootstrapped HMD_HOME is refused by
-// name rather than half-started.
+// A never-bootstrapped HMD_HOME runs the bootstrap DAG (see Bootstrap); an
+// already-bootstrapped one does not. That is a deliberate difference from the
+// Python, which runs the DAG on every start. It can afford to because the work
+// is idempotent, but it is not free -- it redeploys the Postgres through
+// Terraform and re-registers three Lambdas on every `up`. Floci's persistent
+// state carries the Lambdas and their gateways across a restart, so a warm
+// start recovers the gateway ids by listing them instead, and only pays for
+// what actually needs doing.
 func Start(ctx context.Context, opts *Options) error {
 	reg, err := registry.Load(opts.Home, opts.Lookup)
 	if err != nil {
@@ -163,10 +162,6 @@ func Start(ctx context.Context, opts *Options) error {
 	}
 	if err := CheckNoLegacyEnvFlociState(reg); err != nil {
 		return err
-	}
-	if !reg.ControlPlane.Bootstrapped {
-		return nserr.New(nserr.Usage,
-			"%s has never been bootstrapped, and nsctl cannot bootstrap one yet -- the control-plane DAG lands with the deploy path.\nRun `hmd neuronsphere up` once; nsctl can start and stop it after that.", opts.Home)
 	}
 
 	r := router.New(opts.Home, opts.Lookup)
@@ -263,7 +258,11 @@ func Start(ctx context.Context, opts *Options) error {
 	case err != nil:
 		opts.warn("%v", err)
 	case dbContainer == "":
-		opts.warn("no database container for %s; the control plane has never deployed one", dbID)
+		if reg.ControlPlane.Bootstrapped {
+			opts.warn("no database container for %s; the control plane has never deployed one", dbID)
+		}
+		// Not bootstrapped: there is no instance yet because nothing has
+		// deployed one. Bootstrap does that below.
 	default:
 		opts.step("  %s is up and aliased as %s", dbContainer, floci.ControlPlaneDBAlias)
 	}
@@ -287,6 +286,12 @@ func Start(ctx context.Context, opts *Options) error {
 	// least convenient moment.
 	if err := EnsureProjectBuilder(ctx, opts, runner); err != nil {
 		opts.warn("%v", err)
+	}
+
+	if !reg.ControlPlane.Bootstrapped {
+		if err := Bootstrap(ctx, opts, reg, target, docker, r, names); err != nil {
+			return err
+		}
 	}
 
 	opts.step("Configuring control-plane routes...")

@@ -2,6 +2,18 @@
 
 ## 2026-09-04
 
+- feat: Bootstrap a control plane that has never been bootstrapped
+
+  `nsctl control-plane start` no longer refuses a fresh `HMD_HOME`. The
+  control-plane Postgres and graph are deployed by the same RepoClasses the
+  cloud uses, through the same projectbuilder path, then the core databases
+  are created directly and the three foundation Lambdas are deployed with
+  ms-deployment last.
+
+  Unlike the Python, this runs only when the control plane has not been
+  bootstrapped. A warm start recovers the gateway ids by listing them instead
+  of redeploying Postgres through Terraform on every `up`.
+
 - feat: Add `nsctl repo import`
 
   Writes an environment's deployed instances into its manifest, closing the

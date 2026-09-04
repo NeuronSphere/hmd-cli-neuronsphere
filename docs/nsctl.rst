@@ -156,11 +156,8 @@ Both front ends work against one ``HMD_HOME``. ``nsctl`` stamps the
 ``docker compose ps``, ``hmd neuronsphere down`` and the Python port validator
 all still find them.
 
-Two things ``nsctl`` cannot do yet, for which you need ``hmd``:
+One thing ``nsctl`` cannot do yet, for which you need ``hmd``:
 
-- **Bootstrap a new ``HMD_HOME``.** ``nsctl`` refuses on an ``HMD_HOME`` that
-  has never been bootstrapped and says so. Run ``hmd neuronsphere up`` once;
-  ``nsctl`` can start and stop it from then on.
 - **Deploy plugin-contributed workloads.** Entries that come from installed
   plugin packages are invisible to ``nsctl`` until they are written into the
   environment's manifest. ``nsctl repo import`` does that: it reads what the
