@@ -5,7 +5,7 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 
 .. req:: Deliver the local NeuronSphere as a single Go binary requiring only Docker
     :id: HMD_CLI_NERD002
-    :status: proposed
+    :status: in progress
 
     The extend-mode local platform currently reachable only through
     ``hmd neuronsphere`` shall be delivered as ``nsctl`` -- a single
@@ -33,6 +33,92 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     users, at precisely the moment the point was to serve new ones. This
     revision ports one thing, gives it a surface built for the audience, and
     leaves the rest of the ecosystem alone.
+
+Implementation Status
+---------------------
+
+Phases 0 through 3 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
+control plane from an empty ``HMD_HOME``, starts and stops environments,
+reconciles them to a manifest, and coexists with the Python CLI against one
+``HMD_HOME``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 30 58
+
+   * - SPEC
+     - Status
+     - Note
+   * - 001
+     - implemented
+     - ``env purge`` is the one verb still missing; the ``repo`` verbs and
+       ``env apply`` were added to the surface, ``load-plugin`` withdrawn.
+   * - 002
+     - implemented
+     - Cold bootstrap included. ``env purge`` outstanding.
+   * - 003
+     - implemented
+     - Cross-checked against the literal JSON the Python CLI writes.
+   * - 004
+     - implemented
+     -
+   * - 005
+     - **withdrawn**
+     - Plugin discovery is not implemented in any form. See the SPEC.
+   * - 006
+     - partly implemented
+     - The compose file is embedded; pre-build artifacts are not, so version
+       resolution has no artifact tier to prefer over a working tree.
+   * - 007
+     - implemented
+     - EC2 is not used at all -- ``hmd-vpc`` deploys the network instead,
+       which removed 24 MB from the binary.
+   * - 008
+     - **amended**
+     - Two of its routes were wrong; the conclusion holds. See the SPEC.
+   * - 009
+     - implemented
+     -
+   * - 010
+     - not started
+     - Phase 4.
+   * - 011
+     - not started
+     - Phase 5.
+   * - 012
+     - implemented
+     - Verified by running the Python CLI against nsctl-created containers.
+   * - 013
+     - partly implemented
+     - ``make install`` exists; GoReleaser and the Homebrew tap are Phase 6.
+   * - 014
+     - **amended**
+     - The HIGH risk is retired; three gaps found in implementation are
+       recorded there.
+   * - 015
+     - **amended**
+     - Phase 3's content changed substantially once plugins were dropped.
+
+What implementation changed about the design
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Four things this proposal asserted turned out to be wrong, and are corrected in
+the SPECs rather than quietly worked around:
+
+1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
+   published tag was checked. Kubernetes work execs into the k3s node instead,
+   which launches no container and removes projectbuilder as a prerequisite for
+   provisioning a cluster.
+2. **``docker compose`` is not needed either** (SPEC008). Three containers
+   described by one embedded file are materialised through the Docker Engine
+   API, so ``docker`` is genuinely the only host binary.
+3. **Plugin discovery should not be ported at all** (SPEC005). A RepoClass
+   already declares what it needs and produces, in the files the cloud deploy
+   path reads. The parallel inventory is the copy that goes stale -- and did.
+4. **The control plane's bootstrap does not need to run on every start.** The
+   Python runs it each time because the work is idempotent; ``nsctl`` runs it
+   only when the control plane has not been bootstrapped, and a warm start
+   recovers what it needs from Floci's persistent state.
 
 Motivation
 ----------
@@ -88,7 +174,8 @@ Scope
   ``nsctl``: environment lifecycle, control-plane lifecycle, Floci
   provisioning, k3s cluster and operator provisioning, nginx routing, the
   environment registry, BOM seeding and the ms-deployment apiop protocol,
-  reconcile/delta-apply, and plugin discovery.
+  reconcile/delta-apply, and the environment manifest that replaces plugin
+  discovery (SPEC005).
 - A new **DAG-runner service** for the control plane (SPEC010), replacing the
   in-process ``LocalWorkflowRunner`` call with a submitted workflow.
 - Parallel, dependency-respecting node execution (SPEC011).
@@ -140,26 +227,36 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     |           +-- main.go
     |           +-- cmd/
     |           |   +-- root.go
-    |           |   +-- env.go               # start/stop/add/delete/purge/list/status
-    |           |   +-- controlplane.go      # start/stop/status
-    |           |   +-- plugin.go            # load-plugin
+    |           |   +-- env.go          # start/stop/apply/add/delete/list/status
+    |           |   +-- controlplane.go # start/stop/status
+    |           |   +-- repo.go         # add/remove/list/import
     |           +-- internal/
-    |               +-- registry/    # environments.json reader/writer (SPEC003)
-    |               +-- compose/     # docker compose invocation, port validation
-    |               +-- floci/       # aws-sdk-go-v2 against Floci (SPEC007)
-    |               +-- k3s/         # cluster lifecycle, operators, kubeconfig
-    |               +-- router/      # nginx config generation
-    |               +-- bom/         # ms-deployment apiop client, BOM seeding (SPEC009)
-    |               +-- reconcile/   # plan/snapshot/digests
-    |               +-- plugin/      # nsplugin.json discovery + load-plugin (SPEC005)
-    |               +-- embedfs/     # go:embed of services/ and external/ (SPEC006)
-    +-- src/go/nsrunner/             # the DAG-runner service (SPEC010)
+    |               +-- registry/     # environments.json reader/writer (SPEC003)
+    |               +-- manifest/     # the environment manifest (desired state)
+    |               +-- compose/      # YAML -> Docker Engine API, port validation
+    |               +-- container/    # docker shell-out, network resolution
+    |               +-- floci/        # aws-sdk-go-v2 against Floci (SPEC007)
+    |               +-- k3s/          # cluster lifecycle, operators, kubeconfig
+    |               +-- router/       # nginx config generation
+    |               +-- msdeploy/     # ms-deployment apiop + CRUD client (SPEC009)
+    |               +-- bom/          # BOM entries, topological sort, seeding
+    |               +-- repoclass/    # manifest + meta-data/resources resolution
+    |               +-- reconcile/    # plan/snapshot/digests
+    |               +-- runner/       # in-process DAG node execution
+    |               +-- controlplane/ # lifecycle and the bootstrap DAG
+    |               +-- environment/  # lifecycle and apply
+    |               +-- status/       # what env status and cp status report
+    |               +-- bundled/      # go:embed of services/ (SPEC006)
+    +-- src/go/nsrunner/              # the DAG-runner service (SPEC010, Phase 4)
         +-- cmd/, internal/, Dockerfile
+
+    ``internal/plugin`` is absent: plugin discovery is withdrawn (SPEC005).
+    ``nsrunner`` does not exist yet.
 
 .. spec:: Command surface
     :id: HMD_CLI_NERD002_SPEC001
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented (except env purge)
 
     ``nsctl`` is organised as ``nsctl <noun> <verb>`` after ``kubectl``, not as
     a transliteration of the Cement controller tree.
@@ -232,7 +329,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Control-plane lifecycle is explicit and separate
     :id: HMD_CLI_NERD002_SPEC002
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented (except env purge)
 
     A local NeuronSphere is **one shared control plane per ``HMD_HOME``**
     (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-artifact-lib``, the
@@ -269,7 +366,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: The environment registry is read, never re-derived
     :id: HMD_CLI_NERD002_SPEC003
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented
 
     ``$HMD_HOME/.cache/neuronsphere/environments.json`` persists **every**
     derived value for the control plane and each environment: container names,
@@ -315,7 +412,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: CLI framework -- Cobra replacing Cement
     :id: HMD_CLI_NERD002_SPEC004
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented
 
     ``spf13/cobra`` v1.8.0 (the house version, used by ``nsx``, ``goblin``,
     ``bartleby`` and the ``go_cli_repo`` cookiecutter), with ``RunE``
@@ -539,7 +636,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Bundled artifacts and go:embed
     :id: HMD_CLI_NERD002_SPEC006
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: partly implemented
 
     The BACON ``build.pre_build_artifacts`` mechanism unpacks other repos'
     build outputs into ``src/python/hmd_cli_neuronsphere/external/<name>/`` at
@@ -575,7 +672,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: AWS SDK -- aws-sdk-go-v2 against Floci
     :id: HMD_CLI_NERD002_SPEC007
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented
 
     ``floci_deployer.py`` drives S3, Secrets Manager, SSM, Lambda, API Gateway,
     RDS and EKS against the Floci emulator via boto3. ``internal/floci`` uses
@@ -762,7 +859,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: ms-deployment client -- the BOM and apiop protocol
     :id: HMD_CLI_NERD002_SPEC009
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented
 
     ``internal/bom`` re-implements ``bom_seeder.py`` (the single densest module
     in the port, ~2,350 lines) over ``net/http``. Nothing here is a library
@@ -799,7 +896,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: The DAG-runner service replaces the in-process runner
     :id: HMD_CLI_NERD002_SPEC010
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: not started
 
     **Today the CLI pulls.** ``bom_seeder`` posts ``apply_changeset`` with
     ``skip_async: true`` -- a payload boolean whose only function is to stop
@@ -868,7 +965,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Parallel node execution respecting dependencies
     :id: HMD_CLI_NERD002_SPEC011
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: not started
 
     ``LocalWorkflowRunner.run()`` is a strictly sequential ``for node in
     nodes:`` that returns at the first failure. It has no threads, no
@@ -910,7 +1007,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Coexistence with the Python CLI
     :id: HMD_CLI_NERD002_SPEC012
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: implemented
 
     The Python ``hmd neuronsphere`` surface is **not** deprecated by this
     proposal and is not removed on any schedule set here. Both front ends
@@ -939,7 +1036,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Build and distribution
     :id: HMD_CLI_NERD002_SPEC013
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: partly implemented
 
     **Build.** A repository-root ``Makefile`` with ``build``/``test``/``vet``/
     ``tidy``/``clean`` targets, binary at ``src/go/nsctl/build/nsctl``, version
@@ -971,16 +1068,74 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Gaps, risks, and mitigations
     :id: HMD_CLI_NERD002_SPEC014
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: amended
 
-    **HIGH: reconcile digest compatibility.** If ``entry_hash`` /
+    **RETIRED -- HIGH: reconcile digest compatibility.** If ``entry_hash`` /
     ``definition_hash`` differ by so much as key ordering, every existing user's
     first ``nsctl env start`` becomes a full redeploy of their environment
     -- tens of minutes -- and reads as a bug. Mitigation: golden vectors
     captured from the Python implementation, and an explicit
     ``--force-full-redeploy`` escape hatch rather than a silent fallback.
 
-    **MEDIUM: installed-package plugin contributions.** Go cannot enumerate
+    This landed as specified and the risk is closed. The vectors are generated
+    by *calling* ``change_set_builder.entry_hash``, not by transcribing it, and
+    they cover the four ways Go's encoder differs from CPython's: separators,
+    ``ensure_ascii``, float repr, and HTML escaping. They caught one real
+    divergence -- Go models ``repo_class_version`` as a string, so an
+    unresolved version flattens to ``""`` where Python hashes ``None`` as
+    ``null``.
+
+    Worth recording for anyone extending this: the vectors test the hash
+    function, not what is fed to it. A second, invisible variant of the same
+    bug survived them -- versions were being resolved *after* the plan was
+    computed, so every digest covered an empty version and a version bump was
+    undetectable. It took running against a live platform to find.
+
+    **GAP: a RepoClass may not declare what its plugin did.** SPEC005 asserts
+    that ``manifest.json`` plus ``meta-data/resources/*.yaml`` cover what
+    ``nsplugin.json`` declared. That is true of the foundation services'
+    ``service_config`` and of the librarian parameters, both of which are read
+    from the manifest. It is not universally true: ``hmd-ms-artifact-lib``
+    reads ``BUCKET_NAME`` and its bucket is declared **only** in
+    ``src/local/nsplugin.json``. ``nsctl`` bootstraps it, says it will not
+    serve until the bucket is declared in the manifest, and continues.
+
+    Reported rather than closed on purpose. Inventing a bucket name in
+    ``nsctl`` would hide the gap and point the librarian at a bucket nothing
+    else uses; the fix is a declaration in that repo. This is the concrete
+    instance of the residual risk SPEC005's audit predicted, and the pattern to
+    follow for any others: name the missing declaration, do not substitute for
+    it.
+
+    **GAP: the RepoClass declares cloud wiring, which must be resolved.** A
+    service's declared engines name a Secrets Manager secret by dependency and
+    route through pgbouncer; locally there is neither. Left unresolved the
+    service starts and fails every request with "Secret
+    dependency:db-credentials not found in PS or SM". ``LocalizeServiceConfig``
+    resolves postgres to a direct connection, gremlin to the graph alias, and
+    fills in the DynamoDB table name CDKTF would have supplied. Declared values
+    are never overridden, only gaps filled -- so this stays a translation of
+    the RepoClass rather than a second source of truth.
+
+    **GAP: a control plane's containers are not namespaced by ``HMD_HOME``.**
+    ``hmd_proxy``, ``floci`` and ``hmd_deployment_gui`` are fixed container
+    names, so two ``HMD_HOME``\ s cannot run control planes concurrently even
+    though their networks, compose projects and Floci data directories are all
+    distinct. Starting one recreates the other's containers pointed at the new
+    home. Not introduced by this port -- the names come from the compose file
+    -- but ``nsctl`` makes it easier to hit, and nothing currently detects it.
+
+    **SUPERSEDED -- MEDIUM: installed-package plugin contributions.** Plugin
+    discovery is withdrawn entirely (SPEC005), so neither half ports and the
+    bundle format this entry proposed does not exist. What replaces it in
+    practice is ``nsctl repo import``, which reads an environment's deployed
+    instances out of the deployment graph and writes them into its manifest --
+    so an environment brought up by the Python CLI is migrated by reading what
+    it actually deployed rather than by re-describing its plugins. The residual
+    risk named below still stands, and is now recorded concretely as the first
+    GAP above.
+
+    The original reasoning, retained: Go cannot enumerate
     Python distributions, so the entry-point half of the plugin system does not
     port. Downgraded from HIGH by the audit in SPEC005: all four existing
     plugins' contributions are static data plus four declarative constructs, so
@@ -1001,7 +1156,16 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     **MEDIUM: ``make_standard_name`` divergence.** A one-character difference
     in secret naming produces a runtime failure in a Python microservice, far
     from the Go code that caused it. Mitigation: a table-driven test built from
-    the Python function's outputs.
+    the Python function's outputs. Landed as specified.
+
+    A related trap is worth naming, because it cost real time: the *identifier*
+    helpers are per-instance, and asking the wrong one for a resource finds
+    nothing and returns no error. ``floci.GraphIdentifier`` names the
+    environment's graph; the control plane's is a different instance under a
+    different deployment id. Using the former for the latter left the
+    control-plane graph stopped after every restart while the code read as
+    correct, and surfaced four layers away as Trino failing to resolve
+    ``global-graph``.
 
     **MEDIUM: k3s operator provisioning is intricate.** CoreDNS custom records
     pointing ``neuronsphere`` at the shared Floci, Traefik
@@ -1014,6 +1178,12 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     reconstructed. Batching it into per-phase scripts is the part needing care:
     a step silently dropped from a batch fails later and elsewhere.
 
+    Ported wholesale as specified, with ``RunKube`` execing into the k3s node
+    rather than launching projectbuilder. One addition the Python does not
+    have: a stopped container's empty ``IPAddress`` renders as the literal
+    string ``invalid IP``, which is truthy -- so a CoreDNS record was being
+    written for a container that was not running. Addresses are parsed now.
+
     **LOW: Jinja2 template syntax.** No bundled plugin defines ``templates``
     entries. User-authored templates need a syntax note; ``pongo2`` is a
     last-resort fallback.
@@ -1021,12 +1191,20 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     **LOW: Robot Framework parity suites.** Tests invoke a CLI as a
     subprocess; parameterising the binary is a fixture change.
 
-    **MEDIUM: projectbuilder becomes an earlier prerequisite.** SPEC008 makes
-    the image a dependency of cluster provisioning, not only of deploys, so a
-    cold or offline first run cannot get a working k3s without it. Mitigation:
-    pull it once, early, with an explicit progress line, and fail with the pull
-    command rather than a mid-provision kubectl error. The upside is the trade:
-    ``docker`` becomes the *only* host tool ``nsctl`` requires.
+    **RETIRED -- MEDIUM: projectbuilder becomes an earlier prerequisite.**
+    This rested on kubectl running inside projectbuilder, which it cannot: no
+    published tag ships one (SPEC008). Kubernetes work execs into the k3s node,
+    so projectbuilder is a deploy-time dependency only, exactly as before. It
+    is still pulled early, because a first deploy otherwise pays for it at the
+    least convenient moment.
+
+    A different pre-flight turned out to matter more. Floci spawns its database
+    and graph backends from image references pinned into its own configuration,
+    and a reference that resolves nowhere is not reported as an error: the
+    instance goes to state ``failed`` while Terraform polls "Still creating..."
+    indefinitely. Both references are now checked before a bootstrap deploys
+    anything, so a wrong registry or version costs seconds and names the
+    variable at fault.
 
     **GAP: two host-only helm paths are dropped rather than ported.** The direct
     ``helm upgrade --install`` of ext-secrets (dead on the default path) and the
@@ -1043,24 +1221,29 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Phased implementation strategy
     :id: HMD_CLI_NERD002_SPEC015
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: amended
 
     Each phase is independently shippable and independently useful. Phases 1
     and 2 are verifiable against a platform brought up by the Python CLI, which
     means the port is exercised long before it can break anything.
 
-    **Phase 0 -- Foundation.** Scaffold ``src/go/nsctl/`` from the
+    **Phases 0-3 have landed.** Phase 3's content changed substantially once
+    plugin discovery was withdrawn; its entry below is rewritten to describe
+    what was built rather than what was planned. Phases 4-6 are unchanged and
+    not started.
+
+    **Phase 0 -- Foundation. [LANDED]** Scaffold ``src/go/nsctl/`` from the
     ``go_cli_repo`` cookiecutter; root ``Makefile``; cobra root with
     ``--home``; ``hmd.env`` loading; ``nsctl version``; CI (build, vet, test).
     *Deliverable:* the binary builds and reports its version.
 
-    **Phase 1 -- Read-only.** ``internal/registry`` (SPEC003) including the
+    **Phase 1 -- Read-only. [LANDED]** ``internal/registry`` (SPEC003) including the
     ``legacy_layout`` case and the literal-JSON fixture; ``nsctl env list``,
     ``nsctl env status``, ``nsctl control-plane status``.
     *Deliverable:* ``nsctl`` accurately describes a platform the Python CLI
     brought up. The registry contract is proven before anything can mutate it.
 
-    **Phase 2 -- Lifecycle without deploys.** Compose invocation and port
+    **Phase 2 -- Lifecycle without deploys. [LANDED]** Compose invocation and port
     validation; the ``RunKube`` projectbuilder helper and the early image pull
     (SPEC008); Floci provisioning (SPEC007); k3s cluster, operators and
     kubeconfig; nginx routing; ``control-plane start|stop``; ``env start
@@ -1069,31 +1252,46 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Deliverable:* ``nsctl`` brings up a control plane and an environment's
     infrastructure; the Python CLI can then complete the deploy.
 
-    **Phase 3 -- BOM and plugins.** ``internal/plugin`` (SPEC005),
-    ``nsbundle.json`` and ``nsctl load-plugin``; convert
-    ``hmd-cli-plugin-ns-{telemetry,analytics-engines,orchestration,visualization}``
-    to bundles, each keeping its ``entry_points`` block and gaining a test that
-    ``nsbundle.json`` and ``bom.py`` yield the same entries; ``internal/bom``
-    (SPEC009) including both topological sorts and version resolution;
-    ``internal/reconcile`` with golden-vector digest tests; ``env add``,
-    ``env delete``, and ``env start`` driving the existing in-process execution
-    path.
-    *Deliverable:* full extend-mode parity with ``hmd neuronsphere up``,
-    verified by the parity harness (SPEC012).
+    **Phase 3 -- BOM, manifests and the cold bootstrap. [LANDED]** Rewritten:
+    the plugin half of this phase is withdrawn (SPEC005), and the cold
+    bootstrap moved into it from Phase 2, where the original plan had deferred
+    it as "lands with the deploy path".
 
-    **Phase 4 -- The runner service.** ``src/go/nsrunner`` with the submit API
+    What was built: ``internal/manifest`` (the environment manifest, in the
+    format ``env_manifest.py`` defines, so either front end reads what the
+    other wrote); ``internal/bom`` (SPEC009) with both topological sorts and
+    version resolution; ``internal/reconcile`` with golden-vector digest tests
+    and ``--force-full-redeploy``; ``repoclass.Produces`` reading a repo's own
+    ``meta-data/resources/*.yaml``; the control-plane bootstrap DAG; and the
+    verbs ``env add``, ``env delete``, ``env apply``, ``repo add``,
+    ``repo remove``, ``repo list`` and ``repo import``.
+
+    *Deliverable:* ``nsctl`` bootstraps a control plane from an empty
+    ``HMD_HOME`` and reconciles an environment to its manifest.
+
+    *Verified:* a cold bootstrap of a fresh ``HMD_HOME`` deploys the VPC,
+    Postgres, core databases, graph and all three foundation services and exits
+    0, with ``hmd-ms-deployment`` answering; a second start skips the
+    bootstrap. Against an environment the Python CLI brought up, ``repo
+    import`` recovered 29 instances and ``env apply`` then reported "0 to
+    deploy, 0 changed, 32 unchanged, 0 deployed but undeclared".
+
+    *Not done:* ``env purge``, and the full parity harness -- parity was
+    checked by targeted cross-front-end operations rather than by a suite.
+
+    **Phase 4 -- The runner service. [NOT STARTED]** ``src/go/nsrunner`` with the submit API
     and inherited node execution (SPEC010); the runner selection in
     ``hmd-ms-deployment``; ``nsctl`` attaching to and streaming an in-flight
     deployment.
     *Deliverable:* deploys survive the CLI exiting; ``skip_async`` retires as
     the local marker.
 
-    **Phase 5 -- Parallelism.** In-degree scheduling, the bounded worker pool,
+    **Phase 5 -- Parallelism. [NOT STARTED]** In-degree scheduling, the bounded worker pool,
     fail-fast cancellation, and the per-environment mutex (SPEC011).
     *Deliverable:* a cold bootstrap measurably faster than the sequential
     path, with identical outcomes.
 
-    **Phase 6 -- Distribution.** GoReleaser, the Homebrew tap, the install
+    **Phase 6 -- Distribution. [NOT STARTED]** GoReleaser, the Homebrew tap, the install
     script, and documentation making ``nsctl`` the recommended path for new
     users while the Python CLI remains supported.
 
