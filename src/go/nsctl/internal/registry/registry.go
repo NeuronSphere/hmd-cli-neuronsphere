@@ -136,8 +136,9 @@ type Registry struct {
 	Synthesized bool `json:"-"`
 }
 
-// Lookup resolves an environment variable, returning "" when unset.
-type Lookup func(string) string
+// Lookup resolves an environment variable, returning "" when unset. An alias,
+// so hmdenv.Lookup is the same type -- see its doc.
+type Lookup = func(string) string
 
 // NotBootstrappedError says an HMD_HOME has no local NeuronSphere at all, as
 // distinct from one whose environment is merely stopped. The two need different

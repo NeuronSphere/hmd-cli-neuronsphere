@@ -32,7 +32,11 @@ var RelPath = filepath.Join(".config", "hmd.env")
 
 // Lookup resolves one environment variable, returning "" when unset. It is the
 // shape os.Getenv already has, so the process environment is a valid Lookup.
-type Lookup func(string) string
+//
+// An alias rather than a defined type: internal/registry and internal/status
+// describe the same thing, and defined types would need an explicit conversion
+// at every boundary for no gain in safety.
+type Lookup = func(string) string
 
 // Path returns the hmd.env path for an HMD_HOME, or "" when home is empty.
 func Path(home string) string {

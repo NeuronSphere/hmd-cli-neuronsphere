@@ -2,6 +2,29 @@
 
 ## 2026-09-04
 
+- feat: nsctl reads and reports a local NeuronSphere
+
+  NERD002 Phase 1: `nsctl env list`, `nsctl env status` and
+  `nsctl control-plane status` (alias `cp`), read-only and verified against a
+  platform the Python CLI brought up.
+
+  `internal/registry` reads `environments.json` rather than re-deriving it, and
+  its regression fixture is the literal JSON the Python emits -- the test
+  asserts a save reproduces it byte for byte, which a round-trip fixture could
+  never do.
+
+  `env status` corrects a real inaccuracy rather than porting it.
+  `environments.environment_status` inspects `env.db_container` and
+  `env.graph_container` by name, but both are Docker network *aliases* attached
+  to Floci-spawned containers whose real names are opaque -- as
+  `floci_deployer.floci_container_name` says outright, "docker inspect on the
+  DNS alias we later attach does not work, because an alias is not an object".
+  So the Python reports the database and graph stopped even when they are
+  running. nsctl resolves them by Floci's `io.floci.{service,account,resource-id}`
+  label triple, checked against the labels a live Floci actually wrote, and
+  reports a container that was never created ("absent") separately from one that
+  `env stop` stopped.
+
 - feat: Scaffold nsctl, the Go CLI for the local NeuronSphere
 
   NERD002 delivers extend mode as a single Go binary whose only host

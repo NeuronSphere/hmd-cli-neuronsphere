@@ -115,26 +115,46 @@ func (d *Docker) ContainerNames(ctx context.Context) map[string]bool {
 }
 
 // FlociContainer finds the container Floci spawned for one of its managed
-// resources, or "" when there is none.
+// resources, reporting its name and whether it is running. An empty name means
+// there is none.
 //
-// Ports floci_deployer.floci_container_name, including its choice of `docker
-// ps` over `ps -a`: a stopped backend is reported as absent, which is the same
-// answer status wants. The label triple is the only reliable lookup -- as that
-// function's comment puts it, `docker inspect` on the DNS alias attached later
-// does not work, because an alias is not an object.
-func (d *Docker) FlociContainer(ctx context.Context, service, accountID, resourceID string) string {
-	out, err := d.capture(ctx, "ps", "--format", "{{.Names}}",
-		"--filter", LabelFlociService+"="+service,
-		"--filter", LabelFlociAccount+"="+accountID,
-		"--filter", LabelFlociResource+"="+resourceID,
-	)
+// The label triple is the only reliable lookup. floci_deployer's own comment
+// says why: Floci names these containers opaquely
+// (floci-rds-db-<HEX>-<suffix>), and `docker inspect` on the DNS alias attached
+// later does not work, because an alias is not an object.
+//
+// This searches `docker ps -a`, where floci_deployer.floci_container_name
+// searches only running containers. That function feeds callers that need a
+// container to exec into, for which "stopped" and "absent" really are the same
+// answer. Status is the case where they are not: after `nsctl env stop`, a
+// stopped database is the expected state, and reporting it as unprovisioned
+// would read as data loss.
+func (d *Docker) FlociContainer(ctx context.Context, service, accountID, resourceID string) (string, bool) {
+	out, err := d.capture(ctx, flociPSArgs(service, accountID, resourceID)...)
 	if err != nil || out == "" {
-		return ""
+		return "", false
 	}
-	if fields := strings.Fields(out); len(fields) > 0 {
-		return fields[0]
+	// One resource, one backing container; take the first line if Floci ever
+	// leaves a second behind.
+	line := strings.SplitN(out, "\n", 2)[0]
+	name, state, _ := strings.Cut(line, "\t")
+	return strings.TrimSpace(name), strings.TrimSpace(state) == "running"
+}
+
+// flociPSArgs builds the `docker ps` invocation that finds a Floci-managed
+// container.
+//
+// Split out to be testable. Every value needs the literal "label=" prefix;
+// without it docker rejects the filter, and because a rejected filter is an
+// error rather than an empty result, the caller reported every database and
+// graph as never provisioned -- which reads as data loss rather than a typo.
+func flociPSArgs(service, accountID, resourceID string) []string {
+	return []string{
+		"ps", "-a", "--format", "{{.Names}}\t{{.State}}",
+		"--filter", "label=" + LabelFlociService + "=" + service,
+		"--filter", "label=" + LabelFlociAccount + "=" + accountID,
+		"--filter", "label=" + LabelFlociResource + "=" + resourceID,
 	}
-	return ""
 }
 
 // NetworkExists reports whether a Docker network of that name exists.

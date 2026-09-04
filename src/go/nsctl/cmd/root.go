@@ -121,7 +121,11 @@ nothing on them. Everything above that is a RepoClass you add.`,
 	root.PersistentFlags().StringVar(&homeFlag, "home", "",
 		"Path to HMD_HOME (overrides $HMD_HOME)")
 
-	root.AddCommand(newVersionCommand(opts))
+	root.AddCommand(
+		newEnvCommand(opts),
+		newControlPlaneCommand(opts),
+		newVersionCommand(opts),
+	)
 
 	return root
 }
