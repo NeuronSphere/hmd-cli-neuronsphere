@@ -33,6 +33,7 @@ result -- so nothing here touches a running environment on its own.`,
 		newRepoAddCommand(opts),
 		newRepoRemoveCommand(opts),
 		newRepoListCommand(opts),
+		newRepoImportCommand(opts),
 	)
 	return repo
 }
@@ -406,4 +407,154 @@ func parseConfig(pairs []string) (map[string]any, error) {
 		out[key] = value
 	}
 	return out, nil
+}
+
+func newRepoImportCommand(opts *Options) *cobra.Command {
+	var envName string
+	var dryRun, all bool
+
+	cmd := &cobra.Command{
+		Use:   "import",
+		Short: "Write the environment's deployed instances into its manifest",
+		Long: `Reads what the deployment graph has for this environment and declares it.
+
+This is the migration path from the Python CLI. An environment brought up by
+` + "`hmd neuronsphere up`" + ` gets its workloads from installed plugin packages, which
+nsctl does not read -- so those instances show as "undeclared" until they are
+written into a manifest. This writes them.
+
+Substrate instances are skipped: nsctl deploys those whether or not a manifest
+names them, and declaring one would make it removable by deleting a line.
+
+Instances the manifest already declares are left exactly as they are, so
+running this twice changes nothing the second time and a hand-edited
+declaration is never overwritten.`,
+		Args:          noArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg, home, slug, err := resolveEnvSlug(opts, envName)
+			if err != nil {
+				return err
+			}
+			if _, err := reg.Environment(slug, opts.Lookup); err != nil {
+				return nserr.Wrap(nserr.Usage, err)
+			}
+
+			url := environment.MSDeploymentURL(opts.Lookup)
+			client := msdeploy.New(url)
+			if !client.Reachable(cmd.Context()) {
+				return nserr.New(nserr.Fail,
+					"hmd-ms-deployment is not answering at %s, so there is nothing to read. Start the environment first.", url)
+			}
+			deployed, err := client.EnvironmentInstances(cmd.Context(), slug)
+			if err != nil {
+				return nserr.Wrap(nserr.Fail, err)
+			}
+
+			m, err := openManifest(opts, home, slug)
+			if err != nil {
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+			var added []manifest.Repo
+			var skipped, unresolved []string
+			for _, instance := range deployed {
+				switch {
+				case manifest.Reserved(instance.Name):
+					continue
+				case !all && instance.Status != msdeploy.StatusDeployed:
+					skipped = append(skipped, fmt.Sprintf("%s (%s)", instance.Name, statusWord(instance.Status)))
+					continue
+				case instance.RepoClassName == "":
+					// Without a repo class there is nothing to deploy from, so
+					// a declaration would be one `env apply` refuses.
+					unresolved = append(unresolved, instance.Name)
+					continue
+				}
+				if _, already := m.Repo(instance.Name); already {
+					continue
+				}
+				added = append(added, declarationFor(instance))
+			}
+
+			if len(unresolved) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: no repo class in the graph for %s; not declared\n", strings.Join(unresolved, ", "))
+			}
+			for _, s := range skipped {
+				fmt.Fprintf(cmd.ErrOrStderr(), "note: skipping %s; pass --all to declare it anyway\n", s)
+			}
+			if len(added) == 0 {
+				fmt.Fprintf(out, "Nothing to import: %s already declares everything deployed in %s.\n", m.Path, slug)
+				return nil
+			}
+
+			candidate := *m
+			candidate.Repos = append(append([]manifest.Repo{}, m.Repos...), added...)
+			// Validated before writing, so an import that `env apply` would
+			// refuse is reported here instead of landing in the file.
+			if problems := candidate.Validate(opts.Lookup); len(problems) > 0 {
+				return nserr.New(nserr.Usage,
+					"the imported manifest would not be valid:\n  - %s", strings.Join(problems, "\n  - "))
+			}
+
+			for _, r := range added {
+				fmt.Fprintf(out, "  %s (%s@%s)\n", r.InstanceName, r.RepoClassName, orDash(r.Version))
+			}
+			if dryRun {
+				fmt.Fprintf(out, "\n%d instance(s) would be declared in %s. Nothing was written.\n", len(added), m.Path)
+				return nil
+			}
+
+			m.Repos = candidate.Repos
+			if err := m.Save(m.Path); err != nil {
+				return nserr.Wrap(nserr.Fail, err)
+			}
+			fmt.Fprintf(out, "\nDeclared %d instance(s) in %s\n", len(added), m.Path)
+			fmt.Fprintf(out, "`nsctl env apply %s` should now report nothing to deploy.\n", slug)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&envName, "env", "", "Environment to import from (default: the default environment)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be declared without writing")
+	cmd.Flags().BoolVar(&all, "all", false, "Import instances that are not currently deployed too")
+	return cmd
+}
+
+// declarationFor turns a graph instance into a manifest declaration.
+//
+// A role with a single target is written as a bare string rather than a
+// one-element list: both are valid, and the string is how a person writes it.
+func declarationFor(instance msdeploy.DeployedInstance) manifest.Repo {
+	r := manifest.Repo{
+		InstanceName:          instance.Name,
+		RepoClassName:         instance.RepoClassName,
+		Version:               instance.RepoClassVersion,
+		InstanceConfiguration: instance.InstanceConfiguration,
+	}
+	if len(instance.Dependencies) > 0 {
+		deps := make(map[string]any, len(instance.Dependencies))
+		for role, targets := range instance.Dependencies {
+			if len(targets) == 1 {
+				deps[role] = targets[0]
+				continue
+			}
+			list := make([]any, 0, len(targets))
+			for _, t := range targets {
+				list = append(list, t)
+			}
+			deps[role] = list
+		}
+		r.Dependencies = deps
+	}
+	return r
+}
+
+func statusWord(status string) string {
+	if status == msdeploy.StatusNeverDeployed {
+		return "never deployed here"
+	}
+	return strings.ToLower(status)
 }

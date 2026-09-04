@@ -2,6 +2,15 @@
 
 ## 2026-09-04
 
+- feat: Add `nsctl repo import`
+
+  Writes an environment's deployed instances into its manifest, closing the
+  migration gap from the Python CLI: an environment brought up by `hmd
+  neuronsphere up` gets its workloads from installed plugin packages, which
+  nsctl does not read, so they showed as "deployed but undeclared" on every
+  apply. Importing the live `local` environment turned 28 such warnings into
+  "0 deployed but undeclared".
+
 - fix: Send an unfiltered entity search as `{}`
 
   The zero `Filter` encoded as `{"attribute": "", ...}`, and ms-deployment

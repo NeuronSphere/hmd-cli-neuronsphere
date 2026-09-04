@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 )
 
@@ -328,5 +329,69 @@ func TestSplitVersion(t *testing.T) {
 		if class != tt.class || version != tt.version {
 			t.Errorf("splitVersion(%q) = %q, %q; want %q, %q", tt.arg, class, version, tt.class, tt.version)
 		}
+	}
+}
+
+// A role with one target is written as a bare string, which is how a person
+// writes it; several targets become the list form the schema also allows.
+func TestDeclarationForSpellsDependenciesNaturally(t *testing.T) {
+	t.Parallel()
+
+	r := declarationFor(msdeploy.DeployedInstance{
+		Name: "trino", RepoClassName: "hmd-inf-trino", RepoClassVersion: "0.1.225",
+		InstanceConfiguration: map[string]any{"workers": 2},
+		Dependencies: map[string][]string{
+			"metastore": {"hive-metastore"},
+			"compute":   {"local-neuronsphere", "other"},
+		},
+	})
+
+	if r.InstanceName != "trino" || r.RepoClassName != "hmd-inf-trino" || r.Version != "0.1.225" {
+		t.Errorf("declaration = %+v", r)
+	}
+	if r.Dependencies["metastore"] != "hive-metastore" {
+		t.Errorf("single dependency = %#v, want a bare string", r.Dependencies["metastore"])
+	}
+	list, ok := r.Dependencies["compute"].([]any)
+	if !ok || len(list) != 2 {
+		t.Errorf("multiple dependencies = %#v, want a list", r.Dependencies["compute"])
+	}
+	if r.InstanceConfiguration["workers"] != 2 {
+		t.Errorf("configuration = %v", r.InstanceConfiguration)
+	}
+}
+
+func TestDeclarationForOmitsEmptyDependencies(t *testing.T) {
+	t.Parallel()
+
+	r := declarationFor(msdeploy.DeployedInstance{Name: "a", RepoClassName: "hmd-ms-a"})
+	if r.Dependencies != nil {
+		t.Errorf("dependencies = %v, want none written", r.Dependencies)
+	}
+}
+
+func TestStatusWord(t *testing.T) {
+	t.Parallel()
+
+	if got := statusWord(msdeploy.StatusNeverDeployed); got != "never deployed here" {
+		t.Errorf("statusWord(never) = %q", got)
+	}
+	if got := statusWord("FAILED"); got != "failed" {
+		t.Errorf("statusWord(FAILED) = %q", got)
+	}
+}
+
+// Import needs a deployment service; without one there is nothing to read and
+// saying so beats writing an empty manifest.
+func TestRepoImportRefusesWithoutTheDeploymentService(t *testing.T) {
+	t.Parallel()
+
+	_, env := repoEnv(t)
+	_, _, err := run(t, fakeEnv(env), "repo", "import")
+	if err == nil {
+		t.Fatal("import succeeded with no deployment service")
+	}
+	if !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("error = %v, want it to say the service is unreachable", err)
 	}
 }

@@ -70,6 +70,8 @@ Commands
      - Undeclare it. Does not tear down what is deployed.
    * - ``nsctl repo list``
      - What the manifest declares, beside what the graph has deployed.
+   * - ``nsctl repo import``
+     - Write the environment's deployed instances into its manifest.
 
 ``--home`` overrides ``HMD_HOME`` on any command. Exit codes are ``0`` success,
 ``1`` error, ``2`` invalid usage or refused precondition, ``3`` refused because
@@ -161,4 +163,7 @@ Two things ``nsctl`` cannot do yet, for which you need ``hmd``:
   ``nsctl`` can start and stop it from then on.
 - **Deploy plugin-contributed workloads.** Entries that come from installed
   plugin packages are invisible to ``nsctl`` until they are written into the
-  environment's manifest.
+  environment's manifest. ``nsctl repo import`` does that: it reads what the
+  deployment graph holds for the environment and declares it, after which
+  ``env apply`` reports nothing deployed-but-undeclared. Run it once per
+  environment you brought up with ``hmd``.
