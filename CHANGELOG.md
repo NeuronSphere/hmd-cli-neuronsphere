@@ -2,6 +2,27 @@
 
 ## 2026-09-04
 
+- feat: Deploy the environment's dbaccount service
+
+  `hmd-ms-dbaccount` is substrate rather than a user-added RepoClass: every
+  RepoClass wanting a database depends on `hmd-database-account`, whose deploy
+  calls this service, and nothing needing a database can deploy until it serves.
+  It cannot be deployed through the graph either -- its own manifest's required
+  dependencies would never resolve locally.
+
+  With it, all five target endpoints answer: the transform API returns a JSON
+  body, Airflow and Superset redirect to their logins, Argo serves, and a Trino
+  query returns `[[42]]`.
+
+  `nsplugin.json` turned out to contribute almost nothing here -- a Lambda name
+  and a repo class, both derivable -- so dropping it cost nothing. The service
+  config comes from the repo's own `meta-data/config_local.json`.
+
+  Ordering matters and the code now says why: `WriteEnvRoutes` is the bulk
+  writer and rewrites the environment's fragment wholesale, so it has to run
+  before the DAG routes are spliced in. Running it afterwards erased the
+  transform route that had just been restored.
+
 - feat: nsctl starts and stops an environment
 
   NERD002 Phase 2c. `nsctl env start <name> --no-deploy` brings up an

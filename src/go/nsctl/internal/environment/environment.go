@@ -171,6 +171,17 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		}
 	}
 
+	// dbaccount, before anything that wants a database can ask for one.
+	//
+	// It must also come before the DAG routes below: WriteEnvRoutes is the bulk
+	// writer and rewrites the fragment wholesale, so running it afterwards
+	// would erase every route refreshRoutes had just spliced in. That is the
+	// same order the Python uses -- write_env_routes, then
+	// refresh_deployed_service_routes.
+	if err := EnsureDBAccount(ctx, opts, reg, env, d, r, routerEnv, target, names); err != nil {
+		opts.warn("%v", err)
+	}
+
 	// The DAG-deployed services, discovered from Floci rather than from
 	// anything this run did: the fragment is rewritten wholesale on every
 	// start, so an environment that deploys nothing still needs its routes put
