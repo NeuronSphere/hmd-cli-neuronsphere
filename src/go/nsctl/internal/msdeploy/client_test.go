@@ -103,3 +103,48 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+// The zero Filter means "everything". Its struct encoding names an empty
+// attribute, and ms-deployment answers that with a 500 rather than every row,
+// so the wire form has to be a bare {} -- what Python's _search_entities
+// sends.
+func TestEmptyFilterMarshalsToAnEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	data, err := json.Marshal(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "{}" {
+		t.Errorf("Filter{} marshals to %s, want {}", data)
+	}
+}
+
+// A real filter still serialises in full, including values that omitempty on
+// the field would have dropped.
+func TestFilterKeepsFalsyValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		filter Filter
+		want   string
+	}{
+		{"string", Filter{"name", "=", "local"}, `{"attribute":"name","operator":"=","value":"local"}`},
+		{"empty string", Filter{"name", "=", ""}, `{"attribute":"name","operator":"=","value":""}`},
+		{"false", Filter{"auto_deploy", "=", false}, `{"attribute":"auto_deploy","operator":"=","value":false}`},
+		{"zero", Filter{"count", "=", 0}, `{"attribute":"count","operator":"=","value":0}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := json.Marshal(tt.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tt.want {
+				t.Errorf("got %s, want %s", data, tt.want)
+			}
+		})
+	}
+}

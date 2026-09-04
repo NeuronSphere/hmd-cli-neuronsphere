@@ -2,6 +2,19 @@
 
 ## 2026-09-04
 
+- fix: Send an unfiltered entity search as `{}`
+
+  The zero `Filter` encoded as `{"attribute": "", ...}`, and ms-deployment
+  answers that with a 500 rather than every row -- so `repo list` and the
+  reconcile plan could not read the deployment graph at all.
+
+- fix: Resolve repo versions before computing the reconcile plan
+
+  The version is part of an entry's digest, and it was being filled in by the
+  seeder after the plan was computed. Every recorded digest covered an empty
+  version, so a version bump was invisible as drift and the digest disagreed
+  with the one the Python front end writes for the same entry.
+
 - feat: Add `nsctl env add` and `nsctl env delete`
 
   Three error messages already told users to run `nsctl env add`, which did

@@ -157,6 +157,25 @@ type Filter struct {
 	Value     any    `json:"value"`
 }
 
+// MarshalJSON emits {} for the zero Filter, which is what "everything" means.
+//
+// The struct's own encoding is {"attribute": "", "operator": "", "value":
+// null}, and ms-deployment answers that with a 500: it takes the empty string
+// as an attribute name to filter on and fails building the SQL. Python's
+// _search_entities passes a bare {} for an unfiltered search, so this is what
+// the service expects rather than a nicety.
+//
+// Only a wholly empty filter is special-cased. A filter naming an attribute
+// serialises in full, including a Value that is empty or false, which
+// omitempty on the field would have silently dropped.
+func (f Filter) MarshalJSON() ([]byte, error) {
+	if f.Attribute == "" && f.Operator == "" && f.Value == nil {
+		return []byte("{}"), nil
+	}
+	type filter Filter // shed the method, so this does not recurse
+	return json.Marshal(filter(f))
+}
+
 // Search finds entities. The filter is the top-level body, not a wrapper.
 func (c *Client) Search(ctx context.Context, entityType string, filter Filter) ([]map[string]any, error) {
 	payload, err := c.do(ctx, http.MethodPost, c.BaseURL+"/api/"+entityType, filter, "search "+entityType)

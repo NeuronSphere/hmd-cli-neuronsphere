@@ -3,6 +3,8 @@ package bom
 import (
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 func testEnv() Environment {
@@ -235,5 +237,48 @@ func TestCoreProducedDefinitionsExcludeTheCluster(t *testing.T) {
 		if d.Name == "network" || d.Name == "vpc" {
 			t.Errorf("%s is still declared core-produced; base-vpc produces it", d.Name)
 		}
+	}
+}
+
+// versionStub resolves every class to one version.
+type versionStub struct{ version string }
+
+func (v versionStub) Resolve(_, declared string) (string, map[string]any, map[string]any, error) {
+	if v.version == "" {
+		return declared, nil, nil, nil
+	}
+	return v.version, nil, nil, nil
+}
+
+func (versionStub) Produces(string) ([]repoclass.ResourceDeclaration, error) { return nil, nil }
+
+// The version is part of an entry's digest. Planning against version-less
+// entries cannot see a version bump as drift, and records a digest the Python
+// front end would not agree with.
+func TestResolveVersionsFillsEveryEntry(t *testing.T) {
+	t.Parallel()
+
+	entries := Substrate(testEnv(), true)
+	if err := ResolveVersions(entries, versionStub{version: "1.2"}); err != nil {
+		t.Fatalf("ResolveVersions: %v", err)
+	}
+	for _, e := range entries {
+		if e.RepoClassVersion != "1.2" {
+			t.Errorf("%s has version %q", e.RepoInstanceName, e.RepoClassVersion)
+		}
+	}
+}
+
+// A resolver with nothing to say leaves a declared version in place rather
+// than blanking it.
+func TestResolveVersionsKeepsADeclaredVersion(t *testing.T) {
+	t.Parallel()
+
+	entries := []Entry{{RepoInstanceName: "a", RepoClassName: "hmd-ms-a", RepoClassVersion: "0.9"}}
+	if err := ResolveVersions(entries, versionStub{}); err != nil {
+		t.Fatal(err)
+	}
+	if entries[0].RepoClassVersion != "0.9" {
+		t.Errorf("version = %q, want the declared 0.9", entries[0].RepoClassVersion)
 	}
 }

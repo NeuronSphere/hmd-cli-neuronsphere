@@ -123,6 +123,19 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	}
 
+	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
+	for class, path := range repoPaths {
+		resolver.Paths[class] = path
+	}
+
+	// Versions are resolved before the plan, not left to the seeder: the
+	// version is part of what an entry's digest covers, so planning against
+	// version-less entries would neither see a version bump as drift nor
+	// record a digest the Python front end would agree with.
+	if err := bom.ResolveVersions(entries, resolver); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+
 	// What is already deployed and current does not need deploying again. The
 	// graph answers the first half; the snapshot of the last apply answers the
 	// second, since the graph records that an instance is DEPLOYED but not
@@ -155,10 +168,6 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		entries = plan.Deploy()
 	}
 
-	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
-	for class, path := range repoPaths {
-		resolver.Paths[class] = path
-	}
 	seeder := &bom.Seeder{Client: client, Versions: resolver}
 
 	opts.step("Seeding the substrate changeset...")

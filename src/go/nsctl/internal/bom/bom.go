@@ -238,6 +238,26 @@ type Seeder struct {
 // The order is ms-deployment's contract, not a preference: repo class versions
 // first, then the produced-resource declarations, then the Environment and
 // DeploymentSet, then the ChangeSet, then apply, then generate.
+// ResolveVersions fills in each entry's RepoClassVersion.
+//
+// Called before the reconcile plan is computed, not left to Seed: the version
+// is part of what an entry's digest covers, so a plan computed against
+// version-less entries cannot see a version bump as drift, and the digest it
+// records would not match the one the Python front end writes for the same
+// entry.
+func ResolveVersions(entries []Entry, versions VersionResolver) error {
+	for i := range entries {
+		version, _, _, err := versions.Resolve(entries[i].RepoClassName, entries[i].RepoClassVersion)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", entries[i].RepoClassName, err)
+		}
+		if version != "" {
+			entries[i].RepoClassVersion = version
+		}
+	}
+	return nil
+}
+
 func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (string, []msdeploy.DeploymentNode, error) {
 	if len(entries) == 0 {
 		return "", nil, fmt.Errorf("nothing to seed")
