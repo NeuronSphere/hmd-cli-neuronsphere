@@ -28,7 +28,11 @@ ROBOT_FLAGS    = --variable BINARY:$(abspath $(BUILD_DIR)/$(BINARY)) \
 SERVICES_SRC := src/python/hmd_cli_neuronsphere/services
 EMBED_DIR    := $(GO_DIR)/internal/bundled/services
 
-.PHONY: all build generate test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+# Where `make install` puts the binary. ~/.local/bin is on PATH for a normal
+# macOS or Linux login shell and needs no sudo; override for anywhere else.
+PREFIX    ?= $(HOME)/.local/bin
+
+.PHONY: all build generate install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
@@ -41,6 +45,17 @@ generate:
 build: generate
 	@mkdir -p $(BUILD_DIR)
 	cd $(GO_DIR) && CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o build/$(BINARY) .
+
+## install: build and copy the binary to $(PREFIX)
+install: build
+	@mkdir -p $(PREFIX)
+	@install -m 0755 $(BUILD_DIR)/$(BINARY) $(PREFIX)/$(BINARY)
+	@echo "installed $(PREFIX)/$(BINARY) ($$($(PREFIX)/$(BINARY) version))"
+
+## uninstall: remove the installed binary
+uninstall:
+	@rm -f $(PREFIX)/$(BINARY)
+	@echo "removed $(PREFIX)/$(BINARY)"
 
 ## test: run the Go unit tests
 test: generate

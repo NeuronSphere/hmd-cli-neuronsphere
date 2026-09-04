@@ -2,6 +2,13 @@
 
 ## 2026-09-04
 
+- feat: Install the binary with `make install`
+
+  `make install` builds and copies `nsctl` to `$(PREFIX)`, defaulting to
+  `~/.local/bin` -- on PATH for a normal login shell and writable without sudo.
+  `make uninstall` removes it. This is the interim answer until Phase 6 ships
+  GoReleaser and a Homebrew tap.
+
 - feat: Deploy the environment's network instead of working around its absence
 
   `base-vpc` is a substrate BOM entry now, deployed from `hmd-vpc`, and
