@@ -228,17 +228,20 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			}
 		}
 	}
+	// Recorded before the error is returned, so a run that failed partway
+	// still keeps what it settled and a retry picks up where it stopped
+	// rather than redeploying the instances that worked.
+	//
+	// Only what is known good goes in: what this run settled, plus what the
+	// plan already found deployed and current. A digest recorded for an entry
+	// that failed would make the next run read it as up to date.
+	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, run.Succeeded), nil); writeErr != nil {
+		opts.warn("%v", writeErr)
+	}
 	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(run.Succeeded))
-
-	// Record only what is known good: everything the run settled, plus what
-	// the plan already found deployed and current. Recording a digest for an
-	// entry that failed would make the next run read it as up to date.
-	if err := reconcile.WriteSnapshot(env.StateDir, settled(plan, run.Succeeded), nil); err != nil {
-		opts.warn("%v", err)
-	}
 	return nil
 }
 
