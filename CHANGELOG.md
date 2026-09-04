@@ -2,6 +2,26 @@
 
 ## 2026-09-04
 
+- feat: Scaffold nsctl, the Go CLI for the local NeuronSphere
+
+  NERD002 delivers extend mode as a single Go binary whose only host
+  prerequisite is Docker. This is Phase 0: the module at `src/go/nsctl`, a
+  repository-root `Makefile` that injects `meta-data/VERSION` through
+  `-ldflags`, the cobra root with `--home`, and `nsctl version`.
+
+  Two pieces carry decisions worth naming. `internal/hmdenv` parses
+  `$HMD_HOME/.config/hmd.env` -- ported from hmd-cli-bartleby, which already
+  reproduces the Python's `export ` prefixes, quoting and inline comments --
+  but returns a map instead of calling `os.Setenv`. SPEC004 requires per-command
+  state to arrive through constructor closures, because `t.Setenv` panics under
+  `t.Parallel()`; a loader that mutated the process environment would put the
+  precedence rule back out of a test's reach. `internal/nserr` carries SPEC004's
+  exit codes (1 error, 2 usage, 3 in use, 4 deploy node failed), which the
+  Python CLI has no equivalent for.
+
+  HMD_HOME is not defaulted. Guessing it would put nsctl's containers, volumes
+  and network under a name no other HMD tool computes.
+
 - fix: Reach the k3s API through hmd_proxy, not Floci's published port
 
   A second `up` left the cluster unreachable with `Unable to connect to the
