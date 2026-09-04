@@ -5,6 +5,15 @@ Operating Modes
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.
 
+.. note::
+
+   Extend mode is also available through :doc:`nsctl`, a Go binary whose only
+   host prerequisite is Docker. It drives the same control plane and the same
+   environments as the commands described here, and the two can be used
+   interchangeably against one ``HMD_HOME`` -- but it ships only the control
+   plane and the environment substrate, leaving workloads to be declared in an
+   environment manifest rather than resolved from installed plugin packages.
+
 Extend Mode (Default)
 ---------------------
 
