@@ -61,3 +61,30 @@ func TestFlociPSArgsIncludeStoppedContainers(t *testing.T) {
 		t.Errorf("args start with %v, want `ps -a`", args[:2])
 	}
 }
+
+// Docker renders a stopped container's empty IPAddress as the literal string
+// "invalid IP". It is truthy, so a caller that only checks for a non-empty
+// string writes it straight into whatever it was building -- which is how
+// "invalid IP global-graph" ended up in a CoreDNS server block.
+func TestContainerIPRejectsDockersInvalidIPPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{"a real address", "172.18.0.3", "172.18.0.3"},
+		{"docker's placeholder for a stopped container", "invalid IP", ""},
+		{"an empty result", "", ""},
+		{"anything unparseable", "not-an-address", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := parseContainerIP(tt.out); got != tt.want {
+				t.Errorf("parseContainerIP(%q) = %q, want %q", tt.out, got, tt.want)
+			}
+		})
+	}
+}

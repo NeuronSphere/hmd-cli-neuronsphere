@@ -2,6 +2,33 @@
 
 ## 2026-09-04
 
+- feat: Provision the k3s cluster from the node container, not projectbuilder
+
+  NERD002 Phase 2b. CoreDNS canonical-name records, the Traefik-as-alb ingress
+  patch, node topology labels, stale-node and orphaned-PV reaping, and the
+  cluster reads behind `cluster_incarnation_id` and `live_helm_releases`.
+
+  SPEC008 proposed batching every kubectl call into `hmd-img-projectbuilder`,
+  on the premise that it is already version-matched to the cluster. The premise
+  is wrong: **no projectbuilder image ships kubectl** -- verified against
+  `:stable`, `:0.5`, `:0.5.383` and `:localdev`, none of which have it. The k3s
+  node container does, at `/bin/kubectl`, matched to the cluster by
+  construction, reading its own kubeconfig with nothing to mount, and already
+  running whenever there is Kubernetes work to do. So steps `docker exec` into
+  it and a full provisioning run launches no containers at all, rather than the
+  twenty-nine the host-kubectl version issues or the six SPEC008 hoped for. It
+  also drops projectbuilder as a prerequisite of cluster provisioning, which
+  SPEC008 had accepted as a real cost.
+
+  Also fixes a latent bug shared with the Python: Docker renders a stopped
+  container's empty IPAddress as the literal string `invalid IP`, which is
+  truthy, so `invalid IP global-graph` was written into a CoreDNS server block.
+  `_resolve_floci_ip` has the same hole and is simply never reached, because
+  `floci_container_name` only returns running containers.
+
+  Verified against a live cluster: a pod resolved `neuronsphere` through the
+  applied records and fetched Floci's health endpoint over it.
+
 - feat: nsctl starts and stops the control plane
 
   `nsctl control-plane start` brings up hmd_proxy, Floci and the Deployment GUI

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"time"
@@ -252,4 +253,48 @@ func (d *Docker) EnsureNetworkAlias(ctx context.Context, name, alias, network st
 		return fmt.Errorf("reconnecting %s to %s as %s: %w", name, network, alias, err)
 	}
 	return nil
+}
+
+// Run executes a docker subcommand, returning stdout and stderr separately.
+//
+// Separate rather than combined because stdout carries data a caller parses --
+// `kubectl get -o json` -- while stderr carries diagnosis. Merging them makes
+// the JSON unparseable the moment anything warns.
+func (d *Docker) Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error) {
+	var out, errBuf bytes.Buffer
+	c := exec.CommandContext(ctx, d.bin(), args...)
+	c.Stdout = &out
+	c.Stderr = &errBuf
+	err = c.Run()
+	return out.Bytes(), errBuf.Bytes(), err
+}
+
+// ContainerIP is a container's IP address on a network, or "" when it has none
+// there.
+//
+// The result is parsed rather than trusted. A stopped container still lists the
+// network, but its IPAddress is empty and Docker's template renders that as the
+// literal string "invalid IP" -- which is truthy, so a caller that only checks
+// for a non-empty string writes "invalid IP" into whatever it was building. The
+// Python's _resolve_floci_ip has the same hole; it is simply never reached,
+// because floci_container_name only ever returns running containers.
+func (d *Docker) ContainerIP(ctx context.Context, name, network string) string {
+	if name == "" || network == "" {
+		return ""
+	}
+	format := `{{with index .NetworkSettings.Networks "` + network + `"}}{{.IPAddress}}{{end}}`
+	out, err := d.capture(ctx, "inspect", "-f", format, name)
+	if err != nil {
+		return ""
+	}
+	return parseContainerIP(out)
+}
+
+// parseContainerIP validates docker's template output. Split out so the
+// "invalid IP" case is testable without a daemon.
+func parseContainerIP(out string) string {
+	if net.ParseIP(out) == nil {
+		return ""
+	}
+	return out
 }

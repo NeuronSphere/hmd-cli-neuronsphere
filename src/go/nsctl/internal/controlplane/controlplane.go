@@ -277,9 +277,14 @@ func Start(ctx context.Context, opts *Options) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
-	// SPEC008 makes projectbuilder a prerequisite of cluster provisioning, not
-	// only of deploys, so it is pulled once here with a line of its own rather
-	// than discovered missing midway through provisioning a cluster.
+	// Pulled once here rather than discovered missing midway through a deploy.
+	//
+	// SPEC008 made this a prerequisite of *cluster provisioning* too, on the
+	// premise that kubectl would run inside projectbuilder. It does not --
+	// projectbuilder ships no kubectl -- so Kubernetes work execs into the k3s
+	// node instead and this is back to being a deploy-time dependency only. It
+	// is still pulled early because a first deploy otherwise pays for it at the
+	// least convenient moment.
 	if err := EnsureProjectBuilder(ctx, opts, runner); err != nil {
 		opts.warn("%v", err)
 	}
