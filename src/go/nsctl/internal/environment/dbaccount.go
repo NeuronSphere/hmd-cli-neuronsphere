@@ -39,7 +39,10 @@ func EnsureDBAccount(ctx context.Context, opts *Options, reg *registry.Registry,
 	if err != nil {
 		return err
 	}
-	serviceConfig := floci.ServiceConfig(resolver.Dir(DBAccountRepoClass))
+	serviceConfig := floci.LocalizeServiceConfig(
+		floci.ServiceConfig(resolver.Dir(DBAccountRepoClass)),
+		env.DBContainer, floci.LambdaName(DBAccountRepoClass), env.GraphContainer,
+		DBAccountRepoClass, names)
 	envVars := floci.ServiceEnv(DBAccountRepoClass, version, names, env.DBContainer, serviceConfig)
 
 	opts.step("Deploying %s...", DBAccountRepoClass)

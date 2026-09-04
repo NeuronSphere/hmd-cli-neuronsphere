@@ -25,6 +25,20 @@ const (
 	CPDBInstance  = "control-plane-db"
 	CPDBRepoClass = "hmd-postgres-rds"
 
+	// The control plane's own network. Deploying hmd-vpc is what creates the
+	// VPC, subnets and the named DB subnet group instances are placed into.
+	//
+	// It replaces an imperative workaround. The Python creates all three with
+	// the EC2 SDK from provision_resources, because Floci's
+	// Ec2Service.ensureDefaultResources guards on region alone while its VPC
+	// storage is per-account -- so the first account to touch EC2 marks the
+	// region seeded and every other account is left with no default VPC, and
+	// RDS then refuses CreateDBInstance. Deploying the repo that owns VPCs is
+	// the same fix said the way the platform says everything else, and it is
+	// what the environment substrate already does with base-vpc.
+	CPVPCInstance  = "control-plane-vpc"
+	CPVPCRepoClass = "hmd-vpc"
+
 	CPGraphInstance  = "control-plane-graph"
 	CPGraphRepoClass = "hmd-inf-neptune"
 	CPGraphHost      = "global-graph"
@@ -90,13 +104,20 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 		Out: opts.Out, Err: opts.Err,
 	}
 
-	// 1. The control-plane Postgres, deployed for real.
+	// 1. The network, which the database is placed into. Without it
+	// CreateDBInstance fails with DBSubnetGroupNotFoundFault, since the group
+	// the configuration names does not exist until this runs.
+	if err := deployNode(ctx, opts, deployer, resolver, CPVPCInstance, CPVPCRepoClass, nil); err != nil {
+		return err
+	}
+
+	// 2. The control-plane Postgres, deployed for real.
 	pgConfig := postgresConfig(ctx, docker)
 	if err := deployNode(ctx, opts, deployer, resolver, CPDBInstance, CPDBRepoClass, pgConfig); err != nil {
 		return err
 	}
 
-	// 2. Its alias, then the databases on it. Both are CLI-side work the
+	// 3. Its alias, then the databases on it. Both are CLI-side work the
 	// deploy cannot do from inside its own container: the alias is a Docker
 	// network operation, and ms-deployment's database has to exist before
 	// ms-deployment can, which rules out creating it through a service.
@@ -122,7 +143,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 		opts.step("  %s", db.Name)
 	}
 
-	// 3. The graph, likewise deployed for real, then aliased.
+	// 4. The graph, likewise deployed for real, then aliased.
 	if err := deployNode(ctx, opts, deployer, resolver, CPGraphInstance, CPGraphRepoClass, graphConfig()); err != nil {
 		return err
 	}
@@ -135,7 +156,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 		opts.step("  %s is up and aliased as %s", graphContainer, CPGraphHost)
 	}
 
-	// 4. The foundation Lambdas, ms-deployment last.
+	// 5. The foundation Lambdas, ms-deployment last.
 	services, err := floci.NewServices(ctx, target)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -149,7 +170,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 		gateways[floci.LambdaName(repoClass)] = apiID
 	}
 
-	// 5. Routes, so the services just deployed are reachable at the paths
+	// 6. Routes, so the services just deployed are reachable at the paths
 	// everything else expects.
 	if err := r.WriteControlPlaneRoutes(gateways, floci.DefaultStage, "", nil); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -181,6 +202,7 @@ func deployNode(ctx context.Context, opts *Options, deployer *runner.Runner,
 	}
 	opts.step("Deploying %s (%s@%s)...", instance, repoClass, version)
 	if res := deployer.RunNode(ctx, node); res.Failed {
+		deployer.ReportFailure(res)
 		return nserr.New(nserr.DeployFailed, "deploying %s failed", instance)
 	}
 	return nil
@@ -196,8 +218,27 @@ func deployFoundationService(ctx context.Context, opts *Options, docker *contain
 	if err != nil {
 		return "", nserr.Wrap(nserr.Usage, err)
 	}
-	config := floci.ServiceConfig(resolver.Dir(repoClass))
+	// The RepoClass declares its engines the way the cloud wires them, so the
+	// declaration is resolved to what exists locally before it is handed over.
+	config := floci.LocalizeServiceConfig(
+		floci.ServiceConfig(resolver.Dir(repoClass)),
+		floci.ControlPlaneDBAlias, floci.LambdaName(repoClass), CPGraphHost, repoClass, names)
 	env := floci.ServiceEnv(repoClass, version, names, floci.ControlPlaneDBAlias, config)
+	for k, v := range floci.ServiceParameters(resolver.Dir(repoClass)) {
+		env[k] = v
+	}
+	// A librarian reads BUCKET_NAME and refuses to serve without it, and the
+	// bucket is declared in the repo's src/local/nsplugin.json -- the plugin
+	// file nsctl deliberately does not read. Nothing in the RepoClass names
+	// it, so nsctl cannot supply it without carrying a table of its own.
+	//
+	// Reported rather than guessed: the fix is a declaration in that repo's
+	// manifest, and inventing a bucket name here would hide the gap and
+	// produce a librarian pointed at a bucket nothing else uses.
+	if _, named := env["BUCKET_NAME"]; !named && floci.LibrarianStyle(resolver.Dir(repoClass)) {
+		opts.warn("%s reads BUCKET_NAME and its manifest declares no bucket, so it will not serve until one is added there. "+
+			"Everything else in the control plane is unaffected.", repoClass)
+	}
 
 	opts.step("Deploying %s...", repoClass)
 	apiID, err := services.SetupService(ctx, repoClass, image, env)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tools"
 )
 
 // ImagePresence reports whether an image reference is in the local cache.
@@ -41,23 +42,82 @@ func ServiceImage(ctx context.Context, d ImagePresence, repoClass, version strin
 		repoClass, version, candidates, repoclass.VersionEnvVar(repoClass))
 }
 
-// ServiceConfig reads a repo's meta-data/config_local.json.
+// ServiceConfig is the SERVICE_CONFIG a foundation service runs with.
 //
-// Absent or malformed yields nil: a service without one is the ordinary case,
-// and the caller supplies the rest of the environment either way.
+// Read from the RepoClass, which is where it is declared: manifest.json's
+// deploy.default_configuration.service_config, overlaid with
+// meta-data/config_local.json's service_config. That is the same pair
+// LocalPluginLoader merges, and it is why nsctl needs no table of its own --
+// hmd-ms-naming, hmd-ms-artifact-lib and hmd-ms-deployment each declare their
+// loader_config, operations_modules and database engines in their own
+// manifest.
+//
+// Note this is only config_local.json's `service_config` key, not the file's
+// top level. Reading the top level yields a configuration with no
+// operations_modules, and the service then starts and fails every request with
+// a KeyError.
+//
+// Absent yields nil, and the caller decides what that means.
 func ServiceConfig(repoDir string) map[string]any {
 	if repoDir == "" {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(repoDir, "meta-data", "config_local.json"))
-	if err != nil {
-		return nil
+	config := map[string]any{}
+	for _, source := range []struct{ path, key string }{
+		{filepath.Join(repoDir, "meta-data", "manifest.json"), "deploy.default_configuration.service_config"},
+		{filepath.Join(repoDir, "meta-data", "config_local.json"), "service_config"},
+	} {
+		for k, v := range serviceConfigFrom(source.path, source.key) {
+			config[k] = v
+		}
 	}
-	var config map[string]any
-	if err := json.Unmarshal(data, &config); err != nil {
+	if len(config) == 0 {
 		return nil
 	}
 	return config
+}
+
+// copyEngineConfig copies an engine's engine_config so a declared value can be
+// kept while the rest is filled in.
+func copyEngineConfig(engine map[string]any) map[string]any {
+	out := map[string]any{}
+	if existing, ok := engine["engine_config"].(map[string]any); ok {
+		for k, v := range existing {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// setDefault fills a key only when the declaration left it out, so a repo that
+// states a value keeps it.
+func setDefault(m map[string]any, key string, value any) {
+	if _, present := m[key]; !present {
+		m[key] = value
+	}
+}
+
+// serviceConfigFrom reads a dotted key path out of a JSON file. A missing
+// file, a malformed one, or an absent key all yield nothing: a repo that
+// declares no service configuration is the ordinary case.
+func serviceConfigFrom(path, keyPath string) map[string]any {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	current := doc
+	for _, key := range strings.Split(keyPath, ".") {
+		next, ok := current[key].(map[string]any)
+		if !ok {
+			return nil
+		}
+		current = next
+	}
+	return current
 }
 
 // PostgresMajor is the PostgreSQL major version of the image Floci is
@@ -110,4 +170,156 @@ func leadingDigits(s string) string {
 		return ""
 	}
 	return s[:end]
+}
+
+// LocalizeServiceConfig resolves a service_config's cloud references to what
+// the local platform actually provides.
+//
+// A RepoClass declares its database engine the way the cloud wires it: the
+// credentials come from a Secrets Manager secret named by a dependency
+// (`dependency:db-credentials`) and connections go through a pgbouncer proxy
+// (`dependency:pgbouncer`). Locally there is neither. The database is reached
+// directly on the Docker network, and the local convention is that a service's
+// database, user and password are all its own name -- see the local database
+// password note in the deployer.
+//
+// Left unresolved, the service starts and then fails every request with
+// "Secret dependency:db-credentials not found in PS or SM".
+//
+// This is the same resolution LocalPluginLoader performs, done here so the
+// declaration stays in the RepoClass rather than being duplicated into a table
+// of hardcoded configurations.
+func LocalizeServiceConfig(config map[string]any, dbHost, dbName, graphHost string,
+	repoClass string, names Names) map[string]any {
+	if config == nil {
+		return nil
+	}
+	engines, ok := config["hmd_db_engines"].(map[string]any)
+	if !ok {
+		return config
+	}
+
+	// Copied rather than mutated: the caller's map may be the resolver's
+	// cached read of the manifest, and localizing it in place would leak one
+	// service's connection details into the next.
+	out := make(map[string]any, len(config))
+	for k, v := range config {
+		out[k] = v
+	}
+	localized := make(map[string]any, len(engines))
+	for name, raw := range engines {
+		engine, ok := raw.(map[string]any)
+		if !ok {
+			localized[name] = raw
+			continue
+		}
+		copied := make(map[string]any, len(engine))
+		for k, v := range engine {
+			copied[k] = v
+		}
+		switch engine["engine_type"] {
+		case "postgres":
+			copied["engine_config"] = map[string]any{
+				"host":     dbHost,
+				"user":     dbName,
+				"password": dbName,
+				"db_name":  dbName,
+			}
+		case "gremlin":
+			engineConfig := copyEngineConfig(engine)
+			if host, _ := engineConfig["db_host"].(string); graphHost != "" && strings.HasPrefix(host, "dependency:") {
+				engineConfig["db_host"] = graphHost
+			}
+			// The cloud reaches Neptune over wss with query strategies; the
+			// local gremlin-server does neither.
+			setDefault(engineConfig, "db_protocol", "ws")
+			setDefault(engineConfig, "with_strategies", false)
+			copied["engine_config"] = engineConfig
+		case "dynamo":
+			// The cloud takes the table name from the table CDKTF creates,
+			// which is the service's standard name. Locally the name is the
+			// same and Floci's DynamoDB is initialised against it.
+			engineConfig := copyEngineConfig(engine)
+			setDefault(engineConfig, "dynamo_table", tools.MakeStandardName(
+				LambdaName(repoClass), repoClass, names.DeploymentID, "local",
+				names.Region, names.CustomerCode))
+			copied["engine_config"] = engineConfig
+		}
+		localized[name] = copied
+	}
+	out["hmd_db_engines"] = localized
+	return out
+}
+
+// ServiceParameters are the extra environment variables a RepoClass's
+// deploy.default_configuration declares, beyond its service_config.
+//
+// hmd-lib-cdktf-factories' LibrarianBase exports these at cloud deploy time,
+// so a librarian-style service reads them with get_service_parameter and
+// raises "Environment variable, X, not populated" without them. Both are
+// declared in the repo's own manifest, so reading them keeps the declaration
+// with the RepoClass.
+func ServiceParameters(repoDir string) map[string]string {
+	if repoDir == "" {
+		return nil
+	}
+	manifest := filepath.Join(repoDir, "meta-data", "manifest.json")
+	local := filepath.Join(repoDir, "meta-data", "config_local.json")
+
+	out := map[string]string{}
+	for _, p := range []struct{ key, envVar string }{
+		{"content_path_configs", "CONTENT_PATH_CONFIGS"},
+		{"graph_queries", "GRAPH_QUERY_CONFIG"},
+	} {
+		value := jsonValueAt(local, p.key)
+		if value == nil {
+			value = jsonValueAt(manifest, "deploy.default_configuration."+p.key)
+		}
+		if value == nil {
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			continue
+		}
+		out[p.envVar] = string(encoded)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// LibrarianStyle reports whether a service reads librarian parameters, which
+// is what makes a missing bucket declaration fatal to it rather than merely
+// absent.
+func LibrarianStyle(repoDir string) bool {
+	return jsonValueAt(filepath.Join(repoDir, "meta-data", "manifest.json"),
+		"deploy.default_configuration.content_path_configs") != nil
+}
+
+// jsonValueAt reads a dotted key path out of a JSON file, returning nil when
+// the file, the path or the JSON itself is absent.
+func jsonValueAt(path, keyPath string) any {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	current := doc
+	for _, key := range strings.Split(keyPath, ".") {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		value, present := m[key]
+		if !present {
+			return nil
+		}
+		current = value
+	}
+	return current
 }

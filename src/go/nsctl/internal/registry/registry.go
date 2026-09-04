@@ -284,11 +284,19 @@ func legacyMarker(home string) (map[string]any, bool) {
 		}
 		return m, true
 	}
-	// No marker, but persisted Floci state means a prior `up` ran.
-	entries, err := os.ReadDir(filepath.Join(home, "floci", "data"))
-	if err == nil && len(entries) > 0 {
-		return map[string]any{}, true
-	}
+	// Floci state used to be taken as evidence that a prior `up` ran, on the
+	// grounds that only a completed bootstrap could have produced it. That is
+	// no longer true: nsctl's own bootstrap starts Floci as its first step, so
+	// a bootstrap that fails partway leaves exactly this state behind. Reading
+	// it as "already bootstrapped" made the retry skip the bootstrap and
+	// report a control plane ready that had no database and no services.
+	//
+	// The two cases cannot be told apart from the directory alone, so the
+	// tie-break is which mistake is worse. Bootstrapping an already-
+	// bootstrapped home is idempotent and costs a few minutes; skipping it on
+	// a home that needs it produces a control plane that claims to be ready
+	// and is not. So an unmarked home is treated as never bootstrapped, and a
+	// genuine legacy install is recognised by its marker.
 	return nil, false
 }
 

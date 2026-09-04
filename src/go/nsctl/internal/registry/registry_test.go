@@ -428,7 +428,16 @@ func TestLoadSynthesizesTheLegacyLayoutFromABootstrapMarker(t *testing.T) {
 	}
 }
 
-func TestLoadSynthesizesFromPersistedFlociStateWithNoMarker(t *testing.T) {
+// Floci state alone is not evidence of a completed bootstrap.
+//
+// nsctl's own bootstrap starts Floci as its first step, so a bootstrap that
+// fails partway leaves exactly this state behind. Reading it as "already
+// bootstrapped" made the retry skip the bootstrap and report a control plane
+// ready that had no database and no services. The two cases are
+// indistinguishable from the directory, so the tie-break is which mistake is
+// worse: re-bootstrapping is idempotent, skipping is not recoverable without
+// the user noticing.
+func TestPersistedFlociStateAloneDoesNotMeanBootstrapped(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -444,11 +453,34 @@ func TestLoadSynthesizesFromPersistedFlociStateWithNoMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	if r.ControlPlane.Bootstrapped {
+		t.Error("Floci state left by a failed bootstrap was read as a completed one")
+	}
+}
+
+// A real legacy install is recognised by its marker, which is what actually
+// records that a pre-multi-env `up` completed.
+func TestLegacyMarkerStillMigrates(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	marker := LegacyMarkerPath(home)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte(`{"csd_nid": "nid"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Load(home, fakeEnv(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 	if len(r.Environments) != 1 {
 		t.Fatalf("environments = %v, want the synthesized default", r.Environments)
 	}
 	if !r.ControlPlane.Bootstrapped {
-		t.Error("persisted Floci state means a prior up ran")
+		t.Error("a marked legacy install was not recognised as bootstrapped")
 	}
 }
 

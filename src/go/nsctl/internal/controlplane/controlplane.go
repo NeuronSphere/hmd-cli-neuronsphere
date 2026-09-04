@@ -164,6 +164,22 @@ func Start(ctx context.Context, opts *Options) error {
 		return err
 	}
 
+	// Persist a synthesized registry before anything writes state.
+	//
+	// With no registry file, Load infers whether this HMD_HOME was ever
+	// brought up, and one of its signals is a non-empty floci/data. That was
+	// sound when only the Python could create such state; it is not now,
+	// because a bootstrap that fails partway leaves Floci data behind and the
+	// next run would read it as "already bootstrapped" and skip the bootstrap
+	// entirely. Writing the file first makes the answer explicit from here on
+	// -- false on a genuinely new home, true on a real legacy install -- and
+	// leaves "no registry but Floci data" meaning only what it used to.
+	if reg.Synthesized {
+		if err := reg.Save(opts.Home); err != nil {
+			return nserr.Wrap(nserr.Fail, err)
+		}
+	}
+
 	r := router.New(opts.Home, opts.Lookup)
 	target := floci.ControlPlane(opts.Lookup)
 	docker := container.New()
@@ -265,6 +281,19 @@ func Start(ctx context.Context, opts *Options) error {
 		// deployed one. Bootstrap does that below.
 	default:
 		opts.step("  %s is up and aliased as %s", dbContainer, floci.ControlPlaneDBAlias)
+	}
+
+	// Floci spawns its database and graph backends from image references
+	// pinned into its own configuration, and a reference that resolves nowhere
+	// is not reported as a configuration error: the instance goes to state
+	// "failed" while Terraform polls "Still creating..." until someone kills
+	// it. Checked before the bootstrap deploys either, so a wrong registry or
+	// version costs seconds instead of minutes and says which variable is at
+	// fault.
+	if !reg.ControlPlane.Bootstrapped {
+		for _, problem := range floci.CheckBackendImages(ctx, docker, floci.ContainerName) {
+			return nserr.New(nserr.Usage, "%s", problem)
+		}
 	}
 
 	opts.step("Provisioning control-plane Floci resources...")

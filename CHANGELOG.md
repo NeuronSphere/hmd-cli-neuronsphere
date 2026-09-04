@@ -2,6 +2,15 @@
 
 ## 2026-09-04
 
+- fix: Make the cold bootstrap actually work
+
+  Six defects found by bootstrapping a fresh HMD_HOME end to end: the
+  control-plane account had no VPC so the database had nowhere to go; Floci
+  state left by a failed bootstrap was read as a completed one; a failed node
+  reported no diagnosis; the foundation services' SERVICE_CONFIG was read from
+  the wrong place; and the RepoClass's cloud references -- secret names,
+  pgbouncer, Neptune, DynamoDB tables -- were passed through unresolved.
+
 - feat: Bootstrap a control plane that has never been bootstrapped
 
   `nsctl control-plane start` no longer refuses a fresh `HMD_HOME`. The

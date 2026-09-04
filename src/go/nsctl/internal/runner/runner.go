@@ -347,6 +347,12 @@ func (r *Runner) repoPath(repoClass string) string {
 }
 
 // printFailure puts the failed node's output under the node that failed.
+// ReportFailure prints a failed node's diagnosis. Exported so a caller
+// running nodes one at a time through RunNode -- the bootstrap DAG does --
+// reports a failure the same way Run does, rather than saying only that
+// something failed.
+func (r *Runner) ReportFailure(res Result) { r.printFailure(res) }
+
 func (r *Runner) printFailure(res Result) {
 	if r.Err == nil {
 		return
