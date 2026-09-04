@@ -180,12 +180,38 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
          - ``hmd neuronsphere env delete <n>``
        * - ``nsctl env purge [<name>]``
          - ``hmd neuronsphere down --purge [--env <n>]``
-       * - ``nsctl load-plugin <name>``
-         - (no equivalent -- see SPEC005)
+       * - ``nsctl env apply [<name>]``
+         - ``hmd neuronsphere up --env <name> --upgrade``
+       * - ``nsctl repo add <class>[@<version>]``
+         - (no equivalent -- edit the manifest by hand)
+       * - ``nsctl repo remove <instance>``
+         - (no equivalent -- edit the manifest by hand)
+       * - ``nsctl repo list``
+         - (no equivalent)
        * - ``nsctl env list`` / ``nsctl env status``
          - ``hmd neuronsphere env list`` / ``status``
        * - ``nsctl control-plane start|stop|status``
          - (no equivalent -- see SPEC002)
+
+    .. note::
+
+       ``nsctl load-plugin`` was in the original table. It is withdrawn along
+       with the rest of plugin discovery; see the amendment on SPEC005.
+
+    **What nsctl ships.** The control plane, one per ``$HMD_HOME``, and the
+    environment *substrate* -- the core instance, the environment's Postgres,
+    its k3s cluster and ``hmd-ms-dbaccount``. ``nsctl env add`` yields an
+    environment that is empty but usable: a cluster and a database with nothing
+    deployed on them.
+
+    Everything above that is a RepoClass the user adds. Airflow, Argo,
+    transform, Trino, Superset and the rest are **not** built into the binary;
+    they are what ``repo add`` declares and ``env apply`` deploys. The
+    environment manifest at ``$HMD_HOME/environments/<slug>.yaml`` is the
+    desired state, and the ``repo`` verbs are wrappers that edit that file --
+    editing it by hand and running ``env apply`` is the same operation, so
+    scripted and hand-authored use converge on one artifact rather than
+    diverging into two.
 
     ``start`` and ``stop`` **must be behaviourally identical** to extend-mode
     ``up`` and ``down``, including the ``--upgrade`` and ``--prune``
@@ -334,7 +360,54 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Plugin discovery, and the plugin bundle
     :id: HMD_CLI_NERD002_SPEC005
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: withdrawn
+
+    .. warning::
+
+       **Withdrawn.** ``nsctl`` implements no plugin discovery: neither the
+       ``nsplugin.json`` half described below nor the ``nsbundle.json`` format
+       proposed to replace the entry-point half. ``internal/plugin``,
+       ``nsctl load-plugin`` and ``compose_substitute`` do not exist, and
+       ``LocalPluginLoader`` is not ported.
+
+       A repo already declares what it needs and what it produces, in its
+       BACON ``manifest.json`` and its NERD0004
+       ``meta-data/resources/*.yaml`` -- the same files the cloud deploy path
+       reads. A per-plugin inventory says the same things a second time, and
+       is the copy that goes stale. That is not hypothetical: nsctl briefly
+       carried a hardcoded table of what ``hmd-vpc`` produces, and it named a
+       different resource namespace than ``hmd-vpc``'s own declaration did.
+
+       What replaces each of ``LocalPluginLoader``'s jobs:
+
+       .. list-table::
+          :header-rows: 1
+          :widths: 45 55
+
+          * - ``LocalPluginLoader`` today
+            - ``nsctl``
+          * - ``_deploy_hmdms_service_lambdas``
+            - A fixed bootstrap order for the shipped foundation services
+              only. Everything else is a user-added RepoClass the DAG
+              deploys.
+          * - ``_aggregate_hmdms_resources``
+            - ``repoclass.Produces`` reads the repo's own
+              ``meta-data/resources/*.yaml``.
+          * - ``provision_plugin_databases``
+            - The databases a RepoClass declares, POSTed to the
+              environment's dbaccount.
+          * - ``compose_substitute``
+            - Gone. No shipped plugin used it.
+
+       The consequence to plan around is that ``nsctl`` supports **only** the
+       manifest-driven path: ``_collect_plugin_bom_entries`` has no Go
+       analogue, so an environment whose entries come from installed plugin
+       packages has nothing for nsctl to read until those entries are written
+       into its manifest. ``plugins`` and ``plugin_config`` keys in a manifest
+       are preserved on save and reported as having no effect, rather than
+       silently obeyed or silently dropped.
+
+    The rest of this SPEC is retained as a record of what was proposed.
 
     Plugins reach the local platform two ways today, and only one of them
     ports directly.
@@ -552,15 +625,49 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Docker is the only host tool -- kubectl and helm run in projectbuilder
     :id: HMD_CLI_NERD002_SPEC008
     :links: HMD_CLI_NERD002
-    :status: proposed
+    :status: amended
+
+    .. warning::
+
+       **Two claims in this SPEC were wrong, and are corrected here.** The
+       conclusion -- Docker is the only host tool -- holds; two of the routes
+       it proposed for getting there do not.
+
+       **kubectl does not run in projectbuilder, because projectbuilder ships
+       no kubectl.** No published tag has one: ``:stable``, ``:0.5``,
+       ``:0.5.383`` and ``:localdev`` were all checked. ``RunKube`` instead
+       ``docker exec``\ s into the running k3s node container and uses its
+       ``/bin/kubectl``, which launches no container at all and removes
+       projectbuilder as a prerequisite for provisioning a cluster. The
+       batched-script design below is unchanged and is what makes that
+       practical; only the container it runs in differs.
+
+       **``docker compose`` is not used either.** In extend mode compose
+       manages three containers described by one embedded file, and
+       ``docker-compose.environment.yml`` declares no services at all.
+       ``internal/compose`` parses that file and materialises the services
+       through the Docker Engine API, so ``docker`` really is the only host
+       binary -- and the ``pip config get`` shellout that
+       ``_get_base_command`` performed on every compose invocation goes with
+       it.
+
+       Coexistence (SPEC012) is what makes this safe: nsctl stamps the
+       ``com.docker.compose.*`` labels on every container it creates, so
+       ``docker compose ps|stop|down`` and ``port_validator.py`` still find
+       them. One label matters more than the rest --
+       ``com.docker.compose.config-hash``. Its *presence* is what makes a
+       container discoverable to compose; without it ``docker compose ps``
+       skips the container even when every other label matches, verified
+       against compose v2.40.
 
     ``nsctl`` requires **``docker`` (or ``nerdctl``) on the host and nothing
-    else.** Compose orchestration stays ``docker compose``; Postgres stays
-    ``docker exec ... psql``; image staging into the k3s node's containerd stays
+    else.** Postgres stays ``docker exec ... psql``; image staging into the
+    k3s node's containerd stays
     ``docker save | docker exec ... ctr images import``. Everything that today
-    needs a ``kubectl`` or ``helm`` binary on the host either moves inside
-    ``hmd-img-projectbuilder`` -- the image that already runs every real Helm
-    and CDKTF deploy as a DAG node (SPEC010) -- or is not ported at all.
+    needs a ``kubectl`` or ``helm`` binary on the host either moves into a
+    container -- the k3s node for Kubernetes work, ``hmd-img-projectbuilder``
+    for the Helm and CDKTF deploys it already runs as DAG nodes (SPEC010) --
+    or is not ported at all.
 
     **Helm is eliminated, not relocated.** There are three host uses and none
     survives:

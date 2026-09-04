@@ -2,6 +2,15 @@
 
 ## 2026-09-04
 
+- feat: Add `nsctl env add` and `nsctl env delete`
+
+  Three error messages already told users to run `nsctl env add`, which did
+  not exist. It registers an environment and allocates its account, port slot
+  and names, deriving every one the same way `env_registry._build_environment`
+  does so an environment created by either front end is startable by the
+  other. `env delete` unregisters, refusing while the environment's containers
+  are still running.
+
 - feat: Read what a RepoClass produces from its own resource declarations
 
   `meta-data/resources/*.yaml` is where a repo already states what it emits,
