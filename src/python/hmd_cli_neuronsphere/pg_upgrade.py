@@ -65,19 +65,9 @@ def _running_floci_postgres_image() -> Optional[str]:
     resolved something else. Reading it back off the container closes that gap:
     whatever compose substituted is recorded there verbatim.
     """
-    r = _run(
-        ["docker", "inspect", "floci", "--format", "{{json .Config.Env}}"], timeout=15
-    )
-    if r.returncode != 0:
-        return None
-    try:
-        env = json.loads(r.stdout.strip() or "[]") or []
-    except json.JSONDecodeError:
-        return None
-    for entry in env:
-        if entry.startswith("FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE="):
-            return entry.split("=", 1)[1] or None
-    return None
+    from .floci_deployer import floci_env_value
+
+    return floci_env_value("FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE")
 
 
 def _split_image(image: str) -> tuple:

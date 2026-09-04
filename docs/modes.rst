@@ -246,36 +246,49 @@ base catalog (``network.neuronsphere.io/docker-network``,
 ``kubernetes.neuronsphere.io/kubernetes-cluster``,
 ``compute.neuronsphere.io/compute-node``).
 
-All local default/core Resources are owned by a single RepoClass —
+Most local default/core Resources are owned by a single RepoClass —
 ``hmd-cli-neuronsphere`` itself, the thing that bootstraps them. It is seeded as
 a ``local-neuronsphere`` instance (deployed via the ``skip`` strategy) that
 ``apply_changeset`` creates as a real environment **producer**, declared to
-produce the core types before the changeset applies. A cloud repo whose
-``manifest.json`` declares a ``resource`` dependency on those supertypes then
-resolves against ``local-neuronsphere`` — the same RepoClass deploys against a
-real VPC/EKS in the cloud and against the Docker network / k3s locally without
-changing its dependency. Discover the Resources with
+produce the core types (docker-network, compute-node, ingress-controller, ...)
+before the changeset applies. A cloud repo whose ``manifest.json`` declares a
+``resource`` dependency on those supertypes then resolves against
+``local-neuronsphere`` — the same RepoClass deploys against a real VPC in the
+cloud and against the Docker network locally without changing its dependency.
+
+``kubernetes.neuronsphere.io/kubernetes-cluster`` is the one exception:
+``hmd-inf-eks-cluster`` itself is deployed as a Phase A instance (see below),
+via the real ``terraform-aws-modules/eks`` stack in the cloud and a
+Floci-safe ``src/local/cdktf`` overlay locally (a bare ``aws_eks_cluster`` --
+the same ``eks:CreateCluster`` call that makes Floci spawn the k3s container
+this environment's workloads run on). So the same repo is the producer in both
+environments, without the resource-vs-repo_class_name suggestion fallback
+described below. Discover the Resources with
 ``GET /apiop/find_resources_by_tag/environment/local``.
 
 .. note::
 
    A dependency role may carry **both** a cloud ``repo_class_name`` (a
-   suggestion) and an authoritative ``resource`` block. Locally, where the cloud
-   RepoClass (e.g. ``hmd-inf-eks-cluster``) isn't registered, ``hmd-ms-deployment``
-   silently ignores the suggestion and resolves the ``resource`` against the
-   local producer — so one shared manifest works in both environments.
+   suggestion) and an authoritative ``resource`` block. Locally, for a cloud
+   RepoClass that isn't deployed locally, ``hmd-ms-deployment`` silently ignores
+   the suggestion and resolves the ``resource`` against the local producer
+   instead (``local-neuronsphere`` for docker-network/compute-node/etc.) — so
+   one shared manifest works in both environments.
 
 Two-phase changeset bootstrap
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``hmd neuronsphere up`` applies **two** separate ChangeSets rather than one:
 
-- **Phase A** — a changeset containing only the ``local-neuronsphere`` instance.
-  Once applied, its concrete Resources are submitted: the Docker network, k3s
-  cluster/compute/ingress-controller, the shared Postgres, JanusGraph, and an
-  ``application.neuronsphere.io/microservice`` Resource for each of the
-  bootstrapped-before-ms-deployment-exists HMDMS Lambdas
-  (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-dbaccount``,
+- **Phase A** — a changeset containing the ``local-neuronsphere`` instance, the
+  environment's Postgres (``hmd-postgres-rds``, instance ``environment-db``),
+  and its Kubernetes cluster (``hmd-inf-eks-cluster``, instance
+  ``eks-cluster``). Once applied, the concrete Resources are submitted: the
+  Docker network, compute/ingress-controller (still from ``local-neuronsphere``),
+  kubernetes-cluster (from the ``eks-cluster`` instance's own overlay), the
+  shared Postgres, JanusGraph, and an ``application.neuronsphere.io/microservice``
+  Resource for each of the bootstrapped-before-ms-deployment-exists HMDMS
+  Lambdas (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-dbaccount``,
   ``hmd-ms-artifact-lib``) — these four are never registered as
   ``RepoClass``/``RepoInstance`` entities themselves (their own manifests'
   required deps, e.g. a real VPC/Argo/Datadog, will never resolve locally); what
@@ -294,9 +307,10 @@ External Secrets local dev-deploy loop
 ``hmd neuronsphere up`` deploys ``hmd-inf-ext-secrets-crds`` then
 ``hmd-inf-ext-secrets`` onto the local k3s cluster through
 ``hmd-img-projectbuilder`` by default — the same tool and ``hmd deploy`` path
-used in the cloud. Their ``eks-cluster`` / ``compute`` dependencies resolve
-against the ``local-neuronsphere`` producer via their manifests' SPEC0008 ``resource``
-blocks, and each repo's produced Resource output (rendered by
+used in the cloud. Their ``eks-cluster`` dependency resolves against the ``eks-cluster`` instance
+and their ``compute`` dependency against ``local-neuronsphere``, both via their
+manifests' SPEC0008 ``resource`` blocks, and each repo's produced Resource
+output (rendered by
 ``src/helm/templates/resource-outputs.yaml`` and submitted by ``hmd deploy``)
 is tracked in ``hmd-ms-deployment``:
 
@@ -381,6 +395,11 @@ This avoids two problems with Floci 1.5.8's bundled ECR sidecar:
   publish, so a host-side ``docker push`` cannot reach it.
 - Its default port (5000) collides with macOS AirPlay Receiver, which
   intercepts requests with ``403 Forbidden``.
+
+Since nothing ever pushes to or reads from it, ``ecr`` is left out of
+``FLOCI_SERVICES`` entirely (``docker-compose.control-plane.yml``) —
+Floci then never spawns the ``floci-ecr-registry`` sidecar container in
+the first place, rather than leaving an unused one running.
 
 Staging a node's Lambda image
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -51,6 +51,11 @@ _OVERLAY_COPY_IGNORE = shutil.ignore_patterns(
     ".terraform",
     "__pycache__",
     "*.egg-info",
+    # A prior run's produced Resources. Outputs must never become inputs: the
+    # runner submits every `resources_output/*.json` it finds in the workspace
+    # (`_submit_produced_resources`), so copying them forward would republish a
+    # stale Resource for an instance this node is not deploying.
+    "resources_output",
 )
 
 
@@ -625,6 +630,31 @@ class LocalWorkflowRunner:
             logger.debug(f"Applied src/local overlay: {', '.join(applied)}")
         return workspace
 
+    def _node_deployment_id(self, node: Dict) -> str:
+        """The deployment id this node's deploy will name its resources with.
+
+        A `deploy_local.sh` overlay replaces the generated `hmd deploy` command
+        entirely, so the `--deployment-id` on that command line never reaches it
+        -- it rebuilds `make_standard_name` from the environment instead (see
+        hmd-inf-neptune's script, which reads `HMD_DID`). The two must therefore
+        agree, or the CLI looks the resource up under a name nothing created.
+
+        They did not for the control plane: its nodes deploy with
+        `--deployment-id cp` (`bootstrap_dag.CONTROL_PLANE_DEPLOYMENT_ID`, which
+        `control_plane_graph_identifier` and `control_plane_db_identifier` also
+        derive from), but with no `self.env` to read this fell through to the
+        ambient `HMD_DID`, i.e. `aaa`. The CDKTF nodes were unaffected -- their
+        stack name comes from the flag -- so only the graph diverged, creating
+        `control-plane-graph-hmd-inf-neptune-aaa-...` while the alias node waited
+        out 300s on `...-cp-...` and failed.
+
+        A node's own `deployment_id` is the authoritative answer where it carries
+        one; for an environment the runner's `env` already is that answer.
+        """
+        if self.env is not None:
+            return self.env.deployment_id
+        return node.get("deployment_id") or os.environ.get("HMD_DID", "aaa")
+
     def _execute_in_projectbuilder(
         self, node: Dict, destroy: bool = False
     ) -> "_NodeResult":
@@ -723,6 +753,12 @@ class LocalWorkflowRunner:
                 )
                 script = "bash src/local/deploy_local.sh"
                 deploy_script_overridden = True
+                # A temp workspace for the same reason the tool-overlay branch
+                # below uses one: the workspace is mounted read-write, and these
+                # scripts write `meta-data/resources_output/` -- into the
+                # developer's own checkout, if it were mounted directly.
+                tmp_workspace = self._prepare_overlay_workspace(repo_path, overlay_dir)
+                workspace = tmp_workspace
             elif _overlay_has_tool_files(overlay_dir):
                 tmp_workspace = self._prepare_overlay_workspace(repo_path, overlay_dir)
                 workspace = tmp_workspace
@@ -808,7 +844,7 @@ class LocalWorkflowRunner:
             "-e",
             f"HMD_CUSTOMER_CODE={os.environ.get('HMD_CUSTOMER_CODE', 'none')}",
             "-e",
-            f"HMD_DID={self.env.deployment_id if self.env else os.environ.get('HMD_DID', 'aaa')}",
+            f"HMD_DID={self._node_deployment_id(node)}",
             "-e",
             f"HMD_REGION={os.environ.get('HMD_REGION', 'reg1')}",
             "-e",

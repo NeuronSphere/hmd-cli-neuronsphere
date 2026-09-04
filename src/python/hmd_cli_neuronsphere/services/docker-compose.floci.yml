@@ -7,13 +7,17 @@ services:
     ports:
       - "4566:4566"
     environment:
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,ecr,eks,secretsmanager
+      # No `ecr`: Lambda images resolve straight from the host's Docker image
+      # cache (see floci_deployer._ensure_local_image), so nothing ever
+      # pushes to or reads from Floci's ECR sidecar -- omitting the service
+      # here stops Floci from spawning it (`floci-ecr-registry`) at all.
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,eks,secretsmanager
       # Persistent state lives in ${HMD_HOME}/floci/data. Caveat: Floci writes
       # every API Gateway *v1* entity (apigateway-*.json) with all-null fields
       # and, as of 1.5.34, rehydrates those records on start -- so a restart
-      # serves back nameless, undeletable gateways. `clear_apigateway_state`
-      # drops those files on every `up`; gateways are recreated from scratch
-      # anyway. Every other service (lambda, s3, secretsmanager, iam, eks,
+      # serves back nameless, undeletable gateways. `prune_apigateway_ghosts`
+      # drops just those records on every `up`, keeping the real gateways (a
+      # DAG-deployed service's is CDKTF-managed and never recreated here). Every other service (lambda, s3, secretsmanager, iam, eks,
       # apigatewayv2) persists correctly.
       FLOCI_STORAGE_MODE: persistent
       # Floci 1.7.0: keep the spawned k3s container's volume across a Floci
@@ -40,12 +44,12 @@ services:
       # container, and this is the image it spawns. The stock TinkerPop image is
       # unusable as a Neptune backend: it runs TinkerGraph in memory (nothing
       # persists) with a LONG id manager that rejects the string NIDs
-      # hmd-entity-storage writes. hmd-img-gremlin-server 0.3 is built on
+      # hmd-entity-storage writes. hmd-img-gremlin-server 0.3.5 is built on
       # TinkerPop with `*IdManager=ANY`, a persisted graphLocation and a
       # shutdown hook that actually writes it -- see that repo's CHANGELOG.
       # Pinned, not floating: Floci recreates the backend container from the
       # current value, and the graph lives in that container's writable layer.
-      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3}
+      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.5}
       FLOCI_SERVICES_NEPTUNE_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Floci hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when

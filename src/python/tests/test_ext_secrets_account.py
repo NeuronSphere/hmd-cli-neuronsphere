@@ -25,12 +25,22 @@ for a secret that existed all along in the environment's own account.
 
 import types
 import unittest
+from unittest import mock
 
 from hmd_cli_neuronsphere import bom_seeder as bs
 
 
 def _env(slug, account_id):
-    return types.SimpleNamespace(slug=slug, account_id=account_id, legacy_layout=False)
+    return types.SimpleNamespace(
+        slug=slug,
+        name=slug,
+        deployment_id=slug,
+        account_id=account_id,
+        legacy_layout=False,
+        # Read by the sibling injections `seed_bom` runs alongside this one.
+        k3s_cluster=f"ns-{slug}-testhash",
+        db_container=f"hmd_db-{slug}",
+    )
 
 
 def _seed(env):
@@ -89,6 +99,57 @@ class EnvironmentsDoNotContaminateEachOther(unittest.TestCase):
         self.assertEqual(
             bs._EXT_SECRETS_LOCAL_CONFIG["clusterSecretStore"]["localAccessKeyId"],
             bs._CONTROL_PLANE_ACCOUNT,
+        )
+
+
+class SeedBomIsTheFunnel(unittest.TestCase):
+    """Injecting in `resolve_plugin_bom` alone was not enough.
+
+    That function short-circuits to `change_set_builder.build_definition`
+    whenever an environment manifest exists -- which is always now -- so its
+    injections ran on a path nothing takes and the operator silently signed as
+    the control plane. `seed_bom` is the one funnel every changeset an `up`
+    seeds passes through (Phase A, the graph changesets, Phase B, and the
+    reconcile delta alike), so the injection lives there and no present or
+    future entry path can skip it.
+    """
+
+    class _Stop(Exception):
+        """Raised to end `seed_bom` right after the injections, before it
+        starts talking to ms-deployment."""
+
+    def _run_seed(self, env):
+        seen = {}
+        real = bs._inject_floci_account
+
+        def _spy(bom, env_arg=None):
+            seen["bom"] = bom
+            seen["env"] = env_arg
+            return real(bom, env_arg)
+
+        with mock.patch.object(
+            bs, "_inject_floci_account", side_effect=_spy
+        ), mock.patch.object(bs, "resolve_repo_version", side_effect=self._Stop):
+            with self.assertRaises(self._Stop):
+                bs.seed_bom(
+                    "http://localhost/hmd_ms_deployment",
+                    bom=[dict(e) for e in bs.EXT_SECRETS_BOM],
+                    env=env,
+                )
+        return seen
+
+    def test_seed_bom_injects_the_environments_account(self):
+        seen = self._run_seed(_env("local", "000000000001"))
+        self.assertEqual(seen["env"].account_id, "000000000001")
+        entry = next(
+            e for e in seen["bom"] if e["repo_class_name"] == "hmd-inf-ext-secrets"
+        )
+        config = entry["instance_configuration"]
+        self.assertEqual(
+            config["clusterSecretStore"]["localAccessKeyId"], "000000000001"
+        )
+        self.assertEqual(
+            config["parameterStoreSecretStore"]["localAccessKeyId"], "000000000001"
         )
 
 

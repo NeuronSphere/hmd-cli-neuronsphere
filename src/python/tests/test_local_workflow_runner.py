@@ -962,3 +962,85 @@ class HandlerNodeTests(unittest.TestCase):
             pb.return_value = lwr._NodeResult(True)
             runner._execute_node(node)
         pb.assert_called_once()
+
+
+class DeployLocalScriptWorkspaceTests(unittest.TestCase):
+    """A `deploy_local.sh` overlay must not be handed the developer's checkout.
+
+    The workspace is mounted read-write, and these scripts write their produced
+    Resources to ``meta-data/resources_output/``. Mounting the real repo made
+    the deploy dirty (and, once committed, poison) the working tree: the runner
+    submits *every* ``resources_output/*.json`` it finds, so `hmd-inf-neptune`
+    -- deployed by two different instances, `control-plane-graph` and
+    `global-graph` -- had each node republish the other's Resource, including a
+    stale ``ws://neuronsphere:8183/gremlin`` pointing at Floci's Gremlin proxy.
+    """
+
+    def setUp(self):
+        self._roots = mock.patch.object(b, "_artifact_roots", return_value=[])
+        self._roots.start()
+        b._reset_artifact_version_index()
+        self.repo = tempfile.mkdtemp(prefix="ns-repo-")
+        os.makedirs(os.path.join(self.repo, "src", "local"))
+        with open(os.path.join(self.repo, "src", "local", "deploy_local.sh"), "w") as f:
+            f.write("echo deploy\n")
+        os.makedirs(os.path.join(self.repo, "meta-data", "resources_output"))
+        with open(
+            os.path.join(self.repo, "meta-data", "resources_output", "stale.json"), "w"
+        ) as f:
+            json.dump({"resource_name": "stale"}, f)
+
+    def tearDown(self):
+        self._roots.stop()
+        b._reset_artifact_version_index()
+
+    def _mounted_workspace(self):
+        """The workspace as it exists *while* the container runs.
+
+        Inspected from inside the mocked ``subprocess.run``: the runner removes
+        a temp workspace in its ``finally``, so anything checked afterwards
+        would pass for the wrong reason.
+        """
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            mount = next(a for a in cmd if a.endswith(":/workspace"))
+            workspace = mount[: -len(":/workspace")]
+            seen["path"] = workspace
+            seen["entries"] = sorted(
+                os.path.relpath(os.path.join(root, f), workspace)
+                for root, _, files in os.walk(workspace)
+                for f in files
+            )
+            return lwr.subprocess.CompletedProcess([], 1)
+
+        runner = LocalWorkflowRunner(
+            "http://x", repo_paths={"hmd-inf-neptune": self.repo}
+        )
+        node = {
+            "instance_name": "control-plane-graph",
+            "repo_class_name": "hmd-inf-neptune",
+            "rid_nid": "rid-1",
+            "deployment_id": "cp",
+            "script": "hmd deploy --local",
+        }
+        with mock.patch.object(
+            lwr.subprocess, "run", side_effect=fake_run
+        ), mock.patch.object(runner, "_ensure_node_image", return_value=(True, "")):
+            runner._execute_in_projectbuilder(node)
+        return seen
+
+    def test_the_repo_itself_is_never_mounted(self):
+        self.assertNotEqual(self._mounted_workspace()["path"], self.repo)
+
+    def test_a_prior_runs_resources_are_not_carried_into_the_workspace(self):
+        """Outputs must not become inputs -- `_submit_produced_resources`
+        globs the whole directory."""
+        entries = self._mounted_workspace()["entries"]
+        self.assertEqual([e for e in entries if "resources_output" in e], [], entries)
+
+    def test_the_overlay_script_is_still_there_to_run(self):
+        self.assertIn(
+            os.path.join("src", "local", "deploy_local.sh"),
+            self._mounted_workspace()["entries"],
+        )

@@ -33,11 +33,11 @@ from hmd_cli_neuronsphere import env_manifest as em
 class _Env:
     """Stand-in for env_registry.LocalEnvironment (no HMD_HOME needed)."""
 
-    def __init__(self, slug="dev2"):
+    def __init__(self, slug="dev2", account_id="000000000002"):
         self.slug = slug
         self.name = slug
         self.deployment_id = slug
-        self.account_id = "000000000002"
+        self.account_id = account_id
         self.core_instance_name = "local-neuronsphere"
         self.legacy_layout = False
         # Fourth of the four host ports each environment reserves; the Deployment
@@ -277,6 +277,77 @@ class PrecedenceTests(_BuilderTest):
         self.assertIn(b.CORE_INSTANCE_NAME, {e["repo_instance_name"] for e in full})
 
 
+class PluginDependencyRepointingTests(_BuilderTest):
+    """Plugin-contributed entries still map some roles at CORE_INSTANCE_NAME
+    from before those roles got their own Phase A/lazy instance -- see
+    ``bom_seeder._repoint_database_instance`` et al. ``resolve_plugin_bom``
+    (the first-bootstrap path) already normalizes this; this definition feeds
+    the reconcile diff and the delta changeset a later `up` seeds, so it must
+    normalize identically or a restart re-seeds an entry like Trino with a
+    dependency ms-deployment then rejects:
+
+        For RepoInstance, trino, role, graph-db: supplied instance,
+        local-neuronsphere, satisfies neither the required resource type ...
+        nor a suggested repo_class.
+    """
+
+    def _definition_with(self, entry):
+        with mock.patch.object(b, "_collect_plugin_bom_entries", return_value=[entry]):
+            return csb.build_definition(
+                env=_Env(), manifest=self._manifest(plugins=[], repos=[])
+            )
+
+    def test_database_instance_is_repointed(self):
+        definition = self._definition_with(
+            {
+                "repo_instance_name": "hive-metastore-db-account",
+                "repo_class_name": "hmd-ms-myapi",
+                "dependencies": {"database-instance": b.CORE_INSTANCE_NAME},
+            }
+        )
+        entry = next(
+            e
+            for e in definition
+            if e["repo_instance_name"] == "hive-metastore-db-account"
+        )
+        self.assertEqual(entry["dependencies"]["database-instance"], b.ENV_DB_INSTANCE)
+
+    def test_eks_cluster_is_repointed(self):
+        definition = self._definition_with(
+            {
+                "repo_instance_name": "airflow",
+                "repo_class_name": "hmd-ms-myapi",
+                "dependencies": {"eks-cluster": b.CORE_INSTANCE_NAME},
+            }
+        )
+        entry = next(e for e in definition if e["repo_instance_name"] == "airflow")
+        self.assertEqual(entry["dependencies"]["eks-cluster"], b.EKS_CLUSTER_INSTANCE)
+
+    def test_graph_db_is_repointed_and_the_graph_entry_is_added(self):
+        definition = self._definition_with(
+            {
+                "repo_instance_name": "trino",
+                "repo_class_name": "hmd-ms-myapi",
+                "dependencies": {"graph-db": b.CORE_INSTANCE_NAME},
+            }
+        )
+        names = {e["repo_instance_name"] for e in definition}
+        self.assertIn(b.GRAPH_INSTANCE, names)
+        entry = next(e for e in definition if e["repo_instance_name"] == "trino")
+        self.assertEqual(entry["dependencies"]["graph-db"], b.GRAPH_INSTANCE)
+
+    def test_the_graph_entry_is_absent_when_nothing_needs_one(self):
+        definition = self._definition_with(
+            {
+                "repo_instance_name": "airflow",
+                "repo_class_name": "hmd-ms-myapi",
+                "dependencies": {"eks-cluster": b.CORE_INSTANCE_NAME},
+            }
+        )
+        names = {e["repo_instance_name"] for e in definition}
+        self.assertNotIn(b.GRAPH_INSTANCE, names)
+
+
 class DeploymentGuiTests(_BuilderTest):
     """The GUI must stay out of the manifest-driven path too.
 
@@ -479,3 +550,87 @@ class DeclaredRepoPathTests(_BuilderTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtSecretsAccountReachesTheDefinition(_BuilderTest):
+    """The per-environment Floci account must survive the manifest path.
+
+    `bom_seeder.resolve_plugin_bom` applies four injections, but it
+    short-circuits to `build_definition` whenever an environment manifest
+    exists -- which is always, now that every environment has one. So the
+    injections only ever ran on a path nothing takes, and every environment's
+    External Secrets operator authenticated as the control-plane account:
+    `ClusterSecretStore` `localAccessKeyId: 000000000000` against secrets
+    living in `000000000001`, surfacing as `SecretSyncedError` /
+    "Secret does not exist" for secrets that were there all along.
+
+    `seed_bom` injects it too, so this is not what makes a deploy correct.
+    It is what keeps the definition -- which `full_definition` hands to
+    `env_reconcile.compute_plan` as desired state, and which is snapshotted as
+    applied state -- hashing to what was actually seeded.
+    """
+
+    def _ext_secrets_config(self, definition):
+        entry = next(
+            e for e in definition if e["repo_class_name"] == "hmd-inf-ext-secrets"
+        )
+        return entry["instance_configuration"]
+
+    def test_stores_sign_as_the_environment(self):
+        config = self._ext_secrets_config(
+            csb.build_definition(env=_Env(), manifest=self._manifest(plugins=[]))
+        )
+        self.assertEqual(
+            config["clusterSecretStore"]["localAccessKeyId"], "000000000002"
+        )
+        self.assertEqual(
+            config["parameterStoreSecretStore"]["localAccessKeyId"], "000000000002"
+        )
+
+    def test_pod_environment_is_kept_in_step(self):
+        config = self._ext_secrets_config(
+            csb.build_definition(env=_Env(), manifest=self._manifest(plugins=[]))
+        )
+        akid = [
+            v["value"] for v in config["extraEnv"] if v["name"] == "AWS_ACCESS_KEY_ID"
+        ]
+        self.assertEqual(akid, ["000000000002"])
+
+    def test_full_definition_hashes_stably_for_one_environment(self):
+        """Injection happens before hashing, so it must not make the entry churn.
+
+        A definition whose hash moved on every call would report ext-secrets as
+        drifted forever, which is the mirror image of the bug above.
+        """
+        manifest = self._manifest(plugins=[])
+        first = csb.full_definition(env=_Env(), manifest=manifest)
+        second = csb.full_definition(env=_Env(), manifest=manifest)
+        by_name = {e["repo_instance_name"]: csb.entry_hash(e) for e in first}
+        self.assertEqual(
+            by_name, {e["repo_instance_name"]: csb.entry_hash(e) for e in second}
+        )
+
+    def test_environments_do_not_contaminate_each_other(self):
+        """`EXT_SECRETS_BOM` holds one shared `instance_configuration` built at
+        import; a shallow entry copy still points at it, so writing through it
+        would give every environment whichever account was built last."""
+        first = self._ext_secrets_config(
+            csb.build_definition(
+                env=_Env("local", "000000000001"), manifest=self._manifest(plugins=[])
+            )
+        )
+        second = self._ext_secrets_config(
+            csb.build_definition(
+                env=_Env("dev2", "000000000002"), manifest=self._manifest(plugins=[])
+            )
+        )
+        self.assertEqual(
+            first["clusterSecretStore"]["localAccessKeyId"], "000000000001"
+        )
+        self.assertEqual(
+            second["clusterSecretStore"]["localAccessKeyId"], "000000000002"
+        )
+        self.assertEqual(
+            b._EXT_SECRETS_LOCAL_CONFIG["clusterSecretStore"]["localAccessKeyId"],
+            b._CONTROL_PLANE_ACCOUNT,
+        )

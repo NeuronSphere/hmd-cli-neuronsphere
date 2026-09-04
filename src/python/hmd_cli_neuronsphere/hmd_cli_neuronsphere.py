@@ -629,6 +629,38 @@ def _apply_env_overrides(env_vars: Dict[str, str], env, target=None) -> None:
         env_vars["SERVICE_CONFIG"] = json.dumps(config)
 
 
+def _resolve_graph_host(env_vars: Dict[str, str], graph_host: str) -> None:
+    """Point every gremlin engine in ``SERVICE_CONFIG`` at the real graph host.
+
+    ``LocalPluginLoader.get_hmdms_lambda_spec`` resolves a manifest's
+    ``dependency:neptune-db`` gremlin ``db_host`` to a hardcoded
+    ``"global-graph"`` -- it builds the spec from the plugin's manifest alone,
+    with no ``env`` to know whether this deploy is the control plane's own
+    Lambda (whose graph really is aliased bare ``global-graph``) or one
+    running inside a named environment, whose graph is aliased
+    ``global-graph-<slug>`` instead. This corrects it to whichever host is
+    actually reachable for *this* deploy, mutating ``env_vars["SERVICE_CONFIG"]``
+    in place. A no-op for any plugin with no gremlin engine declared.
+    """
+    raw = env_vars.get("SERVICE_CONFIG")
+    if not raw:
+        return
+    try:
+        config = json.loads(raw)
+    except (TypeError, ValueError):
+        return
+    changed = False
+    for engine in (config.get("hmd_db_engines") or {}).values():
+        if engine.get("engine_type") != "gremlin":
+            continue
+        engine_config = engine.setdefault("engine_config", {})
+        if engine_config.get("db_host") != graph_host:
+            engine_config["db_host"] = graph_host
+            changed = True
+    if changed:
+        env_vars["SERVICE_CONFIG"] = json.dumps(config)
+
+
 def _deploy_hmdms_service_lambdas(
     api_id: str,
     local_loader: LocalPluginLoader,
@@ -716,6 +748,7 @@ def _deploy_hmdms_service_lambdas(
 
             env_vars = dict(spec["env_vars"])
             graph_host = env.graph_container if env is not None else "global-graph"
+            _resolve_graph_host(env_vars, graph_host)
             if plugin_name == "gozer":
                 env_vars["RDS_SECRETS"] = json.dumps(
                     build_gozer_rds_secrets(local_loader)
@@ -1453,12 +1486,11 @@ def start_neuronsphere_platform(
             "    location / { return 503 'starting...'; }\n  }\n}\n"
         )
 
-    # Drop Floci's persisted API Gateway state before it starts -- see the
-    # matching call in `start_neuronsphere_extend`. Every gateway is recreated
-    # by `setup_service` below, so nothing is lost.
-    from .floci_deployer import clear_apigateway_state
+    # Drop the unusable persisted API Gateway records before Floci starts -- see
+    # the matching call in `start_neuronsphere_extend`. Real gateways are kept.
+    from .floci_deployer import prune_apigateway_ghosts
 
-    clear_apigateway_state(_hmd_home / "floci" / "data")
+    prune_apigateway_ghosts(_hmd_home / "floci" / "data")
 
     # Phase 1: bring up only foundation services (db, floci, proxy).
     # Application services start in phase 2 after dbaccount has provisioned
@@ -1491,7 +1523,7 @@ def start_neuronsphere_platform(
         write_nginx_config,
         create_api_gateway,
         deploy_api_gateway,
-        ensure_k3s_cluster,
+        ensure_k3s_cluster_platform_mode,
         wait_for_k3s_ready,
         write_kubeconfig,
         K3S_CLUSTER_NAME,
@@ -1570,7 +1602,7 @@ def start_neuronsphere_platform(
         ):
             print_step(f"Creating k3s cluster '{K3S_CLUSTER_NAME}'...")
             try:
-                ensure_k3s_cluster()
+                ensure_k3s_cluster_platform_mode()
                 wait_for_k3s_ready()
                 kubeconfig_path = write_kubeconfig()
                 os.environ["KUBECONFIG"] = str(kubeconfig_path)
@@ -1766,6 +1798,19 @@ def _purge_control_plane_state(verbose: bool = False) -> None:
             print_step(f"  removed {purged} RDS volume(s)")
     except Exception as e:
         logger.warning(f"Could not delete the control-plane RDS instance: {e}")
+    # The control-plane graph lives in its container's writable layer (Floci
+    # mounts no volume for Neptune), so a purge has to remove the container
+    # itself, not a volume, to actually discard it.
+    try:
+        from . import bootstrap_dag
+        from .floci_deployer import control_plane_target, delete_neptune_cluster
+
+        target = control_plane_target()
+        delete_neptune_cluster(
+            bootstrap_dag.control_plane_graph_identifier(target), target=target
+        )
+    except Exception as e:
+        logger.warning(f"Could not delete the control-plane graph: {e}")
     _clear_bootstrap_marker()
     for rel in ("floci/data", "postgresql/data", "graph_db"):
         target = _hmd_home / rel
@@ -1838,6 +1883,30 @@ def stop_neuronsphere_extend(
         "down" if purge else "stop",
     ]
     _exec(command, capture=quiet, quiet=quiet)
+
+    if not purge:
+        # The control-plane database and graph are Floci-spawned containers,
+        # not compose services, so the `stop` above never reaches them --
+        # without this they keep running after `down`.
+        # `_purge_control_plane_state` already deletes both on a purge, so
+        # this is only needed on the plain-stop path.
+        try:
+            from . import bootstrap_dag
+            from .floci_deployer import (
+                control_plane_target,
+                stop_neptune_container,
+                stop_rds_instance,
+            )
+
+            target = control_plane_target()
+            stop_rds_instance(
+                bootstrap_dag.control_plane_db_identifier(target), target=target
+            )
+            stop_neptune_container(
+                bootstrap_dag.control_plane_graph_identifier(target), target=target
+            )
+        except Exception as e:
+            logger.warning(f"Could not stop control-plane database/graph: {e}")
 
     if purge:
         # Only torn down on a purge. A stopped container's endpoint pins the

@@ -153,7 +153,9 @@ class ResolveBomTests(unittest.TestCase):
         os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS"] = "1"
         bom = {e["repo_instance_name"]: e for e in b._resolve_bom()}
         deps = bom["ext-secrets"]["dependencies"]
-        self.assertEqual(deps["eks-cluster"], b.CORE_INSTANCE_NAME)
+        # eks-cluster is now the real hmd-inf-eks-cluster Phase A instance, not
+        # local-neuronsphere; compute-node stays produced by local-neuronsphere.
+        self.assertEqual(deps["eks-cluster"], b.EKS_CLUSTER_INSTANCE)
         self.assertEqual(deps["compute"], b.CORE_INSTANCE_NAME)
         self.assertEqual(deps["crds"], "ext-secrets-crds")
 
@@ -265,17 +267,18 @@ class CoreResourceTests(unittest.TestCase):
             {
                 "docker-network",
                 # No "postgres": produced by the hmd-postgres-rds deploy.
-                "kubernetes-cluster",
+                # No "kubernetes-cluster": produced by the eks-cluster /
+                # hmd-inf-eks-cluster Phase A DAG node's local overlay now.
                 "compute-node",
                 "ingress-controller",
             },
         )
 
     def test_network_only_without_cluster(self):
-        # Without a cluster, only the always-on core resources remain: Docker
-        # network, shared Postgres, and JanusGraph (the cluster-conditional
-        # resources -- kubernetes-cluster/compute-node/ingress-controller --
-        # are omitted).
+        # Without a cluster, only the always-on core resource remains (Docker
+        # network); the cluster-conditional ones -- compute-node and
+        # ingress-controller -- are omitted. kubernetes-cluster is never built
+        # here regardless -- it's produced by the eks-cluster Phase A node.
         res = b.build_local_core_resources(cluster_name=None)
         types = {r["resource_definition"]["resource_definition_name"] for r in res}
         self.assertEqual(types, {"docker-network"})
@@ -312,7 +315,8 @@ class CoreResourceTests(unittest.TestCase):
             {
                 "docker-network",
                 # No "postgres": produced by the hmd-postgres-rds deploy.
-                "kubernetes-cluster",
+                # No "kubernetes-cluster": produced by the eks-cluster /
+                # hmd-inf-eks-cluster Phase A DAG node's local overlay now.
                 "compute-node",
                 "ingress-controller",
             },
@@ -393,7 +397,9 @@ class DeclareCoreProducesTests(unittest.TestCase):
 
         with mock.patch.object(b, "_post_apiop", side_effect=fake_post) as post:
             n = b.declare_core_produces("http://x")
-        self.assertEqual(n, 7)
+        # kubernetes-cluster moved to the eks-cluster / hmd-inf-eks-cluster
+        # instance -- one fewer type declared here.
+        self.assertEqual(n, len(b.CORE_PRODUCED_DEFINITIONS))
         declared = [
             c.args[2]["resource_definition"]["resource_definition_name"]
             for c in post.mock_calls
@@ -402,7 +408,9 @@ class DeclareCoreProducesTests(unittest.TestCase):
         self.assertEqual(
             set(declared),
             {
-                "kubernetes-cluster",
+                # No "kubernetes-cluster": hmd-inf-eks-cluster produces it now,
+                # as a real Phase A instance -- declaring the core RepoClass as
+                # a producer too would give the same environment two.
                 "compute-node",
                 "docker-network",
                 "ingress-controller",
@@ -953,6 +961,65 @@ class DatabaseInstanceRepointingTests(unittest.TestCase):
     def test_the_resolved_bom_never_points_the_role_at_the_core_instance(self):
         for entry in b._resolve_bom():
             target = (entry.get("dependencies") or {}).get("database-instance")
+            if target is not None:
+                self.assertNotEqual(
+                    target,
+                    b.CORE_INSTANCE_NAME,
+                    f"{entry['repo_instance_name']} still points at the core instance",
+                )
+
+
+class EksClusterRepointingTests(unittest.TestCase):
+    """`eks-cluster` must resolve to the real hmd-inf-eks-cluster producer.
+
+    Installed plugin packages (e.g. hmd-cli-plugin-ns-orchestration's
+    airflow/argo entries) map the role to CORE_INSTANCE_NAME, which was
+    correct while the core RepoClass stood in as the kubernetes-cluster
+    producer. That producer is now the real EKS_CLUSTER_INSTANCE (Phase A)
+    deploy, so ms-deployment rejects the changeset: "supplied instance,
+    local-neuronsphere, satisfies neither the required resource type ... nor
+    a suggested repo_class."
+
+    Normalised in the assembled BOM rather than fixed in each plugin, because
+    plugins ship as independent packages -- an older installed one would
+    still supply the core instance.
+    """
+
+    def test_a_core_instance_target_is_repointed(self):
+        bom = [
+            {
+                "repo_instance_name": "airflow",
+                "dependencies": {"eks-cluster": b.CORE_INSTANCE_NAME},
+            }
+        ]
+        b._repoint_eks_cluster_dependency(bom)
+        self.assertEqual(bom[0]["dependencies"]["eks-cluster"], b.EKS_CLUSTER_INSTANCE)
+
+    def test_an_explicit_target_is_left_alone(self):
+        bom = [
+            {
+                "repo_instance_name": "x",
+                "dependencies": {"eks-cluster": "some-other-cluster"},
+            }
+        ]
+        b._repoint_eks_cluster_dependency(bom)
+        self.assertEqual(bom[0]["dependencies"]["eks-cluster"], "some-other-cluster")
+
+    def test_other_roles_are_untouched(self):
+        bom = [
+            {
+                "repo_instance_name": "x",
+                "dependencies": {"database-instance": b.CORE_INSTANCE_NAME},
+            }
+        ]
+        b._repoint_eks_cluster_dependency(bom)
+        self.assertEqual(
+            bom[0]["dependencies"]["database-instance"], b.CORE_INSTANCE_NAME
+        )
+
+    def test_the_resolved_bom_never_points_the_role_at_the_core_instance(self):
+        for entry in b._resolve_bom():
+            target = (entry.get("dependencies") or {}).get("eks-cluster")
             if target is not None:
                 self.assertNotEqual(
                     target,

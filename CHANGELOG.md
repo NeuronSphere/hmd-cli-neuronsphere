@@ -1,5 +1,99 @@
 # Changelog
 
+## 2026-09-04
+
+- fix: Reach the k3s API through hmd_proxy, not Floci's published port
+
+  A second `up` left the cluster unreachable with `Unable to connect to the
+  server: net/http: TLS handshake timeout`, while `curl` against the same
+  address answered fine.
+
+  The cluster was healthy throughout. `down` stops the Floci-spawned
+  `floci-eks-*` container and `up` starts it again, and Docker re-creates the
+  host port forward for its published port on every start. A re-created forward
+  silently truncates any write past roughly one MTU: the first ~1440 bytes
+  arrive and the rest never do. kubectl (Go >= 1.24) and OpenSSL >= 3.5 default
+  to the `X25519MLKEM768` post-quantum key exchange, which makes their TLS 1.3
+  ClientHello 1449 bytes -- just over the line -- so the apiserver waited
+  forever for the rest of a hello that never landed. A TLS 1.2 hello is 163
+  bytes and connected instantly, which is why macOS `curl` (LibreSSL, no
+  ML-KEM) made the API look reachable. Container-to-container traffic never
+  touched that forward and was unaffected at any size.
+
+  Every `kubectl` the CLI runs goes through the same kubeconfig, so the whole
+  second `up` failed with it: the CoreDNS record, the ingress class, the
+  Traefik patch and every Helm deploy.
+
+  The API is now streamed through `hmd_proxy`, restoring the invariant
+  `nginx_router` already documents -- hmd_proxy is the only container that
+  publishes host ports. Each environment gets a `k3s_port` in a band above its
+  slot ports (`19064 + slot`), so no existing environment's Floci, Trino, graph
+  or spare port is renumbered; the published range widens to `19000-19079`,
+  which recreates hmd_proxy once. `env_stream_entries` re-resolves the k3s
+  upstream on every rewrite, so deploying Trino later cannot drop the route.
+  Single-stack platform mode still uses Floci's published port -- it has no
+  env-scoped stream fragments to point at.
+
+- fix: Keep DAG-deployed API Gateways across a restart
+
+  `up` dropped every `apigateway-*.json` from Floci's data dir before starting
+  it, on the grounds that Floci persisted v1 gateway records with all-null
+  fields and rehydrated them as undeletable ghosts, and that `setup_service`
+  recreates each gateway anyway. That second half only ever covered the
+  gateways this CLI creates. A service deployed through the deployment DAG
+  (`hmd deploy --local`) owns a **CDKTF-managed** gateway, and a `down`/`up`
+  takes the fast path that redeploys nothing -- so the wipe destroyed it with
+  nothing left to recreate it. The Lambda survived, the gateway did not, and
+  `nginx_router.refresh_deployed_service_routes` found nothing to route:
+  `http://localhost/local/transform/...` fell through nginx's catch-all and
+  answered `{"error": "no route defined"}`.
+
+  `clear_apigateway_state` is now `prune_apigateway_ghosts`, which rewrites the
+  stores in place instead of deleting them: records with no `id`/`name` go,
+  real gateways stay, and resources/stages/deployments hanging off a dropped
+  gateway go with it. Against Floci 2.0.1, which persists real values, it is a
+  no-op.
+
+- fix: Restart the control-plane graph container on `up`
+
+  `down` gracefully stops the Floci-spawned gremlin-server container, and Floci
+  never brings it back. `hmd-inf-neptune`'s deploy is idempotent, so the next
+  `up` reports the graph node deployed without spawning anything, while the
+  cluster record keeps reporting `available`. The `control-plane-graph-alias`
+  node then waited out its full 300s timeout on a container that would never be
+  running, failed, and took ms-naming, artifact-lib and ms-deployment down with
+  it -- the whole control plane, on every `down`/`up`.
+
+  `floci_deployer.ensure_neptune_running` replaces the status-only wait: it
+  starts a container Floci left stopped, and returns immediately for the two
+  states that can never resolve (no cluster record, or a container that will
+  not start) rather than polling them for five minutes. Both graph paths now
+  use it -- the control plane's via a new module-level
+  `_ensure_control_plane_graph`, and an environment's via `_alias_environment_graph`.
+
+- fix: Probe the address Gremlin Server actually binds
+
+  `_gremlin_port_open` checked `127.0.0.1`, but a running hmd-img-gremlin-server
+  has a single listener on `::ffff:<container ip>:8182` and nothing on loopback.
+  The probe was therefore refused however long the JVM had been up, so
+  `start_neptune_container` reported every healthy restarted graph as one that
+  never came up -- making the restart path a no-op wherever it was already
+  wired in. It now probes the container's own hostname, which is the address
+  consumers reach through the DNS alias.
+
+- fix: Stop `deploy_local.sh` overlays writing into the developer's checkout
+
+  Only a cdktf/helm/config overlay got a temp workspace; a `deploy_local.sh`
+  override had the real repo mounted read-write, so it wrote its produced
+  Resources to `meta-data/resources_output/` there. Two such files ended up
+  committed in `hmd-inf-neptune`, and since the runner submits *every*
+  `resources_output/*.json` in the workspace, each of its two instances
+  (`control-plane-graph` and `global-graph`) republished the other's Resource --
+  including a stale `ws://neuronsphere:8183/gremlin` pointing at Floci's Gremlin
+  proxy, the exact endpoint the `graph_host` design exists to avoid. Outputs are
+  now also excluded from the overlay copy, so a prior run's cannot become the
+  next run's inputs.
+
 ## 2026-09-03
 
 - feat: Drop the control-plane graph entirely

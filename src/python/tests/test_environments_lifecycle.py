@@ -35,12 +35,14 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import yaml
 
 import hmd_cli_neuronsphere
 from hmd_cli_neuronsphere import bom_seeder as b
+from hmd_cli_neuronsphere import env_reconcile
 from hmd_cli_neuronsphere import environments as envs
 from hmd_cli_neuronsphere import floci_deployer
 
@@ -69,6 +71,12 @@ def _compose_verbs(exec_mock):
 class StopEnvironmentTests(unittest.TestCase):
     def _stop(self, purge):
         fd = mock.MagicMock()
+        # `bom_seeder.env_db_identifier`/`graph_cluster_identifier` (real code,
+        # not mocked) build the identifier through `make_standard_name`, which
+        # joins this into the name with `"_".join(...)` -- it must be a real
+        # string or that raises before `stop_rds_instance`/`stop_neptune_container`
+        # are ever reached.
+        fd.local_customer_code.return_value = "none"
         cli = mock.MagicMock()
         cli._get_base_command.return_value = ["docker", "compose"]
         with mock.patch.dict(
@@ -98,6 +106,21 @@ class StopEnvironmentTests(unittest.TestCase):
         _, cli, _ = self._stop(purge=False)
         self.assertEqual(_compose_verbs(cli._exec), ["stop"])
 
+    def test_plain_stop_stops_the_database_and_graph_containers(self):
+        """The RDS/Neptune containers are Floci-spawned, not compose services or
+        something k3s manages -- nothing else in `stop_environment` reaches them.
+        """
+        fd, _, _ = self._stop(purge=False)
+        fd.stop_rds_instance.assert_called_once()
+        self.assertEqual(
+            fd.stop_rds_instance.call_args.kwargs.get("target")
+            or fd.stop_rds_instance.call_args.args[1],
+            fd.env_target.return_value,
+        )
+        fd.stop_neptune_container.assert_called_once()
+        fd.delete_rds_instance.assert_not_called()
+        fd.delete_neptune_cluster.assert_not_called()
+
     def test_purge_deletes_the_cluster_and_its_volume(self):
         fd, cli, reg = self._stop(purge=True)
         fd.delete_k3s_cluster.assert_called_once()
@@ -111,6 +134,13 @@ class StopEnvironmentTests(unittest.TestCase):
     def test_purge_removes_containers(self):
         _, cli, _ = self._stop(purge=True)
         self.assertEqual(_compose_verbs(cli._exec), ["down"])
+
+    def test_purge_deletes_rather_than_stops_the_database_and_graph_containers(self):
+        fd, _, _ = self._stop(purge=True)
+        fd.delete_rds_instance.assert_called_once()
+        fd.delete_neptune_cluster.assert_called_once()
+        fd.stop_rds_instance.assert_not_called()
+        fd.stop_neptune_container.assert_not_called()
 
 
 class StopNeuronsphereExtendTests(unittest.TestCase):
@@ -147,24 +177,45 @@ class StopNeuronsphereExtendTests(unittest.TestCase):
             return_value=mock.MagicMock(),
         ), mock.patch.object(
             cli.shutil, "rmtree"
-        ):
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.control_plane_target",
+            return_value="target",
+        ), mock.patch(
+            "hmd_cli_neuronsphere.bootstrap_dag.control_plane_db_identifier",
+            return_value="control-plane-db",
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.stop_rds_instance"
+        ) as stop_rds_mock:
             cli.stop_neuronsphere_extend(purge=purge)
-        return [call.args[0] for call in exec_mock.call_args_list if call.args]
+        commands = [call.args[0] for call in exec_mock.call_args_list if call.args]
+        return commands, stop_rds_mock
 
     def test_plain_stop_keeps_the_network(self):
-        commands = self._stop(purge=False)
+        commands, _ = self._stop(purge=False)
         self.assertNotIn(
             "network", [c[1] for c in commands if c[0] == "docker" and len(c) > 1]
         )
         self.assertEqual(commands[0][-1], "stop")
 
     def test_purge_removes_the_network(self):
-        commands = self._stop(purge=True)
+        commands, _ = self._stop(purge=True)
         self.assertTrue(
             any(c[:3] == ["docker", "network", "rm"] for c in commands),
             f"expected a network rm, got {commands}",
         )
         self.assertEqual(commands[0][-1], "down")
+
+    def test_plain_stop_stops_the_control_plane_database_container(self):
+        """The control-plane database is a Floci-spawned RDS container, not a
+        compose service, so the compose `stop` above never reaches it.
+        """
+        _, stop_rds_mock = self._stop(purge=False)
+        stop_rds_mock.assert_called_once_with("control-plane-db", target="target")
+
+    def test_purge_leaves_the_control_plane_database_stop_to_the_purge(self):
+        """`_purge_control_plane_state` (mocked here) deletes it instead."""
+        _, stop_rds_mock = self._stop(purge=True)
+        stop_rds_mock.assert_not_called()
 
 
 if __name__ == "__main__":
@@ -186,7 +237,9 @@ class ClusterRecreatedTests(unittest.TestCase):
 
         with mock.patch.object(envs, "print_step"), mock.patch.object(
             envs, "_service_specs", return_value=[]
-        ), mock.patch.object(envs, "env_registry") as reg, mock.patch.object(
+        ), mock.patch.object(envs, "_alias_environment_database"), mock.patch.object(
+            envs, "env_registry"
+        ) as reg, mock.patch.object(
             envs, "_reconcile_environment", return_value=True
         ) as reconcile, mock.patch.object(
             envs, "_run_full_bootstrap", return_value=True
@@ -201,16 +254,33 @@ class ClusterRecreatedTests(unittest.TestCase):
             "hmd_cli_neuronsphere.bom_seeder.seed_base_resource_definitions",
             return_value=[],
         ), mock.patch(
+            "hmd_cli_neuronsphere.bom_seeder.seed_bom",
+            return_value=("csd-a", [{"repo_instance_name": "local-neuronsphere"}]),
+        ), mock.patch(
             "hmd_cli_neuronsphere.env_manifest.load_manifest", return_value=None
         ), mock.patch(
             "hmd_cli_neuronsphere.change_set_builder.declared_repo_paths",
             return_value={},
         ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.env_target"
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.reconcile_k3s_container"
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.wait_for_k3s_ready"
+        ), mock.patch(
+            "hmd_cli_neuronsphere.floci_deployer.write_kubeconfig",
+            return_value="/tmp/kubeconfig",
+        ), mock.patch(
+            "hmd_cli_neuronsphere.k3s_operators.provision_k3s_operators"
+        ), mock.patch(
+            "hmd_cli_neuronsphere.k3s_operators.cluster_incarnation_id",
+            return_value="new-uid",
+        ), mock.patch(
             "hmd_cli_neuronsphere.local_workflow_runner.LocalWorkflowRunner"
-        ):
-            envs._bootstrap_environment(
-                env, [], "ns-dev2", "new-uid", upgrade=False, prune=False
-            )
+        ) as runner_cls:
+            runner_cls.return_value.last_succeeded = []
+            env.is_default = False
+            envs._bootstrap_environment(env, [], "ns-dev2", upgrade=False, prune=False)
         return reconcile, full, reg
 
     def test_known_releases_reconcile_instead_of_full_bootstrap(self):
@@ -231,6 +301,123 @@ class ClusterRecreatedTests(unittest.TestCase):
         reconcile, full, _ = self._bootstrap({})
         full.assert_called_once()
         reconcile.assert_not_called()
+
+
+class ReconcileGraphUnconditionalTests(unittest.TestCase):
+    """A newly-required graph deploys on plain `up`, not just `up --upgrade`.
+
+    Everything else a plugin/manifest change adds stays gated behind
+    `--upgrade` -- that gate exists so an editing mistake or an uninstalled
+    plugin doesn't silently change a running environment. But a graph that
+    only now appears in the desired state is not a discretionary change: it
+    is the CLI's own dependency of something already declared, so it must
+    converge the same way Phase A's core instance and the k3s container
+    reconcile already do -- lazy in whether it exists, unconditional in
+    whether a converging `up` deploys it.
+    """
+
+    graph_entry = {
+        "repo_instance_name": b.GRAPH_INSTANCE,
+        "repo_class_name": b.GRAPH_REPO_CLASS,
+        "repo_class_version": "0.1.0",
+    }
+    other_entry = {
+        "repo_instance_name": "trino",
+        "repo_class_name": "hmd-ms-trino",
+        "repo_class_version": "0.2.0",
+    }
+
+    def _reconcile(self, *, upgrade, include_other=True, graph_run_result=True):
+        env = mock.MagicMock()
+        env.slug = "dev2"
+
+        add = [self.graph_entry] + ([self.other_entry] if include_other else [])
+        plan = env_reconcile.ReconcilePlan(add=list(add), desired=list(add))
+
+        runner = mock.MagicMock()
+        runner.last_succeeded = []
+
+        def _run(csd_nid, nodes, **_kwargs):
+            if csd_nid == "csd-graph":
+                return graph_run_result
+            runner.last_succeeded = [self.other_entry["repo_instance_name"]]
+            return True
+
+        runner.run.side_effect = _run
+
+        with mock.patch.object(envs, "print_step"), mock.patch(
+            "builtins.print"
+        ), mock.patch.object(
+            envs, "_alias_environment_graph"
+        ) as alias_graph, mock.patch.object(
+            envs, "_observed_releases", return_value={}
+        ), mock.patch(
+            "hmd_cli_neuronsphere.env_reconcile.compute_plan", return_value=plan
+        ), mock.patch(
+            "hmd_cli_neuronsphere.env_reconcile.merge_snapshot"
+        ) as merge_snapshot, mock.patch(
+            "hmd_cli_neuronsphere.env_reconcile.write_snapshot"
+        ) as write_snapshot, mock.patch(
+            "hmd_cli_neuronsphere.env_reconcile.load_release_map", return_value={}
+        ), mock.patch(
+            "hmd_cli_neuronsphere.bom_seeder.seed_bom",
+            side_effect=[
+                ("csd-graph", [self.graph_entry]),
+                ("csd-rest", [self.other_entry]),
+            ],
+        ) as seed_bom, mock.patch(
+            "hmd_cli_neuronsphere.change_set_builder.declared_repo_paths",
+            return_value={},
+        ):
+            ok = envs._reconcile_environment(
+                env, runner, "http://ms-deployment", None, upgrade=upgrade, prune=False
+            )
+        return SimpleNamespace(
+            ok=ok,
+            runner=runner,
+            seed_bom=seed_bom,
+            alias_graph=alias_graph,
+            merge_snapshot=merge_snapshot,
+            write_snapshot=write_snapshot,
+        )
+
+    def test_graph_deploys_without_upgrade(self):
+        r = self._reconcile(upgrade=False)
+
+        self.assertTrue(r.ok)
+        # Only the graph's own changeset was seeded and run -- the other
+        # addition stayed gated behind --upgrade, exactly as before.
+        r.seed_bom.assert_called_once()
+        self.assertEqual(r.seed_bom.call_args.kwargs["bom"], [self.graph_entry])
+        r.runner.run.assert_called_once()
+        r.alias_graph.assert_called_once()
+        r.merge_snapshot.assert_called_once()
+        self.assertEqual(r.merge_snapshot.call_args.args[2], [self.graph_entry])
+
+    def test_failed_graph_deploy_is_not_recorded_as_settled(self):
+        # No other addition here: with the graph the only entry, a failed
+        # graph deploy leaves `pending` empty and exercises the
+        # write-the-whole-snapshot branch, which must exclude it.
+        r = self._reconcile(upgrade=False, include_other=False, graph_run_result=False)
+
+        self.assertFalse(r.ok)
+        r.alias_graph.assert_not_called()
+        r.merge_snapshot.assert_not_called()
+        r.write_snapshot.assert_called_once()
+        snapshotted_names = {
+            e["repo_instance_name"] for e in r.write_snapshot.call_args.args[1]
+        }
+        self.assertNotIn(b.GRAPH_INSTANCE, snapshotted_names)
+
+    def test_graph_still_deploys_with_upgrade(self):
+        # --upgrade must not skip the graph or seed it twice (once via the
+        # unconditional path, once via the gated `pending` path).
+        r = self._reconcile(upgrade=True)
+
+        self.assertTrue(r.ok)
+        seeded_boms = [c.kwargs["bom"] for c in r.seed_bom.call_args_list]
+        self.assertEqual(seeded_boms, [[self.graph_entry], [self.other_entry]])
+        r.alias_graph.assert_called_once()
 
 
 class DeploymentGuiComposeTests(unittest.TestCase):
@@ -550,3 +737,46 @@ class DeploymentGuiRouteTests(unittest.TestCase):
         ):
             routes = envs.environment_status(env)["routes"]
         self.assertEqual(routes["deployment_gui_mcp"], "http://localhost:19003/mcp/")
+
+
+class ControlPlaneGraphAliasTests(unittest.TestCase):
+    """The `control-plane-graph-alias` node must survive a `down`/`up`.
+
+    `hmd-inf-neptune`'s deploy_local.sh is idempotent -- an existing cluster is
+    "nothing to do" -- so on every `up` after the first, the node ahead of this
+    one spawns no container. Floci left the old one *stopped* on `down` and
+    never restarts it, while the cluster keeps reporting `available`. Waiting on
+    that status alone burned 300s and then failed the node, taking ms-naming,
+    artifact-lib and ms-deployment down with it.
+    """
+
+    def _run(self, running, cluster=True):
+        target = mock.MagicMock(account_id="000000000001")
+        with mock.patch.object(
+            floci_deployer, "ensure_neptune_running", return_value=running
+        ) as ensure, mock.patch.object(
+            floci_deployer, "neptune_cluster_exists", return_value=cluster
+        ), mock.patch.object(
+            floci_deployer, "ensure_neptune_network_alias", return_value=True
+        ) as alias:
+            ok = envs._ensure_control_plane_graph(target)
+        return ok, ensure, alias
+
+    def test_a_restarted_container_is_aliased_as_global_graph(self):
+        ok, ensure, alias = self._run("floci-neptune-abc")
+        self.assertTrue(ok)
+        ensure.assert_called_once()
+        # The alias, not Floci's Gremlin proxy, is what consumers address.
+        self.assertEqual(alias.call_args[0][1], "global-graph")
+
+    def test_an_unstartable_container_fails_the_node(self):
+        """Unlike an environment's lazy graph, this one is required:
+        artifact-lib's `neptune-db` dependency has no postgres fallback."""
+        ok, _, alias = self._run(None, cluster=True)
+        self.assertFalse(ok)
+        alias.assert_not_called()
+
+    def test_a_missing_cluster_fails_the_node(self):
+        ok, _, alias = self._run(None, cluster=False)
+        self.assertFalse(ok)
+        alias.assert_not_called()

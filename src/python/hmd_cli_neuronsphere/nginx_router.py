@@ -78,6 +78,11 @@ _SERVICE_ALIASES = {
     "hmd_ms_naming": ["ms-naming", "ms_naming", "hmd-ms-naming"],
 }
 
+# The k3s API server's port inside the `floci-eks-*` container. Reached through
+# an hmd_proxy stream rather than the port Floci publishes on that container --
+# see `env_registry.LocalEnvironment.k3s_port` for why.
+K3S_API_PORT = int(os.environ.get("HMD_LOCAL_K3S_API_PORT", "6443"))
+
 # k3s NodePort the Trino coordinator is exposed on. The same number is safe in
 # every environment because each has its own cluster.
 TRINO_NODEPORT = int(os.environ.get("HMD_LOCAL_TRINO_NODEPORT", "31880"))
@@ -674,10 +679,40 @@ def write_env_streams(env, entries: Optional[List[Tuple[int, str]]] = None) -> P
     )
 
 
+def k3s_api_upstream(env) -> Optional[str]:
+    """``<floci-eks ip>:6443`` for this env's k3s API server, or None if absent.
+
+    Cheap and side-effect free -- one ``docker inspect`` -- unlike
+    :func:`trino_upstream`, which also has to apply a NodePort service. That
+    matters because this is resolved on every rewrite of the fragment (see
+    :func:`env_stream_entries`), not just when the route is first wired.
+    """
+    from .floci_deployer import _floci_eks_ip, env_target
+
+    try:
+        ip = _floci_eks_ip(env.k3s_cluster, target=env_target(env))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Could not resolve floci-eks IP: {e}")
+        return None
+    if not ip:
+        logger.debug("Could not resolve floci-eks IP; k3s API host route not wired.")
+        return None
+    return f"{ip}:{K3S_API_PORT}"
+
+
 def env_stream_entries(
-    env, trino_upstream: Optional[str] = None
+    env,
+    trino_upstream: Optional[str] = None,
+    k3s_upstream: Optional[str] = None,
 ) -> List[Tuple[int, str]]:
-    """Assemble an environment's full stream listener list."""
+    """Assemble an environment's full stream listener list.
+
+    ``k3s_upstream`` is resolved here when not supplied, rather than left to the
+    caller like ``trino_upstream``. Every writer rewrites the whole fragment, so
+    a route only one of them knows about would be dropped by the next one --
+    wiring k3s and then deploying Trino would silently take kubectl offline
+    again. Resolving it on each rewrite makes the k3s route survive them all.
+    """
     entries: List[Tuple[int, str]] = []
     if trino_upstream:
         entries.append((env.trino_port, trino_upstream))
@@ -685,6 +720,10 @@ def env_stream_entries(
         # existing integration tests need no change.
         if env.is_default and env.trino_port != LEGACY_TRINO_HOST_PORT:
             entries.append((LEGACY_TRINO_HOST_PORT, trino_upstream))
+    if k3s_upstream is None:
+        k3s_upstream = k3s_api_upstream(env)
+    if k3s_upstream:
+        entries.append((env.k3s_port, k3s_upstream))
     return entries
 
 
@@ -1127,6 +1166,25 @@ def trino_upstream(env) -> Optional[str]:
         logger.warning("Could not resolve floci-eks IP; Trino host route not wired.")
         return None
     return f"{ip}:{TRINO_NODEPORT}"
+
+
+def configure_k3s_host_route(env) -> bool:
+    """Wire this environment's k3s API server to its host stream port.
+
+    Must run before anything writes or uses the kubeconfig: `write_kubeconfig`
+    points the server URL at :attr:`~env_registry.LocalEnvironment.k3s_port`, and
+    every later `kubectl` -- the CoreDNS patch, the ingress class, the operator
+    installs -- goes through it. No-op when the k3s container isn't up. Caller
+    reloads nginx when this returns True.
+    """
+    upstream = k3s_api_upstream(env)
+    if not upstream:
+        return False
+    write_env_streams(env, env_stream_entries(env, k3s_upstream=upstream))
+    logger.debug(
+        f"Wired k3s API host route for '{env.slug}': :{env.k3s_port} -> {upstream}"
+    )
+    return True
 
 
 def configure_trino_host_route(env) -> bool:

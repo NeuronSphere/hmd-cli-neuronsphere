@@ -19,6 +19,11 @@ from unittest import mock
 from hmd_cli_neuronsphere import nginx_router as nr
 
 
+def _no_k3s():
+    """No k3s container, so no k3s listener -- keeps stream tests hermetic."""
+    return mock.patch.object(nr, "k3s_api_upstream", return_value=None)
+
+
 class _Env:
     def __init__(self, slug, port_base=19000, slot=0):
         self.slug = slug
@@ -45,6 +50,12 @@ class _Env:
     @property
     def spare_port(self):
         return self.floci_port + 3
+
+    @property
+    def k3s_port(self):
+        # A band above the slot ports, matching
+        # env_registry.LocalEnvironment.k3s_port.
+        return self.port_base + 16 * 4 + self.port_slot
 
     @property
     def is_default(self):
@@ -239,12 +250,68 @@ class EnvRouteTests(_TempHome):
         nr.write_env_streams(env)
         text = (self.stream_dir() / "10-env-dev2.conf").read_text()
         self.assertNotIn("listen ", text)
-        self.assertEqual(nr.env_stream_entries(env), [])
+        with _no_k3s():
+            self.assertEqual(nr.env_stream_entries(env), [])
 
     def test_env_streams_still_publish_a_trino_listener(self):
         env = _Env("dev2", slot=1)
-        entries = nr.env_stream_entries(env, trino_upstream="10.0.0.5:31880")
+        with _no_k3s():
+            entries = nr.env_stream_entries(env, trino_upstream="10.0.0.5:31880")
         self.assertIn((env.trino_port, "10.0.0.5:31880"), entries)
+
+    def test_k3s_api_gets_a_stream_listener_on_its_own_port(self):
+        """kubectl reaches the cluster through hmd_proxy, not Floci's forward.
+
+        Floci's published port on the `floci-eks-*` container is re-created by
+        Docker every time `down`/`up` restarts it, and a re-created forward
+        truncates writes past ~1 MTU -- which silently eats the 1449-byte
+        post-quantum TLS 1.3 ClientHello kubectl sends and hangs the handshake
+        against a perfectly healthy cluster.
+        """
+        env = _Env("dev2", slot=1)
+        with mock.patch.object(nr, "k3s_api_upstream", return_value="10.0.0.9:6443"):
+            self.assertTrue(nr.configure_k3s_host_route(env))
+        text = (self.stream_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn(f"listen {env.k3s_port};", text)
+        self.assertIn("10.0.0.9:6443", text)
+
+    def test_no_k3s_route_when_the_cluster_is_absent(self):
+        env = _Env("dev2", slot=1)
+        with _no_k3s():
+            self.assertFalse(nr.configure_k3s_host_route(env))
+        self.assertFalse((self.stream_dir() / "10-env-dev2.conf").exists())
+
+    def test_the_k3s_route_survives_a_later_trino_rewrite(self):
+        """Every writer rewrites the whole fragment, so k3s must be re-resolved.
+
+        Wiring k3s and then deploying Trino would otherwise drop the k3s
+        listener and take kubectl offline again.
+        """
+        env = _Env("dev2", slot=1)
+        with mock.patch.object(nr, "k3s_api_upstream", return_value="10.0.0.9:6443"):
+            nr.configure_k3s_host_route(env)
+            nr.write_env_streams(
+                env, nr.env_stream_entries(env, trino_upstream="10.0.0.5:31880")
+            )
+        text = (self.stream_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn(f"listen {env.k3s_port};", text)
+        self.assertIn(f"listen {env.trino_port};", text)
+
+    def test_an_explicit_k3s_upstream_is_not_re_resolved(self):
+        env = _Env("dev2", slot=1)
+        with mock.patch.object(nr, "k3s_api_upstream") as lookup:
+            entries = nr.env_stream_entries(env, k3s_upstream="10.0.0.9:6443")
+        lookup.assert_not_called()
+        self.assertIn((env.k3s_port, "10.0.0.9:6443"), entries)
+
+    def test_k3s_and_trino_never_share_a_listener_port(self):
+        env = _Env("dev2", slot=1)
+        with mock.patch.object(nr, "k3s_api_upstream", return_value="10.0.0.9:6443"):
+            ports = [
+                p
+                for p, _ in nr.env_stream_entries(env, trino_upstream="10.0.0.5:31880")
+            ]
+        self.assertEqual(len(ports), len(set(ports)))
 
     def test_environments_do_not_share_fragments(self):
         a, bb = _Env("alpha", slot=0), _Env("beta", slot=1)
@@ -274,15 +341,14 @@ class EnvRouteTests(_TempHome):
         nr.remove_env_routes(_Env("never-created"))  # must not raise
 
     def test_trino_stream_adds_legacy_port_only_for_the_default_env(self):
-        default_entries = nr.env_stream_entries(
-            _Env("local"), trino_upstream="1.2.3.4:31880"
-        )
-        ports = [p for p, _ in default_entries]
-        self.assertIn(nr.LEGACY_TRINO_HOST_PORT, ports)
-
-        other_entries = nr.env_stream_entries(
-            _Env("dev2", slot=1), trino_upstream="1.2.3.4:31880"
-        )
+        with _no_k3s():
+            default_entries = nr.env_stream_entries(
+                _Env("local"), trino_upstream="1.2.3.4:31880"
+            )
+            other_entries = nr.env_stream_entries(
+                _Env("dev2", slot=1), trino_upstream="1.2.3.4:31880"
+            )
+        self.assertIn(nr.LEGACY_TRINO_HOST_PORT, [p for p, _ in default_entries])
         self.assertNotIn(nr.LEGACY_TRINO_HOST_PORT, [p for p, _ in other_entries])
 
 

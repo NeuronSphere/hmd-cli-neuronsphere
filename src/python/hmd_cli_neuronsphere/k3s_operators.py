@@ -728,7 +728,7 @@ def cluster_incarnation_id(env=None) -> Optional[str]:
     The ``kube-system`` Namespace is created fresh the moment a cluster comes
     up and never recreated for the cluster's lifetime, so its UID is a cheap,
     reliable stand-in for "which cluster incarnation is this" -- a
-    delete+recreate (see ``floci_deployer.ensure_k3s_cluster``'s stale-image
+    delete+recreate (see ``floci_deployer.reconcile_k3s_container``'s stale-image
     recovery) always yields a new UID, while a plain container restart of the
     same cluster keeps it. Callers use this to detect "the k3s cluster was
     recreated since our last successful deploy" and force a redeploy instead

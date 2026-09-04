@@ -150,9 +150,49 @@ class PortSlotTests(_TempHome):
     def test_env_port_range_covers_every_slot(self):
         lo, hi = (int(p) for p in er.env_port_range().split("-"))
         self.assertEqual(lo, er.DEFAULT_PORT_BASE)
-        self.assertEqual(hi, er.DEFAULT_PORT_BASE + er.MAX_ENVS * er.PORTS_PER_ENV - 1)
+        self.assertEqual(
+            hi,
+            er.DEFAULT_PORT_BASE
+            + er.MAX_ENVS * (er.PORTS_PER_ENV + er.K3S_PORTS_PER_ENV)
+            - 1,
+        )
         env = er.create_env("dev2")
         self.assertTrue(lo <= env.floci_port <= hi and lo <= env.spare_port <= hi)
+
+    def test_the_published_range_covers_every_k3s_port(self):
+        """A listener outside the range hmd_proxy publishes is unreachable."""
+        lo, hi = (int(p) for p in er.env_port_range().split("-"))
+        for slot in range(er.MAX_ENVS):
+            port = er.DEFAULT_PORT_BASE + er.MAX_ENVS * er.PORTS_PER_ENV + slot
+            self.assertTrue(
+                lo <= port <= hi, f"slot {slot} k3s port {port} unpublished"
+            )
+
+    def test_k3s_ports_never_collide_with_slot_ports(self):
+        """The k3s band sits above the slot ports, so nothing is renumbered.
+
+        Slot 0's spare is the Deployment GUI's published 19003, which is exactly
+        why the k3s port is a band rather than a fifth slot port.
+        """
+        reg = er.Registry(control_plane=er._default_control_plane())
+        envs = []
+        for i in range(er.MAX_ENVS):
+            # Register as we go: `allocate_port_slot` reads the registry to find
+            # a free slot, so building them all first would hand out duplicates.
+            e = er._build_environment(reg, f"e{i}")
+            reg.environments[e.slug] = e
+            envs.append(e)
+        slot_ports = {
+            p
+            for e in envs
+            for p in (e.floci_port, e.trino_port, e.graph_port, e.spare_port)
+        }
+        k3s_ports = {e.k3s_port for e in envs}
+        self.assertEqual(
+            len(k3s_ports), er.MAX_ENVS, "k3s ports must be unique per env"
+        )
+        self.assertFalse(slot_ports & k3s_ports)
+        self.assertTrue(min(k3s_ports) > max(slot_ports))
 
 
 class PersistenceTests(_TempHome):

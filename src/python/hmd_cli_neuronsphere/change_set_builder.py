@@ -185,6 +185,21 @@ def build_definition(
         )
     entries.extend(plugin_entries)
 
+    # Enabled plugin packages still map `database-instance`/`eks-cluster`/
+    # `graph-db` (etc.) dependencies at `CORE_INSTANCE_NAME` from before those
+    # roles were split into their own Phase A/lazy instances -- see
+    # `bom_seeder.resolve_plugin_bom`, which normalizes the exact same way for
+    # `hmd neuronsphere up`'s first bootstrap. This definition feeds the
+    # reconcile diff and the delta changeset a later `up` seeds (`env_reconcile`
+    # / `_reconcile_environment`), so skipping it here left a plain restart
+    # re-seeding an entry like `trino` with its `graph-db` role still pointed at
+    # `local-neuronsphere` -- which ms-deployment then rejects.
+    if b.graph_enabled() and b.bom_requires_graph(entries):
+        entries.append(b.graph_bom_entry(env))
+    b._repoint_database_instance(entries)
+    b._repoint_eks_cluster_dependency(entries)
+    b._repoint_graph_database(entries)
+
     # Shared across every entry in this definition so a repo class whose
     # version resolution warns (shadowed by a local tree, or neither bundled
     # nor declared) reports once for the whole definition -- not once per
@@ -206,6 +221,12 @@ def build_definition(
     # mapping is guaranteed to exist, and before hashing so a credentials change
     # is visible to the reconcile diff.
     b._inject_docker_credentials(normalized)
+    # Same placement, same reason, for the account those stores sign their lookups
+    # with. `seed_bom` injects it too, so this is not what makes a deploy correct
+    # -- it is what keeps this definition (which `full_definition` feeds to
+    # `env_reconcile.compute_plan` as desired state) hashing to the same thing
+    # that was actually seeded. Omitting it left ext-secrets permanently drifted.
+    b._inject_floci_account(normalized, env)
 
     definition = b.scope_bom_entries(b._topo_sort_bom(b._dedupe_bom(normalized)), env)
     logger.debug(

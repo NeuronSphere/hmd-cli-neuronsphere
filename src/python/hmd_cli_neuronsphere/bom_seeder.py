@@ -137,12 +137,12 @@ CORE_INSTANCE_NAME = "local-neuronsphere"
 # declare_produces_resource_definition) after the RCV is registered and before the
 # changeset applies, so resource-type dependency validation passes.
 CORE_PRODUCED_DEFINITIONS = [
-    {
-        "resource_namespace": "kubernetes.neuronsphere.io",
-        "resource_definition_name": "kubernetes-cluster",
-        "version": "0.1.0",
-        "role": "kubernetes-cluster",
-    },
+    # kubernetes-cluster is *not* declared here: it is produced by the
+    # `eks-cluster` / hmd-inf-eks-cluster instance (see EKS_CLUSTER_INSTANCE
+    # below), deployed as a real Phase A DAG node so the same repo produces this
+    # Resource in the cloud and locally. compute-node stays core-produced --
+    # in the cloud that type comes from hmd-inf-eks-node-group, a repo distinct
+    # from hmd-inf-eks-cluster, and there is no local equivalent of that split.
     {
         "resource_namespace": "compute.neuronsphere.io",
         "resource_definition_name": "compute-node",
@@ -218,6 +218,18 @@ CORE_PRODUCED_DEFINITIONS = [
 ENV_DB_INSTANCE = "environment-db"
 ENV_DB_REPO_CLASS = "hmd-postgres-rds"
 
+# The environment's Kubernetes cluster, deployed as a real Phase A DAG node so the
+# same repo (hmd-inf-eks-cluster) produces `kubernetes.neuronsphere.io/kubernetes-
+# cluster` in the cloud and locally -- via `terraform-aws-modules/eks` there, and
+# via its `src/local/cdktf` overlay (a bare `aws_eks_cluster`, confirmed to
+# round-trip cleanly against Floci 2.0.1) here. `hmd-cli-neuronsphere` still owns
+# everything about the Docker container Floci spawns in response to that
+# `CreateCluster` call (stopped/restart, stale-image recreation, purge) -- none of
+# that is visible to Terraform, so it stays a pre-DAG reconcile
+# (`floci_deployer.reconcile_k3s_container`), not part of this node.
+EKS_CLUSTER_INSTANCE = "eks-cluster"
+EKS_CLUSTER_REPO_CLASS = "hmd-inf-eks-cluster"
+
 LOCAL_CORE_BOM = [
     {
         "repo_instance_name": CORE_INSTANCE_NAME,
@@ -255,6 +267,24 @@ LOCAL_CORE_BOM = [
             "base-vpc": CORE_INSTANCE_NAME,
             "datadog-lambda": CORE_INSTANCE_NAME,
             "rds-loggroup": CORE_INSTANCE_NAME,
+        },
+    },
+    {
+        # `cluster_name`/`cluster_endpoint` are filled in per environment by
+        # _inject_eks_cluster_endpoint(): the account-qualified container name
+        # (floci_deployer.k3s_container_name) cannot be a constant here.
+        #
+        # Every dependency the RepoClassVersion marks required must be supplied
+        # even though the local overlay references neither: same rule as
+        # ENV_DB_INSTANCE above -- ms-deployment validates required *roles* at
+        # changeset apply, not at deploy.
+        "repo_instance_name": EKS_CLUSTER_INSTANCE,
+        "repo_class_name": EKS_CLUSTER_REPO_CLASS,
+        "deployment_id": "local",
+        "instance_configuration": {},
+        "dependencies": {
+            "base-vpc": CORE_INSTANCE_NAME,
+            "datadog-lambda": CORE_INSTANCE_NAME,
         },
     },
 ]
@@ -329,8 +359,10 @@ _EXT_SECRETS_LOCAL_CONFIG: Dict[str, Any] = {
 
 # On by default; opt out via HMD_LOCAL_NEURONSPHERE_ENABLE_EXT_SECRETS=false. crds
 # first (its RepoClass must exist before ext-secrets, which depends on it by class
-# name). The eks-cluster / compute roles are satisfied by the local k3s producer via
-# their manifests' SPEC0008 `resource` blocks.
+# name). eks-cluster is satisfied by the eks-cluster instance (both by
+# repo_class_name, now that it is deployed locally, and via its manifest's
+# SPEC0008 `resource` block); compute is satisfied by the local k3s producer
+# (local-neuronsphere) the same way it always has been.
 EXT_SECRETS_BOM = [
     {
         "repo_instance_name": "ext-secrets-crds",
@@ -338,7 +370,7 @@ EXT_SECRETS_BOM = [
         "deployment_id": "local",
         "instance_configuration": {},
         "dependencies": {
-            "eks-cluster": CORE_INSTANCE_NAME,
+            "eks-cluster": EKS_CLUSTER_INSTANCE,
             "compute": CORE_INSTANCE_NAME,
         },
     },
@@ -348,7 +380,7 @@ EXT_SECRETS_BOM = [
         "deployment_id": "local",
         "instance_configuration": dict(_EXT_SECRETS_LOCAL_CONFIG),
         "dependencies": {
-            "eks-cluster": CORE_INSTANCE_NAME,
+            "eks-cluster": EKS_CLUSTER_INSTANCE,
             "compute": CORE_INSTANCE_NAME,
             "crds": "ext-secrets-crds",
         },
@@ -1227,7 +1259,6 @@ def build_local_core_resources(
     *,
     network_name: str = DOCKER_NETWORK_NAME,
     cluster_name: Optional[str] = None,
-    cluster_endpoint: Optional[str] = None,
     services: Optional[List[Dict]] = None,
     env=None,
 ) -> List[Dict]:
@@ -1237,16 +1268,21 @@ def build_local_core_resources(
     ``Resource`` typed by the matching **base** ResourceDefinition (the
     ``*.neuronsphere.io`` catalog seeded by
     :func:`seed_base_resource_definitions`) and tagged ``environment=local``. This
-    is what gives local↔cloud parity: because ``docker-network isa network`` and
-    the k3s cluster is the generic ``kubernetes-cluster`` type, a cloud repo whose
-    ``manifest.json`` declares a resource dependency on
-    ``network.neuronsphere.io/network`` or
-    ``kubernetes.neuronsphere.io/kubernetes-cluster`` is satisfied by the local
-    environment.
+    is what gives local↔cloud parity: because ``docker-network isa network``, a
+    cloud repo whose ``manifest.json`` declares a resource dependency on
+    ``network.neuronsphere.io/network`` is satisfied by the local environment.
 
-    The registry starts with the Docker network and (when present) the k3s
-    cluster — the two with the biggest parity win; DBs / buckets / services can be
-    added incrementally.
+    ``kubernetes.neuronsphere.io/kubernetes-cluster`` is *not* built here — the
+    ``eks-cluster`` / hmd-inf-eks-cluster Phase A DAG node produces it directly
+    (see ``EKS_CLUSTER_INSTANCE`` and its ``src/local/cdktf`` overlay), so the
+    same repo is the producer in the cloud and locally. This function still
+    builds the cluster's *other* core Resources (compute-node, the Traefik
+    ingress-controller) when ``cluster_name`` is given, since those stay
+    core-produced.
+
+    The registry starts with the Docker network and (when a cluster exists) its
+    compute and ingress Resources; DBs / buckets / services can be added
+    incrementally.
 
     When ``env`` is given, the Postgres and graph Resources point at *that*
     environment's own containers (each environment runs its own Postgres and
@@ -1286,35 +1322,6 @@ def build_local_core_resources(
         },
     ]
     if cluster_name:
-        # The endpoint is the k3s API as reached from **inside** the
-        # neuronsphere_default network (where the projectbuilder deploy runs), not
-        # the host-published port. Floci names the k3s container
-        # `floci-eks-<cluster>`, or `floci-eks-<account>.<cluster>` outside the
-        # default account -- see floci_deployer.k3s_container_name.
-        # hmd-cli-helm reads this `endpoint` from the resolved kubernetes-cluster
-        # Resource (NERD0006) and connects there — the Resource is the source of
-        # truth for cluster addressing (auth stays environment-derived).
-        from .floci_deployer import env_target, k3s_container_name
-
-        cluster_output = {
-            "cluster_name": cluster_name,
-            "endpoint": cluster_endpoint
-            or f"https://{k3s_container_name(cluster_name, env_target(env) if env else None)}:6443",
-        }
-        resources.append(
-            {
-                "instance_name": CORE_INSTANCE_NAME,
-                "repo_class_name": CORE_REPO_CLASS,
-                "resource_name": cluster_name,
-                "resource_definition": {
-                    "resource_namespace": "kubernetes.neuronsphere.io",
-                    "resource_definition_name": "kubernetes-cluster",
-                    "version": "0.1.0",
-                },
-                "output": cluster_output,
-                "tags": common_tags + [{"key": "cluster_type", "value": "k3s"}],
-            }
-        )
         # A concrete compute-node Resource for the cluster's node pool. Not required
         # for resource-dep validation (the `produces` edge alone satisfies a
         # selector-less dep) but submitted for completeness / discovery.
@@ -1791,6 +1798,37 @@ def _inject_env_db_endpoint(bom: List[Dict], env=None) -> None:
         entry["instance_configuration"] = config
 
 
+def _inject_eks_cluster_endpoint(bom: List[Dict], env=None) -> None:
+    """Point the eks-cluster Phase A entry at its own cluster name and endpoint.
+
+    Mutates ``bom`` in place. The account-qualified container-naming logic
+    (``floci_deployer.k3s_container_name``) lives once, here, so the local CDKTF
+    overlay (``hmd-inf-eks-cluster/src/local/cdktf/cdktf_local.py``) never
+    reimplements it -- it only reads ``cluster_name``/``cluster_endpoint`` off
+    ``instance_configuration``.
+
+    The cluster name is per-environment (``env.k3s_cluster``, e.g.
+    ``ns-<slug>-<hash>``), so it cannot be a constant in the BOM.
+    """
+    from .floci_deployer import (
+        K3S_CLUSTER_NAME,
+        control_plane_target,
+        env_target,
+        k3s_container_name,
+    )
+
+    cluster_name = env.k3s_cluster if env is not None else K3S_CLUSTER_NAME
+    target = env_target(env) if env is not None else control_plane_target()
+    endpoint = f"https://{k3s_container_name(cluster_name, target)}:6443"
+    for entry in bom:
+        if entry.get("repo_instance_name") != EKS_CLUSTER_INSTANCE:
+            continue
+        config = dict(entry.get("instance_configuration") or {})
+        config["cluster_name"] = cluster_name
+        config["cluster_endpoint"] = endpoint
+        entry["instance_configuration"] = config
+
+
 # -- The graph database -----------------------------------------------------
 #
 # Provisioned lazily: a default `up` deploys no graph at all. It used to run
@@ -1801,8 +1839,10 @@ GRAPH_REPO_CLASS = "hmd-inf-neptune"
 
 # The roles consumers ask for a `database.neuronsphere.io/graph-database` under.
 # Matching on the role rather than re-reading every repo's manifest keeps this
-# to the assembled BOM, which is the only thing available at seed time.
-GRAPH_ROLES = ("graph-db", "neptune-db")
+# to the assembled BOM, which is the only thing available at seed time. Plugin
+# packages aren't consistent about the role name -- e.g. orchestration's
+# airflow entry uses "neptune" while its transform entry uses "neptune-db".
+GRAPH_ROLES = ("graph-db", "neptune-db", "neptune")
 
 
 def graph_enabled() -> bool:
@@ -1920,6 +1960,40 @@ def _repoint_database_instance(bom: List[Dict]) -> None:
             logger.debug(
                 f"{entry.get('repo_instance_name')}: repointed "
                 f"{_DATABASE_INSTANCE_ROLE} at {ENV_DB_INSTANCE}"
+            )
+
+
+# The dependency role every repo uses for "the k8s cluster my workloads run
+# on" (hmd-inf-eks-cluster declares it; plugin BOMs -- e.g. orchestration's
+# airflow/argo entries -- supply it).
+_EKS_CLUSTER_ROLE = "eks-cluster"
+
+
+def _repoint_eks_cluster_dependency(bom: List[Dict]) -> None:
+    """Point ``eks-cluster`` dependencies at the real EKS-cluster producer.
+
+    Mutates ``bom`` in place. Installed plugin packages map this role to
+    ``CORE_INSTANCE_NAME``, which was correct while the core RepoClass declared
+    producing ``kubernetes.neuronsphere.io/kubernetes-cluster`` directly. That
+    producer is now the real ``hmd-inf-eks-cluster`` Phase A instance (see
+    ``EKS_CLUSTER_INSTANCE``), so the core instance no longer satisfies the role
+    and ms-deployment rejects the changeset:
+
+        For RepoInstance, airflow, role, eks-cluster: supplied instance,
+        local-neuronsphere, satisfies neither the required resource type ...
+        nor a suggested repo_class.
+
+    Normalised here rather than fixed in each plugin for the same reason
+    :func:`_repoint_database_instance` is: plugins ship as independent
+    packages, and an older installed one would otherwise break.
+    """
+    for entry in bom:
+        deps = entry.get("dependencies") or {}
+        if deps.get(_EKS_CLUSTER_ROLE) == CORE_INSTANCE_NAME:
+            deps[_EKS_CLUSTER_ROLE] = EKS_CLUSTER_INSTANCE
+            logger.debug(
+                f"{entry.get('repo_instance_name')}: repointed "
+                f"{_EKS_CLUSTER_ROLE} at {EKS_CLUSTER_INSTANCE}"
             )
 
 
@@ -2160,7 +2234,9 @@ def resolve_plugin_bom(env=None, manifest=None) -> List[Dict]:
     _inject_docker_credentials(bom)
     _inject_floci_account(bom, env)
     _inject_env_db_endpoint(bom, env)
+    _inject_eks_cluster_endpoint(bom, env)
     _repoint_database_instance(bom)
+    _repoint_eks_cluster_dependency(bom)
     # Lazy: only deploy a graph when something in this BOM actually wants one.
     if graph_enabled() and bom_requires_graph(bom):
         bom = bom + [graph_bom_entry(env)]
@@ -2387,10 +2463,22 @@ def seed_bom(
     else:
         bom = scope_bom_entries(bom, env)
     # Applied here rather than only in `resolve_plugin_bom` because Phase A seeds
-    # `LOCAL_CORE_BOM` directly -- and the environment's Postgres, which is what
-    # this rewrites, is a Phase A entry. Idempotent, so the Phase B pass through
-    # the same funnel is harmless.
+    # `LOCAL_CORE_BOM` directly -- and the environment's Postgres and eks-cluster
+    # entries, which this and _inject_eks_cluster_endpoint rewrite, are both
+    # Phase A entries. Idempotent, so the Phase B pass through the same funnel is
+    # harmless.
+    #
+    # `_inject_floci_account` is here for a stronger reason: `resolve_plugin_bom`
+    # short-circuits to `change_set_builder.build_definition` whenever an
+    # environment manifest exists, which is now always -- so the injection it
+    # applies below never ran on the live path, and every environment's External
+    # Secrets operator authenticated as the control-plane account. `seed_bom` is
+    # the one funnel every changeset passes through (Phase A, the graph
+    # changesets, Phase B and the reconcile delta alike), so putting it here means
+    # no present or future entry path can miss it.
     _inject_env_db_endpoint(bom, env)
+    _inject_eks_cluster_endpoint(bom, env)
+    _inject_floci_account(bom, env)
     repo_paths = repo_paths or {}
 
     env_slug = env.slug if env is not None else "local"

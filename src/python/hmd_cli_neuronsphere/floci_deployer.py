@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -360,11 +361,70 @@ K3S_KUBECONFIG_PATH = Path(
     )
 )
 
-K3S_WRAPPER_IMAGE = os.environ.get(
-    "HMD_LOCAL_K3S_WRAPPER_IMAGE",
-    f"{os.environ.get('HMD_LOCAL_NS_CONTAINER_REGISTRY', 'ghcr.io/neuronsphere')}"
-    "/hmd-img-k3s-floci:0.2",
-)
+
+def floci_env_value(key: str, container: str = None) -> Optional[str]:
+    """One environment variable read back off the running Floci container.
+
+    Compose substitutes cement config values (``HMD_LOCAL_NS_CONTAINER_REGISTRY``
+    and friends) that never reach this process's ``os.environ``, so the container
+    is the only place their resolved values are recorded verbatim. Returns None
+    if Floci isn't running, docker is unreachable, or the key isn't set.
+    """
+    container = container or CONTROL_PLANE_FLOCI_CONTAINER
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", container, "--format", "{{json .Config.Env}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not inspect {container}: {e}")
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        entries = json.loads(result.stdout.strip() or "[]") or []
+    except json.JSONDecodeError:
+        return None
+    prefix = f"{key}="
+    for entry in entries:
+        if entry.startswith(prefix):
+            return entry[len(prefix) :] or None
+    return None
+
+
+def configured_k3s_wrapper_image() -> str:
+    """The wrapper image Floci will spawn k3s containers from.
+
+    Resolved lazily, not as a module constant: ``HMD_LOCAL_NS_CONTAINER_REGISTRY``
+    is a cement config value written to ``$HMD_HOME/.config/hmd.env`` and consumed
+    by compose, *not* an ambient environment variable. Rebuilding the image string
+    from ``os.environ`` alone therefore falls back to the ``ghcr.io/neuronsphere``
+    default even when compose substituted something else -- and since
+    ``reconcile_k3s_container`` compares that expectation against the spawned
+    container, the mismatch made every ``up`` declare a perfectly healthy cluster
+    stale and destroy it (along with its k3s datastore and every Helm release on
+    it), only for Floci to respawn the same image again. Same class of bug as
+    :func:`pg_upgrade.configured_postgres_image`.
+
+    Precedence deliberately differs from that function, though. There the explicit
+    environment variable must win, because the hazard is a *pending* image change
+    that would break the existing data directory. Here the only question is what
+    Floci will actually spawn, and Floci reads nothing but its own environment --
+    which compose has already refreshed from the current config by the time this
+    runs (``wait_for_floci`` precedes the reconcile in the up-path). So the running
+    container is authoritative, and the reconstructed default is the last resort
+    for when Floci isn't up yet.
+    """
+    explicit = os.environ.get("HMD_LOCAL_K3S_WRAPPER_IMAGE")
+    if explicit:
+        return explicit
+    current = floci_env_value("FLOCI_SERVICES_EKS_DEFAULT_IMAGE")
+    if current:
+        return current
+    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
+    return f"{registry}/hmd-img-k3s-floci:0.2"
 
 
 K3S_CONTAINER_PREFIX = "floci-eks-"
@@ -444,7 +504,7 @@ def k3s_volume_candidates(name: str = None, target: Optional[FlociTarget] = None
     return [f"{K3S_CONTAINER_PREFIX}{account}.{name}", legacy]
 
 
-def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
+def ensure_k3s_wrapper_image(image: Optional[str] = None) -> str:
     """Verify the configured k3s wrapper image is available, pulling it if not.
 
     Floci hardcodes ``--kube-apiserver-arg=storage-backend=sqlite3`` when
@@ -460,7 +520,12 @@ def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
     if the image isn't cached, pull it from there rather than requiring a
     local ``hmd build``. Set ``HMD_LOCAL_K3S_WRAPPER_IMAGE`` to point at a
     different tag (e.g. a locally-built dev tag) instead.
+
+    ``image`` defaults to :func:`configured_k3s_wrapper_image`, resolved on call
+    rather than bound at definition time -- binding it made this pull (and fail
+    on) a registry the running Floci was never configured with.
     """
+    image = image or configured_k3s_wrapper_image()
     inspect = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
     if inspect.returncode == 0:
         return image
@@ -476,80 +541,117 @@ def ensure_k3s_wrapper_image(image: str = K3S_WRAPPER_IMAGE) -> str:
     )
 
 
-def ensure_k3s_cluster(
+def reconcile_k3s_container(
+    name: str = K3S_CLUSTER_NAME, *, target: Optional[FlociTarget] = None
+) -> None:
+    """Repair the Docker container backing an existing k3s cluster (idempotent).
+
+    Cluster *creation* is a Terraform resource in the ``eks-cluster`` Phase A DAG
+    node (``hmd-inf-eks-cluster``'s ``src/local/cdktf`` overlay, confirmed live
+    against Floci 2.0.1 to round-trip cleanly) -- Terraform's own refresh
+    reconciles the EKS API record on every ``apply``. What Terraform cannot see
+    is the Docker container/volume Floci backs that record with, whose lifecycle
+    does not track the record:
+
+    - a non-purge ``down`` leaves the container **stopped** (see
+      :func:`stop_k3s_cluster`) while the cluster record stays ACTIVE, which
+      ``apply`` would treat as "no changes" against a dead cluster;
+    - Floci pins the node image into the cluster record at creation, so bumping
+      ``FLOCI_SERVICES_EKS_DEFAULT_IMAGE`` is not drift on any ``aws_eks_cluster``
+      attribute Terraform tracks;
+    - :func:`delete_k3s_cluster` does not reclaim the container or its
+      ``/var/lib/rancher/k3s`` volume (confirmed live: a Terraform-issued
+      ``DeleteCluster`` leaves both behind exactly like the old boto3 call did).
+
+    Called once, before Phase A is seeded. No-ops if the cluster doesn't exist
+    yet -- nothing to reconcile; the DAG node creates it fresh. Otherwise:
+
+    - running on the expected wrapper image: no-op.
+    - stopped on the expected image: started in place, preserving the k3s
+      datastore and every Helm release on it -- what keeps a plain restart
+      cheap and the ``cluster_incarnation_id`` fast path meaningful.
+    - missing, or running a stale image: the cluster (container + volume) is
+      deleted so the DAG node's next ``apply`` refreshes to "not found" and
+      creates it fresh from the current wrapper image.
+    """
+    expected = configured_k3s_wrapper_image()
+    ensure_k3s_wrapper_image(expected)
+    target = _resolve_target(target)
+    eks = _get_client("eks", target)
+    try:
+        eks.describe_cluster(name=name)
+    except eks.exceptions.ResourceNotFoundException:
+        logger.debug(f"k3s cluster {name} does not exist yet; nothing to reconcile")
+        return
+
+    image = _k3s_container_image(name, target)
+    running = _k3s_container_running(name, target)
+    if image == expected and running:
+        logger.debug(f"k3s cluster {name} container is healthy")
+        return
+    # A stopped container running the *expected* image is not stale -- it is
+    # what a non-purge `down` leaves behind. Recreating it would drop the
+    # cluster's datastore along with every Helm release on it, which is exactly
+    # what makes the next `up` redeploy the whole BOM. Start it back up instead
+    # and keep the cluster's identity.
+    if image == expected and not running:
+        logger.debug(f"k3s cluster {name} is stopped; restarting it in place")
+        if start_k3s_container(name, target=target):
+            return
+        logger.warning(
+            f"Could not restart the stopped k3s container for {name} "
+            f"(the Docker network may have been removed); recreating."
+        )
+    elif not image and k3s_container_name(name, target) in _existing_container_names():
+        # `_k3s_container_image` reports "" both for a container that is gone and
+        # for one it simply could not inspect (docker daemon hiccup, timeout).
+        # Only the first is staleness; treating the second as stale would delete
+        # a live cluster and its datastore over a transient failure.
+        logger.warning(
+            f"Could not read the image of the k3s container for {name}; "
+            f"leaving the cluster alone rather than recreating it."
+        )
+        return
+    logger.warning(
+        f"Existing k3s cluster {name} is stale "
+        f"(image={image or 'missing'}, running={running}, "
+        f"expected={expected}); recreating to pick up the "
+        f"current wrapper image."
+    )
+    delete_k3s_cluster(name, target=target)
+    _wait_for_cluster_gone(name, target=target)
+
+
+def ensure_k3s_cluster_platform_mode(
     name: str = K3S_CLUSTER_NAME, *, target: Optional[FlociTarget] = None
 ) -> Dict[str, Any]:
-    """Create a Floci EKS k3s cluster (idempotent).
+    """Create-or-repair a Floci EKS k3s cluster for legacy Platform mode.
 
-    Floci's EKS service in real mode (FLOCI_SERVICES_EKS_MOCK=false) starts a
-    privileged k3s container per cluster on the configured Docker network,
-    binding the API server to a host port from 6500-6599.
-
-    Each named environment owns a cluster in its own Floci account, so
-    ``target`` selects which Floci is asked to spawn it.
+    Extend mode creates the cluster as a real Terraform resource (the
+    ``eks-cluster`` Phase A DAG node -- see :func:`reconcile_k3s_container`'s
+    docstring). Platform mode has no DAG at all, so it still has to issue
+    ``eks.create_cluster`` itself. Delegates the container-level repair
+    (stopped/stale-image) to :func:`reconcile_k3s_container`, then creates only
+    if the cluster record still doesn't exist afterward -- which is also true
+    right after a stale-image recreate, since that deletes the record too.
 
     Returns the describe_cluster response payload.
     """
-    ensure_k3s_wrapper_image()
+    reconcile_k3s_container(name, target=target)
     target = _resolve_target(target)
     eks = _get_client("eks", target)
-
-    def _create() -> None:
+    try:
+        eks.describe_cluster(name=name)
+    except eks.exceptions.ResourceNotFoundException:
         eks.create_cluster(
             name=name,
             roleArn=f"arn:aws:iam::{target.account_id}:role/eks-role",
             resourcesVpcConfig={"subnetIds": [], "securityGroupIds": []},
             # Track the cloud EKS version (hmd-inf-eks-cluster cluster_version) so
             # operator/CRD charts targeting the cloud API also install locally.
-            # The actual k3s version is baked into the wrapper image
-            # (HMD_LOCAL_K3S_WRAPPER_IMAGE); keep them in sync.
             version=os.environ.get("HMD_LOCAL_K3S_VERSION", "1.34"),
         )
         logger.debug(f"Created k3s cluster: {name}")
-
-    try:
-        _create()
-    except ClientError as e:
-        if e.response["Error"]["Code"] not in (
-            "ResourceInUseException",
-            "ConflictException",
-        ):
-            raise
-        # A cluster with this name already exists in Floci's *persistent* store.
-        # Floci pins the node image into the cluster record at creation time, so
-        # a cluster created before the wrapper image was wired up (or against a
-        # stale/old image) keeps respawning that image and crash-loops on the
-        # bad --kube-apiserver-arg=storage-backend flag. If the spawned container
-        # is missing or not the wrapper image we expect, recreate the cluster so
-        # Floci respawns it from the current FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
-        image = _k3s_container_image(name, target)
-        running = _k3s_container_running(name, target)
-        # A stopped container running the *expected* image is not stale -- it is
-        # what a non-purge `down` leaves behind (see `stop_k3s_cluster`).
-        # Recreating it would drop the cluster's datastore along with every Helm
-        # release on it, which is exactly what makes the next `up` redeploy the
-        # whole BOM. Start it back up instead and keep the cluster's identity.
-        if image == K3S_WRAPPER_IMAGE and not running:
-            logger.debug(f"k3s cluster {name} is stopped; restarting it in place")
-            if start_k3s_container(name, target=target):
-                running = True
-            else:
-                logger.warning(
-                    f"Could not restart the stopped k3s container for {name} "
-                    f"(the Docker network may have been removed); recreating."
-                )
-        if image != K3S_WRAPPER_IMAGE or not running:
-            logger.warning(
-                f"Existing k3s cluster {name} is stale "
-                f"(image={image or 'missing'}, running={running}, "
-                f"expected={K3S_WRAPPER_IMAGE}); recreating to pick up the "
-                f"current wrapper image."
-            )
-            delete_k3s_cluster(name, target=target)
-            _wait_for_cluster_gone(name, target=target)
-            _create()
-        else:
-            logger.debug(f"k3s cluster already exists and healthy: {name}")
     return eks.describe_cluster(name=name)["cluster"]
 
 
@@ -720,25 +822,50 @@ def wait_for_k3s_ready(
     raise RuntimeError(f"k3s cluster {name} not ACTIVE after {timeout}s{detail}")
 
 
+# The address k3s itself writes into `/etc/rancher/k3s/k3s.yaml`, which is only
+# meaningful inside the container.
+_K3S_IN_CONTAINER_SERVER = "https://127.0.0.1:6443"
+
+
+def _point_kubeconfig_at_host(kubeconfig: str, host_port) -> str:
+    """Rewrite the in-container server URL to a host-reachable one."""
+    if not host_port:
+        return kubeconfig
+    return kubeconfig.replace(
+        _K3S_IN_CONTAINER_SERVER, f"https://localhost:{host_port}"
+    )
+
+
 def write_kubeconfig(
     name: str = K3S_CLUSTER_NAME,
     path: Path = None,
     *,
     target: Optional[FlociTarget] = None,
+    host_port=None,
 ) -> Path:
     """Fetch the k3s cluster's kubeconfig and write it to disk.
 
     Preference order:
       1. Floci's custom kubeconfig endpoint (if exposed).
       2. ``/etc/rancher/k3s/k3s.yaml`` from inside the spawned k3s container,
-         with the server URL rewritten to point at the host-published port.
+         with the server URL rewritten to a host-reachable one.
          This carries the real client cert/key needed to actually authenticate.
       3. Synthesized minimal kubeconfig from the EKS describe payload (last
          resort — uses a placeholder token that won't authenticate).
+
+    :param host_port: the host port the server URL should point at. Callers that
+        have an environment pass its
+        :attr:`~env_registry.LocalEnvironment.k3s_port` -- an hmd_proxy stream
+        listener -- because the port Floci publishes on the `floci-eks-*`
+        container is re-created on every restart and a re-created one truncates
+        the TLS 1.3 ClientHello that kubectl sends (see that property's
+        docstring). Left unset, this falls back to that published port, which is
+        all single-stack platform mode has.
     """
     floci_endpoint = _resolve_target(target).endpoint
     out_path = path or K3S_KUBECONFIG_PATH
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    host_port = host_port or _k3s_host_port(name, target)
 
     # Try Floci's custom kubeconfig endpoint first.
     for url in [
@@ -748,14 +875,13 @@ def write_kubeconfig(
         try:
             r = requests.get(url, timeout=10)
             if r.status_code == 200 and r.text.strip().startswith("apiVersion"):
-                out_path.write_text(r.text)
+                out_path.write_text(_point_kubeconfig_at_host(r.text, host_port))
                 logger.debug(f"Wrote kubeconfig from {url} to {out_path}")
                 return out_path
         except requests.RequestException:
             continue
 
     # Pull the real kubeconfig out of the k3s container.
-    host_port = _k3s_host_port(name, target)
     try:
         result = subprocess.run(
             [
@@ -770,13 +896,7 @@ def write_kubeconfig(
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip().startswith("apiVersion"):
-            kubeconfig = result.stdout
-            if host_port:
-                # k3s writes server: https://127.0.0.1:6443 — rewrite to the host-published port.
-                kubeconfig = kubeconfig.replace(
-                    "https://127.0.0.1:6443", f"https://localhost:{host_port}"
-                )
-            out_path.write_text(kubeconfig)
+            out_path.write_text(_point_kubeconfig_at_host(result.stdout, host_port))
             logger.debug(f"Wrote kubeconfig from k3s container to {out_path}")
             return out_path
     except (subprocess.SubprocessError, OSError) as e:
@@ -793,7 +913,6 @@ def write_kubeconfig(
         raise RuntimeError(
             f"Cannot retrieve kubeconfig for {name}: no endpoint and no /_floci/eks/.../kubeconfig endpoint"
         )
-    host_port = _k3s_host_port(name, target)
     if host_port:
         endpoint = f"https://localhost:{host_port}"
     cert = cluster.get("certificateAuthority", {}).get("data", "")
@@ -934,50 +1053,137 @@ def purge_k3s_container_and_volume(
             logger.debug(f"k3s purge step {args} skipped: {e}")
 
 
-def clear_apigateway_state(data_dir) -> None:
-    """Drop Floci's persisted API Gateway **v1** state before Floci starts.
+# Floci's API Gateway **v1** store, split across one file per entity type. Keys
+# are ``<account>/<region>::<apiId>`` in the API store and
+# ``<account>/<region>::<apiId>::<childId>`` in every store hanging off it.
+_APIGW_V1_GLOB = "apigateway-*.json"  # deliberately does not match `apigatewayv2-*`
+_APIGW_API_STORE = "apigateway-apis.json"
+_APIGW_CHILD_KEY = re.compile(r"^.*?::([^:]+)::")
 
-    Floci runs with ``FLOCI_STORAGE_MODE: persistent`` and writes every v1 API
-    Gateway entity to ``$HMD_HOME/floci/data/apigateway-*.json`` with all of its
-    fields null -- ids, names, resource paths and stage names are all lost::
+
+def _is_apigateway_ghost(record) -> bool:
+    """Whether a persisted REST API record is unusable.
+
+    Mirrors the check in :func:`create_api_gateway`: a record with no ``id`` or
+    no ``name`` can neither be reused nor deleted through the API.
+    """
+    return (
+        not isinstance(record, dict) or not record.get("id") or not record.get("name")
+    )
+
+
+def _load_json_dict(path: Path) -> Optional[Dict]:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError) as e:
+        logger.debug(f"Could not read Floci state {path}: {e}")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _rewrite_json_dict(path: Path, data: Dict) -> bool:
+    try:
+        path.write_text(json.dumps(data))
+        return True
+    except OSError as e:
+        logger.debug(f"Could not rewrite Floci state {path}: {e}")
+        return False
+
+
+def prune_apigateway_ghosts(data_dir) -> int:
+    """Drop the *unusable* persisted API Gateway v1 records before Floci starts.
+
+    Floci runs with ``FLOCI_STORAGE_MODE: persistent`` and has historically
+    written v1 API Gateway entities with all of their fields null -- ids, names,
+    resource paths and stage names all lost::
 
         "000000000000/us-west-2::a8b73e0e83" : { "id": null, "name": null, ... }
 
-    (v1 only; lambda, s3, secretsmanager, iam, eks and apigatewayv2 all persist
-    real values.) Floci 1.5.34 rehydrates those records on start and serves them
-    from ``GET /restapis``, so a restart over an existing data dir comes back
-    with unusable, *undeletable* (``id: null``) gateways that accumulate one per
+    Floci rehydrates those records on start and serves them from
+    ``GET /restapis``, so a restart over an existing data dir came back with
+    unusable, *undeletable* (``id: null``) gateways that accumulated one per
     gateway per `up`.
 
-    Dropping the files is safe because no API Gateway state is expected to
-    survive a restart: every `up` recreates each service's gateway from scratch
-    via ``setup_service`` -> ``create_api_gateway(recreate=True)``, and rewrites
-    the nginx config, before the "already bootstrapped" restart fast-path runs.
+    This used to delete every ``apigateway-*.json`` outright, on the assumption
+    that no v1 state is worth keeping because ``setup_service`` recreates each
+    gateway from scratch on every `up`. That assumption only ever covered the
+    gateways *this CLI* creates. Services deployed through the deployment DAG
+    (`hmd deploy --local`) get a **CDKTF-managed** gateway, and a restart takes
+    the fast path that redeploys nothing -- so wiping the store destroyed their
+    gateway with nothing left to recreate it. The Lambda survived, the gateway
+    did not, and `nginx_router.refresh_deployed_service_routes` found nothing to
+    route: every ``/<env>/<service>/`` request fell through to the catch-all and
+    answered ``{"error": "no route defined"}``.
 
-    Best-effort by design -- a missing directory or an unremovable file must
-    never fail `up`; `create_api_gateway` skips any ghost that survives (which
-    is also what covers an already-running Floci, whose in-memory store this
-    cannot reach).
+    So prune rather than wipe: ghosts are dropped, real gateways are kept, and
+    records hanging off a dropped gateway (its resources, stages, deployments)
+    go with it so nothing is left orphaned. Newer Floci persists real values, in
+    which case this is a no-op and DAG-deployed services simply survive.
 
-    :param data_dir: the Floci data directory to clean. Each environment has
+    Best-effort by design -- an unreadable, unwritable or missing file must never
+    fail `up`; :func:`create_api_gateway` still skips any ghost that survives
+    (which is also what covers an already-running Floci, whose in-memory store
+    this cannot reach).
+
+    :param data_dir: the Floci data directory to prune. Each environment has
         its own (``$HMD_HOME/.cache/environments/<slug>/floci/data``), separate
         from the control plane's ``$HMD_HOME/floci/data``.
+    :returns: the number of records removed.
     """
     data_dir = Path(data_dir)
     try:
-        # `apigateway-*` deliberately does not match `apigatewayv2-*`.
-        stale = sorted(data_dir.glob("apigateway-*.json"))
+        stores = sorted(data_dir.glob(_APIGW_V1_GLOB))
     except OSError as e:
         logger.debug(f"Could not scan {data_dir} for API Gateway state: {e}")
-        return
+        return 0
+    if not stores:
+        return 0
 
-    for path in stale:
-        try:
-            path.unlink()
-        except OSError as e:
-            logger.debug(f"Could not remove stale API Gateway state {path}: {e}")
-    if stale:
-        logger.debug(f"Cleared {len(stale)} persisted Floci API Gateway state file(s)")
+    api_store = data_dir / _APIGW_API_STORE
+    apis = _load_json_dict(api_store)
+    if apis is None:
+        # Without an authoritative API list every child record would look
+        # orphaned. Leave the store alone rather than empty it.
+        return 0
+
+    live_api_ids = set()
+    kept_apis = {}
+    for key, record in apis.items():
+        if _is_apigateway_ghost(record):
+            continue
+        kept_apis[key] = record
+        live_api_ids.add(record["id"])
+
+    removed = len(apis) - len(kept_apis)
+    if removed and not _rewrite_json_dict(api_store, kept_apis):
+        return 0
+
+    # Anything keyed by a REST API that is gone -- whether this call just
+    # dropped it or a previous run did.
+    for path in stores:
+        if path.name == _APIGW_API_STORE:
+            continue
+        records = _load_json_dict(path)
+        if not records:
+            continue
+        kept = {
+            key: value
+            for key, value in records.items()
+            if not (
+                (match := _APIGW_CHILD_KEY.match(key))
+                and match.group(1) not in live_api_ids
+            )
+        }
+        dropped = len(records) - len(kept)
+        if dropped and _rewrite_json_dict(path, kept):
+            removed += dropped
+
+    if removed:
+        logger.debug(
+            f"Pruned {removed} unusable Floci API Gateway record(s) from {data_dir}; "
+            f"kept {len(live_api_ids)} gateway(s)"
+        )
+    return removed
 
 
 def _store_local_admin_db_secret(
@@ -1612,42 +1818,28 @@ def _ensure_network_alias(container: str, alias: str, network: str) -> bool:
 NEPTUNE_PORT = 8182
 
 
-def wait_for_neptune_cluster(
-    identifier: str, target: Optional[FlociTarget] = None, timeout: int = 300
-) -> Optional[str]:
-    """Block until a Neptune cluster is ``available``, returning its container.
+def neptune_cluster_exists(
+    identifier: str, target: Optional[FlociTarget] = None
+) -> bool:
+    """True if Floci has a Neptune cluster *record* for ``identifier``.
 
-    ``describe_db_cluster_endpoints`` is unsupported by Floci's Neptune
-    (``UnsupportedOperation``), and ``hmd_cli_tools.cdktf_tools.get_neptune_endpoint``
-    uses exactly that call -- so cluster state is read from
-    ``describe_db_clusters`` instead.
-
-    Returns None on timeout rather than raising: the caller decides whether an
-    absent graph is fatal, and locally it usually is not.
+    Distinguishes "no graph was ever deployed here" (the normal, lazy case)
+    from "a graph was deployed but its container is missing/unrecoverable" --
+    the cluster record outlives the container across a Floci restart, so this
+    stays True in exactly the case callers need to tell those apart.
     """
-    client = _get_client("neptune", target)
-    deadline = time.time() + timeout
-    last = None
-    while time.time() < deadline:
-        try:
-            clusters = client.describe_db_clusters(DBClusterIdentifier=identifier)
-            status = (clusters.get("DBClusters") or [{}])[0].get("Status")
-            if status != last:
-                logger.debug(f"Neptune cluster {identifier} status: {status}")
-                last = status
-            if status == "available":
-                container = neptune_container_name(identifier, target)
-                if container:
-                    return container
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code not in ("DBClusterNotFoundFault", "ResourceNotFoundException"):
-                logger.debug(f"describe_db_clusters({identifier}) failed: {e}")
-        time.sleep(2)
-    logger.warning(
-        f"Neptune cluster {identifier} did not become available within {timeout}s"
-    )
-    return None
+    client = _get_client("neptune", _resolve_target(target))
+    try:
+        client.describe_db_clusters(DBClusterIdentifier=identifier)
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] in (
+            "DBClusterNotFoundFault",
+            "ResourceNotFoundException",
+        ):
+            return False
+        logger.debug(f"describe_db_clusters({identifier}) failed: {e}")
+        return False
 
 
 def ensure_neptune_network_alias(
@@ -1701,14 +1893,56 @@ def stop_neptune_container(
     return False
 
 
+def _gremlin_port_open(container: str, port: int = 8182, timeout: int = 30) -> bool:
+    """Poll until the Gremlin server inside ``container`` accepts connections.
+
+    A started container is not the same as a ready one: the JVM inside still has
+    to boot Gremlin Server. `docker exec` reaches inside regardless of host
+    network topology (the same reason `_psql` uses it for Postgres); bash's
+    ``/dev/tcp`` pseudo-device needs no extra tooling baked into the image.
+
+    Probed via the container's own hostname, **not** ``127.0.0.1``. Gremlin
+    Server binds the single address it is configured with rather than the
+    wildcard -- ``/proc/net/tcp6`` in a running hmd-img-gremlin-server shows one
+    listener on ``::ffff:<container ip>:8182`` and nothing on loopback -- so a
+    loopback probe is refused however long the JVM has been up, and reports a
+    perfectly healthy graph as one that never came up. The hostname resolves to
+    that same address, and is what consumers reach through the DNS alias.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "bash",
+                    "-c",
+                    f"echo > /dev/tcp/$(hostname)/{port}",
+                ],
+                capture_output=True,
+                timeout=5,
+            )
+        except (subprocess.SubprocessError, OSError):
+            r = None
+        if r is not None and r.returncode == 0:
+            return True
+        time.sleep(2)
+    return False
+
+
 def start_neptune_container(
     identifier: str, target: Optional[FlociTarget] = None
 ) -> bool:
-    """Start a stopped graph container.
+    """Start a stopped graph container and wait for it to actually serve.
 
     Necessary because Floci stops its Neptune container on shutdown and, unlike
     RDS, never brings it back -- the cluster still reports ``available`` while
-    nothing answers on 8182.
+    nothing answers on 8182. ``docker start`` returning is not the same as the
+    JVM inside having finished booting Gremlin Server, so this also waits for
+    the port -- otherwise a consumer aliased and connecting right after `up`
+    returns can race a not-yet-listening server.
     """
     name = _stopped_floci_container("neptune", identifier, target)
     if not name:
@@ -1720,11 +1954,66 @@ def start_neptune_container(
     except (subprocess.SubprocessError, OSError) as e:
         logger.warning(f"Could not start the graph container {name}: {e}")
         return False
-    if r.returncode == 0:
-        logger.debug(f"Started graph container {name}")
-        return True
-    logger.warning(f"Could not start {name}: {(r.stderr or '').strip()}")
-    return False
+    if r.returncode != 0:
+        logger.warning(f"Could not start {name}: {(r.stderr or '').strip()}")
+        return False
+    if not _gremlin_port_open(name):
+        logger.warning(
+            f"Started graph container {name} but Gremlin Server never came up "
+            "on 8182"
+        )
+        return False
+    logger.debug(f"Started graph container {name}")
+    return True
+
+
+def ensure_neptune_running(
+    identifier: str, target: Optional[FlociTarget] = None, timeout: int = 300
+) -> Optional[str]:
+    """The *running* graph container for a cluster, starting it if Floci left it stopped.
+
+    Not a plain ``wait_for_*``: with Floci's Neptune, ``available`` is never
+    proof of a served graph. Floci stops the container it spawned on shutdown
+    and, unlike RDS, never brings it back -- while the cluster record survives
+    and keeps reporting ``available`` forever. Waiting on the status alone
+    therefore waits out the whole timeout on the single most common state after
+    a ``down``/``up``, and then reports "no graph".
+
+    (``describe_db_cluster_endpoints`` is unsupported by Floci's Neptune
+    outright, and ``hmd_cli_tools.cdktf_tools.get_neptune_endpoint`` uses exactly
+    that call, which is why cluster state is read from ``describe_db_clusters``
+    via :func:`neptune_cluster_exists` instead.)
+
+    The two states that can never resolve return immediately rather than
+    polling: no cluster record at all (nothing was ever deployed here), and a
+    container that will not start. Only the genuinely transient state -- a
+    cluster record whose container Floci is still spawning, right after a
+    create -- is waited on.
+
+    Returns None rather than raising: the caller decides whether an absent graph
+    is fatal. For the control plane it is; for an environment, whose graph is
+    lazily provisioned, it usually is not.
+    """
+    target = _resolve_target(target)
+    deadline = time.time() + timeout
+    while True:
+        running = neptune_container_name(identifier, target)
+        if running:
+            return running
+        if _stopped_floci_container("neptune", identifier, target):
+            if start_neptune_container(identifier, target):
+                return neptune_container_name(identifier, target)
+            # A container that exists but will not serve is a real failure, and
+            # must not read the same as "no graph was deployed".
+            return None
+        if not neptune_cluster_exists(identifier, target):
+            return None
+        if time.time() >= deadline:
+            logger.warning(
+                f"Neptune cluster {identifier} has no container after {timeout}s"
+            )
+            return None
+        time.sleep(2)
 
 
 def _stopped_floci_container(
@@ -1804,6 +2093,34 @@ def wait_for_rds_instance(
         f"(container={container})"
     )
     return container
+
+
+def stop_rds_instance(identifier: str, target: Optional[FlociTarget] = None) -> bool:
+    """Stop the RDS container **gracefully** -- never kill it.
+
+    A bare ``docker stop`` already sends SIGTERM before SIGKILL, but the default
+    10s grace can cut off Postgres mid-checkpoint on a slow host; the same
+    concern that makes :func:`stop_neptune_container` use a longer timeout
+    applies here too. ``down`` (no ``--purge``) never touches this container
+    otherwise: it is a Floci-spawned container, not a compose service or
+    something k3s manages, so nothing else in the stop path reaches it.
+    """
+    container = rds_container_name(identifier, target)
+    if not container:
+        return False
+    try:
+        r = subprocess.run(
+            ["docker", "stop", "--timeout", "60", container],
+            capture_output=True,
+            timeout=90,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning(f"Could not stop the RDS container {container}: {e}")
+        return False
+    if r.returncode == 0:
+        logger.debug(f"Stopped RDS container {container}")
+        return True
+    return False
 
 
 def purge_rds_volumes() -> int:
@@ -2110,7 +2427,7 @@ def create_api_gateway(
     services.
 
     Entries without an ``id``/``name`` are skipped: Floci persists every API
-    Gateway *v1* entity with all-null fields (see `clear_apigateway_state`),
+    Gateway *v1* entity with all-null fields (see `prune_apigateway_ghosts`),
     and 1.5.34 serves those records back after a restart. botocore drops the
     null members, so such a "ghost" arrives here as a dict with no ``name``
     key at all. A ghost carries no id, so it can neither be reused nor

@@ -57,6 +57,23 @@ CONTROL_PLANE_DEPLOYMENT_ID = "cp"
 # this name on 5432, never through Floci's 7001-7099 proxy range.
 CONTROL_PLANE_DB_HOST = "hmd_db"
 
+# The instance and repo class that provision the control plane's graph.
+# `hmd-ms-artifact-lib` declares a *required* `neptune-db` dependency (its
+# `hmd_db_engines` has no `postgres` engine at all -- persistence is
+# `["dynamo", "graph"]`), so unlike an environment's lazily-provisioned graph
+# this one is not optional and is deployed unconditionally, the same way
+# CONTROL_PLANE_DB_INSTANCE is.
+CONTROL_PLANE_GRAPH_INSTANCE = "control-plane-graph"
+CONTROL_PLANE_GRAPH_REPO_CLASS = "hmd-inf-neptune"
+
+# The DNS alias the CLI gives the control-plane graph container. Bare
+# `global-graph`, not `global-graph-<slug>`: it matches what the legacy default
+# environment (whose Floci account *is* the control plane -- see
+# `env_registry._legacy_environment`) already expects at this name, and what
+# `LocalPluginLoader.get_hmdms_lambda_spec`'s gremlin-engine resolution already
+# falls back to for a control-plane (``env=None``) deploy.
+CONTROL_PLANE_GRAPH_HOST = "global-graph"
+
 
 def _rid(instance_name: str) -> str:
     """A RepoInstanceDeployment id for a bootstrap node.
@@ -147,6 +164,21 @@ def postgres_instance_config() -> Dict:
     return config
 
 
+def graph_instance_config() -> Dict:
+    """Configuration for the control-plane graph deploy.
+
+    Mirrors ``bom_seeder.graph_bom_entry``'s per-environment shape:
+    ``graph_host``/``graph_port`` tell ``hmd-inf-neptune``'s local overlay
+    (``deploy_local.sh``) which alias the CLI will attach once this node
+    succeeds -- never Floci's own Gremlin proxy, which is not restored after a
+    Floci restart.
+    """
+    return {
+        "graph_host": CONTROL_PLANE_GRAPH_HOST,
+        "graph_port": 8182,
+    }
+
+
 def deploy_script(
     repo_class_name: str,
     instance_name: str,
@@ -196,20 +228,23 @@ def deploy_script(
 def control_plane_nodes(
     *,
     ensure_databases: Callable,
+    ensure_graph: Callable,
     deploy_naming: Callable,
     deploy_artifact_lib: Callable,
     deploy_ms_deployment: Callable,
     postgres_config: Optional[Dict] = None,
+    graph_config: Optional[Dict] = None,
 ) -> List[Dict]:
     """The ordered control-plane DAG.
 
-    ``hmd-postgres-rds`` runs first and in a real projectbuilder container: it is
-    ordinary infrastructure with no dependency on the deployment service, so
-    there is no reason for it to be anything other than a normal deploy.
-    Everything after it needs that database, and ms-deployment is last so that
-    every node ahead of it is recorded on replay.
+    ``hmd-postgres-rds`` and ``hmd-inf-neptune`` both run first, in real
+    projectbuilder containers: they are ordinary infrastructure with no
+    dependency on the deployment service, so there is no reason for either to
+    be anything other than a normal deploy. Everything after them needs the
+    database (``hmd-ms-artifact-lib`` needs the graph too), and ms-deployment
+    is last so that every node ahead of it is recorded on replay.
 
-    The four callables are passed in rather than imported so this module stays
+    The five callables are passed in rather than imported so this module stays
     free of the control-plane lifecycle it describes -- and so a test can build
     the DAG without deploying anything.
     """
@@ -228,13 +263,41 @@ def control_plane_nodes(
     )
     postgres["instance_configuration"] = config
 
+    graph_cfg = dict(graph_config or graph_instance_config())
+    graph_version = _repo_version(CONTROL_PLANE_GRAPH_REPO_CLASS)
+    graph = node(
+        CONTROL_PLANE_GRAPH_INSTANCE,
+        CONTROL_PLANE_GRAPH_REPO_CLASS,
+        repo_class_version=graph_version,
+        script=deploy_script(
+            CONTROL_PLANE_GRAPH_REPO_CLASS,
+            CONTROL_PLANE_GRAPH_INSTANCE,
+            graph_version,
+            config=graph_cfg,
+        ),
+    )
+    graph["instance_configuration"] = graph_cfg
+
     return [
         postgres,
         # Created by direct psql rather than by ms-dbaccount: dbaccount is
         # per-environment (matching the cloud), so the control plane has none,
         # and ms-deployment's own database has to exist before ms-deployment can.
         node("core-databases", CONTROL_PLANE_DB_REPO_CLASS, handler=ensure_databases),
+        graph,
+        # Aliases the container the node above just had Floci spawn -- a
+        # separate node for the same reason core-databases is: the alias is a
+        # CLI-side Docker network operation, not something the projectbuilder
+        # deploy can do from inside its own container.
+        node(
+            "control-plane-graph-alias",
+            CONTROL_PLANE_GRAPH_REPO_CLASS,
+            handler=ensure_graph,
+        ),
         node("hmd_ms_naming", "hmd-ms-naming", handler=deploy_naming),
+        # After the graph: artifact-lib's `neptune-db` dependency is required,
+        # and `_deploy_artifact_lib` resolves it to `CONTROL_PLANE_GRAPH_HOST`,
+        # which only resolves once the alias node above has run.
         node("hmd_ms_artifact_lib", "hmd-ms-artifact-lib", handler=deploy_artifact_lib),
         # Last, deliberately: everything above is what it needs to run.
         node("hmd_ms_deployment", "hmd-ms-deployment", handler=deploy_ms_deployment),
@@ -255,6 +318,30 @@ def control_plane_db_identifier(target) -> str:
     base = make_standard_name(
         CONTROL_PLANE_DB_INSTANCE,
         CONTROL_PLANE_DB_REPO_CLASS,
+        CONTROL_PLANE_DEPLOYMENT_ID,
+        "local",
+        os.environ.get("HMD_REGION", "reg1"),
+        local_customer_code(),
+    )
+    return base.replace("_", "-").lower()
+
+
+def control_plane_graph_identifier(target) -> str:
+    """The DBClusterIdentifier the control-plane graph node creates.
+
+    Must match what ``hmd-inf-neptune``'s ``deploy_local.sh`` derives (the same
+    ``make_standard_name`` shape as :func:`control_plane_db_identifier`), and
+    what :func:`bom_seeder.graph_cluster_identifier` derives for a
+    per-environment graph, so the CLI looks the cluster up by this id to find
+    its container and alias it as ``CONTROL_PLANE_GRAPH_HOST``.
+    """
+    from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+    from .floci_deployer import local_customer_code
+
+    base = make_standard_name(
+        CONTROL_PLANE_GRAPH_INSTANCE,
+        CONTROL_PLANE_GRAPH_REPO_CLASS,
         CONTROL_PLANE_DEPLOYMENT_ID,
         "local",
         os.environ.get("HMD_REGION", "reg1"),

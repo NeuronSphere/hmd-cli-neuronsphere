@@ -268,9 +268,10 @@ def ensure_control_plane(
     from . import bootstrap_dag
     from .floci_deployer import (
         DOCKER_NETWORK_NAME,
-        clear_apigateway_state,
+        prune_apigateway_ghosts,
         control_plane_target,
         ensure_core_databases_direct,
+        ensure_neptune_network_alias,
         ensure_rds_network_alias,
         provision_resources,
         resolve_image_uri,
@@ -318,11 +319,12 @@ def ensure_control_plane(
     os.makedirs(cache_dir / "nginx", exist_ok=True)
     os.makedirs(_hmd_home() / "floci" / "data", exist_ok=True)
 
-    # Drop Floci's persisted API Gateway state before it starts: Floci writes v1
-    # gateway records with null fields and rehydrates them, so a restart would
-    # otherwise serve back unusable, undeletable gateways. Every gateway is
-    # recreated below anyway, so nothing is lost.
-    clear_apigateway_state(_hmd_home() / "floci" / "data")
+    # Drop the *unusable* persisted API Gateway records before Floci starts:
+    # Floci has written v1 gateway records with null fields and rehydrates them,
+    # so a restart would otherwise serve back undeletable ghosts. Only ghosts go
+    # -- a real gateway is kept, because a service the deployment DAG deployed
+    # owns a CDKTF-managed gateway that no later step here recreates.
+    prune_apigateway_ghosts(_hmd_home() / "floci" / "data")
 
     # A 503 placeholder so hmd_proxy can start before any route exists -- but
     # one that already streams :4566, because that is the address `up` polls to
@@ -409,6 +411,9 @@ def ensure_control_plane(
         ensure_core_databases_direct(container=container)
         return True
 
+    def _ensure_graph(node, destroy):
+        return _ensure_control_plane_graph(target)
+
     def _deploy_naming(node, destroy):
         naming_env, naming_image = _naming_lambda_env()
         if naming_image is None:
@@ -468,6 +473,7 @@ def ensure_control_plane(
         bootstrap_csd,
         bootstrap_dag.control_plane_nodes(
             ensure_databases=_ensure_databases,
+            ensure_graph=_ensure_graph,
             deploy_naming=_deploy_naming,
             deploy_artifact_lib=_deploy_artifact_lib,
             deploy_ms_deployment=_deploy_deployment,
@@ -553,15 +559,12 @@ def start_environment(
         once per caller. A fresh one is constructed when omitted.
     """
     from .floci_deployer import (
-        clear_apigateway_state,
+        prune_apigateway_ghosts,
         deploy_api_gateway,
-        ensure_k3s_cluster,
         env_target,
         prune_control_plane_strays,
         provision_plugin_databases,
         provision_resources,
-        wait_for_k3s_ready,
-        write_kubeconfig,
     )
     from .hmd_cli_neuronsphere import (
         _aggregate_hmdms_resources,
@@ -626,7 +629,7 @@ def start_environment(
                 logger.warning(f"{e} — environment '{env.slug}' is degraded")
                 return False
 
-        clear_apigateway_state(env.floci_data_dir)
+        prune_apigateway_ghosts(env.floci_data_dir)
 
     # Control-plane objects that landed in this account while `floci` was an
     # ambiguous Docker DNS name (a Compose service key on both compose files,
@@ -651,50 +654,17 @@ def start_environment(
         environment_name=env.slug,
     )
 
-    # k3s cluster, spawned by *this* environment's Floci.
-    k3s_uid = None
-    cluster_name = None
-    if os.environ.get("HMD_LOCAL_NEURONSPHERE_ENABLE_K3S", "true").lower() not in (
-        "false",
-        "0",
-        "no",
-    ):
-        try:
-            with spinner_step(
-                f"Creating k3s cluster '{env.k3s_cluster}'...", verbose=verbose
-            ) as step:
-                ensure_k3s_cluster(env.k3s_cluster, target=target)
-                wait_for_k3s_ready(env.k3s_cluster, target=target)
-                cluster_name = env.k3s_cluster
-                kubeconfig = write_kubeconfig(
-                    env.k3s_cluster, env.kubeconfig_path, target=target
-                )
-                # The default environment also writes the historical shared path so
-                # host-side kubectl and the robot suites keep working unchanged.
-                if env.is_default:
-                    legacy = _hmd_home() / ".cache" / "k3s" / "kubeconfig"
-                    legacy.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(kubeconfig, legacy)
-                    os.environ.setdefault("KUBECONFIG", str(legacy))
-                step.ok(f"k3s cluster '{env.k3s_cluster}'")
-
-            with spinner_step(
-                "Installing cluster operators onto k3s...", verbose=verbose
-            ) as step:
-                from .k3s_operators import (
-                    cluster_incarnation_id,
-                    provision_k3s_operators,
-                )
-
-                provision_k3s_operators(env)
-                k3s_uid = cluster_incarnation_id(env)
-                step.ok()
-        except Exception as e:
-            logger.warning(f"k3s cluster creation failed: {e}")
-            print(
-                f"  Warning: k3s unavailable — Argo and k3s-dependent plugins "
-                f"will be skipped: {e}"
-            )
+    # The k3s cluster's *name* is deterministic (env.k3s_cluster) whether or not
+    # it exists yet -- creation is now a Terraform resource in the `eks-cluster`
+    # Phase A DAG node, run inside `_bootstrap_environment` (which also does the
+    # container-level reconcile, wait-for-ready, kubeconfig, and operator
+    # install -- all of it needs to happen after Phase A's DAG run, which in
+    # turn needs to happen after this environment's containers/Floci are up,
+    # which is exactly where we are now).
+    k3s_enabled = os.environ.get(
+        "HMD_LOCAL_NEURONSPHERE_ENABLE_K3S", "true"
+    ).lower() not in ("false", "0", "no")
+    cluster_name = env.k3s_cluster if k3s_enabled else None
 
     # dbaccount first, so it can provision the other services' databases.
     service_api_ids: Dict[str, str] = {}
@@ -748,7 +718,6 @@ def start_environment(
         env,
         hmdms_deployed,
         cluster_name,
-        k3s_uid,
         upgrade,
         prune=prune,
         verbose=verbose,
@@ -1011,7 +980,6 @@ def _bootstrap_environment(
     env: LocalEnvironment,
     hmdms_deployed: List[Dict],
     cluster_name: Optional[str],
-    k3s_uid: Optional[str],
     upgrade: bool,
     prune: bool = False,
     verbose: bool = False,
@@ -1022,13 +990,22 @@ def _bootstrap_environment(
         is what keeps `up` from printing "Ready" over a broken bootstrap.
     """
     from .bom_seeder import (
+        EKS_CLUSTER_INSTANCE,
+        LOCAL_CORE_BOM,
         ensure_environment,
         resync_local_resources,
         seed_base_resource_definitions,
+        seed_bom,
     )
     from . import env_reconcile
     from .change_set_builder import declared_repo_paths
     from .env_manifest import load_manifest
+    from .floci_deployer import (
+        env_target,
+        reconcile_k3s_container,
+        wait_for_k3s_ready,
+        write_kubeconfig,
+    )
     from .local_workflow_runner import LocalWorkflowRunner
 
     base_url = _MS_DEPLOYMENT_URL
@@ -1063,6 +1040,79 @@ def _bootstrap_environment(
         verbose=verbose,
     )
 
+    # Phase A (the core instance, environment-db and -- as a real Terraform DAG
+    # node -- the eks-cluster) runs on *every* `up`, bootstrapped or not. Its
+    # entries are cheap, idempotent applies once healthy: running
+    # `reconcile_k3s_container` immediately before this lets Terraform's own
+    # refresh pick up a stale-image recreation with no special-casing here.
+    # Computing this environment's live `k3s_uid` below (needed to decide
+    # whether the cluster was recreated since the last bootstrap) requires the
+    # cluster to already be up, which is why none of this can wait until after
+    # the bootstrapped/not-bootstrapped branch below.
+    target = env_target(env)
+    core_bom = list(LOCAL_CORE_BOM)
+    if cluster_name:
+        try:
+            reconcile_k3s_container(cluster_name, target=target)
+        except Exception as e:
+            logger.warning(f"k3s container reconcile failed: {e}")
+    else:
+        core_bom = [
+            e for e in core_bom if e.get("repo_instance_name") != EKS_CLUSTER_INSTANCE
+        ]
+
+    print_step("Seeding core changeset (Phase A)...")
+    csd_nid_a, nodes_a = seed_bom(base_url, bom=core_bom, env=env)
+    print_step(f"  {len(nodes_a)} deployment node(s)")
+    # Phase A runs through the runner both to deploy this environment's
+    # Postgres/cluster and so the core instances' RIDs transition DEPLOY_NEXT ->
+    # DEPLOYED. Skipping it would leave them permanently DEPLOY_NEXT and break
+    # the reconcile fast-path.
+    runner.run(csd_nid_a, nodes_a)
+    core_succeeded = list(runner.last_succeeded)
+
+    k3s_uid = None
+    if cluster_name:
+        try:
+            wait_for_k3s_ready(cluster_name, target=target)
+            # Before the kubeconfig is written, and so before any kubectl runs:
+            # the server URL below points at this stream listener.
+            if nginx_router.configure_k3s_host_route(env):
+                nginx_router.reload()
+                print_step(f"  k3s API served on host :{env.k3s_port}")
+            kubeconfig = write_kubeconfig(
+                cluster_name,
+                env.kubeconfig_path,
+                target=target,
+                host_port=env.k3s_port,
+            )
+            # The default environment also writes the historical shared path so
+            # host-side kubectl and the robot suites keep working unchanged.
+            if env.is_default:
+                legacy = _hmd_home() / ".cache" / "k3s" / "kubeconfig"
+                legacy.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(kubeconfig, legacy)
+                os.environ.setdefault("KUBECONFIG", str(legacy))
+
+            from .k3s_operators import cluster_incarnation_id, provision_k3s_operators
+
+            provision_k3s_operators(env)
+            k3s_uid = cluster_incarnation_id(env)
+        except Exception as e:
+            logger.warning(f"k3s cluster setup failed: {e}")
+            print(
+                f"  Warning: k3s unavailable — Argo and k3s-dependent plugins "
+                f"will be skipped: {e}"
+            )
+
+    # Right after Phase A (which created the RDS instance) and the k3s setup
+    # above: every Phase-B entry addresses the database as `hmd_db-<slug>` --
+    # ms-dbaccount above all -- and the alias's CoreDNS refresh needs the
+    # cluster's API server up and its kubeconfig written, both of which just
+    # happened. Floci names the container it spawned opaquely, so the alias is
+    # what makes that name resolve.
+    _alias_environment_database(env)
+
     if bootstrapped:
         # A recreated k3s cluster has nothing deployed on it even though the
         # persisted graph still says otherwise. Only trust a mismatch when both
@@ -1073,13 +1123,13 @@ def _bootstrap_environment(
 
         print_step(
             f"'{env.slug}' already bootstrapped — reconciling "
-            "(skipping BOM seeding and DAG execution)."
+            "(skipping Phase B BOM seeding and DAG execution)."
         )
         # Floci stops its Neptune container on shutdown and never restarts it,
-        # so on this path -- the fast restart, which runs no DAG -- the graph
-        # would otherwise stay down while its cluster still reports `available`.
-        # Also re-publishes the CoreDNS record, which the k3s pass skipped while
-        # the container was stopped.
+        # so on this path -- the fast restart, which runs no Phase B DAG -- the
+        # graph would otherwise stay down while its cluster still reports
+        # `available`. Also re-publishes the CoreDNS record, which the k3s pass
+        # skipped while the container was stopped.
         _alias_environment_graph(env)
         print_step("Resyncing core resources...")
         try:
@@ -1114,6 +1164,8 @@ def _bootstrap_environment(
                     cluster_name,
                     k3s_uid,
                     base_url,
+                    nodes_a,
+                    core_succeeded,
                     manifest=manifest,
                 )
             print_step(
@@ -1143,7 +1195,15 @@ def _bootstrap_environment(
         logger.warning(f"Base resource definition seeding failed: {e}")
 
     return _run_full_bootstrap(
-        env, runner, specs, cluster_name, k3s_uid, base_url, manifest=manifest
+        env,
+        runner,
+        specs,
+        cluster_name,
+        k3s_uid,
+        base_url,
+        nodes_a,
+        core_succeeded,
+        manifest=manifest,
     )
 
 
@@ -1199,6 +1259,7 @@ def _reconcile_environment(
     claim.
     """
     from .bom_seeder import (
+        GRAPH_INSTANCE,
         DestroyCascadeError,
         destroy_instances,
         seed_bom,
@@ -1259,14 +1320,57 @@ def _reconcile_environment(
                 print("\n  Warning: some destroys failed; skipping deployments")
                 return False
 
-    # --- additions and redeploys ----------------------------------------
+    # --- the graph: unconditional, like Phase A ---------------------------
+    # Lazy in *whether* it exists, not in whether a converging `up` deploys it
+    # once something in the declared state requires one -- gating this behind
+    # `--upgrade` like a discretionary plugin change would leave that
+    # dependency broken until the user happened to pass it. Mirrors the
+    # unconditional graph changeset `_run_full_bootstrap` seeds on first
+    # bootstrap (its `graph_entries` split).
     pending = plan.add + plan.change
+    graph_pending = [
+        e for e in pending if e.get("repo_instance_name") == GRAPH_INSTANCE
+    ]
+    pending = [e for e in pending if e.get("repo_instance_name") != GRAPH_INSTANCE]
+
+    graph_settled: List[Dict] = []
+    if graph_pending:
+        print_step("Seeding graph database...")
+        try:
+            csd_nid_graph, nodes_graph = seed_bom(
+                base_url, bom=graph_pending, env=env, repo_paths=repo_paths
+            )
+            if runner.run(csd_nid_graph, nodes_graph):
+                _alias_environment_graph(env)
+                graph_settled = list(graph_pending)
+                env_reconcile.merge_snapshot(
+                    env,
+                    plan.desired,
+                    graph_settled,
+                    releases=_observed_releases(env, graph_settled),
+                )
+            else:
+                print("\n  Warning: graph deployment failed")
+                ok = False
+        except Exception as e:
+            logger.warning(f"Graph changeset seeding failed: {e}")
+            print(f"  Error: could not seed the graph changeset: {e}")
+            ok = False
+
+    # --- everything else: additions and redeploys, gated as before --------
     if not pending:
-        # Nothing to deploy (a prune-only run). Carry the recorded release map
-        # forward -- rewriting the snapshot without it would erase the very
-        # thing the next run's cluster cross-check reads.
+        # Nothing else to deploy (a prune-only run, or the graph above was the
+        # only addition). Carry the recorded release map forward -- rewriting
+        # the snapshot without it would erase the very thing the next run's
+        # cluster cross-check reads. A graph that just failed above must not
+        # be recorded as settled by hash, or it would stop being retried.
+        desired = plan.desired
+        if graph_pending and not graph_settled:
+            desired = [
+                e for e in desired if e.get("repo_instance_name") != GRAPH_INSTANCE
+            ]
         env_reconcile.write_snapshot(
-            env, plan.desired, releases=env_reconcile.load_release_map(env)
+            env, desired, releases=env_reconcile.load_release_map(env)
         )
         return ok
     if not upgrade:
@@ -1335,6 +1439,51 @@ def _alias_environment_database(env: LocalEnvironment) -> None:
     refresh_coredns_records(env)
 
 
+def _ensure_control_plane_graph(target) -> bool:
+    """Make the control-plane graph reachable at ``global-graph``.
+
+    The handler behind the ``control-plane-graph-alias`` bootstrap node. Fatal
+    where the environment counterpart below is best-effort: `hmd-ms-artifact-lib`
+    declares a *required* `neptune-db` dependency (its persistence is
+    ``["dynamo", "graph"]``, with no postgres engine at all), so a control plane
+    without a served graph is not worth continuing the DAG for.
+
+    `hmd-inf-neptune`'s deploy_local.sh is idempotent -- an existing cluster is
+    "nothing to do" -- so on every `up` after the first, nothing has spawned a
+    container by the time this runs. `ensure_neptune_running` is what starts the
+    one Floci stopped on the last `down`.
+    """
+    from . import bootstrap_dag
+    from .floci_deployer import (
+        ensure_neptune_network_alias,
+        ensure_neptune_running,
+        neptune_cluster_exists,
+    )
+
+    identifier = bootstrap_dag.control_plane_graph_identifier(target)
+    if not ensure_neptune_running(identifier, target):
+        if neptune_cluster_exists(identifier, target):
+            logger.warning(
+                f"Control-plane graph cluster {identifier} exists but its "
+                "container is missing or would not start"
+            )
+        else:
+            logger.warning(
+                f"No control-plane graph cluster {identifier} after its deploy"
+            )
+        return False
+    if not ensure_neptune_network_alias(
+        identifier, bootstrap_dag.CONTROL_PLANE_GRAPH_HOST, target=target
+    ):
+        logger.warning(
+            f"Could not alias the control-plane graph as "
+            f"{bootstrap_dag.CONTROL_PLANE_GRAPH_HOST}; artifact-lib will "
+            "fail to connect"
+        )
+        return False
+    return True
+
+
 def _alias_environment_graph(env: LocalEnvironment) -> None:
     """Give this environment's graph container its canonical DNS name.
 
@@ -1345,7 +1494,13 @@ def _alias_environment_graph(env: LocalEnvironment) -> None:
     after a Floci restart.
     """
     from . import bom_seeder
-    from .floci_deployer import ensure_neptune_network_alias, env_target
+    from .floci_deployer import (
+        ensure_neptune_network_alias,
+        ensure_neptune_running,
+        env_target,
+        neptune_cluster_exists,
+        neptune_container_name,
+    )
 
     try:
         identifier = bom_seeder.graph_cluster_identifier(env)
@@ -1355,21 +1510,31 @@ def _alias_environment_graph(env: LocalEnvironment) -> None:
         # failure worth interrupting `up` for.
         logger.debug(f"No graph identifier for '{getattr(env, 'slug', '?')}': {e}")
         return
-    from .floci_deployer import neptune_container_name, start_neptune_container
 
-    if neptune_container_name(identifier, env_target(env)) is None:
-        # Not running -- but Floci stops its Neptune container on shutdown and,
-        # unlike RDS, never brings it back, so a stopped one is the normal state
-        # after a restart. The cluster still reports `available` while nothing
-        # answers on 8182, which is why this is worth trying before concluding
-        # there is no graph.
-        if not start_neptune_container(identifier, env_target(env)):
+    target = env_target(env)
+    # Read before the call so a restart can be reported as one. Floci stops its
+    # Neptune container on shutdown and never brings it back, so "not running"
+    # is the normal state after a restart rather than evidence of no graph.
+    was_running = neptune_container_name(identifier, target) is not None
+    if not ensure_neptune_running(identifier, target):
+        # A missing cluster *record* is the normal case -- most environments
+        # have no graph at all. A record that exists with no usable container is
+        # a real problem (the container was removed, or Gremlin Server never came
+        # up) and must not read the same as "nothing to alias", or it silently
+        # stays broken forever.
+        if neptune_cluster_exists(identifier, target):
+            logger.warning(
+                f"Graph cluster {identifier} exists for '{env.slug}' but its "
+                "container is missing or would not start; consumers "
+                "addressing the graph will fail to connect"
+            )
+        else:
             logger.debug(f"No graph deployed for '{env.slug}'; nothing to alias")
-            return
+        return
+    if not was_running:
         print_step(f"  restarted the graph container for '{env.slug}'")
-    if not ensure_neptune_network_alias(
-        identifier, env.graph_container, target=env_target(env)
-    ):
+
+    if not ensure_neptune_network_alias(identifier, env.graph_container, target=target):
         logger.warning(
             f"Could not alias {identifier} as {env.graph_container}; consumers "
             f"addressing that name will fail to connect"
@@ -1391,17 +1556,23 @@ def _run_full_bootstrap(
     cluster_name: Optional[str],
     k3s_uid: Optional[str],
     base_url: str,
+    nodes_a: List[Dict],
+    core_succeeded: List[str],
     manifest=None,
 ) -> bool:
-    """The two-phase changeset bootstrap for one environment.
+    """The Phase B half of the two-phase changeset bootstrap for one environment.
 
-    Phase A applies a changeset containing only the core instance and submits
-    its concrete Resources; Phase B applies everything else. The order is
-    load-bearing: a Phase-B entry that depends on one of those Resources needs
-    the concrete Resource to already exist for selector matching to find it.
+    Phase A (the core instance, environment-db, and the eks-cluster) has
+    already been seeded and run by the caller (:func:`_bootstrap_environment`)
+    by the time this is called -- it runs on every `up`, not just the first
+    one, so its result is passed in rather than redone here. This applies
+    everything else. The order is load-bearing: a Phase-B entry that depends
+    on a Phase A Resource needs the concrete Resource to already exist for
+    selector matching to find it, which is why core-resource submission below
+    still happens before Phase B is seeded.
     """
     from .bom_seeder import (
-        LOCAL_CORE_BOM,
+        GRAPH_INSTANCE,
         build_local_core_resources,
         resolve_plugin_bom,
         seed_bom,
@@ -1414,10 +1585,6 @@ def _run_full_bootstrap(
     csd_nid = None
     ok = True
     try:
-        print_step("Seeding core changeset (Phase A)...")
-        csd_nid_a, nodes_a = seed_bom(base_url, bom=list(LOCAL_CORE_BOM), env=env)
-        print_step(f"  {len(nodes_a)} deployment node(s)")
-
         print_step("Submitting core resources...")
         try:
             resources = build_local_core_resources(
@@ -1428,33 +1595,42 @@ def _run_full_bootstrap(
         except Exception as e:
             logger.warning(f"Local resource submission failed (non-fatal): {e}")
 
-        # Phase A runs through the runner both to deploy this environment's
-        # Postgres and so the core instance's RID transitions DEPLOY_NEXT ->
-        # DEPLOYED. Skipping it would leave that instance permanently
-        # DEPLOY_NEXT and break the reconcile fast-path.
-        runner.run(csd_nid_a, nodes_a)
-        core_succeeded = list(runner.last_succeeded)
+        phase_b = resolve_plugin_bom(env=env, manifest=manifest)
 
-        # Between the phases, deliberately: Phase A created the RDS instance and
-        # every Phase-B entry addresses it as `hmd_db-<slug>` -- ms-dbaccount
-        # above all. Floci names the container it spawned opaquely, so the alias
-        # is what makes that name resolve.
-        _alias_environment_database(env)
+        # The graph (when the BOM requires one) deploys in its own changeset
+        # ahead of the rest of Phase B, exactly like Phase A is split out for
+        # the database: any Phase-B sibling seeded in the *same* batch as the
+        # graph (e.g. Trino's nsgraph catalog, which resolves `global-graph`
+        # eagerly at connector construction) would otherwise start before
+        # `_alias_environment_graph` -- which only runs after its deployments
+        # finish -- has published the CoreDNS record it needs.
+        graph_entries = [
+            e for e in phase_b if e.get("repo_instance_name") == GRAPH_INSTANCE
+        ]
+        rest_entries = [
+            e for e in phase_b if e.get("repo_instance_name") != GRAPH_INSTANCE
+        ]
+
+        if graph_entries:
+            print_step("Seeding graph database...")
+            csd_nid_graph, nodes_graph = seed_bom(
+                base_url, bom=graph_entries, env=env, repo_paths=repo_paths
+            )
+            if not runner.run(csd_nid_graph, nodes_graph):
+                print("\n  Warning: graph deployment failed")
+                ok = False
+            _alias_environment_graph(env)
 
         print_step("Seeding deployment graph (Phase B)...")
-        phase_b = resolve_plugin_bom(env=env, manifest=manifest)
-        csd_nid, nodes = seed_bom(base_url, bom=phase_b, env=env, repo_paths=repo_paths)
+        csd_nid, nodes = seed_bom(
+            base_url, bom=rest_entries, env=env, repo_paths=repo_paths
+        )
         print_step(f"  {len(nodes)} deployment node(s)")
 
         print_step("Running local deployments...")
         if not runner.run(csd_nid, nodes):
             print("\n  Warning: some deployments failed")
             ok = False
-
-        # After Phase B, not with the database: the graph is a Phase B entry
-        # (added only when something in the BOM requires one), so its container
-        # does not exist until these deployments have run.
-        _alias_environment_graph(env)
 
         # Seed the drift snapshot from what actually deployed across both
         # phases, so the next `up` reports real changes rather than treating
@@ -1558,6 +1734,8 @@ def stop_environment(
         env_target,
         purge_k3s_container_and_volume,
         stop_k3s_cluster,
+        stop_neptune_container,
+        stop_rds_instance,
     )
     from .hmd_cli_neuronsphere import _exec, _get_base_command
 
@@ -1569,6 +1747,26 @@ def stop_environment(
             stop_k3s_cluster(env.k3s_cluster, target=env_target(env))
     except Exception as e:
         logger.debug(f"k3s cluster stop/delete skipped: {e}")
+
+    if not purge:
+        # The database and graph are Floci-spawned containers, not compose
+        # services or something k3s manages, so nothing else in this function
+        # reaches them -- without this they keep running after `down`. Deletion
+        # (the purge branch below) already tears them down, so this is only
+        # needed here; a no-op (returns False) when the environment never
+        # provisioned one.
+        from . import bom_seeder
+
+        try:
+            stop_rds_instance(bom_seeder.env_db_identifier(env), target=env_target(env))
+        except Exception as e:
+            logger.debug(f"RDS container stop skipped: {e}")
+        try:
+            stop_neptune_container(
+                bom_seeder.graph_cluster_identifier(env), target=env_target(env)
+            )
+        except Exception as e:
+            logger.debug(f"Neptune container stop skipped: {e}")
 
     if not env.legacy_layout:
         _export_env_vars(env)

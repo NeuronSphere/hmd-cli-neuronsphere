@@ -51,6 +51,11 @@ CONTROL_PLANE_FLOCI_ALIAS = "neuronsphere"
 PORTS_PER_ENV = 4
 DEFAULT_PORT_BASE = 19000
 MAX_ENVS = 16
+# One further port per environment, in a band directly above the slot ports, for
+# the k3s API server stream -- see `LocalEnvironment.k3s_port` for why the API is
+# reached through hmd_proxy at all, and why this is a band rather than a fifth
+# slot port.
+K3S_PORTS_PER_ENV = 1
 
 # Route paths owned by the control plane (and nginx internals). An env slug may
 # not shadow one, or `/<slug>/` would swallow a control-plane route.
@@ -147,6 +152,33 @@ class LocalEnvironment:
     @property
     def graph_port(self) -> int:
         return self.floci_port + 2
+
+    @property
+    def k3s_port(self) -> int:
+        """Host port hmd_proxy streams to this environment's k3s API server.
+
+        The API used to be reached on the port Floci publishes on the
+        `floci-eks-*` container itself. Docker re-creates that forward every time
+        `down`/`up` stops and restarts the container, and a re-created one
+        silently truncates any write past roughly one MTU: the first ~1440 bytes
+        arrive, the rest never do. A TLS 1.3 ClientHello carrying a post-quantum
+        key share is 1449 bytes -- which is what kubectl (Go >= 1.24) and
+        OpenSSL >= 3.5 send by default -- so the apiserver waits forever for the
+        rest of a hello that never lands, and every client fails with
+        `net/http: TLS handshake timeout` against a cluster that is perfectly
+        healthy. (A TLS 1.2 hello is 163 bytes and connects instantly, which is
+        why `curl` -- LibreSSL, no ML-KEM -- makes the API look reachable.)
+
+        Routing through hmd_proxy sidesteps that forward entirely, and restores
+        the invariant `nginx_router` already documents: hmd_proxy is the only
+        container that publishes host ports.
+
+        Deliberately a band above the slot ports rather than a fifth slot port:
+        widening the stride would renumber every existing environment's Trino,
+        graph and spare port, and slot 0's spare is the Deployment GUI's
+        published 19003.
+        """
+        return self.port_base + MAX_ENVS * PORTS_PER_ENV + self.port_slot
 
     @property
     def spare_port(self) -> int:
@@ -646,4 +678,4 @@ def env_port_range() -> str:
     if override:
         return override
     base = int(os.environ.get("HMD_LOCAL_ENV_PORT_BASE", DEFAULT_PORT_BASE))
-    return f"{base}-{base + MAX_ENVS * PORTS_PER_ENV - 1}"
+    return f"{base}-{base + MAX_ENVS * (PORTS_PER_ENV + K3S_PORTS_PER_ENV) - 1}"

@@ -46,11 +46,16 @@ Kubernetes version parity
 -------------------------
 
 The local k3s tracks the **cloud EKS version** (``hmd-inf-eks-cluster``
-``cluster_version``, currently ``1.34``). This matters: operator CRDs target the
-cloud API (e.g. the External Secrets CRDs use ``selectableFields``, which requires
-k8s >= 1.30) and will not install on an older cluster. The version is baked into
-the ``hmd-img-k3s-floci`` wrapper image and requested via ``HMD_LOCAL_K3S_VERSION``
-(default ``1.34``); keep the two in sync when the cloud bumps.
+``cluster_version``, currently ``1.34``): the ``eks-cluster`` Phase A instance
+requests exactly that ``cluster_version`` when it creates the cluster (via
+Terraform locally, through ``hmd-inf-eks-cluster``'s ``src/local/cdktf``
+overlay -- one source of truth, no separate local env var default to keep in
+sync). This matters: operator CRDs target the cloud API (e.g. the External
+Secrets CRDs use ``selectableFields``, which requires k8s >= 1.30) and will not
+install on an older cluster. What *is* still a separate, hand-synced pin is the
+actual kubelet/apiserver version baked into the ``hmd-img-k3s-floci`` wrapper
+image's ``K3S_BASE`` build arg -- keep that in sync with ``cluster_version``
+when the cloud bumps.
 
 Pods reach Floci by hostname
 ----------------------------

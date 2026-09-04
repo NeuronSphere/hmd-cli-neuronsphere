@@ -40,7 +40,7 @@ Format::
         version: null        # default: the bundled artifact's version
         instance_configuration: {}
         dependencies:
-          eks-cluster: local-neuronsphere
+          eks-cluster: eks-cluster
 
 An environment with **no** manifest keeps working exactly as it did before this
 module existed: :func:`load_manifest` returns ``None`` and every caller falls

@@ -53,7 +53,12 @@ compose service used, so consumers are unchanged: they still address
   reset while the backend container serves normally. So every recorded endpoint
   is the container's DNS alias on 8182, never ``DBCluster["Endpoint"]``.
 * Floci **stops the container but never restarts it**, unlike RDS, so ``up``
-  restarts it explicitly.
+  restarts it explicitly. It has to: ``hmd-inf-neptune``'s deploy is idempotent,
+  so once the cluster record exists the deploy node is a no-op and spawns
+  nothing, while the record keeps reporting ``available`` with nothing serving
+  behind it. ``floci_deployer.ensure_neptune_running`` is what reconciles the
+  two — called by the ``control-plane-graph-alias`` bootstrap node for the
+  control plane, and by ``_alias_environment_graph`` for an environment.
 * Floci **mounts no volume**: the graph lives in the container's writable layer,
   written by a shutdown hook on ``graph.close()``. Stopping must therefore be
   graceful — a ``docker kill`` loses the graph with no error and no file — and
@@ -176,7 +181,7 @@ environment against it.
         version: null        # default: the bundled artifact's version
         instance_configuration: {}
         dependencies:
-          eks-cluster: local-neuronsphere
+          eks-cluster: eks-cluster
 
 An environment with **no** manifest behaves exactly as it did before manifests
 existed: the built-in Local BOM plus every installed plugin package, with no
@@ -350,13 +355,26 @@ unaffected; environment services are **prefixed** with the environment name:
      - environment *n*'s Floci
    * - ``localhost:<19000+4n+1>``
      - environment *n*'s Trino
+   * - ``https://localhost:<19064+n>``
+     - environment *n*'s k3s API server (what its kubeconfig points at)
 
-Non-HTTP protocols (Trino, Floci's AWS wire protocol) get L4 ``stream``
-listeners rather than HTTP locations. The whole ``19000-19063`` range is
-published by ``hmd_proxy`` up front — a compose ``ports:`` list is static — and
-individual listeners inside it are added and removed at runtime with an nginx
-reload, never a container restart. That is 16 environments × 4 slots; override
-the range with ``HMD_LOCAL_ENV_PORT_RANGE``.
+Non-HTTP protocols (Trino, the k3s API, Floci's AWS wire protocol) get L4
+``stream`` listeners rather than HTTP locations. The whole ``19000-19079`` range
+is published by ``hmd_proxy`` up front — a compose ``ports:`` list is static —
+and individual listeners inside it are added and removed at runtime with an
+nginx reload, never a container restart. That is 16 environments × 4 slots, plus
+a band of 16 k3s API ports above them; override the range with
+``HMD_LOCAL_ENV_PORT_RANGE``.
+
+The k3s API is streamed through ``hmd_proxy`` rather than reached on the port
+Floci publishes on the ``floci-eks-*`` container directly. Docker re-creates
+that container's port forward every time ``down``/``up`` restarts it, and a
+re-created forward silently truncates writes past roughly one MTU — which eats
+the 1449-byte post-quantum TLS 1.3 ClientHello that kubectl and OpenSSL now send
+by default, hanging the handshake with ``net/http: TLS handshake timeout``
+against a cluster that is perfectly healthy. (``curl`` on macOS is LibreSSL,
+sends a small hello, and connects — so the API looks reachable when probed by
+hand.) Going through ``hmd_proxy`` avoids that forward entirely.
 
 Databases are deliberately **not** reachable from the host. Use
 ``docker exec hmd_db-<env> psql -U postgres``.

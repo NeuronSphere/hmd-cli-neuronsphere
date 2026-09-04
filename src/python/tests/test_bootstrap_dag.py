@@ -15,6 +15,7 @@ from hmd_cli_neuronsphere import bootstrap_dag as bd
 def _nodes(**overrides):
     calls = {
         "ensure_databases": lambda n, d: True,
+        "ensure_graph": lambda n, d: True,
         "deploy_naming": lambda n, d: True,
         "deploy_artifact_lib": lambda n, d: True,
         "deploy_ms_deployment": lambda n, d: True,
@@ -59,6 +60,14 @@ class NodeShapeTests(unittest.TestCase):
         postgres = _nodes()[0]
         self.assertNotIn("handler", postgres)
         self.assertIn("deploy", postgres["script"])
+
+    def test_graph_also_runs_as_a_real_deploy(self):
+        """Same reasoning as Postgres: hmd-inf-neptune is the real producer."""
+        graph = next(
+            n for n in _nodes() if n["instance_name"] == bd.CONTROL_PLANE_GRAPH_INSTANCE
+        )
+        self.assertNotIn("handler", graph)
+        self.assertIn("deploy", graph["script"])
 
 
 class DeployScriptGrammarTests(unittest.TestCase):
@@ -137,9 +146,11 @@ class DeployScriptGrammarTests(unittest.TestCase):
         self.assertNotEqual(config.get("instance_type"), "db.r7g.large")
 
     def test_service_nodes_carry_handlers(self):
-        """They provision what the deployment service needs, so they cannot be
-        deployed *through* it."""
-        for n in _nodes()[1:]:
+        """Every node that isn't a real deploy provisions what the deployment
+        service needs, so it cannot be deployed *through* it."""
+        for n in _nodes():
+            if "script" in n:
+                continue
             with self.subTest(node=n["instance_name"]):
                 self.assertTrue(callable(n["handler"]))
 
@@ -156,6 +167,7 @@ class HandlerWiringTests(unittest.TestCase):
         seen = []
         nodes = _nodes(
             ensure_databases=lambda n, d: seen.append("db"),
+            ensure_graph=lambda n, d: seen.append("graph"),
             deploy_naming=lambda n, d: seen.append("naming"),
             deploy_artifact_lib=lambda n, d: seen.append("artifact"),
             deploy_ms_deployment=lambda n, d: seen.append("deployment"),
@@ -163,7 +175,55 @@ class HandlerWiringTests(unittest.TestCase):
         for n in nodes:
             if "handler" in n:
                 n["handler"](n, False)
-        self.assertEqual(seen, ["db", "naming", "artifact", "deployment"])
+        self.assertEqual(seen, ["db", "graph", "naming", "artifact", "deployment"])
+
+
+class GraphOrderingTests(unittest.TestCase):
+    """artifact-lib's `neptune-db` dependency is required -- its Lambda must
+    not deploy before the graph it needs is up and aliased."""
+
+    def _names(self):
+        return [n["instance_name"] for n in _nodes()]
+
+    def test_graph_is_deployed(self):
+        self.assertIn(bd.CONTROL_PLANE_GRAPH_INSTANCE, self._names())
+
+    def test_graph_is_aliased_before_artifact_lib_deploys(self):
+        names = self._names()
+        self.assertLess(
+            names.index("control-plane-graph-alias"), names.index("hmd_ms_artifact_lib")
+        )
+
+    def test_graph_deploy_precedes_its_own_alias(self):
+        names = self._names()
+        self.assertLess(
+            names.index(bd.CONTROL_PLANE_GRAPH_INSTANCE),
+            names.index("control-plane-graph-alias"),
+        )
+
+    def test_ms_deployment_is_still_last(self):
+        self.assertEqual(self._names()[-1], "hmd_ms_deployment")
+
+
+class GraphIdentityTests(unittest.TestCase):
+    def test_graph_config_names_the_alias_host(self):
+        config = bd.graph_instance_config()
+        self.assertEqual(config["graph_host"], bd.CONTROL_PLANE_GRAPH_HOST)
+
+    def test_the_control_plane_graph_and_db_never_collide(self):
+        from hmd_cli_neuronsphere import floci_deployer
+
+        target = floci_deployer.control_plane_target()
+        self.assertNotEqual(
+            bd.control_plane_graph_identifier(target),
+            bd.control_plane_db_identifier(target),
+        )
+
+    def test_is_a_valid_neptune_identifier(self):
+        from hmd_cli_neuronsphere import floci_deployer
+
+        ident = bd.control_plane_graph_identifier(floci_deployer.control_plane_target())
+        self.assertRegex(ident, r"^[a-z0-9-]+$")
 
 
 if __name__ == "__main__":
@@ -256,3 +316,61 @@ class SubnetGroupPlacementTests(unittest.TestCase):
         script = _nodes()[0]["script"]
         body = script.split("<<'EOF'\n", 1)[1].rsplit("\nEOF", 1)[0]
         self.assertIn("db_subnet_group_name", json.loads(body))
+
+
+class DeploymentIdReachesTheDeployEnvironment(unittest.TestCase):
+    """`--deployment-id` on the command line and `HMD_DID` in the container must
+    name the same thing.
+
+    A `deploy_local.sh` overlay replaces the generated `hmd deploy` command
+    outright, so the flag never reaches it; hmd-inf-neptune's script rebuilds
+    `make_standard_name` from `HMD_DID` instead. With no `env` to read, the
+    runner fell through to the ambient `HMD_DID` (`aaa`) while the control
+    plane's nodes -- and `control_plane_graph_identifier`, which the CLI looks
+    the result up by -- all use `cp`. The graph was created as
+    `control-plane-graph-hmd-inf-neptune-aaa-local-reg1-hmdtr1`, the alias node
+    waited out its 300s on `...-cp-...`, and `up` failed on a cluster that was
+    sitting there `available` the whole time.
+
+    Only the `deploy_local.sh` nodes were exposed: a CDKTF node's stack name
+    comes from the flag, which is why the control-plane Postgres was fine.
+    """
+
+    def test_every_control_plane_node_carries_the_control_plane_id(self):
+        for n in _nodes():
+            self.assertEqual(
+                n["deployment_id"],
+                bd.CONTROL_PLANE_DEPLOYMENT_ID,
+                f"{n['instance_name']} would deploy under the wrong id",
+            )
+
+    def test_the_deploy_command_passes_the_same_id(self):
+        for n in _nodes():
+            script = n.get("script")
+            if script:
+                self.assertIn(
+                    f"--deployment-id {bd.CONTROL_PLANE_DEPLOYMENT_ID} ", script
+                )
+
+    def test_the_runner_exports_the_node_id_when_there_is_no_environment(self):
+        from hmd_cli_neuronsphere.local_workflow_runner import LocalWorkflowRunner
+
+        runner = LocalWorkflowRunner.__new__(LocalWorkflowRunner)
+        runner.env = None
+        graph = next(
+            n for n in _nodes() if n["instance_name"] == bd.CONTROL_PLANE_GRAPH_INSTANCE
+        )
+        self.assertEqual(
+            runner._node_deployment_id(graph), bd.CONTROL_PLANE_DEPLOYMENT_ID
+        )
+
+    def test_an_environment_still_wins_over_the_node(self):
+        """Phase A/B nodes are stamped by `scope_bom_entries`; the environment
+        the runner was built for stays authoritative for them."""
+        import types
+
+        from hmd_cli_neuronsphere.local_workflow_runner import LocalWorkflowRunner
+
+        runner = LocalWorkflowRunner.__new__(LocalWorkflowRunner)
+        runner.env = types.SimpleNamespace(deployment_id="dev2")
+        self.assertEqual(runner._node_deployment_id({"deployment_id": "cp"}), "dev2")
