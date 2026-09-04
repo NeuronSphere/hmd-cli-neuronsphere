@@ -2,6 +2,17 @@
 
 ## 2026-09-04
 
+- feat: Read and write the environment manifest
+
+  `$HMD_HOME/environments/<slug>.yaml` is the desired state an environment
+  reconciles to, in the format `env_manifest.py` already defines, so either
+  front end can read what the other wrote. `plugins` and `plugin_config`
+  configure a discovery mechanism nsctl does not implement; they survive a
+  round trip untouched and are reported rather than silently obeyed.
+
+  An environment with no manifest is not an error -- it is the empty one, and
+  it gets the substrate and nothing else.
+
 - feat: Install the binary with `make install`
 
   `make install` builds and copies `nsctl` to `$(PREFIX)`, defaulting to
