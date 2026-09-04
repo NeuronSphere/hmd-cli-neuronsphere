@@ -44,22 +44,33 @@ func registryHome(t *testing.T) string {
 	return home
 }
 
-// The BOM reconcile lands with the deploy path. Until then a bare `env start`
-// refuses by name rather than half-starting and reporting success.
-func TestStartWithoutNoDeployRefusesAndNamesTheAlternative(t *testing.T) {
+// A deploy against an unreachable service says which service and how to start
+// it, rather than failing somewhere inside the seeding protocol.
+func TestApplyRefusesWhenMSDeploymentIsUnreachable(t *testing.T) {
 	t.Parallel()
 
-	err := Start(context.Background(), testOptions(registryHome(t), nil), "local")
+	// A port nothing serves, so the test depends on nothing running here.
+	opts := testOptions(registryHome(t), map[string]string{
+		"HMD_LOCAL_MS_DEPLOYMENT_URL": "http://127.0.0.1:1/hmd_ms_deployment",
+	})
+	err := Apply(context.Background(), opts, "local")
 	if err == nil {
-		t.Fatal("a full start succeeded; the deploy path does not exist yet")
+		t.Fatal("Apply succeeded against an unreachable service")
 	}
-	if got := nserr.CodeOf(err); got != nserr.Usage {
-		t.Errorf("exit code = %d, want %d (usage)", got, nserr.Usage)
+	if !strings.Contains(err.Error(), "control-plane start") {
+		t.Errorf("the error does not name the remedy: %v", err)
 	}
-	for _, want := range []string{"--no-deploy", "hmd neuronsphere up"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %q:\n%s", want, err)
-		}
+}
+
+func TestMSDeploymentURLIsOverridable(t *testing.T) {
+	t.Parallel()
+
+	if got := msDeploymentURL(testOptions("", nil)); got != DefaultMSDeploymentURL {
+		t.Errorf("default = %q", got)
+	}
+	opts := testOptions("", map[string]string{"HMD_LOCAL_MS_DEPLOYMENT_URL": "http://elsewhere/x"})
+	if got := msDeploymentURL(opts); got != "http://elsewhere/x" {
+		t.Errorf("override ignored, got %q", got)
 	}
 }
 

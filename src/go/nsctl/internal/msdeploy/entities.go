@@ -1,0 +1,176 @@
+package msdeploy
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// Entity types in the hmd_lang_deployment language pack. Fully qualified: the
+// CRUD routes are named after the entity's full type.
+const (
+	EntityEnvironment   = "hmd_lang_deployment.environment"
+	EntityDeploymentSet = "hmd_lang_deployment.deployment_set"
+	EntityChangeSet     = "hmd_lang_deployment.change_set"
+	EntityRepoInstance  = "hmd_lang_deployment.repo_instance"
+)
+
+// EnsureEnvironment idempotently creates the Environment entity for a named
+// local environment.
+//
+// Each environment gets its own row, which is what makes identical instance
+// names safe across environments: repo_instance is unique by name *per
+// Environment*, so project-bucket in dev2 is a different instance from the one
+// in local, and no BOM entry needs renaming.
+//
+// `type` *is* the environment's name. It is the Environment's business id and
+// the only field ms-deployment resolves an environment by -- get_valid_environment,
+// apply_changeset and destroy_deploymentset all match on it, and the first two
+// assert or index a single result. So a named local environment is typed by its
+// slug, exactly as a cloud environment is typed dev or prod.
+//
+// Find-first, because ms-base PUT never upserts on a business key: without the
+// guard each call adds another row and get_valid_environment answers 500.
+func (c *Client) EnsureEnvironment(ctx context.Context, slug, accountID, region string) error {
+	existing, err := c.Search(ctx, EntityEnvironment, Filter{Attribute: "type", Operator: "=", Value: slug})
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return nil
+	}
+	if region == "" {
+		region = "reg1"
+	}
+	_, err = c.PutEntity(ctx, EntityEnvironment, map[string]any{
+		"type":           slug,
+		"account_number": accountID,
+		"hmd_region":     region,
+	})
+	return err
+}
+
+// EnsureDeploymentSet idempotently creates an environment's DeploymentSet, and
+// repairs one written before environments were typed by name.
+//
+// Such a row says environment: "local" and survives an env delete and recreate,
+// because the deployment graph lives in the shared control-plane Postgres
+// rather than in the environment's own state -- so without the repair a
+// recreated environment keeps applying its changesets to the default one.
+func (c *Client) EnsureDeploymentSet(ctx context.Context, name, envSlug string) error {
+	existing, err := c.Search(ctx, EntityDeploymentSet, Filter{Attribute: "name", Operator: "=", Value: name})
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		return nil
+	}
+	_, err = c.PutEntity(ctx, EntityDeploymentSet, map[string]any{
+		"name":        name,
+		"environment": envSlug,
+	})
+	return err
+}
+
+// NewChangeSetName picks a name not already in use.
+//
+// apply_changeset asserts exactly one changeset row with the given name, so a
+// repeated seed -- a delta-apply on restart, say -- must not collide with the
+// first call's row and fail that assertion.
+func (c *Client) NewChangeSetName(ctx context.Context, envSlug string) (string, error) {
+	base := envSlug + "-changeset"
+	for i := 0; ; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d", base, i)
+		}
+		existing, err := c.Search(ctx, EntityChangeSet, Filter{Attribute: "name", Operator: "=", Value: name})
+		if err != nil {
+			return "", err
+		}
+		if len(existing) == 0 {
+			return name, nil
+		}
+		if i > 500 {
+			return "", fmt.Errorf("could not find an unused changeset name for %q", envSlug)
+		}
+	}
+}
+
+// DeploymentNode is one unit of work from generate_local_deployment: one
+// RepoInstance, one script, one `hmd ... deploy`. Indivisible.
+type DeploymentNode struct {
+	InstanceName          string         `json:"instance_name"`
+	RepoClassName         string         `json:"repo_class_name"`
+	Version               string         `json:"version"`
+	RIDNid                string         `json:"rid_nid"`
+	Script                string         `json:"script"`
+	Dependencies          []string       `json:"dependencies"`
+	InstanceConfiguration map[string]any `json:"instance_configuration"`
+}
+
+// ApplyChangeSet applies a changeset and returns its ChangeSetDeployment id.
+//
+// skip_async stops ms-deployment doing what it does in the cloud -- building an
+// Argo Workflow and posting it to the Argo server -- because the CLI drives
+// execution itself. It is the local marker, and it retires when the runner
+// service lands.
+func (c *Client) ApplyChangeSet(ctx context.Context, changeSetName, deploymentSetName string) (string, error) {
+	result, err := c.APIOp(ctx, "apply_changeset", map[string]any{
+		"change_set_name":     changeSetName,
+		"deployment_set_name": deploymentSetName,
+		"skip_async":          true,
+	})
+	if err != nil {
+		return "", err
+	}
+	nid, _ := result["csd_nid"].(string)
+	if nid == "" {
+		return "", fmt.Errorf("apply_changeset returned no csd_nid")
+	}
+	return nid, nil
+}
+
+// GenerateLocalDeployment returns the deployment nodes in DAG order.
+//
+// The order comes from ms-deployment's own Kahn's-algorithm traversal of the
+// reduced RepoInstanceReqRepoInstance edges, which is what makes execution
+// order correct. It is a different sort from the one the caller does before
+// applying, and the two must not be conflated.
+func (c *Client) GenerateLocalDeployment(ctx context.Context, csdNid string) ([]DeploymentNode, error) {
+	body, err := c.APIOpRaw(ctx, "generate_local_deployment/"+csdNid, nil)
+	if err != nil {
+		return nil, err
+	}
+	var manifest struct {
+		Nodes []DeploymentNode `json:"nodes"`
+	}
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return nil, fmt.Errorf("decoding the deployment manifest: %w", err)
+	}
+	return manifest.Nodes, nil
+}
+
+// RepoInstanceStatus is the most recent deployment status of each instance in
+// an environment, keyed by instance name.
+//
+// The graph is authoritative for intent but cannot see the cluster: an instance
+// whose Helm release was uninstalled still reads DEPLOYED.
+func (c *Client) RepoInstanceStatus(ctx context.Context, deploymentID string) (map[string]string, error) {
+	instances, err := c.Search(ctx, EntityRepoInstance, Filter{
+		Attribute: "deployment_id", Operator: "=", Value: deploymentID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, inst := range instances {
+		name, _ := inst["name"].(string)
+		status, _ := inst["status"].(string)
+		if name != "" {
+			out[name] = strings.ToUpper(status)
+		}
+	}
+	return out, nil
+}

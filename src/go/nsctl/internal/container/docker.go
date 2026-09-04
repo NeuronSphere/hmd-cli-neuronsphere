@@ -316,3 +316,22 @@ func (d *Docker) ImageOf(ctx context.Context, name string) string {
 	}
 	return out
 }
+
+// ContainerEnv is the environment a container was created with.
+func (d *Docker) ContainerEnv(ctx context.Context, name string) map[string]string {
+	if name == "" {
+		return nil
+	}
+	out, err := d.capture(ctx, "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", name)
+	if err != nil {
+		return nil
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), "=")
+		if found && key != "" {
+			env[key] = value
+		}
+	}
+	return env
+}

@@ -6,7 +6,9 @@ GO        := go
 GOFLAGS   :=
 
 VERSION   := $(shell cat meta-data/VERSION 2>/dev/null || echo "dev")
-LDFLAGS   := -ldflags "-X main.version=$(VERSION)"
+# -s -w drop the symbol table and DWARF. This is a distributed binary, not one
+# anyone debugs in place, and they take roughly 20 MB off it.
+LDFLAGS   := -ldflags "-X main.version=$(VERSION) -s -w"
 
 # Robot Framework is optional and not a Go dependency. Override ROBOT to run it
 # without installing it, e.g.

@@ -94,6 +94,7 @@ type ec2API interface {
 type rdsAPI interface {
 	CreateDBSubnetGroup(ctx context.Context, in *rds.CreateDBSubnetGroupInput, opts ...func(*rds.Options)) (*rds.CreateDBSubnetGroupOutput, error)
 	DescribeDBInstances(ctx context.Context, in *rds.DescribeDBInstancesInput, opts ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
+	DeleteDBInstance(ctx context.Context, in *rds.DeleteDBInstanceInput, opts ...func(*rds.Options)) (*rds.DeleteDBInstanceOutput, error)
 }
 
 type s3API interface {
@@ -368,4 +369,21 @@ func (p *Provisioner) DBInstanceStatus(ctx context.Context, identifier string) s
 		return ""
 	}
 	return aws.ToString(out.DBInstances[0].DBInstanceStatus)
+}
+
+// DeleteDBInstance removes an RDS instance record.
+//
+// FLOCI_STORAGE_PRUNE_VOLUMES_ON_DELETE is pinned false, so the instance's
+// volume survives and a recreated instance of the same identifier can reattach
+// to its data. That is what makes clearing a `failed` record a repair rather
+// than a loss.
+func (p *Provisioner) DeleteDBInstance(ctx context.Context, identifier string) error {
+	_, err := p.RDS.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier: aws.String(identifier),
+		SkipFinalSnapshot:    aws.Bool(true),
+	})
+	if err != nil && !isAPIErrorCode(err, "DBInstanceNotFound") {
+		return fmt.Errorf("deleting %s: %w", identifier, err)
+	}
+	return nil
 }

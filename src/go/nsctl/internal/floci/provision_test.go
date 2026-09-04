@@ -113,6 +113,12 @@ type fakeRDS struct {
 	groups   []string
 	failWith error
 	status   string
+	deleted  []string
+}
+
+func (f *fakeRDS) DeleteDBInstance(_ context.Context, in *rds.DeleteDBInstanceInput, _ ...func(*rds.Options)) (*rds.DeleteDBInstanceOutput, error) {
+	f.deleted = append(f.deleted, aws.ToString(in.DBInstanceIdentifier))
+	return &rds.DeleteDBInstanceOutput{}, nil
 }
 
 func (f *fakeRDS) DescribeDBInstances(_ context.Context, in *rds.DescribeDBInstancesInput, _ ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {

@@ -69,12 +69,6 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
 	}
-	if !opts.NoDeploy {
-		return nserr.New(nserr.Usage,
-			"nsctl cannot reconcile an environment's BOM yet -- that lands with the deploy path.\nUse `nsctl env start %s --no-deploy` to bring up its infrastructure, or `hmd neuronsphere up --env %s` for a full reconcile.",
-			env.Slug, env.Slug)
-	}
-
 	opts.step("Environment: %s", env.Slug)
 
 	d := container.New()
@@ -186,6 +180,20 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	}
 	if err := r.Reload(ctx, d.Exec); err != nil {
 		opts.warn("%v", err)
+	}
+
+	// The substrate deploy, unless the caller asked for infrastructure only.
+	// It runs after the infrastructure because every node needs Floci, the
+	// cluster and the routes that reach them.
+	if !opts.NoDeploy {
+		if err := Apply(ctx, opts, name); err != nil {
+			return err
+		}
+		// The database may only now exist, and the CoreDNS record and routes
+		// were written before it did.
+		if err := refreshAfterDeploy(ctx, opts, reg, env, d, r, routerEnv, target, cluster, names); err != nil {
+			opts.warn("%v", err)
+		}
 	}
 
 	opts.step("Ready.")
@@ -426,4 +434,50 @@ func unresolvableHosts(hosts []string) []string {
 		}
 	}
 	return missing
+}
+
+// refreshAfterDeploy re-runs the steps whose inputs the deploy may have created.
+//
+// The database and graph containers are spawned by Floci during the deploy, so
+// the CoreDNS records and the environment routes written before it ran do not
+// know about them yet. Rewriting is cheap and idempotent; leaving them stale
+// means every chart addressing the database by name fails to resolve it.
+func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Registry,
+	env *registry.Environment, d *container.Docker, r *router.Router,
+	routerEnv router.Env, target floci.Target, cluster string, names floci.Names) error {
+
+	dbContainer, err := floci.EnsureRDSRunning(ctx, d, env.AccountID, floci.EnvDBIdentifier(names),
+		env.DBContainer, reg.ControlPlane.Network, 2*time.Minute, 0)
+	if err != nil {
+		opts.warn("%v", err)
+	} else if dbContainer != "" {
+		opts.step("  %s is up and aliased as %s", dbContainer, env.DBContainer)
+	}
+	graphContainer, err := floci.EnsureNeptuneRunning(ctx, d, env.AccountID, floci.GraphIdentifier(names),
+		env.GraphContainer, reg.ControlPlane.Network)
+	if err != nil {
+		opts.warn("%v", err)
+	}
+
+	if cluster != "" {
+		ops := &k3s.Operators{
+			Kube:   &k3s.Kube{Cluster: env.K3sCluster, Container: cluster, Kubeconfig: env.Kubeconfig, Run: d.Run},
+			Docker: d,
+			Env: k3s.Environment{
+				Slug: env.Slug, DBContainer: env.DBContainer, GraphContainer: env.GraphContainer,
+				CoreInstanceName: env.CoreInstanceName,
+				K3sCluster:       env.K3sCluster, K3sContainer: cluster,
+			},
+			Network: reg.ControlPlane.Network, IngressEnabled: ingressEnabled(opts),
+			Out: opts.Out, Err: opts.Err,
+		}
+		if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
+			opts.warn("%v", err)
+		}
+	}
+
+	if err := refreshRoutes(ctx, opts, r, routerEnv, target); err != nil {
+		opts.warn("%v", err)
+	}
+	return r.Reload(ctx, d.Exec)
 }

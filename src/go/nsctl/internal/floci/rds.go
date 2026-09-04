@@ -3,6 +3,7 @@ package floci
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tools"
@@ -156,4 +157,40 @@ func EnsureNeptuneRunning(ctx context.Context, d Containers, accountID, identifi
 		}
 	}
 	return name, nil
+}
+
+// RDSInstances is the RDS surface the reconcile needs.
+type RDSInstances interface {
+	DBInstanceStatus(ctx context.Context, identifier string) string
+	DeleteDBInstance(ctx context.Context, identifier string) error
+}
+
+// ReconcileRDSInstance clears an instance Floci cannot serve, so the next
+// deploy creates it fresh.
+//
+// This has no counterpart in the Python, and the gap is real. Terraform's
+// refresh reconciles the *record*: an instance that exists is "no changes",
+// whatever state it is in. But Floci can leave a record behind whose backing
+// container it failed to recreate -- state `failed`, no container -- and no
+// number of re-applies fixes that, because from Terraform's point of view
+// nothing is wrong. reconcile_k3s_container exists for exactly this reason on
+// the cluster side; this is the same repair for the database.
+//
+// Only a `failed` instance with no container is touched. An `available` one is
+// left alone even if its container is missing: that is a transient state Floci
+// may still resolve, and deleting a database over a race is not a trade worth
+// making.
+func ReconcileRDSInstance(ctx context.Context, api RDSInstances, d Containers, accountID, identifier string) (bool, error) {
+	status := api.DBInstanceStatus(ctx, identifier)
+	if status == "" || !strings.EqualFold(status, "failed") {
+		return false, nil
+	}
+	if name, _ := d.FlociContainer(ctx, "rds", accountID, identifier); name != "" {
+		// A container exists after all; starting it is EnsureRDSRunning's job.
+		return false, nil
+	}
+	if err := api.DeleteDBInstance(ctx, identifier); err != nil {
+		return false, fmt.Errorf("clearing the failed database instance %s: %w", identifier, err)
+	}
+	return true, nil
 }
