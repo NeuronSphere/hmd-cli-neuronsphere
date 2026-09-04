@@ -156,11 +156,19 @@ Both front ends work against one ``HMD_HOME``. ``nsctl`` stamps the
 ``docker compose ps``, ``hmd neuronsphere down`` and the Python port validator
 all still find them.
 
-One thing ``nsctl`` cannot do yet, for which you need ``hmd``:
+Two notes on migrating from the Python CLI:
 
-- **Deploy plugin-contributed workloads.** Entries that come from installed
+- **Plugin-contributed workloads.** Entries that come from installed
   plugin packages are invisible to ``nsctl`` until they are written into the
   environment's manifest. ``nsctl repo import`` does that: it reads what the
   deployment graph holds for the environment and declares it, after which
   ``env apply`` reports nothing deployed-but-undeclared. Run it once per
   environment you brought up with ``hmd``.
+
+- **A RepoClass may not declare everything a plugin did.** ``nsctl`` reads a
+  service's configuration from its ``manifest.json``, so anything declared
+  only in a repo's ``src/local/nsplugin.json`` is invisible to it.
+  ``hmd-ms-artifact-lib`` is the known instance: its bucket is declared only
+  there, so ``nsctl`` bootstraps it, says that it will not serve until the
+  bucket is declared in the manifest, and carries on. Everything else in the
+  control plane is unaffected.
