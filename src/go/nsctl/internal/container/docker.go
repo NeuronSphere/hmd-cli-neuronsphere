@@ -165,3 +165,19 @@ func (d *Docker) NetworkExists(ctx context.Context, name string) bool {
 	_, err := d.capture(ctx, "network", "inspect", "-f", "{{.Id}}", name)
 	return err == nil
 }
+
+// Exec runs a command inside a running container and returns its combined
+// output. It is the seam internal/router reloads nginx through.
+func (d *Docker) Exec(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if d.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.Timeout)
+		defer cancel()
+	}
+	full := append([]string{"exec", name}, args...)
+	out, err := exec.CommandContext(ctx, d.bin(), full...).CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("docker exec %s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return out, nil
+}
