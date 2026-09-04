@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 // ProducedDefinition is one resource type the core RepoClass declares it
@@ -65,6 +67,48 @@ var CoreProducedDefinitions = []ProducedDefinition{
 var BaseVPCProducedDefinitions = []ProducedDefinition{
 	{"network.neuronsphere.io", "network", "0.1.0", "network"},
 	{"network.neuronsphere.io", "vpc", "0.1.0", "network"},
+}
+
+// fallbackProduces is used only when a repo's working tree is not on this
+// machine, so there is no meta-data/resources to read. A repo that is present
+// always wins, since its own declaration is the one the cloud deploy path
+// reads.
+var fallbackProduces = map[string][]ProducedDefinition{
+	BaseVPCRepoClass: BaseVPCProducedDefinitions,
+}
+
+// FromDeclarations turns a repo's meta-data/resources/*.yaml documents into
+// the definitions to declare for it.
+//
+// Each produced declaration contributes itself *and* its parent. Resolution
+// matches a requirement against a produced type and its ancestors, but the
+// declare_produces_resource_definition operation takes no parent link, so
+// whether ms-deployment already knows the hierarchy decides whether a
+// requirement for the parent type resolves. Declaring both makes it resolve
+// either way, and it is exactly what the hardcoded list it replaces did:
+// network/vpc together with network/network, which is hmd-vpc's declaration
+// and its parent.
+func FromDeclarations(declarations []repoclass.ResourceDeclaration) []ProducedDefinition {
+	var defs []ProducedDefinition
+	seen := map[string]bool{}
+	add := func(namespace, name, version, role string) {
+		if namespace == "" || name == "" {
+			return
+		}
+		key := namespace + "/" + name
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		defs = append(defs, ProducedDefinition{namespace, name, version, role})
+	}
+	for _, d := range repoclass.Produced(declarations) {
+		add(d.Namespace, d.Name, d.Version, d.Role)
+		if d.Parent != nil {
+			add(d.Parent.Namespace, d.Parent.Name, d.Parent.Version, d.Role)
+		}
+	}
+	return defs
 }
 
 // DeclareCoreProduces records what the core RepoClass produces.

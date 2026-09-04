@@ -2,6 +2,17 @@
 
 ## 2026-09-04
 
+- feat: Read what a RepoClass produces from its own resource declarations
+
+  `meta-data/resources/*.yaml` is where a repo already states what it emits,
+  and it is what the cloud deploy path reads. nsctl carried a parallel
+  hardcoded table, which had already drifted: it named
+  `network.neuronsphere.io/vpc` while hmd-vpc's own file said
+  `aws.neuronsphere.io/vpc`, so a consumer requiring the former resolved only
+  because the table was preferred. The table survives as a fallback for a repo
+  whose working tree is not on this machine, and a test fails if the two ever
+  disagree again.
+
 - feat: Deploy only what is new or has drifted
 
   `env apply` diffs the desired definition against the deployment graph and

@@ -14,6 +14,7 @@ import (
 	"sort"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 // The substrate. These four are what make an environment an environment rather
@@ -219,6 +220,10 @@ type VersionResolver interface {
 	// came from. declared is the version the BOM entry asked for, which a
 	// manifest can pin and which loses to a working tree.
 	Resolve(repoClass, declared string) (version string, dependencies map[string]any, defaultConfig map[string]any, err error)
+	// Produces reads the Resource types a repo class declares it emits, from
+	// its own meta-data/resources/*.yaml. Nothing declared is not an error --
+	// most repos declare none.
+	Produces(repoClass string) ([]repoclass.ResourceDeclaration, error)
 }
 
 // Seeder seeds a changeset and hands back the nodes to run.
@@ -277,8 +282,15 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 	if err := s.DeclareCoreProduces(ctx); err != nil {
 		return "", nil, err
 	}
-	if declares(entries, BaseVPCRepoClass) {
-		if err := s.DeclareProduces(ctx, BaseVPCRepoClass, BaseVPCProducedDefinitions); err != nil {
+	for _, repoClass := range producingClasses(entries) {
+		defs, err := s.producedBy(repoClass)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(defs) == 0 {
+			continue
+		}
+		if err := s.DeclareProduces(ctx, repoClass, defs); err != nil {
 			return "", nil, err
 		}
 	}
@@ -402,6 +414,38 @@ func TopoSort(entries []Entry) ([]Entry, error) {
 }
 
 // declares reports whether the BOM includes an entry of a repo class.
+// producedBy is what a repo class declares it produces, read from the repo.
+//
+// The hardcoded list is a fallback for the one case it can be needed: a repo
+// whose working tree is not on this machine, where there is no file to read.
+// It is never preferred over the repo's own declaration -- that is how the two
+// drifted, the list naming a different namespace than hmd-vpc's own file did.
+func (s *Seeder) producedBy(repoClass string) ([]ProducedDefinition, error) {
+	declarations, err := s.Versions.Produces(repoClass)
+	if err != nil {
+		return nil, fmt.Errorf("reading what %s produces: %w", repoClass, err)
+	}
+	if defs := FromDeclarations(declarations); len(defs) > 0 {
+		return defs, nil
+	}
+	return fallbackProduces[repoClass], nil
+}
+
+// producingClasses is every repo class in the BOM, deduplicated, in the order
+// the entries name them.
+func producingClasses(entries []Entry) []string {
+	var classes []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.RepoClassName == "" || seen[e.RepoClassName] {
+			continue
+		}
+		seen[e.RepoClassName] = true
+		classes = append(classes, e.RepoClassName)
+	}
+	return classes
+}
+
 func declares(entries []Entry, repoClass string) bool {
 	for _, e := range entries {
 		if e.RepoClassName == repoClass {
