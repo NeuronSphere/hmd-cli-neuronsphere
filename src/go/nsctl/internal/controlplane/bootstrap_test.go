@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 )
 
 // The script has to match what ms-deployment's deploy_base.deploy_node
@@ -166,4 +168,25 @@ type stubImages struct{}
 func (stubImages) ImagePresent(context.Context, string) bool { return false }
 func (stubImages) ContainerEnv(context.Context, string) map[string]string {
 	return map[string]string{}
+}
+
+// The control plane's graph is its own instance under deployment id `cp`, not
+// the environment's `global-graph`. Asking floci.GraphIdentifier for it
+// silently finds nothing, which is how the control-plane graph came to be left
+// stopped after a restart while the code read as correct.
+func TestCPGraphIdentifierIsNotTheEnvironmentGraph(t *testing.T) {
+	t.Parallel()
+
+	names := floci.Names{Region: "reg1", CustomerCode: "none", DeploymentID: "aaa"}
+	cp := CPGraphIdentifier(names)
+
+	if !strings.Contains(cp, CPGraphInstance) {
+		t.Errorf("CPGraphIdentifier = %q, want it to name %s", cp, CPGraphInstance)
+	}
+	if !strings.Contains(cp, CPDeploymentID) {
+		t.Errorf("CPGraphIdentifier = %q, want deployment id %s", cp, CPDeploymentID)
+	}
+	if cp == floci.GraphIdentifier(names) {
+		t.Error("the control plane's graph identifier matches the environment's")
+	}
 }

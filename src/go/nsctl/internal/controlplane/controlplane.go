@@ -296,6 +296,26 @@ func Start(ctx context.Context, opts *Options) error {
 		}
 	}
 
+	// Floci stops the containers it spawned when it restarts and does not
+	// bring them back, so the graph needs the same restart the database above
+	// just had. Only on a warm start: during a bootstrap the DAG deploys the
+	// graph and aliases it as one of its nodes.
+	//
+	// Without this the control plane comes up with `global-graph` resolving to
+	// nothing, and every consumer of it fails in its own way -- Trino
+	// crashlooping on "global-graph: Name or service not known" is the visible
+	// one, several layers from the cause.
+	if reg.ControlPlane.Bootstrapped {
+		graphContainer, err := floci.EnsureNeptuneRunning(ctx, docker, target.AccountID,
+			CPGraphIdentifier(names), CPGraphHost, reg.ControlPlane.Network)
+		switch {
+		case err != nil:
+			opts.warn("%v", err)
+		case graphContainer != "":
+			opts.step("  %s is up and aliased as %s", graphContainer, CPGraphHost)
+		}
+	}
+
 	opts.step("Provisioning control-plane Floci resources...")
 	prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err)
 	if err != nil {

@@ -2,6 +2,16 @@
 
 ## 2026-09-04
 
+- fix: Restart the control-plane graph on a warm start
+
+  Floci stops the containers it spawned and does not bring them back, and only
+  the database was being restarted. The graph was left down with `global-graph`
+  resolving to nothing, which surfaced several layers away as Trino
+  crashlooping on "global-graph: Name or service not known".
+
+  The lookup used the *environment's* graph identifier, which finds nothing for
+  the control plane and reported no error, so the code read as correct.
+
 - fix: Make the cold bootstrap actually work
 
   Six defects found by bootstrapping a fresh HMD_HOME end to end: the

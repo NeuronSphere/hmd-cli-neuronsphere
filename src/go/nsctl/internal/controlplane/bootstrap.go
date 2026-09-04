@@ -15,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tools"
 )
 
 // The control plane's own instances.
@@ -57,6 +58,20 @@ var bootstrapServices = []string{
 	// resolves to the graph alias, which only exists once the graph node ran.
 	"hmd-ms-artifact-lib",
 	"hmd-ms-deployment",
+}
+
+// CPGraphIdentifier is the DBClusterIdentifier the control-plane graph node
+// creates.
+//
+// Not floci.GraphIdentifier, which names the *environment's* graph
+// (instance `global-graph`, the environment's deployment id). The control
+// plane's is its own instance under deployment id `cp`, and asking for the
+// wrong one silently finds nothing -- which is how the control-plane graph
+// came to be left stopped after a restart while the code looked correct.
+func CPGraphIdentifier(names floci.Names) string {
+	return tools.ResourceIdentifier(
+		CPGraphInstance, CPGraphRepoClass, CPDeploymentID, "local",
+		names.Region, names.CustomerCode)
 }
 
 // Bootstrap brings up a control plane that has never been bootstrapped.
@@ -149,7 +164,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 	}
 	opts.step("Starting the control-plane graph...")
 	graphContainer, err := floci.EnsureNeptuneRunning(ctx, docker, target.AccountID,
-		floci.GraphIdentifier(names), CPGraphHost, reg.ControlPlane.Network)
+		CPGraphIdentifier(names), CPGraphHost, reg.ControlPlane.Network)
 	if err != nil {
 		opts.warn("%v", err)
 	} else if graphContainer != "" {
