@@ -160,8 +160,8 @@ func (r *Resolver) LoadManifest(repoClass string) (*Manifest, error) {
 //
 // The dependencies and configuration come from the same place the version did,
 // so the registered RepoClassVersion describes one coherent build.
-func (r *Resolver) Resolve(repoClass string) (string, map[string]any, map[string]any, error) {
-	resolution := r.ResolveVersion(repoClass, "")
+func (r *Resolver) Resolve(repoClass, declared string) (string, map[string]any, map[string]any, error) {
+	resolution := r.ResolveVersion(repoClass, declared)
 	manifest, err := r.LoadManifest(repoClass)
 	if err != nil {
 		return resolution.Version, nil, nil, err

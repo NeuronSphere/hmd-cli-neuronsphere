@@ -315,3 +315,42 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+// A manifest can declare a working tree outside HMD_REPO_HOME, and the runner
+// has to mount that one rather than looking for a directory under the
+// convention that does not exist.
+func TestRepoPathOverrideIsMounted(t *testing.T) {
+	t.Parallel()
+
+	elsewhere := filepath.Join(t.TempDir(), "vendored")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{Config: Config{
+		RepoHome:  t.TempDir(),
+		RepoPaths: map[string]string{"hmd-ms-a": elsewhere},
+	}}
+
+	if got := r.repoPath("hmd-ms-a"); got != elsewhere {
+		t.Errorf("repoPath = %q, want the declared tree %q", got, elsewhere)
+	}
+}
+
+// An override pointing nowhere must not fall back to the convention: silently
+// deploying a different tree than the manifest names is worse than failing.
+func TestRepoPathOverrideDoesNotFallBack(t *testing.T) {
+	t.Parallel()
+
+	repoHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoHome, "hmd-ms-a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runner{Config: Config{
+		RepoHome:  repoHome,
+		RepoPaths: map[string]string{"hmd-ms-a": "/definitely/not/here"},
+	}}
+
+	if got := r.repoPath("hmd-ms-a"); got != "" {
+		t.Errorf("repoPath = %q, want the missing override to resolve to nothing", got)
+	}
+}

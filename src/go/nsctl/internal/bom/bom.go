@@ -64,12 +64,14 @@ const LocalDBSubnetGroup = "hmd-local-db-subnets"
 
 // Entry is one BOM entry: an instance of a repo class in an environment.
 type Entry struct {
-	RepoInstanceName      string            `json:"repo_instance_name"`
-	RepoClassName         string            `json:"repo_class_name"`
-	RepoClassVersion      string            `json:"repo_class_version,omitempty"`
-	DeploymentID          string            `json:"deployment_id"`
-	InstanceConfiguration map[string]any    `json:"instance_configuration"`
-	Dependencies          map[string]string `json:"dependencies"`
+	RepoInstanceName      string         `json:"repo_instance_name"`
+	RepoClassName         string         `json:"repo_class_name"`
+	RepoClassVersion      string         `json:"repo_class_version,omitempty"`
+	DeploymentID          string         `json:"deployment_id"`
+	InstanceConfiguration map[string]any `json:"instance_configuration"`
+	// Dependencies maps a role to an instance name, or to a list of them --
+	// both shapes the change_set schema allows.
+	Dependencies map[string]any `json:"dependencies"`
 }
 
 // Environment is what the seeder needs to know about the target environment.
@@ -103,14 +105,14 @@ func Substrate(env Environment, withCluster bool) []Entry {
 			RepoClassName:         CoreRepoClass,
 			DeploymentID:          env.DeploymentID,
 			InstanceConfiguration: map[string]any{},
-			Dependencies:          map[string]string{},
+			Dependencies:          map[string]any{},
 		},
 		{
 			RepoInstanceName:      BaseVPCInstance,
 			RepoClassName:         BaseVPCRepoClass,
 			DeploymentID:          env.DeploymentID,
 			InstanceConfiguration: map[string]any{},
-			Dependencies:          map[string]string{},
+			Dependencies:          map[string]any{},
 		},
 		{
 			RepoInstanceName: EnvDBInstance,
@@ -119,7 +121,7 @@ func Substrate(env Environment, withCluster bool) []Entry {
 			InstanceConfiguration: map[string]any{
 				"db_subnet_group_name": LocalDBSubnetGroup,
 			},
-			Dependencies: map[string]string{
+			Dependencies: map[string]any{
 				// A real producer now, which is also what orders the VPC ahead
 				// of the database that needs its subnet group.
 				"base-vpc":       BaseVPCInstance,
@@ -134,7 +136,7 @@ func Substrate(env Environment, withCluster bool) []Entry {
 			RepoClassName:         EKSClusterRepoClass,
 			DeploymentID:          env.DeploymentID,
 			InstanceConfiguration: map[string]any{},
-			Dependencies: map[string]string{
+			Dependencies: map[string]any{
 				// hmd-inf-eks-cluster's local overlay looks the account's
 				// subnets up by boto3 and its docstring notes it depends on
 				// something else having seeded them first. That was true only
@@ -190,8 +192,33 @@ func copyConfig(in map[string]any) map[string]any {
 
 // VersionResolver reports the version and metadata to register a repo class
 // under.
+// DependencyTargets flattens a dependency mapping to the instance names it
+// names, in either of the two shapes the schema allows.
+func DependencyTargets(deps map[string]any) []string {
+	out := make([]string, 0, len(deps))
+	for _, target := range deps {
+		switch t := target.(type) {
+		case string:
+			out = append(out, t)
+		case []any:
+			for _, one := range t {
+				if name, ok := one.(string); ok {
+					out = append(out, name)
+				}
+			}
+		case []string:
+			out = append(out, t...)
+		}
+	}
+	return out
+}
+
 type VersionResolver interface {
-	Resolve(repoClass string) (version string, dependencies map[string]any, defaultConfig map[string]any, err error)
+	// Resolve reports the version to register a repo class under, plus the
+	// dependencies and default configuration read from wherever that version
+	// came from. declared is the version the BOM entry asked for, which a
+	// manifest can pin and which loses to a working tree.
+	Resolve(repoClass, declared string) (version string, dependencies map[string]any, defaultConfig map[string]any, err error)
 }
 
 // Seeder seeds a changeset and hands back the nodes to run.
@@ -217,7 +244,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 	// bundled artifact's version alongside a working tree's dependencies would
 	// describe a build that never existed.
 	for i := range entries {
-		version, deps, defaultConfig, err := s.Versions.Resolve(entries[i].RepoClassName)
+		version, deps, defaultConfig, err := s.Versions.Resolve(entries[i].RepoClassName, entries[i].RepoClassVersion)
 		if err != nil {
 			return "", nil, fmt.Errorf("resolving %s: %w", entries[i].RepoClassName, err)
 		}
@@ -228,7 +255,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 			return "", nil, fmt.Errorf("no version for %s, and the BOM entry declares none", entries[i].RepoClassName)
 		}
 		if deps == nil {
-			deps = toAnyMap(entries[i].Dependencies)
+			deps = entries[i].Dependencies
 		}
 		if defaultConfig == nil {
 			defaultConfig = entries[i].InstanceConfiguration
@@ -347,10 +374,7 @@ func TopoSort(entries []Entry) ([]Entry, error) {
 		state[name] = 1
 		entry := byName[name]
 
-		deps := make([]string, 0, len(entry.Dependencies))
-		for _, target := range entry.Dependencies {
-			deps = append(deps, target)
-		}
+		deps := DependencyTargets(entry.Dependencies)
 		// Deterministic, so the same BOM always produces the same order.
 		sort.Strings(deps)
 		for _, target := range deps {
@@ -375,14 +399,6 @@ func TopoSort(entries []Entry) ([]Entry, error) {
 		}
 	}
 	return out, nil
-}
-
-func toAnyMap(in map[string]string) map[string]any {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 // declares reports whether the BOM includes an entry of a repo class.

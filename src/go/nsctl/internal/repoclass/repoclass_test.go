@@ -96,7 +96,7 @@ func TestResolveReturnsNilMetadataWithoutAManifest(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	_, deps, config, err := r.Resolve("absent")
+	_, deps, config, err := r.Resolve("absent", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestResolveReadsTheManifest(t *testing.T) {
 	home := repoHome(t, "hmd-inf-thing", "0.7", manifest)
 	r := New(home, fakeEnv(nil))
 
-	version, deps, config, err := r.Resolve("hmd-inf-thing")
+	version, deps, config, err := r.Resolve("hmd-inf-thing", "")
 	if err != nil {
 		t.Fatal(err)
 	}

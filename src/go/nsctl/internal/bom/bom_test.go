@@ -144,9 +144,9 @@ func TestTopoSortPutsDependenciesFirst(t *testing.T) {
 	t.Parallel()
 
 	entries := []Entry{
-		{RepoInstanceName: "db", Dependencies: map[string]string{"base-vpc": "core"}},
+		{RepoInstanceName: "db", Dependencies: map[string]any{"base-vpc": "core"}},
 		{RepoInstanceName: "core"},
-		{RepoInstanceName: "app", Dependencies: map[string]string{"database-instance": "db"}},
+		{RepoInstanceName: "app", Dependencies: map[string]any{"database-instance": "db"}},
 	}
 	sorted, err := TopoSort(entries)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestTopoSortIgnoresUndeclaredDependencies(t *testing.T) {
 	t.Parallel()
 
 	sorted, err := TopoSort([]Entry{
-		{RepoInstanceName: "app", Dependencies: map[string]string{"x": "already-deployed"}},
+		{RepoInstanceName: "app", Dependencies: map[string]any{"x": "already-deployed"}},
 	})
 	if err != nil {
 		t.Fatalf("TopoSort: %v", err)
@@ -181,8 +181,8 @@ func TestTopoSortReportsACycle(t *testing.T) {
 	t.Parallel()
 
 	_, err := TopoSort([]Entry{
-		{RepoInstanceName: "a", Dependencies: map[string]string{"x": "b"}},
-		{RepoInstanceName: "b", Dependencies: map[string]string{"y": "a"}},
+		{RepoInstanceName: "a", Dependencies: map[string]any{"x": "b"}},
+		{RepoInstanceName: "b", Dependencies: map[string]any{"y": "a"}},
 	})
 	if err == nil {
 		t.Fatal("a cycle was accepted")

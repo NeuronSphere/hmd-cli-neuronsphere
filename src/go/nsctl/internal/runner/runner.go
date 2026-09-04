@@ -85,6 +85,10 @@ type Config struct {
 	Kubeconfig string
 	// RepoHome is where working trees are found.
 	RepoHome string
+	// RepoPaths overrides where a repo class's tree lives, for an instance an
+	// environment manifest declares with an explicit source path -- which by
+	// definition is not under RepoHome.
+	RepoPaths map[string]string
 	// DeploymentID, Region, CustomerCode name what the deploy produces.
 	DeploymentID string
 	Region       string
@@ -332,7 +336,16 @@ func sortedKeys(m map[string]string) []string {
 }
 
 func (r *Runner) repoPath(repoClass string) string {
-	if r.Config.RepoHome == "" || repoClass == "" {
+	if repoClass == "" {
+		return ""
+	}
+	if override := r.Config.RepoPaths[repoClass]; override != "" {
+		if info, err := os.Stat(override); err == nil && info.IsDir() {
+			return override
+		}
+		return ""
+	}
+	if r.Config.RepoHome == "" {
 		return ""
 	}
 	dir := filepath.Join(r.Config.RepoHome, repoClass)

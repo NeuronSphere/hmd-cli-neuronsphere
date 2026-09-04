@@ -2,6 +2,24 @@
 
 ## 2026-09-04
 
+- feat: Build BOM entries from an environment manifest
+
+  `bom.Declared` turns a manifest's declarations into changeset entries that
+  deploy alongside the substrate, so a declared instance can depend on
+  `eks-cluster` or `environment-db` by name. Nothing is auto-wired.
+
+- fix: Honour a manifest's pinned repo version
+
+  `Resolve` took no declared version, so a `version:` in a manifest was
+  discarded whenever a working tree existed -- which is always, locally.
+
+- fix: Accept a list of instance names as a dependency
+
+  The change_set schema types a dependency value as a string *or* an array of
+  them. Entries modelled only the string, so the topological sort could not
+  see a dependency expressed as a list and was free to order a producer after
+  its consumer.
+
 - feat: Read and write the environment manifest
 
   `$HMD_HOME/environments/<slug>.yaml` is the desired state an environment
