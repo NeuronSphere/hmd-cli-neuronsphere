@@ -194,3 +194,33 @@ func ReconcileRDSInstance(ctx context.Context, api RDSInstances, d Containers, a
 	}
 	return true, nil
 }
+
+// SubnetGroups is the DB subnet group surface the migration needs.
+type SubnetGroups interface {
+	DBSubnetGroupExists(ctx context.Context, name string) bool
+	DeleteDBSubnetGroup(ctx context.Context, name string) error
+}
+
+// ReleaseUnmanagedSubnetGroup clears a DB subnet group the CLI created
+// imperatively, so the base-vpc deploy can create it as a managed resource.
+//
+// A one-time migration for an environment provisioned before hmd-vpc owned the
+// network. Terraform has no state for the old group, so its create fails with
+// DBSubnetGroupAlreadyExists and the whole substrate deploy stops.
+//
+// Only called when base-vpc has never been deployed into this environment. A
+// group Terraform already owns is left alone -- deleting that one would make
+// every subsequent apply recreate it.
+//
+// Floci permits deleting a group an instance still references, and briefly
+// breaks DescribeDBInstances for that instance until it exists again -- so this
+// runs immediately before the deploy that recreates it, never on its own.
+func ReleaseUnmanagedSubnetGroup(ctx context.Context, api SubnetGroups, name string) (bool, error) {
+	if !api.DBSubnetGroupExists(ctx, name) {
+		return false, nil
+	}
+	if err := api.DeleteDBSubnetGroup(ctx, name); err != nil {
+		return false, fmt.Errorf("releasing the unmanaged DB subnet group %s: %w", name, err)
+	}
+	return true, nil
+}

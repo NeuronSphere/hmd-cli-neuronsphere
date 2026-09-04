@@ -101,6 +101,11 @@ type Runner struct {
 	Out    io.Writer
 	Err    io.Writer
 
+	// LastFailure is the node that stopped the most recent Run, with its
+	// output. Callers that can repair a specific failure need to see which one
+	// it was.
+	LastFailure *Result
+
 	// Succeeded is the instance names the most recent Run settled successfully.
 	// A partial run is normal -- the DAG stops at the first failure -- and a
 	// reconcile snapshot must record exactly what landed: no more, so a failed
@@ -136,9 +141,12 @@ type Result struct {
 // after a failure depends on it and would fail in a way that says less.
 func (r *Runner) Run(ctx context.Context, csdNid string, nodes []msdeploy.DeploymentNode) error {
 	r.Succeeded = nil
+	r.LastFailure = nil
 	for _, node := range nodes {
 		res := r.RunNode(ctx, node)
 		if res.Failed {
+			failure := res
+			r.LastFailure = &failure
 			r.setNodeStatus(ctx, node, StatusFailed)
 			r.setCSDStatus(ctx, csdNid, CSDStatusFailed)
 			r.printFailure(res)

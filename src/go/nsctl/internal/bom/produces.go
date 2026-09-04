@@ -42,36 +42,49 @@ var CoreProducedDefinitions = []ProducedDefinition{
 		// one resolves without those services existing as RepoInstances.
 		"application.neuronsphere.io", "microservice", "0.1.0", "microservice",
 	},
-	{
-		// A generic stand-in for "some network the instance lives in",
-		// satisfying a resource-typed base-vpc dependency without an hmd-vpc
-		// deploy, which is never applicable locally -- Docker networking
-		// replaces it.
-		"network.neuronsphere.io", "network", "0.1.0", "network",
-	},
-	{
-		// And the concrete vpc subtype, for a repo whose base-vpc dependency
-		// names it specifically rather than the abstract network above.
-		// Producing a parent type does not satisfy a requirement for a child,
-		// so both have to be declared.
-		"network.neuronsphere.io", "vpc", "0.1.0", "network",
-	},
 }
 
-// DeclareCoreProduces records that the core RepoClass produces the local core
-// resource types.
+// network and vpc are deliberately absent. The core instance used to declare
+// both, on the grounds that Docker networking substitutes for a VPC locally and
+// an hmd-vpc deploy "is never applicable". That was true when written and is
+// not any more: Floci 2.0.1's EC2 creates and persists real VPCs and subnets,
+// verified by deploying hmd-vpc against an account that had none. The base-vpc
+// instance produces both types now -- aws.neuronsphere.io/vpc, parented on
+// network.neuronsphere.io/network -- so declaring them here as well would make
+// two producers compete for the same dependency.
+
+// BaseVPCProducedDefinitions are the network types the base-vpc instance
+// provides.
 //
-// It runs after the core RepoClassVersion is registered and *before*
-// apply_changeset, so a resource-typed dependency validates against the
-// producing instance. Idempotent -- declare_produces is deduped server-side --
-// and best effort: a failure here surfaces as a dependency that will not
-// resolve, which the apply reports with its own, better message.
+// Both the abstract network and the concrete vpc subtype, because producing a
+// parent type does not satisfy a requirement for a child and consumers name
+// each: hmd-ms-transform's base-vpc dependency asks for network.neuronsphere.io/network,
+// hmd-postgres-rds's asks for network.neuronsphere.io/vpc. These are exactly
+// the two the core instance used to declare, moved to the repo that now
+// actually creates them.
+var BaseVPCProducedDefinitions = []ProducedDefinition{
+	{"network.neuronsphere.io", "network", "0.1.0", "network"},
+	{"network.neuronsphere.io", "vpc", "0.1.0", "network"},
+}
+
+// DeclareCoreProduces records what the core RepoClass produces.
 func (s *Seeder) DeclareCoreProduces(ctx context.Context) error {
-	rcvID, err := s.repoClassVersionID(ctx, CoreRepoClass)
+	return s.DeclareProduces(ctx, CoreRepoClass, CoreProducedDefinitions)
+}
+
+// DeclareProduces records that a RepoClass produces a set of resource types.
+//
+// It runs after the RepoClassVersion is registered and *before*
+// apply_changeset, so a resource-typed dependency validates against the
+// producing instance rather than failing with "supplied instance satisfies
+// neither the required resource type nor a suggested repo_class". Idempotent --
+// declare_produces is deduped server-side.
+func (s *Seeder) DeclareProduces(ctx context.Context, repoClass string, defs []ProducedDefinition) error {
+	rcvID, err := s.repoClassVersionID(ctx, repoClass)
 	if err != nil || rcvID == "" {
-		return fmt.Errorf("no RepoClassVersion for %s, so its produced resource types cannot be declared", CoreRepoClass)
+		return fmt.Errorf("no RepoClassVersion for %s, so its produced resource types cannot be declared", repoClass)
 	}
-	for _, d := range CoreProducedDefinitions {
+	for _, d := range defs {
 		_, err := s.Client.APIOp(ctx, "declare_produces_resource_definition", map[string]any{
 			"repo_class_version_id": rcvID,
 			"resource_definition": map[string]any{

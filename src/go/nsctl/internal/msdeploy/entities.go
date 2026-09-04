@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // Entity types in the hmd_lang_deployment language pack. Fully qualified: the
@@ -13,7 +12,6 @@ const (
 	EntityEnvironment   = "hmd_lang_deployment.environment"
 	EntityDeploymentSet = "hmd_lang_deployment.deployment_set"
 	EntityChangeSet     = "hmd_lang_deployment.change_set"
-	EntityRepoInstance  = "hmd_lang_deployment.repo_instance"
 )
 
 // EnsureEnvironment idempotently creates the Environment entity for a named
@@ -150,27 +148,4 @@ func (c *Client) GenerateLocalDeployment(ctx context.Context, csdNid string) ([]
 		return nil, fmt.Errorf("decoding the deployment manifest: %w", err)
 	}
 	return manifest.Nodes, nil
-}
-
-// RepoInstanceStatus is the most recent deployment status of each instance in
-// an environment, keyed by instance name.
-//
-// The graph is authoritative for intent but cannot see the cluster: an instance
-// whose Helm release was uninstalled still reads DEPLOYED.
-func (c *Client) RepoInstanceStatus(ctx context.Context, deploymentID string) (map[string]string, error) {
-	instances, err := c.Search(ctx, EntityRepoInstance, Filter{
-		Attribute: "deployment_id", Operator: "=", Value: deploymentID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	for _, inst := range instances {
-		name, _ := inst["name"].(string)
-		status, _ := inst["status"].(string)
-		if name != "" {
-			out[name] = strings.ToUpper(status)
-		}
-	}
-	return out, nil
 }

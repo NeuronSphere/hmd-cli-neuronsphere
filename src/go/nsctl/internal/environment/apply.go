@@ -75,15 +75,17 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.New(nserr.Usage, "%s", problem)
 	}
 
-	// Clear a database record Floci cannot serve, so the deploy below creates
-	// it rather than refreshing to "no changes" against a dead instance.
 	if prov, err := floci.NewProvisioner(ctx, floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout), opts.Out, opts.Err); err == nil {
+		// Clear a database record Floci cannot serve, so the deploy below
+		// creates it rather than refreshing to "no changes" against a dead
+		// instance.
 		cleared, err := floci.ReconcileRDSInstance(ctx, prov, d, env.AccountID, floci.EnvDBIdentifier(names))
 		if err != nil {
 			opts.warn("%v", err)
 		} else if cleared {
 			opts.step("  cleared the failed database record so it can be recreated")
 		}
+
 	}
 
 	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
@@ -123,11 +125,52 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	}
 
 	opts.step("Running the deployment...")
-	if err := run.Run(ctx, csdNid, nodes); err != nil {
+	err = run.Run(ctx, csdNid, nodes)
+	if err != nil && subnetGroupCollision(run.LastFailure) {
+		// A one-time migration for an environment provisioned before hmd-vpc
+		// owned the network. The CLI created the DB subnet group imperatively,
+		// so Terraform has no state for it and its create fails with
+		// DBSubnetGroupAlreadyExists.
+		//
+		// Done on the failure rather than pre-emptively, because there is no
+		// cheap way to ask who owns the group: the deployment graph does not
+		// record it, and an environment whose base-vpc genuinely owns it must
+		// keep it or every apply would recreate it. Reacting to the collision
+		// itself is exact -- it only ever fires when the group really is in the
+		// way -- and it costs one failed apply the first time.
+		//
+		// Floci lets an in-use group be deleted, and DescribeDBInstances fails
+		// for the instance referencing it until one exists again, so the retry
+		// follows immediately.
+		prov, provErr := floci.NewProvisioner(ctx, floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout), opts.Out, opts.Err)
+		if provErr == nil {
+			released, relErr := floci.ReleaseUnmanagedSubnetGroup(ctx, prov, floci.LocalDBSubnetGroup)
+			if relErr != nil {
+				opts.warn("%v", relErr)
+			} else if released {
+				opts.step("  released the CLI-created DB subnet group; retrying so base-vpc can own it")
+				csdNid, nodes, err = seeder.Seed(ctx, bomEnv, bom.Substrate(bomEnv, k3sEnabled(opts)))
+				if err != nil {
+					return nserr.Wrap(nserr.Fail, err)
+				}
+				err = run.Run(ctx, csdNid, nodes)
+			}
+		}
+	}
+	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(run.Succeeded))
 	return nil
+}
+
+// subnetGroupCollision reports the one failure the migration above repairs.
+func subnetGroupCollision(res *runner.Result) bool {
+	if res == nil {
+		return false
+	}
+	return strings.Contains(string(res.Stderr), "DBSubnetGroupAlreadyExists") ||
+		strings.Contains(string(res.Stdout), "DBSubnetGroupAlreadyExists")
 }
 
 func k3sEnabled(opts *Options) bool {

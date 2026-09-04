@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -76,44 +74,28 @@ func (f *fakeS3) CreateBucket(_ context.Context, in *s3.CreateBucketInput, _ ...
 	return &s3.CreateBucketOutput{}, nil
 }
 
-type fakeEC2 struct {
-	vpcs           []string
-	subnets        []ec2types.Subnet
-	createdVPCs    int
-	createdSubnets []string
-}
-
-func (f *fakeEC2) DescribeVpcs(context.Context, *ec2.DescribeVpcsInput, ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error) {
-	out := &ec2.DescribeVpcsOutput{}
-	for _, id := range f.vpcs {
-		out.Vpcs = append(out.Vpcs, ec2types.Vpc{VpcId: aws.String(id)})
-	}
-	return out, nil
-}
-
-func (f *fakeEC2) CreateVpc(context.Context, *ec2.CreateVpcInput, ...func(*ec2.Options)) (*ec2.CreateVpcOutput, error) {
-	f.createdVPCs++
-	id := "vpc-created"
-	f.vpcs = append(f.vpcs, id)
-	return &ec2.CreateVpcOutput{Vpc: &ec2types.Vpc{VpcId: aws.String(id)}}, nil
-}
-
-func (f *fakeEC2) DescribeSubnets(context.Context, *ec2.DescribeSubnetsInput, ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error) {
-	return &ec2.DescribeSubnetsOutput{Subnets: f.subnets}, nil
-}
-
-func (f *fakeEC2) CreateSubnet(_ context.Context, in *ec2.CreateSubnetInput, _ ...func(*ec2.Options)) (*ec2.CreateSubnetOutput, error) {
-	az := aws.ToString(in.AvailabilityZone)
-	id := "subnet-" + az
-	f.createdSubnets = append(f.createdSubnets, az)
-	return &ec2.CreateSubnetOutput{Subnet: &ec2types.Subnet{SubnetId: aws.String(id), AvailabilityZone: in.AvailabilityZone}}, nil
-}
-
 type fakeRDS struct {
-	groups   []string
-	failWith error
-	status   string
-	deleted  []string
+	groups        []string
+	failWith      error
+	status        string
+	deleted       []string
+	groupExists   bool
+	deletedGroups []string
+}
+
+func (f *fakeRDS) DescribeDBSubnetGroups(_ context.Context, in *rds.DescribeDBSubnetGroupsInput, _ ...func(*rds.Options)) (*rds.DescribeDBSubnetGroupsOutput, error) {
+	if !f.groupExists {
+		return &rds.DescribeDBSubnetGroupsOutput{}, nil
+	}
+	return &rds.DescribeDBSubnetGroupsOutput{
+		DBSubnetGroups: []rdstypes.DBSubnetGroup{{DBSubnetGroupName: in.DBSubnetGroupName}},
+	}, nil
+}
+
+func (f *fakeRDS) DeleteDBSubnetGroup(_ context.Context, in *rds.DeleteDBSubnetGroupInput, _ ...func(*rds.Options)) (*rds.DeleteDBSubnetGroupOutput, error) {
+	f.deletedGroups = append(f.deletedGroups, aws.ToString(in.DBSubnetGroupName))
+	f.groupExists = false
+	return &rds.DeleteDBSubnetGroupOutput{}, nil
 }
 
 func (f *fakeRDS) DeleteDBInstance(_ context.Context, in *rds.DeleteDBInstanceInput, _ ...func(*rds.Options)) (*rds.DeleteDBInstanceOutput, error) {
@@ -138,10 +120,10 @@ func (f *fakeRDS) CreateDBSubnetGroup(_ context.Context, in *rds.CreateDBSubnetG
 	return &rds.CreateDBSubnetGroupOutput{}, nil
 }
 
-func newProvisioner(sec *fakeSecrets, e *fakeEC2, r *fakeRDS, s *fakeS3) *Provisioner {
+func newProvisioner(sec *fakeSecrets, r *fakeRDS, s *fakeS3) *Provisioner {
 	return &Provisioner{
 		Target:  ForAccount(fakeEnv(nil), "000000000001", false),
-		Secrets: sec, EC2: e, RDS: r, S3: s,
+		Secrets: sec, RDS: r, S3: s,
 		Out: io.Discard, Err: io.Discard,
 	}
 }
@@ -153,7 +135,7 @@ func TestAdminDBSecretIsWrittenUnderBothIdentities(t *testing.T) {
 	t.Parallel()
 
 	sec := newFakeSecrets()
-	p := newProvisioner(sec, &fakeEC2{}, &fakeRDS{}, &fakeS3{})
+	p := newProvisioner(sec, &fakeRDS{}, &fakeS3{})
 	names := Names{DeploymentID: "local", Environment: "local", Region: "reg1", CustomerCode: "hmdtr1"}
 
 	if err := p.AdminDBSecret(context.Background(), names, "hmd_db-local"); err != nil {
@@ -198,7 +180,7 @@ func TestAdminDBSecretUsesTheEnvironmentSlug(t *testing.T) {
 	t.Parallel()
 
 	sec := newFakeSecrets()
-	p := newProvisioner(sec, &fakeEC2{}, &fakeRDS{}, &fakeS3{})
+	p := newProvisioner(sec, &fakeRDS{}, &fakeS3{})
 	names := Names{DeploymentID: "dev", Environment: "dev", Region: "reg1", CustomerCode: "none"}
 
 	if err := p.AdminDBSecret(context.Background(), names, "hmd_db-dev"); err != nil {
@@ -217,7 +199,7 @@ func TestAdminDBSecretOverwritesAnExistingSecret(t *testing.T) {
 
 	existing := "hmd_db_hmd-postgres-base_local_local_reg1_none_db-secret"
 	sec := newFakeSecrets(existing)
-	p := newProvisioner(sec, &fakeEC2{}, &fakeRDS{}, &fakeS3{})
+	p := newProvisioner(sec, &fakeRDS{}, &fakeS3{})
 
 	if err := p.AdminDBSecret(context.Background(), NamesFrom(fakeEnv(nil), "local", "local"), ""); err != nil {
 		t.Fatalf("AdminDBSecret: %v", err)
@@ -231,7 +213,7 @@ func TestEnsureBucketToleratesAnExistingBucket(t *testing.T) {
 	t.Parallel()
 
 	s := &fakeS3{buckets: map[string]bool{"already": true}}
-	p := newProvisioner(newFakeSecrets(), &fakeEC2{}, &fakeRDS{}, s)
+	p := newProvisioner(newFakeSecrets(), &fakeRDS{}, s)
 
 	if err := p.EnsureBucket(context.Background(), "already"); err != nil {
 		t.Errorf("EnsureBucket on an existing bucket: %v", err)
@@ -248,104 +230,9 @@ func TestEnsureBucketReportsARealFailure(t *testing.T) {
 	t.Parallel()
 
 	s := &fakeS3{failWith: apiErr{"AccessDenied"}}
-	p := newProvisioner(newFakeSecrets(), &fakeEC2{}, &fakeRDS{}, s)
+	p := newProvisioner(newFakeSecrets(), &fakeRDS{}, s)
 	if err := p.EnsureBucket(context.Background(), "b"); err == nil {
 		t.Error("EnsureBucket swallowed a real failure")
-	}
-}
-
-// The tfstate bucket uses the HMD region, matching HmdCdkTfStack's backend --
-// not the cloud LocationConstraint region on the target.
-func TestTFStateBucketName(t *testing.T) {
-	t.Parallel()
-
-	p := newProvisioner(newFakeSecrets(), &fakeEC2{}, &fakeRDS{}, &fakeS3{})
-	if got, want := p.TFStateBucket("reg1"), "hmd.000000000001.reg1.tfstate"; got != want {
-		t.Errorf("TFStateBucket = %q, want %q", got, want)
-	}
-	if p.Target.Region == "reg1" {
-		t.Fatal("the fixture no longer distinguishes the HMD region from the AWS region")
-	}
-}
-
-// Floci's per-account VPC seeding bug leaves every account after the first with
-// no default VPC, so the group has to be built explicitly.
-func TestEnsureRDSSubnetGroupCreatesAVPCAndTwoZones(t *testing.T) {
-	t.Parallel()
-
-	e := &fakeEC2{}
-	r := &fakeRDS{}
-	p := newProvisioner(newFakeSecrets(), e, r, &fakeS3{})
-
-	got, err := p.EnsureRDSSubnetGroup(context.Background())
-	if err != nil {
-		t.Fatalf("EnsureRDSSubnetGroup: %v", err)
-	}
-	if got != LocalDBSubnetGroup {
-		t.Errorf("group = %q, want %q", got, LocalDBSubnetGroup)
-	}
-	if e.createdVPCs != 1 {
-		t.Errorf("created %d VPCs, want 1", e.createdVPCs)
-	}
-	if len(e.createdSubnets) != 2 {
-		t.Errorf("created subnets in %v, want two zones", e.createdSubnets)
-	}
-	if len(r.groups) != 1 || r.groups[0] != LocalDBSubnetGroup {
-		t.Errorf("groups = %v", r.groups)
-	}
-}
-
-func TestEnsureRDSSubnetGroupReusesAnExistingVPCAndSubnets(t *testing.T) {
-	t.Parallel()
-
-	e := &fakeEC2{
-		vpcs: []string{"vpc-existing"},
-		subnets: []ec2types.Subnet{
-			{SubnetId: aws.String("subnet-a"), AvailabilityZone: aws.String("us-west-2a")},
-			{SubnetId: aws.String("subnet-b"), AvailabilityZone: aws.String("us-west-2b")},
-		},
-	}
-	p := newProvisioner(newFakeSecrets(), e, &fakeRDS{}, &fakeS3{})
-
-	if _, err := p.EnsureRDSSubnetGroup(context.Background()); err != nil {
-		t.Fatalf("EnsureRDSSubnetGroup: %v", err)
-	}
-	if e.createdVPCs != 0 {
-		t.Error("created a VPC when one already existed")
-	}
-	if len(e.createdSubnets) != 0 {
-		t.Errorf("created subnets %v when both zones were present", e.createdSubnets)
-	}
-}
-
-func TestEnsureRDSSubnetGroupToleratesAnExistingGroup(t *testing.T) {
-	t.Parallel()
-
-	r := &fakeRDS{failWith: apiErr{"DBSubnetGroupAlreadyExists"}}
-	p := newProvisioner(newFakeSecrets(), &fakeEC2{}, r, &fakeS3{})
-	if _, err := p.EnsureRDSSubnetGroup(context.Background()); err != nil {
-		t.Errorf("EnsureRDSSubnetGroup on an existing group: %v", err)
-	}
-}
-
-// Best-effort: a subnet-group failure must not stop provisioning, because the
-// deploy then fails with Floci's own error, which is more informative.
-func TestProvisionContinuesPastASubnetGroupFailure(t *testing.T) {
-	t.Parallel()
-
-	sec := newFakeSecrets()
-	s := &fakeS3{}
-	p := newProvisioner(sec, &fakeEC2{}, &fakeRDS{failWith: apiErr{"InternalFailure"}}, s)
-
-	names := Names{DeploymentID: "local", Environment: "local", Region: "reg1", CustomerCode: "none"}
-	if err := p.Provision(context.Background(), names, "hmd_db"); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	if len(sec.created) != 2 {
-		t.Errorf("the admin secrets were not written: %v", keys(sec.created))
-	}
-	if len(s.created) != 1 || !strings.HasSuffix(s.created[0], ".tfstate") {
-		t.Errorf("the tfstate bucket was not created: %v", s.created)
 	}
 }
 
@@ -410,10 +297,43 @@ func TestDBInstanceStatusDistinguishesFailedFromAbsent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newProvisioner(newFakeSecrets(), &fakeEC2{}, &fakeRDS{status: tt.status}, &fakeS3{})
+			p := newProvisioner(newFakeSecrets(), &fakeRDS{status: tt.status}, &fakeS3{})
 			if got := p.DBInstanceStatus(context.Background(), "id"); got != tt.want {
 				t.Errorf("DBInstanceStatus = %q, want %q", got, tt.want)
 			}
 		})
 	}
+}
+
+// A one-time migration for an environment provisioned before hmd-vpc owned the
+// network: Terraform has no state for the old group, so its create fails with
+// DBSubnetGroupAlreadyExists and the whole substrate deploy stops.
+func TestReleaseUnmanagedSubnetGroup(t *testing.T) {
+	t.Parallel()
+
+	t.Run("releases a group that is in the way", func(t *testing.T) {
+		t.Parallel()
+		r := &fakeRDS{groupExists: true}
+		p := newProvisioner(newFakeSecrets(), r, &fakeS3{})
+		released, err := ReleaseUnmanagedSubnetGroup(context.Background(), p, LocalDBSubnetGroup)
+		if err != nil {
+			t.Fatalf("ReleaseUnmanagedSubnetGroup: %v", err)
+		}
+		if !released || len(r.deletedGroups) != 1 {
+			t.Errorf("released=%v deleted=%v", released, r.deletedGroups)
+		}
+	})
+
+	t.Run("does nothing when there is none", func(t *testing.T) {
+		t.Parallel()
+		r := &fakeRDS{groupExists: false}
+		p := newProvisioner(newFakeSecrets(), r, &fakeS3{})
+		released, err := ReleaseUnmanagedSubnetGroup(context.Background(), p, LocalDBSubnetGroup)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if released || len(r.deletedGroups) != 0 {
+			t.Errorf("released=%v deleted=%v, want nothing touched", released, r.deletedGroups)
+		}
+	})
 }

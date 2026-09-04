@@ -2,6 +2,27 @@
 
 ## 2026-09-04
 
+- feat: Deploy the environment's network instead of working around its absence
+
+  `base-vpc` is a substrate BOM entry now, deployed from `hmd-vpc`, and
+  `environment-db` and `eks-cluster` take their `base-vpc` dependency from it
+  rather than from the core instance. The core instance stops declaring
+  `network.neuronsphere.io/network` and `/vpc`, which it never created.
+
+  This removes a workaround rather than adding a deploy. nsctl used to create
+  the VPC, subnets and DB subnet group directly through the EC2 API, because
+  Floci's `Ec2Service.ensureDefaultResources` guards on region alone while its
+  VPC storage is per-account -- so every account after the first has no default
+  VPC and RDS fails with `InvalidVPCNetworkStateFault`. That bug is still real
+  (verified against an empty account), but Floci 2.0.1's EC2 is real enough to
+  deploy the repo that owns VPCs, which `bom_seeder` had assumed was "never
+  applicable locally". Dropping the EC2 SDK took the binary from 55 MB to 31 MB
+  -- 24 MB for four calls.
+
+  `hmd-inf-eks-cluster`'s local overlay had documented its dependency on
+  `ensure_rds_subnet_group` running first; that is now a declared BOM edge
+  rather than an ordering accident.
+
 - feat: Deploy the environment's dbaccount service
 
   `hmd-ms-dbaccount` is substrate rather than a user-added RepoClass: every

@@ -25,6 +25,22 @@ const (
 	CoreInstanceName = "local-neuronsphere"
 	CoreRepoClass    = "hmd-cli-neuronsphere"
 
+	// BaseVPCInstance produces the environment's network:  a VPC, its subnets
+	// and the DB subnet group instances are placed into.
+	//
+	// It replaces an imperative workaround. The CLI used to create these
+	// directly, because Floci's Ec2Service.ensureDefaultResources guards on
+	// region alone while its VPC storage is per-account -- so the first account
+	// to touch EC2 marks the region seeded and every other account is left with
+	// no default VPC, and RDS then fails CreateDBInstance with
+	// "InvalidVPCNetworkStateFault: No subnets available for DB subnet group
+	// default". Deploying the repo that owns VPCs is the same fix expressed as
+	// the platform expresses everything else, and it is what makes base-vpc
+	// resolve to a real producing RepoInstance rather than to the core instance
+	// declaring a type it does not create.
+	BaseVPCInstance  = "base-vpc"
+	BaseVPCRepoClass = "hmd-vpc"
+
 	// EnvDBInstance produces the environment's
 	// database.neuronsphere.io/postgres Resource, which is what every
 	// database-instance dependency resolves against -- hmd-database-account's
@@ -90,6 +106,13 @@ func Substrate(env Environment, withCluster bool) []Entry {
 			Dependencies:          map[string]string{},
 		},
 		{
+			RepoInstanceName:      BaseVPCInstance,
+			RepoClassName:         BaseVPCRepoClass,
+			DeploymentID:          env.DeploymentID,
+			InstanceConfiguration: map[string]any{},
+			Dependencies:          map[string]string{},
+		},
+		{
 			RepoInstanceName: EnvDBInstance,
 			RepoClassName:    EnvDBRepoClass,
 			DeploymentID:     env.DeploymentID,
@@ -97,7 +120,9 @@ func Substrate(env Environment, withCluster bool) []Entry {
 				"db_subnet_group_name": LocalDBSubnetGroup,
 			},
 			Dependencies: map[string]string{
-				"base-vpc":       CoreInstanceName,
+				// A real producer now, which is also what orders the VPC ahead
+				// of the database that needs its subnet group.
+				"base-vpc":       BaseVPCInstance,
 				"datadog-lambda": CoreInstanceName,
 				"rds-loggroup":   CoreInstanceName,
 			},
@@ -110,7 +135,11 @@ func Substrate(env Environment, withCluster bool) []Entry {
 			DeploymentID:          env.DeploymentID,
 			InstanceConfiguration: map[string]any{},
 			Dependencies: map[string]string{
-				"base-vpc":       CoreInstanceName,
+				// hmd-inf-eks-cluster's local overlay looks the account's
+				// subnets up by boto3 and its docstring notes it depends on
+				// something else having seeded them first. That was true only
+				// by execution order; declaring the dependency makes it so.
+				"base-vpc":       BaseVPCInstance,
 				"datadog-lambda": CoreInstanceName,
 			},
 		})
@@ -215,11 +244,16 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 		entries[i].RepoClassVersion = version
 	}
 
-	// 2. Declare what the core RepoClass produces, before the changeset
-	// applies, so a resource-typed dependency validates against the
-	// local-neuronsphere producing instance rather than failing to resolve.
+	// 2. Declare what each producing RepoClass provides, before the changeset
+	// applies, so a resource-typed dependency validates against a producing
+	// instance rather than failing to resolve.
 	if err := s.DeclareCoreProduces(ctx); err != nil {
 		return "", nil, err
+	}
+	if declares(entries, BaseVPCRepoClass) {
+		if err := s.DeclareProduces(ctx, BaseVPCRepoClass, BaseVPCProducedDefinitions); err != nil {
+			return "", nil, err
+		}
 	}
 
 	// 3. The environment's own entities.
@@ -349,4 +383,14 @@ func toAnyMap(in map[string]string) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// declares reports whether the BOM includes an entry of a repo class.
+func declares(entries []Entry, repoClass string) bool {
+	for _, e := range entries {
+		if e.RepoClassName == repoClass {
+			return true
+		}
+	}
+	return false
 }

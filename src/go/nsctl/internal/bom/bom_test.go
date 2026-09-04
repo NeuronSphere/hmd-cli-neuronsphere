@@ -25,6 +25,7 @@ func TestSubstrateIsOnlyTheSubstrate(t *testing.T) {
 	}
 	want := map[string]string{
 		CoreInstanceName:   CoreRepoClass,
+		BaseVPCInstance:    BaseVPCRepoClass,
 		EnvDBInstance:      EnvDBRepoClass,
 		EKSClusterInstance: EKSClusterRepoClass,
 	}
@@ -63,14 +64,41 @@ func TestSubstrateSuppliesEveryRequiredRole(t *testing.T) {
 	for _, e := range Substrate(testEnv(), true) {
 		byName[e.RepoInstanceName] = e
 	}
-	for _, role := range []string{"base-vpc", "datadog-lambda", "rds-loggroup"} {
+	for _, role := range []string{"datadog-lambda", "rds-loggroup"} {
 		if byName[EnvDBInstance].Dependencies[role] != CoreInstanceName {
 			t.Errorf("the database does not supply the %q role", role)
 		}
 	}
-	for _, role := range []string{"base-vpc", "datadog-lambda"} {
-		if byName[EKSClusterInstance].Dependencies[role] != CoreInstanceName {
-			t.Errorf("the cluster does not supply the %q role", role)
+	if byName[EKSClusterInstance].Dependencies["datadog-lambda"] != CoreInstanceName {
+		t.Error("the cluster does not supply the datadog-lambda role")
+	}
+
+	// base-vpc resolves to a real producing instance now, not to the core
+	// instance declaring a type it does not create. That is also what orders
+	// the VPC ahead of the two entries that need its subnets.
+	for _, instance := range []string{EnvDBInstance, EKSClusterInstance} {
+		if got := byName[instance].Dependencies["base-vpc"]; got != BaseVPCInstance {
+			t.Errorf("%s takes base-vpc from %q, want %q", instance, got, BaseVPCInstance)
+		}
+	}
+}
+
+// The VPC has to be deployed before the database that needs its subnet group
+// and the cluster whose overlay looks its subnets up by boto3.
+func TestSubstrateOrdersTheVPCFirst(t *testing.T) {
+	t.Parallel()
+
+	sorted, err := TopoSort(Substrate(testEnv(), true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	position := map[string]int{}
+	for i, e := range sorted {
+		position[e.RepoInstanceName] = i
+	}
+	for _, after := range []string{EnvDBInstance, EKSClusterInstance} {
+		if position[BaseVPCInstance] > position[after] {
+			t.Errorf("%s is ordered before base-vpc: %v", after, positionsOf(sorted))
 		}
 	}
 }
@@ -201,19 +229,11 @@ func TestCoreProducedDefinitionsExcludeTheCluster(t *testing.T) {
 			t.Error("kubernetes-cluster is declared core-produced; it comes from the eks-cluster instance")
 		}
 	}
-	// Both the abstract network and the concrete vpc subtype have to be
-	// declared: producing a parent type does not satisfy a requirement for a
-	// child.
-	var haveNetwork, haveVPC bool
+	// network and vpc are produced by the base-vpc instance now. Declaring them
+	// here too would make two producers compete for the same dependency.
 	for _, d := range CoreProducedDefinitions {
-		if d.Name == "network" {
-			haveNetwork = true
+		if d.Name == "network" || d.Name == "vpc" {
+			t.Errorf("%s is still declared core-produced; base-vpc produces it", d.Name)
 		}
-		if d.Name == "vpc" {
-			haveVPC = true
-		}
-	}
-	if !haveNetwork || !haveVPC {
-		t.Errorf("network=%v vpc=%v; both are needed", haveNetwork, haveVPC)
 	}
 }
