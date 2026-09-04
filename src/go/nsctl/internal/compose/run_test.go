@@ -67,6 +67,10 @@ func (f *fakeAPI) ContainerCreate(_ context.Context, cfg *container.Config, host
 	return container.CreateResponse{ID: name}, nil
 }
 
+func (f *fakeAPI) ContainerList(context.Context, container.ListOptions) ([]types.Container, error) {
+	return nil, nil
+}
+
 func (f *fakeAPI) ContainerStart(_ context.Context, name string, _ container.StartOptions) error {
 	f.started = append(f.started, name)
 	return nil

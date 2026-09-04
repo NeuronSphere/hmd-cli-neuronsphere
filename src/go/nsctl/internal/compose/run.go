@@ -48,6 +48,7 @@ const LabelConfigHash = "io.neuronsphere.nsctl.config-hash"
 type dockerAPI interface {
 	ContainerInspect(ctx context.Context, name string) (types.ContainerJSON, error)
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, name string) (container.CreateResponse, error)
+	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)
 	ContainerStart(ctx context.Context, name string, options container.StartOptions) error
 	ContainerStop(ctx context.Context, name string, options container.StopOptions) error
 	ContainerRemove(ctx context.Context, name string, options container.RemoveOptions) error
