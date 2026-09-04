@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/controlplane"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/status"
@@ -45,8 +47,83 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	env.AddCommand(newEnvListCommand(opts), newEnvStatusCommand(opts))
+	env.AddCommand(
+		newEnvListCommand(opts),
+		newEnvStatusCommand(opts),
+		newEnvStartCommand(opts),
+		newEnvStopCommand(opts),
+	)
 	return env
+}
+
+func newEnvStartCommand(opts *Options) *cobra.Command {
+	var noDeploy, verbose bool
+	cmd := &cobra.Command{
+		Use:   "start [name]",
+		Short: "Start an environment's infrastructure",
+		Long: `Starts one environment: its database, graph, k3s cluster and routes.
+
+The control plane is started first if it is down, and is left running
+afterwards -- stopping it would take every other environment's emulated AWS
+with it.`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			// `env start` starts the control plane implicitly if it is down,
+			// and then leaves it running.
+			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
+				Home: home, Lookup: opts.Lookup, Verbose: verbose,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}); err != nil {
+				return err
+			}
+			return environment.Start(cmd.Context(), &environment.Options{
+				Home: home, Lookup: opts.Lookup, NoDeploy: noDeploy, Verbose: verbose,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}, name)
+		},
+	}
+	cmd.Flags().BoolVar(&noDeploy, "no-deploy", false, "Bring up the infrastructure without reconciling the BOM")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	return cmd
+}
+
+func newEnvStopCommand(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop [name]",
+		Short: "Stop an environment, leaving its state in place",
+		Long: `Stops one environment. This is a stop, not a teardown: the k3s cluster is
+stopped rather than deleted and its containers are stopped rather than removed,
+so the next start restarts them in place and keeps the cluster's datastore.
+
+The control plane keeps running.`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			return environment.Stop(cmd.Context(), &environment.Options{
+				Home: home, Lookup: opts.Lookup,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}, name)
+		},
+	}
 }
 
 func newEnvListCommand(opts *Options) *cobra.Command {

@@ -93,6 +93,7 @@ type ec2API interface {
 
 type rdsAPI interface {
 	CreateDBSubnetGroup(ctx context.Context, in *rds.CreateDBSubnetGroupInput, opts ...func(*rds.Options)) (*rds.CreateDBSubnetGroupOutput, error)
+	DescribeDBInstances(ctx context.Context, in *rds.DescribeDBInstancesInput, opts ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
 }
 
 type s3API interface {
@@ -349,4 +350,22 @@ func isAPIErrorCode(err error, codes ...string) bool {
 		}
 	}
 	return false
+}
+
+// DBInstanceStatus is what Floci reports for an RDS instance, or "" when there
+// is no such instance.
+//
+// Worth asking separately from "is there a container": an instance Floci failed
+// to bring back reports `failed` while having no container at all, and the two
+// need different words. "No database container" reads as "nothing was ever
+// deployed"; `failed` means the record is there and its backing container could
+// not be recreated, which only a redeploy fixes.
+func (p *Provisioner) DBInstanceStatus(ctx context.Context, identifier string) string {
+	out, err := p.RDS.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(identifier),
+	})
+	if err != nil || len(out.DBInstances) == 0 {
+		return ""
+	}
+	return aws.ToString(out.DBInstances[0].DBInstanceStatus)
 }

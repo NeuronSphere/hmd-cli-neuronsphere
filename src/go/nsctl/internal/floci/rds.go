@@ -110,3 +110,50 @@ func WaitForPostgres(ctx context.Context, d Containers, containerName string, ti
 		}
 	}
 }
+
+// Graph identifiers, from bom_seeder.graph_cluster_identifier.
+const (
+	graphInstanceName = "global-graph"
+	graphRepoClass    = "hmd-inf-neptune"
+)
+
+// GraphIdentifier is the Neptune DBClusterIdentifier the graph node creates.
+//
+// Its environment component is the literal "local" in every environment, not
+// the slug -- graph_cluster_identifier passes a literal there.
+func GraphIdentifier(names Names) string {
+	return tools.ResourceIdentifier(
+		graphInstanceName, graphRepoClass,
+		names.DeploymentID, "local", names.Region, names.CustomerCode,
+	)
+}
+
+// EnsureNeptuneRunning returns the running graph container, starting it if
+// Floci left it stopped.
+//
+// Floci stops the container it spawned on shutdown and, unlike RDS, never
+// brings it back, while the cluster record survives and keeps reporting
+// available forever. Waiting on the status alone therefore waits out the whole
+// timeout on the single most common state after a stop, and then reports "no
+// graph".
+//
+// An absent container returns "" without an error: the graph is provisioned
+// only when something in the BOM asks for one, so its absence is the normal
+// case for a default environment.
+func EnsureNeptuneRunning(ctx context.Context, d Containers, accountID, identifier, alias, network string) (string, error) {
+	name, running := d.FlociContainer(ctx, "neptune", accountID, identifier)
+	if name == "" {
+		return "", nil
+	}
+	if !running {
+		if err := d.Start(ctx, name); err != nil {
+			return name, fmt.Errorf("starting the graph container %s: %w", name, err)
+		}
+	}
+	if alias != "" && network != "" {
+		if err := d.EnsureNetworkAlias(ctx, name, alias, network); err != nil {
+			return name, err
+		}
+	}
+	return name, nil
+}

@@ -2,6 +2,26 @@
 
 ## 2026-09-04
 
+- feat: nsctl starts and stops an environment
+
+  NERD002 Phase 2c. `nsctl env start <name> --no-deploy` brings up an
+  environment's database, graph, k3s cluster, cluster operators and every route;
+  `nsctl env stop` stops it without tearing anything down, so the next start
+  restarts in place and keeps the cluster's datastore. The control plane starts
+  implicitly and is left running.
+
+  Verified against the environment torn down with `hmd neuronsphere down`: a
+  full stop/start round trip takes 37 seconds, the k3s container is started in
+  place, and Argo, Trino, the ingress vhosts and the DAG-deployed service routes
+  all come back.
+
+  Two things nsctl now says rather than leaving to be discovered. An RDS
+  instance Floci failed to bring back is reported as `failed` with the redeploy
+  that fixes it, instead of the misleading "no database container" -- which
+  reads as "nothing was ever deployed". And recreating the Floci container warns
+  first, because Floci supervises the containers backing every account's
+  databases and its recovery of them is not reliable.
+
 - feat: Provision the k3s cluster from the node container, not projectbuilder
 
   NERD002 Phase 2b. CoreDNS canonical-name records, the Traefik-as-alb ingress

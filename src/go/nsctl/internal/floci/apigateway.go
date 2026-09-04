@@ -147,6 +147,7 @@ func rewriteJSONDict(path string, data map[string]json.RawMessage) bool {
 type apigatewayAPI interface {
 	GetRestApis(ctx context.Context, in *apigateway.GetRestApisInput, opts ...func(*apigateway.Options)) (*apigateway.GetRestApisOutput, error)
 	CreateDeployment(ctx context.Context, in *apigateway.CreateDeploymentInput, opts ...func(*apigateway.Options)) (*apigateway.CreateDeploymentOutput, error)
+	GetStages(ctx context.Context, in *apigateway.GetStagesInput, opts ...func(*apigateway.Options)) (*apigateway.GetStagesOutput, error)
 	DeleteStage(ctx context.Context, in *apigateway.DeleteStageInput, opts ...func(*apigateway.Options)) (*apigateway.DeleteStageOutput, error)
 	CreateStage(ctx context.Context, in *apigateway.CreateStageInput, opts ...func(*apigateway.Options)) (*apigateway.CreateStageOutput, error)
 }
@@ -220,4 +221,67 @@ func (g *Gateways) DeployStage(ctx context.Context, apiID, stage string) error {
 		return fmt.Errorf("creating the %s stage for %s: %w", stage, apiID, err)
 	}
 	return nil
+}
+
+// Gateways this CLI creates itself are named neuronsphere-<service> and are
+// already routed by the bulk writers, so discovery skips them rather than
+// writing a second, redundant route.
+const cliGatewayPrefix = GatewayNamePrefix
+
+// CDKTF names its REST API <instance>_<repo_class>_<did>_<env>_<region>_<customer>-rest-api.
+// The leading segment is the repo *instance* name, which is what the service is
+// addressed as: transform_hmd-ms-transform_local_..._-rest-api -> /<env>/transform/.
+const restAPISuffix = "-rest-api"
+
+// RoutePathForGateway is the route segment a CDKTF gateway should be served
+// under, or "" when the gateway is not one.
+func RoutePathForGateway(name string) string {
+	if name == "" || strings.HasPrefix(name, cliGatewayPrefix) {
+		return ""
+	}
+	if !strings.HasSuffix(name, restAPISuffix) {
+		return ""
+	}
+	// Strip the suffix before splitting, so a name carrying no underscore at
+	// all still yields a usable route rather than one ending in "-rest-api".
+	stem := strings.TrimSuffix(name, restAPISuffix)
+	instance, _, _ := strings.Cut(stem, "_")
+	return strings.TrimSpace(instance)
+}
+
+// DeployedRoute is one DAG-deployed service's gateway and its live stage.
+type DeployedRoute struct {
+	RestAPIID string
+	StageName string
+}
+
+// DeployedServiceRoutes maps a route path to the gateway serving it, for every
+// service deployed through the DAG into this account.
+//
+// The stage has to be read rather than assumed: CDKTF names its stage after the
+// stack, not "local", so a route built with the default stage answers
+// {"message": "Stage not found"}. An API with no deployed stage is skipped --
+// it would 404 anyway, and it is usually a gateway mid-deploy.
+func (g *Gateways) DeployedServiceRoutes(ctx context.Context) (map[string]DeployedRoute, error) {
+	out, err := g.API.GetRestApis(ctx, &apigateway.GetRestApisInput{Limit: aws.Int32(500)})
+	if err != nil {
+		return nil, fmt.Errorf("listing API Gateways: %w", err)
+	}
+	routes := map[string]DeployedRoute{}
+	for _, api := range out.Items {
+		id, name := aws.ToString(api.Id), aws.ToString(api.Name)
+		path := RoutePathForGateway(name)
+		if id == "" || path == "" {
+			continue
+		}
+		if _, seen := routes[path]; seen {
+			continue
+		}
+		stages, err := g.API.GetStages(ctx, &apigateway.GetStagesInput{RestApiId: aws.String(id)})
+		if err != nil || len(stages.Item) == 0 {
+			continue
+		}
+		routes[path] = DeployedRoute{RestAPIID: id, StageName: aws.ToString(stages.Item[0].StageName)}
+	}
+	return routes, nil
 }

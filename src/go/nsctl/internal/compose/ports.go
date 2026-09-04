@@ -14,6 +14,10 @@ import (
 	"github.com/docker/docker/api/types/filters"
 )
 
+// FlociService is the compose service key for Floci, which supervises the
+// containers backing every account's databases.
+const FlociService = "floci"
+
 // ProxyService is the only service allowed to publish host ports. Everything
 // else is reached through it, and that invariant is what lets several named
 // environments coexist on one machine: hmd_proxy owns 80, 4566, 18080 and the

@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/smithy-go"
@@ -111,6 +112,16 @@ func (f *fakeEC2) CreateSubnet(_ context.Context, in *ec2.CreateSubnetInput, _ .
 type fakeRDS struct {
 	groups   []string
 	failWith error
+	status   string
+}
+
+func (f *fakeRDS) DescribeDBInstances(_ context.Context, in *rds.DescribeDBInstancesInput, _ ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {
+	if f.status == "" {
+		return &rds.DescribeDBInstancesOutput{}, nil
+	}
+	return &rds.DescribeDBInstancesOutput{
+		DBInstances: []rdstypes.DBInstance{{DBInstanceStatus: aws.String(f.status)}},
+	}, nil
 }
 
 func (f *fakeRDS) CreateDBSubnetGroup(_ context.Context, in *rds.CreateDBSubnetGroupInput, _ ...func(*rds.Options)) (*rds.CreateDBSubnetGroupOutput, error) {
@@ -374,4 +385,29 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// An instance Floci failed to bring back has a record but no container, and
+// "no database container" would read as "nothing was ever deployed".
+func TestDBInstanceStatusDistinguishesFailedFromAbsent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+		want   string
+	}{
+		{"no such instance", "", ""},
+		{"available", "available", "available"},
+		{"failed to recreate its container", "failed", "failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := newProvisioner(newFakeSecrets(), &fakeEC2{}, &fakeRDS{status: tt.status}, &fakeS3{})
+			if got := p.DBInstanceStatus(context.Background(), "id"); got != tt.want {
+				t.Errorf("DBInstanceStatus = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

@@ -168,6 +168,18 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 			return res, nil
 		}
 		// Configuration changed, so the container has to go.
+		//
+		// Recreating Floci is not free: it spawns and supervises the RDS and
+		// Neptune containers backing every account, and its recovery of them on
+		// restart is not reliable -- an instance whose container it cannot
+		// bring back is left reporting `failed`, with a redeploy the only way
+		// out. Observed on the first nsctl start against a platform the Python
+		// CLI created, where no nsctl hash label existed and every container
+		// was therefore recreated. Say so before doing it rather than leaving
+		// the consequence to be discovered as a service answering 500.
+		if s.Key == FlociService {
+			r.warn("recreating %s. Floci's recovery of the databases it spawned is not reliable; if one comes back in state \"failed\", redeploy it with `hmd neuronsphere up --env <name>`.", name)
+		}
 		if err := r.API.ContainerRemove(ctx, existing.ID, container.RemoveOptions{Force: true}); err != nil {
 			return res, fmt.Errorf("removing the outdated container: %w", err)
 		}
@@ -268,6 +280,13 @@ func (r *Runner) Pull(ctx context.Context, ref string) error {
 	defer body.Close()
 	_, err = io.Copy(io.Discard, body)
 	return err
+}
+
+func (r *Runner) warn(format string, a ...any) {
+	if r.Err == nil {
+		return
+	}
+	fmt.Fprintf(r.Err, "warning: "+format+"\n", a...)
 }
 
 func (r *Runner) progress(format string, a ...any) {

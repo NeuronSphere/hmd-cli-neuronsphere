@@ -164,6 +164,7 @@ func TestPruneAPIGatewayGhostsLeavesChildrenAloneWithNoAPIStore(t *testing.T) {
 // fakeGateways records what was asked of the API Gateway client.
 type fakeGateways struct {
 	apis        []apitypes.RestApi
+	stages      map[string][]apitypes.Stage
 	deployments []string
 	deleted     []string
 	created     []string
@@ -172,6 +173,10 @@ type fakeGateways struct {
 
 func (f *fakeGateways) GetRestApis(context.Context, *apigateway.GetRestApisInput, ...func(*apigateway.Options)) (*apigateway.GetRestApisOutput, error) {
 	return &apigateway.GetRestApisOutput{Items: f.apis}, nil
+}
+
+func (f *fakeGateways) GetStages(_ context.Context, in *apigateway.GetStagesInput, _ ...func(*apigateway.Options)) (*apigateway.GetStagesOutput, error) {
+	return &apigateway.GetStagesOutput{Item: f.stages[aws.ToString(in.RestApiId)]}, nil
 }
 
 func (f *fakeGateways) CreateDeployment(_ context.Context, in *apigateway.CreateDeploymentInput, _ ...func(*apigateway.Options)) (*apigateway.CreateDeploymentOutput, error) {

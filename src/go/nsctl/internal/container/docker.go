@@ -298,3 +298,21 @@ func parseContainerIP(out string) string {
 	}
 	return out
 }
+
+// ImageOf is the image a container was created from, or "" when it cannot be
+// read.
+//
+// The empty result is deliberately ambiguous between "no such container" and
+// "could not inspect it", and callers must treat it as unknown rather than as
+// staleness: recreating a k3s cluster over a transient docker hiccup would drop
+// its datastore and every Helm release on it.
+func (d *Docker) ImageOf(ctx context.Context, name string) string {
+	if name == "" {
+		return ""
+	}
+	out, err := d.capture(ctx, "inspect", "-f", "{{.Config.Image}}", name)
+	if err != nil {
+		return ""
+	}
+	return out
+}

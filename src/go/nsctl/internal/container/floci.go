@@ -12,6 +12,10 @@ const ControlPlaneAccountID = "000000000000"
 // K3sContainerName is the Docker name of the k3s container Floci spawned for a
 // cluster, ported from floci_deployer.k3s_container_name.
 //
+// internal/floci carries the same rule for its own lifecycle helpers; this copy
+// exists because internal/status must not import the AWS SDK just to name a
+// container.
+//
 // Floci 2.0 qualifies the name by account for every account except the default
 // one, so an environment's cluster is floci-eks-<account>.<cluster> while the
 // control plane's stays floci-eks-<cluster>.
