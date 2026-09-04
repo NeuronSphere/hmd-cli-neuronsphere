@@ -200,6 +200,12 @@ func CheckInUse(ctx context.Context, p *Project, active map[string]bool, ours ma
 	return out
 }
 
+// OurPorts returns the host ports bound by containers in the given compose
+// projects, using this runner's daemon connection.
+func (r *Runner) OurPorts(ctx context.Context, projects ...string) map[int]bool {
+	return OurPorts(ctx, r.API, projects...)
+}
+
 // listAPI is the container-listing surface OurPorts needs.
 type listAPI interface {
 	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)

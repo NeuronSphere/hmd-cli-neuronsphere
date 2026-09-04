@@ -32,14 +32,27 @@ const (
 	LabelService         = "com.docker.compose.service"
 	LabelContainerNumber = "com.docker.compose.container-number"
 	LabelOneOff          = "com.docker.compose.oneoff"
+	LabelWorkingDir      = "com.docker.compose.project.working_dir"
+	LabelConfigFiles     = "com.docker.compose.project.config_files"
 )
 
-// LabelConfigHash is nsctl's own. Compose keeps a config-hash of its own that
-// nsctl deliberately does not try to reproduce: matching it would mean matching
-// an internal detail of another tool across versions. The cost is stated rather
-// than hidden -- alternating front ends may recreate a container once, which is
-// benign here because all three keep their state in binds or Floci volumes
-// rather than the writable layer.
+// LabelComposeConfigHash is what compose uses to decide a container is one of
+// its own. Its *presence* is what makes a container discoverable: without it
+// `docker compose ps|stop|down` skips the container entirely even when every
+// other label matches, which was verified against compose v2.40 -- so omitting
+// it would have left `hmd neuronsphere down` silently stopping nothing.
+//
+// nsctl writes its own hash here rather than reproducing compose's algorithm,
+// which is an internal detail that changes across versions. The value is only
+// ever compared by compose on `up`, so the consequence is bounded and stated
+// rather than hidden: switching front ends recreates each container once,
+// because neither tool recognises the other's hash. That is benign here -- all
+// three keep their state in binds or Floci volumes, not the writable layer.
+const LabelComposeConfigHash = "com.docker.compose.config-hash"
+
+// LabelConfigHash is nsctl's own copy, which is the one nsctl compares. Keeping
+// it separate means a container compose rebuilt (carrying compose's hash and no
+// nsctl label) reads as changed rather than accidentally matching.
 const LabelConfigHash = "io.neuronsphere.nsctl.config-hash"
 
 // dockerAPI is the Engine API surface the runner uses. Narrowing it to these
@@ -165,7 +178,7 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 		return res, fmt.Errorf("inspecting %s: %w", name, err)
 	}
 
-	if err := r.ensureImage(ctx, s.Image); err != nil {
+	if err := r.EnsureImage(ctx, s.Image); err != nil {
 		return res, err
 	}
 	cfg, hostCfg, netCfg, err := containerSpec(p, s, want)
@@ -220,12 +233,11 @@ func (r *Runner) Remove(ctx context.Context, p *Project) error {
 	return nil
 }
 
-// ensureImage pulls the image when it is not already local.
-//
 // It does not pull when the image is present, even for a floating tag. That is
 // `docker compose up`'s behaviour too, and it is what makes an offline start
 // work; `--upgrade` is the explicit way to ask for newer images.
-func (r *Runner) ensureImage(ctx context.Context, ref string) error {
+// EnsureImage pulls the image when it is not already local.
+func (r *Runner) EnsureImage(ctx context.Context, ref string) error {
 	if ref == "" {
 		return errors.New("no image")
 	}
@@ -315,13 +327,21 @@ func containerSpec(p *Project, s Service, hash string) (*container.Config, *cont
 }
 
 func labels(p *Project, s Service, hash string) map[string]string {
-	return map[string]string{
-		LabelProject:         p.Name,
-		LabelService:         s.Key,
-		LabelContainerNumber: "1",
-		LabelOneOff:          "False",
-		LabelConfigHash:      hash,
+	out := map[string]string{
+		LabelProject:           p.Name,
+		LabelService:           s.Key,
+		LabelContainerNumber:   "1",
+		LabelOneOff:            "False",
+		LabelComposeConfigHash: hash,
+		LabelConfigHash:        hash,
 	}
+	if p.WorkingDir != "" {
+		out[LabelWorkingDir] = p.WorkingDir
+	}
+	if p.ConfigFile != "" {
+		out[LabelConfigFiles] = p.ConfigFile
+	}
+	return out
 }
 
 func binds(mounts []Mount) []string {
@@ -375,6 +395,13 @@ func portSpec(ports []Port) (nat.PortSet, nat.PortMap, error) {
 	return exposed, bindings, nil
 }
 
+// labelSchema versions the label set nsctl stamps. It is part of the hash, so
+// changing which labels are written forces one recreate rather than leaving
+// existing containers carrying the old set forever -- which is exactly what
+// happened when com.docker.compose.config-hash was added: the containers kept
+// their old labels and stayed invisible to `docker compose`.
+const labelSchema = 2
+
 // configHash fingerprints everything that would require a recreate. A container
 // whose hash still matches is started in place rather than rebuilt, which is
 // what makes a restart cheap.
@@ -382,8 +409,11 @@ func configHash(p *Project, s Service) string {
 	// A struct rendered through encoding/json, whose object keys are sorted, so
 	// the hash does not depend on map iteration order.
 	payload := struct {
+		LabelSchema int                 `json:"label_schema"`
 		Project     string              `json:"project"`
 		Service     string              `json:"service"`
+		WorkingDir  string              `json:"working_dir"`
+		ConfigFile  string              `json:"config_file"`
 		Image       string              `json:"image"`
 		Command     []string            `json:"command"`
 		Environment map[string]string   `json:"environment"`
@@ -393,7 +423,9 @@ func configHash(p *Project, s Service) string {
 		Healthcheck *Healthcheck        `json:"healthcheck"`
 		Restart     string              `json:"restart"`
 	}{
-		Project: p.Name, Service: s.Key, Image: s.Image, Command: s.Command,
+		LabelSchema: labelSchema,
+		Project:     p.Name, Service: s.Key, Image: s.Image, Command: s.Command,
+		WorkingDir: p.WorkingDir, ConfigFile: p.ConfigFile,
 		Environment: s.Environment, Ports: s.Ports, Volumes: s.Volumes,
 		Healthcheck: s.Healthcheck, Restart: s.Restart,
 	}

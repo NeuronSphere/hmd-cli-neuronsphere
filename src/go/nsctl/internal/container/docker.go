@@ -3,6 +3,7 @@ package container
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -134,11 +135,25 @@ func (d *Docker) FlociContainer(ctx context.Context, service, accountID, resourc
 	if err != nil || out == "" {
 		return "", false
 	}
-	// One resource, one backing container; take the first line if Floci ever
-	// leaves a second behind.
-	line := strings.SplitN(out, "\n", 2)[0]
-	name, state, _ := strings.Cut(line, "\t")
-	return strings.TrimSpace(name), strings.TrimSpace(state) == "running"
+	// Floci can leave more than one backing container behind for the same
+	// resource id across restarts, so a running one wins over a stale stopped
+	// one. Taking the first line would otherwise report a resource stopped
+	// while the container actually serving it is up.
+	var fallback string
+	for _, line := range strings.Split(out, "\n") {
+		name, state, _ := strings.Cut(line, "\t")
+		name, state = strings.TrimSpace(name), strings.TrimSpace(state)
+		if name == "" {
+			continue
+		}
+		if state == "running" {
+			return name, true
+		}
+		if fallback == "" {
+			fallback = name
+		}
+	}
+	return fallback, false
 }
 
 // flociPSArgs builds the `docker ps` invocation that finds a Floci-managed
@@ -180,4 +195,61 @@ func (d *Docker) Exec(ctx context.Context, name string, args ...string) ([]byte,
 		return out, fmt.Errorf("docker exec %s %s: %w", name, strings.Join(args, " "), err)
 	}
 	return out, nil
+}
+
+// ImagePresent reports whether a ref is already in the host image cache.
+//
+// No container CLI, or a ref that is not there, is "not cached" rather than an
+// error -- the caller falls through to the published ref and pulls.
+func (d *Docker) ImagePresent(ctx context.Context, ref string) bool {
+	if ref == "" {
+		return false
+	}
+	_, err := d.capture(ctx, "image", "inspect", "-f", "{{.Id}}", ref)
+	return err == nil
+}
+
+// Start starts an existing container.
+func (d *Docker) Start(ctx context.Context, name string) error {
+	_, err := d.capture(ctx, "start", name)
+	return err
+}
+
+// NetworkAliases reports the aliases a container carries on a network.
+func (d *Docker) NetworkAliases(ctx context.Context, name, network string) []string {
+	format := `{{with index .NetworkSettings.Networks "` + network + `"}}{{json .Aliases}}{{end}}`
+	out, err := d.capture(ctx, "inspect", name, "--format", format)
+	if err != nil || out == "" || out == "null" {
+		return nil
+	}
+	var aliases []string
+	if err := json.Unmarshal([]byte(out), &aliases); err != nil {
+		return nil
+	}
+	return aliases
+}
+
+// EnsureNetworkAlias attaches an alias to a container on a network.
+//
+// Docker refuses to add an alias to an existing endpoint, so this disconnects
+// and reconnects. That is safe because it is skipped entirely when the alias is
+// already present, so a restart does not churn the container's networking.
+//
+// The alias is what makes Floci's opaquely named backend reachable: the whole
+// local platform addresses the database as hmd_db -- compose peers, psql, and
+// cloud Helm charts running unmodified in k3s -- and aliasing restores that one
+// canonical name instead of rewriting every consumer.
+func (d *Docker) EnsureNetworkAlias(ctx context.Context, name, alias, network string) error {
+	for _, existing := range d.NetworkAliases(ctx, name, network) {
+		if existing == alias {
+			return nil
+		}
+	}
+	if _, err := d.capture(ctx, "network", "disconnect", network, name); err != nil {
+		return fmt.Errorf("disconnecting %s from %s: %w", name, network, err)
+	}
+	if _, err := d.capture(ctx, "network", "connect", "--alias", alias, network, name); err != nil {
+		return fmt.Errorf("reconnecting %s to %s as %s: %w", name, network, alias, err)
+	}
+	return nil
 }

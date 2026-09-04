@@ -20,6 +20,12 @@ type Project struct {
 	// Go's map iteration.
 	Services []Service
 	Networks map[string]Network
+
+	// WorkingDir and ConfigFile are stamped onto containers as the labels
+	// compose writes, so `docker compose -p <project> ps` works from anywhere
+	// rather than only alongside the file. Both are optional.
+	WorkingDir string
+	ConfigFile string
 }
 
 // Service is one container to run.

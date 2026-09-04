@@ -2,6 +2,37 @@
 
 ## 2026-09-04
 
+- feat: nsctl starts and stops the control plane
+
+  `nsctl control-plane start` brings up hmd_proxy, Floci and the Deployment GUI
+  through the Docker Engine API, starts the control-plane database and aliases
+  it as `hmd_db`, provisions the account's Floci resources, discovers the API
+  Gateway ids and writes the nginx routes. `control-plane stop` is the only
+  command that stops it, and refuses with exit 3 while any environment is
+  running unless `--force` -- a lifecycle the Python CLI does not have, where the
+  control plane is only ever stopped as a side effect of a bare `down`.
+
+  Two fixes came out of verifying it against a real platform rather than only
+  unit tests:
+
+  `com.docker.compose.config-hash` has to be present or `docker compose` ignores
+  the container entirely -- `ps`, `stop` and `down` all skip it even when every
+  other label matches. Without it `hmd neuronsphere down` would have silently
+  stopped nothing. nsctl writes its own hash there rather than reproducing
+  compose's algorithm, so the two front ends recreate each other's containers
+  once; the label set is now part of the hash, so a future change to it forces
+  that recreate instead of leaving containers on a stale set.
+
+  Floci leaves its RDS container stopped on shutdown and nothing restarts it:
+  the Python relies on the bootstrap DAG's Terraform apply, and
+  `wait_for_rds_instance` only polls. So after a `down` the database stays down
+  while its instance still reports `available`, and ms-deployment answers 500 on
+  every request. `EnsureRDSRunning` starts it and re-attaches the alias.
+
+  Not ported yet: the control-plane bootstrap DAG, which the Python runs on
+  every start. An already-bootstrapped HMD_HOME recovers its gateway ids by
+  listing them from Floci instead; a never-bootstrapped one is refused by name.
+
 - feat: Parse the control-plane compose file without docker compose
 
   The first half of dropping `docker compose` as a host dependency. In extend

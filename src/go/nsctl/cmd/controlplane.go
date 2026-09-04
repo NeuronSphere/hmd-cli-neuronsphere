@@ -6,6 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/controlplane"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -27,8 +29,86 @@ for it at all; it is only ever stopped as a side effect of a bare
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	cp.AddCommand(newControlPlaneStatusCommand(opts))
+	cp.AddCommand(
+		newControlPlaneStartCommand(opts),
+		newControlPlaneStopCommand(opts),
+		newControlPlaneStatusCommand(opts),
+	)
 	return cp
+}
+
+func newControlPlaneStartCommand(opts *Options) *cobra.Command {
+	var upgrade, verbose bool
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start the shared control plane",
+		Long: `Starts the control plane and leaves it running.
+
+Idempotent: containers whose configuration has not changed are started in
+place rather than rebuilt.`,
+		Args:          noArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			return controlplane.Start(cmd.Context(), &controlplane.Options{
+				Home: home, Lookup: opts.Lookup, Upgrade: upgrade, Verbose: verbose,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&upgrade, "upgrade", false, "Pull the latest images before starting")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	return cmd
+}
+
+func newControlPlaneStopCommand(opts *Options) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the shared control plane",
+		Long: `Stops the control plane. This is the only command that does.
+
+It refuses while any environment is still running, because stopping it takes
+every environment's emulated AWS with it -- their Lambdas, gateways, buckets and
+secrets, not just the deployment graph's availability.`,
+		Args:          noArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			reg, _, err := loadRegistry(opts)
+			if err != nil {
+				return err
+			}
+			snap := reporter(opts).ControlPlaneStatus(cmd.Context(), reg)
+			if len(snap.RunningEnvs) > 0 && !force {
+				return nserr.New(nserr.InUse,
+					"%s still running. Stopping the control plane would take their emulated AWS with it.\nStop them first with `nsctl env stop <name>`, or pass --force.",
+					pluralEnvs(snap.RunningEnvs))
+			}
+			return controlplane.Stop(cmd.Context(), &controlplane.Options{
+				Home: home, Lookup: opts.Lookup,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "Stop even while environments are running")
+	return cmd
+}
+
+// pluralEnvs words the refusal so it reads correctly for one or many.
+func pluralEnvs(names []string) string {
+	if len(names) == 1 {
+		return "Environment " + names[0] + " is"
+	}
+	return "Environments " + strings.Join(names, ", ") + " are"
 }
 
 func newControlPlaneStatusCommand(opts *Options) *cobra.Command {

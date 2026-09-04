@@ -505,3 +505,71 @@ func TestConfigHashFollowsTheResolvedNetworkName(t *testing.T) {
 		t.Error("renaming the network did not change the hash")
 	}
 }
+
+// Verified against compose v2.40: the *presence* of
+// com.docker.compose.config-hash is what makes a container discoverable.
+// Without it `docker compose ps|stop|down` skips the container even when every
+// other label matches -- so `hmd neuronsphere down` would silently stop
+// nothing.
+func TestContainersCarryTheComposeConfigHashLabel(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeAPI()
+	f.images["nginx:stable-alpine"] = true
+	p := testProject()
+	p.WorkingDir = "/home/hmd/.cache"
+	p.ConfigFile = "/home/hmd/.cache/neuronsphere/docker-compose.control-plane.yml"
+
+	if _, err := newRunner(f).Up(context.Background(), p, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+
+	labels := f.lastConfig.Labels
+	if labels[LabelComposeConfigHash] == "" {
+		t.Error("no com.docker.compose.config-hash; docker compose would not see this container at all")
+	}
+	// nsctl compares its own copy, so a container compose rebuilt reads as
+	// changed rather than accidentally matching.
+	if labels[LabelConfigHash] != labels[LabelComposeConfigHash] {
+		t.Errorf("the two hash labels disagree: %q vs %q", labels[LabelConfigHash], labels[LabelComposeConfigHash])
+	}
+	if labels[LabelWorkingDir] != p.WorkingDir {
+		t.Errorf("working dir label = %q, want %q", labels[LabelWorkingDir], p.WorkingDir)
+	}
+	if labels[LabelConfigFiles] != p.ConfigFile {
+		t.Errorf("config files label = %q, want %q", labels[LabelConfigFiles], p.ConfigFile)
+	}
+}
+
+// A project with no materialised file must not stamp empty paths, which would
+// point compose at nothing.
+func TestOptionalPathLabelsAreOmittedWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeAPI()
+	f.images["nginx:stable-alpine"] = true
+	if _, err := newRunner(f).Up(context.Background(), testProject(), map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{LabelWorkingDir, LabelConfigFiles} {
+		if _, ok := f.lastConfig.Labels[key]; ok {
+			t.Errorf("label %s was written with no value to give it", key)
+		}
+	}
+}
+
+// The label set is part of the hash, so changing which labels nsctl stamps
+// forces one recreate instead of leaving existing containers on the old set.
+func TestConfigHashCoversTheLabelInputs(t *testing.T) {
+	t.Parallel()
+
+	p := testProject()
+	base := configHash(p, svc(t, p, "proxy"))
+
+	withPaths := testProject()
+	withPaths.WorkingDir = "/home/hmd/.cache"
+	withPaths.ConfigFile = "/home/hmd/.cache/neuronsphere/docker-compose.control-plane.yml"
+	if configHash(withPaths, svc(t, withPaths, "proxy")) == base {
+		t.Error("the path labels do not affect the hash, so a container would keep stale ones")
+	}
+}
