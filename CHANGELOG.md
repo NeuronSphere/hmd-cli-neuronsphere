@@ -2,6 +2,25 @@
 
 ## 2026-09-04
 
+- feat: Parse the control-plane compose file without docker compose
+
+  The first half of dropping `docker compose` as a host dependency. In extend
+  mode compose orchestrates exactly three containers -- hmd_proxy, floci and the
+  Deployment GUI -- while adding a toolchain dependency and, through
+  `_get_base_command`, a `pip config get` shell-out on every invocation. The
+  per-environment file declares `services: {}` and exists only to give compose a
+  project to attach, so nsctl skips it entirely.
+
+  `internal/compose` parses the YAML rather than transcribing it into Go
+  structs: 227 lines with roughly forty `${VAR:-default}` entries copied by hand
+  is a drift hazard. The interpolator matches braces rather than running a
+  regexp, because the bundled file nests its defaults --
+  `${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.2}`.
+
+  The compose file is staged into the Go module by `make generate` rather than
+  copied into the repo twice. The Python package reads the same file, and two
+  copies would be one copy and one stale copy.
+
 - feat: nsctl reads and reports a local NeuronSphere
 
   NERD002 Phase 1: `nsctl env list`, `nsctl env status` and

@@ -1,2 +1,6 @@
 # Compiled Go binaries produced by `make build`
 /build/
+
+# Staged by `make generate` from src/python/hmd_cli_neuronsphere/services/.
+# Not committed: the Python package is the one source of truth for these.
+/internal/bundled/services/

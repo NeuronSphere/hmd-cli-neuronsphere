@@ -20,33 +20,44 @@ ROBOT_FLAGS    = --variable BINARY:$(abspath $(BUILD_DIR)/$(BINARY)) \
                  --log     $(ROBOT_TS)-log.html \
                  --report  $(ROBOT_TS)-report.html
 
-.PHONY: all build test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+# The compose file the binary embeds lives in the Python package, which also
+# reads it. Staging rather than duplicating keeps one source of truth; go:embed
+# cannot reach outside its own module, so it has to be copied in.
+SERVICES_SRC := src/python/hmd_cli_neuronsphere/services
+EMBED_DIR    := $(GO_DIR)/internal/bundled/services
+
+.PHONY: all build generate test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
+## generate: stage the bundled compose files into the Go module for go:embed
+generate:
+	@mkdir -p $(EMBED_DIR)
+	@cp $(SERVICES_SRC)/docker-compose.control-plane.yml $(EMBED_DIR)/
+
 ## build: compile the binary to src/go/nsctl/build/nsctl
-build:
+build: generate
 	@mkdir -p $(BUILD_DIR)
 	cd $(GO_DIR) && CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o build/$(BINARY) .
 
 ## test: run the Go unit tests
-test:
+test: generate
 	cd $(GO_DIR) && $(GO) test $(GOFLAGS) ./...
 
 ## test-verbose: run the Go unit tests with verbose output
-test-verbose:
+test-verbose: generate
 	cd $(GO_DIR) && $(GO) test $(GOFLAGS) -v ./...
 
 ## test-race: run the Go unit tests under the race detector
-test-race:
+test-race: generate
 	cd $(GO_DIR) && $(GO) test $(GOFLAGS) -race -count=1 ./...
 
 ## cover: run the Go unit tests with coverage
-cover:
+cover: generate
 	cd $(GO_DIR) && $(GO) test $(GOFLAGS) -cover ./...
 
 ## vet: run go vet
-vet:
+vet: generate
 	cd $(GO_DIR) && $(GO) vet ./...
 
 ## fmt: format the Go sources
@@ -65,9 +76,9 @@ check: fmt-check vet test
 tidy:
 	cd $(GO_DIR) && $(GO) mod tidy && $(GO) mod verify
 
-## clean: remove build artifacts
+## clean: remove build artifacts and staged files
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(EMBED_DIR)
 
 ## run: build and print help (quick smoke test)
 run: build
