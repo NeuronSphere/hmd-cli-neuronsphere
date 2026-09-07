@@ -385,3 +385,86 @@ func TestLibrarianStyle(t *testing.T) {
 		t.Error("a repo declaring none was treated as a librarian")
 	}
 }
+
+// librarianRepo writes a manifest shaped like hmd-ms-artifact-lib's: a
+// content_path_configs block (what makes it librarian-style) and a required
+// lib-repo dependency on hmd-inf-s3bucket.
+func librarianRepo(t *testing.T, deps string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "meta-data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"hmd-ms-artifact-lib","deploy":{"dependencies":` + deps +
+		`,"default_configuration":{"content_path_configs":{}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "meta-data", "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// SPEC014 said the fix was a literal BUCKET_NAME in another repository, and
+// that nothing here could close it. The name is not declared anywhere in the
+// cloud either -- librarian_base.get_full_bucket_name composes it from the
+// lib-repo dependency as
+//
+//	f"{instance_name}-{repo_name}-{deployment_id}-{environment}-{hmd_region}-{customer_code}"
+//
+// This asserts the Go derivation produces that exact string.
+func TestLibrarianBucketNameMatchesTheCloudsOwnFormula(t *testing.T) {
+	t.Parallel()
+
+	dir := librarianRepo(t, `{"lib-repo":{"repo_class_name":"hmd-inf-s3bucket","required":"true"}}`)
+	names := Names{Region: "reg1", CustomerCode: "hmdtr1"}
+
+	got := LibrarianBucketName(dir, "cp", names)
+	// get_full_bucket_name with instance_name=lib-repo, repo_name=hmd-inf-s3bucket,
+	// deployment_id=cp, environment=local, hmd_region=reg1, customer_code=hmdtr1.
+	want := "lib-repo-hmd-inf-s3bucket-cp-local-reg1-hmdtr1"
+	if got != want {
+		t.Errorf("LibrarianBucketName = %q, want %q", got, want)
+	}
+}
+
+// A BOM-style dependency naming its instance wins over the key, because that is
+// what the cloud reads as lib-repo.instance_name.
+func TestLibrarianBucketNamePrefersADeclaredInstanceName(t *testing.T) {
+	t.Parallel()
+
+	dir := librarianRepo(t, `{"lib-repo":{"repo_class_name":"hmd-inf-s3bucket","instance_name":"artifact-librarian"}}`)
+	got := LibrarianBucketName(dir, "cp", Names{Region: "reg1", CustomerCode: "hmdtr1"})
+	if want := "artifact-librarian-hmd-inf-s3bucket-cp-local-reg1-hmdtr1"; got != want {
+		t.Errorf("LibrarianBucketName = %q, want %q", got, want)
+	}
+}
+
+// A librarian declaring no bucket dependency names no bucket, and the caller
+// still warns. Guessing one here would point the service at storage nothing
+// else uses -- which is the one thing SPEC014 was right about.
+func TestLibrarianBucketNameGuessesNothingWithoutADependency(t *testing.T) {
+	t.Parallel()
+
+	dir := librarianRepo(t, `{"neptune-db":{"repo_class_name":"hmd-inf-neptune"}}`)
+	if got := LibrarianBucketName(dir, "cp", Names{Region: "reg1", CustomerCode: "hmdtr1"}); got != "" {
+		t.Errorf("LibrarianBucketName = %q, want the empty string", got)
+	}
+}
+
+// A service that reads no librarian parameters needs no bucket, whatever it
+// depends on.
+func TestLibrarianBucketNameIgnoresANonLibrarian(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "meta-data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"hmd-ms-naming","deploy":{"dependencies":` +
+		`{"lib-repo":{"repo_class_name":"hmd-inf-s3bucket"}},"default_configuration":{}}}`
+	if err := os.WriteFile(filepath.Join(dir, "meta-data", "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := LibrarianBucketName(dir, "cp", Names{Region: "reg1", CustomerCode: "hmdtr1"}); got != "" {
+		t.Errorf("LibrarianBucketName = %q for a non-librarian, want the empty string", got)
+	}
+}

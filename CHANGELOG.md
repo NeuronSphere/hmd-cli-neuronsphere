@@ -2,6 +2,46 @@
 
 ## 2026-09-07
 
+- feat: Derive a librarian's BUCKET_NAME the way the cloud derives it
+
+  SPEC014 recorded this as a gap only another repository could close, named the
+  exact edit -- a literal `BUCKET_NAME` under `hmd-ms-artifact-lib`'s
+  `deploy.default_configuration` -- and said plainly that "nothing in this one
+  can close it". Both halves were wrong.
+
+  In the cloud the name is never declared. `librarian_base.get_full_bucket_name`
+  *derives* it from the librarian's own required `lib-repo` dependency on
+  hmd-inf-s3bucket:
+
+      f"{lib-repo.instance_name}-{lib-repo.repo_name}-{lib-repo.deployment_id}-"
+      f"{environment}-{hmd_region}-{customer_code}"
+
+  So a literal in `default_configuration` would have pinned a name the cloud
+  computes, and drifted from the bucket hmd-inf-s3bucket actually creates --
+  whose own local stack names it `self.base_name.replace("_", "-")`, which is
+  `make_standard_name` of those same six parts. The declaration SPEC014 asked
+  for would have been a second source of truth for a value that already has one.
+
+  `floci.LibrarianBucketName` reads the dependency out of the manifest and
+  derives the name through `tools.ResourceIdentifier`, which is
+  `make_standard_name` -- so it matches the repo that *creates* the bucket. The
+  two formulas agree below 64 characters and diverge above it, where
+  make_standard_name shortens and get_full_bucket_name does not; matching the
+  producer is the side worth being on. The bootstrap then creates the bucket
+  with the `EnsureBucket` it already uses for the tfstate bucket, because
+  ms-deployment is the last node of that bootstrap and a BOM entry is not yet
+  possible.
+
+  Where the instance name comes from is the one invented part, and it invents as
+  little as it can: a declared `instance_name` wins, and failing that the
+  dependency's own key. A librarian declaring no bucket dependency at all still
+  gets the warning and no guess -- which is the thing SPEC014 was right about.
+
+  Worth recording alongside it: the Python CLI does not set BUCKET_NAME in
+  extend mode either. Its only assignment is in the platform-mode plugin loader,
+  from `nsplugin.json`'s bare bucket name. The local artifact librarian has been
+  equally unserved under both front ends.
+
 - fix: Name the environment slug that cannot deploy, and the manifest a purge keeps
 
   Two things verification found that nsctl can report and not fix.

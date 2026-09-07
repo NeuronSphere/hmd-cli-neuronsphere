@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -296,6 +297,108 @@ func ServiceParameters(repoDir string) map[string]string {
 func LibrarianStyle(repoDir string) bool {
 	return jsonValueAt(filepath.Join(repoDir, "meta-data", "manifest.json"),
 		"deploy.default_configuration.content_path_configs") != nil
+}
+
+// LibrarianBucketRepoClass is what a librarian's bucket dependency resolves to.
+const LibrarianBucketRepoClass = "hmd-inf-s3bucket"
+
+// LibrarianBucketDependency is the key the cloud reads that dependency under.
+//
+// hmd_lib_cdktf_factories.librarian_base composes the bucket name from
+// "lib-repo.instance_name", "lib-repo.repo_name" and "lib-repo.deployment_id",
+// so the key is part of the contract, not a local convention.
+const LibrarianBucketDependency = "lib-repo"
+
+// LibrarianBucketName is the bucket a librarian's BUCKET_NAME must point at,
+// derived exactly as the cloud derives it.
+//
+// SPEC014 recorded this gap and prescribed the wrong fix: a literal BUCKET_NAME
+// under the repo's deploy.default_configuration, in another repository, which
+// "nothing in this one can close". Both halves were wrong. In the cloud the
+// name is never declared -- it is *derived*, by
+// hmd_lib_cdktf_factories.librarian_base.get_full_bucket_name:
+//
+//	f"{lib-repo.instance_name}-{lib-repo.repo_name}-{lib-repo.deployment_id}-"
+//	f"{environment}-{hmd_region}-{customer_code}"
+//
+// from the librarian's own required `lib-repo` dependency on hmd-inf-s3bucket.
+// A literal in default_configuration would have pinned a name the cloud
+// computes, and drifted from the bucket hmd-inf-s3bucket actually creates --
+// whose local stack names it self.base_name.replace("_", "-"), i.e.
+// make_standard_name of the same six parts.
+//
+// Derived through tools.ResourceIdentifier, which is make_standard_name, so
+// this matches the *producer*. The two formulas agree below 64 characters and
+// diverge above it, where make_standard_name shortens and get_full_bucket_name
+// does not -- a pre-existing inconsistency in the cloud. Matching the repo that
+// creates the bucket is the side worth being on.
+//
+// The instance name is the dependency's own key. In the cloud a BOM entry names
+// the s3bucket instance; the control plane's librarian is deployed before
+// ms-deployment exists, so there is no BOM entry and no instance to read. Using
+// the dependency's key invents the least: it is the name the RepoClass already
+// gives that dependency.
+//
+// Returns "" when the repo is not a librarian, or declares no such dependency --
+// in which case nothing has been guessed and the caller still warns.
+func LibrarianBucketName(repoDir, deploymentID string, names Names) string {
+	if !LibrarianStyle(repoDir) {
+		return ""
+	}
+	deps, _ := jsonValueAt(filepath.Join(repoDir, "meta-data", "manifest.json"),
+		"deploy.dependencies").(map[string]any)
+	instance := librarianBucketInstance(deps)
+	if instance == "" {
+		return ""
+	}
+	return tools.ResourceIdentifier(instance, LibrarianBucketRepoClass, deploymentID,
+		"local", names.Region, names.CustomerCode)
+}
+
+// librarianBucketInstance is the instance name to derive the bucket from, or ""
+// when the repo declares no bucket dependency.
+//
+// The declared key wins; failing that, any dependency resolving to
+// hmd-inf-s3bucket. The fallback is not defensive padding -- a repo free to name
+// its dependency something other than `lib-repo` would otherwise silently get
+// no bucket, which is the failure mode this whole function exists to end.
+func librarianBucketInstance(deps map[string]any) string {
+	if deps == nil {
+		return ""
+	}
+	if dep, ok := deps[LibrarianBucketDependency].(map[string]any); ok {
+		return librarianInstanceFor(dep, LibrarianBucketDependency)
+	}
+	for _, key := range sortedDepKeys(deps) {
+		dep, ok := deps[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := dep["repo_class_name"].(string); name == LibrarianBucketRepoClass {
+			return librarianInstanceFor(dep, key)
+		}
+	}
+	return ""
+}
+
+// librarianInstanceFor prefers an explicitly declared instance_name, which is
+// what a cloud BOM supplies, and falls back to the dependency's key.
+func librarianInstanceFor(dep map[string]any, key string) string {
+	if name, _ := dep["instance_name"].(string); name != "" {
+		return name
+	}
+	return key
+}
+
+// sortedDepKeys keeps the fallback deterministic: two dependencies on
+// hmd-inf-s3bucket must not name a different bucket on different runs.
+func sortedDepKeys(deps map[string]any) []string {
+	keys := make([]string, 0, len(deps))
+	for k := range deps {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // jsonValueAt reads a dotted key path out of a JSON file, returning nil when

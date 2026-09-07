@@ -179,9 +179,17 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
+	// The buckets those Lambdas need. Passed as a function rather than a
+	// provisioner so the one thing a foundation service may do to Floci's S3 is
+	// create the bucket it was told to.
+	prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	ensureBucket := prov.EnsureBucket
 	gateways := map[string]string{}
 	for _, repoClass := range bootstrapServices {
-		apiID, err := deployFoundationService(ctx, opts, docker, services, resolver, repoClass, names)
+		apiID, err := deployFoundationService(ctx, opts, docker, services, resolver, repoClass, names, ensureBucket)
 		if err != nil {
 			return err
 		}
@@ -229,7 +237,7 @@ func deployNode(ctx context.Context, opts *Options, deployer *runner.Runner,
 // deployFoundationService deploys one control-plane Lambda and routes it.
 func deployFoundationService(ctx context.Context, opts *Options, docker *container.Docker,
 	services *floci.Services, resolver *repoclass.Resolver, repoClass string,
-	names floci.Names) (string, error) {
+	names floci.Names, ensureBucket func(context.Context, string) error) (string, error) {
 
 	version := resolver.ResolveVersion(repoClass, "").Version
 	image, err := floci.ServiceImage(ctx, docker, repoClass, version, opts.Lookup)
@@ -246,17 +254,36 @@ func deployFoundationService(ctx context.Context, opts *Options, docker *contain
 	for k, v := range floci.ServiceParameters(resolver.Dir(repoClass)) {
 		env[k] = v
 	}
-	// A librarian reads BUCKET_NAME and refuses to serve without it, and the
-	// bucket is declared in the repo's src/local/nsplugin.json -- the plugin
-	// file nsctl deliberately does not read. Nothing in the RepoClass names
-	// it, so nsctl cannot supply it without carrying a table of its own.
+	// A librarian reads BUCKET_NAME and refuses to serve without it.
 	//
-	// Reported rather than guessed: the fix is a declaration in that repo's
-	// manifest, and inventing a bucket name here would hide the gap and
-	// produce a librarian pointed at a bucket nothing else uses.
-	if _, named := env["BUCKET_NAME"]; !named && floci.LibrarianStyle(resolver.Dir(repoClass)) {
-		opts.warn("%s reads BUCKET_NAME and its manifest declares no bucket, so it will not serve until one is added there. "+
-			"Everything else in the control plane is unaffected.", repoClass)
+	// SPEC014 recorded this as a gap only another repository could close, on the
+	// premise that nothing in the RepoClass names the bucket. That premise was
+	// wrong: the RepoClass declares a required `lib-repo` dependency on
+	// hmd-inf-s3bucket, and the cloud *derives* the name from it rather than
+	// declaring it anywhere -- see floci.LibrarianBucketName. So the name is
+	// available here, from the manifest, by the cloud's own formula.
+	//
+	// The bucket is created directly rather than deployed as a BOM entry
+	// because ms-deployment is the last node of this bootstrap and does not
+	// exist yet. EnsureBucket is what Provision already does for the tfstate
+	// bucket, for the same reason.
+	if _, named := env["BUCKET_NAME"]; !named {
+		bucket := floci.LibrarianBucketName(resolver.Dir(repoClass), CPDeploymentID, names)
+		switch {
+		case bucket == "" && floci.LibrarianStyle(resolver.Dir(repoClass)):
+			// Still reported rather than guessed. A librarian that declares no
+			// bucket dependency at all names no bucket, and inventing one here
+			// would point it at storage nothing else uses.
+			opts.warn("%s reads BUCKET_NAME and declares no %s dependency to derive one from, so it will not serve. "+
+				"Everything else in the control plane is unaffected.", repoClass, floci.LibrarianBucketRepoClass)
+		case bucket != "":
+			if err := ensureBucket(ctx, bucket); err != nil {
+				opts.warn("could not create %s's bucket %s: %v", repoClass, bucket, err)
+			} else {
+				env["BUCKET_NAME"] = bucket
+				opts.step("  bucket %s", bucket)
+			}
+		}
 	}
 
 	opts.step("Deploying %s...", repoClass)
