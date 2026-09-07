@@ -41,11 +41,14 @@ const GUIProfile = "deployment-gui"
 // RunnerProfile gates the DAG-runner container.
 const RunnerProfile = "nsrunner"
 
-// RunnerContainer is the DAG-runner's container name, and RunnerRoutePath the
-// proxy location it is served at.
+// RunnerContainer is the DAG-runner's container name, RunnerRoutePath the
+// proxy location it is served at, and RunnerPort the port it listens on. It
+// publishes nothing to the host -- only the proxy may -- so the port is only
+// ever reached over the platform network.
 const (
 	RunnerContainer = "hmd_nsrunner"
 	RunnerRoutePath = "nsrunner"
+	RunnerPort      = 8080
 )
 
 // DefaultGUIPort is slot 0's spare port.
@@ -364,6 +367,10 @@ func Start(ctx context.Context, opts *Options) error {
 		if err := Bootstrap(ctx, opts, reg, target, docker, r, names); err != nil {
 			return err
 		}
+	} else if err := syncRunnerSelection(ctx, opts, target); err != nil {
+		// A warning, not a failure: the control plane serves either way, it
+		// just keeps deploying in-process.
+		opts.warn("%v", err)
 	}
 
 	opts.step("Configuring control-plane routes...")
@@ -573,14 +580,28 @@ func GUIEnabled(opts *Options) bool {
 	return true
 }
 
+// RunnerInternalURL is where something already on the platform network reaches
+// the DAG runner, or "" when the runner is not enabled.
+//
+// Not environment.DefaultRunnerURL (http://localhost/nsrunner): that is the host
+// route through hmd_proxy, and the consumer of this one is a Lambda running
+// inside Floci, where localhost is its own container.
+func RunnerInternalURL(opts *Options) string {
+	if !RunnerEnabled(opts) {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", RunnerContainer, RunnerPort)
+}
+
 // RunnerRoute is the proxy passthrough that makes the runner reachable from
 // the host. The container publishes no port of its own -- only the proxy may --
 // so this location is the whole of nsctl's access to it.
 func RunnerRoute(opts *Options) map[string]string {
-	if !RunnerEnabled(opts) {
+	url := RunnerInternalURL(opts)
+	if url == "" {
 		return nil
 	}
-	return map[string]string{RunnerRoutePath: "http://" + RunnerContainer + ":8080"}
+	return map[string]string{RunnerRoutePath: url}
 }
 
 // GUIPort is the host port hmd_proxy serves the GUI at.
@@ -614,4 +635,32 @@ func uniqueValues(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// syncRunnerSelection points an already-deployed hmd-ms-deployment at the DAG
+// runner, or away from it.
+//
+// Phase 4 landed the service half of the runner selection and none of the CLI
+// half: hmd-ms-deployment reads HMD_WORKFLOW_RUNNER_URL and nothing set it, so
+// HMD_LOCAL_SERVICE_SUBMIT=1 seeded a changeset and then waited two minutes for
+// a workflow nobody had been asked to submit. The bootstrap supplies the value
+// now, and this supplies it to a control plane that was bootstrapped before the
+// runner was turned on -- which is every existing one.
+func syncRunnerSelection(ctx context.Context, opts *Options, target floci.Target) error {
+	services, err := floci.NewServices(ctx, target)
+	if err != nil {
+		return err
+	}
+	url := RunnerInternalURL(opts)
+	changed, err := services.SyncFunctionEnv(ctx, floci.MSDeploymentRepoClass, floci.WorkflowRunnerURLVar, url)
+	if err != nil {
+		return err
+	}
+	switch {
+	case changed && url != "":
+		opts.step("  %s now submits deployment workflows to %s", floci.MSDeploymentRepoClass, url)
+	case changed:
+		opts.step("  %s deploys in-process again; the DAG runner is off", floci.MSDeploymentRepoClass)
+	}
+	return nil
 }

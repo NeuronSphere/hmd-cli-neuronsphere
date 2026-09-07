@@ -70,12 +70,34 @@ func LambdaName(repoClass string) string {
 	return strings.ReplaceAll(repoClass, "-", "_")
 }
 
+// MSDeploymentRepoClass is the foundation service that submits deployment
+// workflows, and the only one a runner URL means anything to.
+const MSDeploymentRepoClass = "hmd-ms-deployment"
+
+// WorkflowRunnerURLVar is what hmd-ms-deployment resolves its workflow runner
+// from: deployment_manager picks the local runner over Argo when it is set, and
+// runs the deployment in-process when it is not.
+const WorkflowRunnerURLVar = "HMD_WORKFLOW_RUNNER_URL"
+
+// ServiceEnvOpts carries the values that apply to some foundation services and
+// not to others.
+//
+// ServiceEnv is shared by all four of them and took no options at all until the
+// runner landed. A per-service value has to be decided somewhere, and deciding
+// it in here rather than at each call site is what stops ms-naming from ever
+// being handed a workflow runner.
+type ServiceEnvOpts struct {
+	// WorkflowRunnerURL is the runner's in-network address, or "" when no
+	// runner is running.
+	WorkflowRunnerURL string
+}
+
 // ServiceEnv is the environment a foundation service Lambda runs with.
 //
 // The database credentials follow the local convention that a service's user,
 // password and database are all its repo class with underscores -- the same
 // convention ms-dbaccount applies when it provisions one.
-func ServiceEnv(repoClass, version string, names Names, dbHost string, serviceConfig map[string]any) map[string]string {
+func ServiceEnv(repoClass, version string, names Names, dbHost string, serviceConfig map[string]any, opts ServiceEnvOpts) map[string]string {
 	if serviceConfig == nil {
 		serviceConfig = map[string]any{}
 	}
@@ -84,7 +106,7 @@ func ServiceEnv(repoClass, version string, names Names, dbHost string, serviceCo
 		encoded = []byte("{}")
 	}
 	user := LambdaName(repoClass)
-	return map[string]string{
+	env := map[string]string{
 		"HMD_INSTANCE_NAME":    LambdaName(repoClass),
 		"HMD_REPO_NAME":        repoClass,
 		"HMD_REPO_VERSION":     version,
@@ -100,6 +122,56 @@ func ServiceEnv(repoClass, version string, names Names, dbHost string, serviceCo
 		"AWS_XRAY_SDK_ENABLED": "false",
 		"SERVICE_CONFIG":       string(encoded),
 	}
+	// Only for the service that reads it, and only when a runner is actually
+	// running. An URL naming a container that is not there fails every deploy,
+	// where an unset one falls back to executing the deployment in-process --
+	// and that fallback is the thing worth protecting.
+	if repoClass == MSDeploymentRepoClass && opts.WorkflowRunnerURL != "" {
+		env[WorkflowRunnerURLVar] = opts.WorkflowRunnerURL
+	}
+	return env
+}
+
+// SyncFunctionEnv brings one environment variable on an already-deployed
+// function into line, and reports whether it changed anything.
+//
+// The foundation Lambdas are deployed by the bootstrap, which runs once; a warm
+// start skips it. Without this, toggling the runner would only ever take effect
+// on a control plane that had never been started -- which is every machine that
+// already has one.
+func (s *Services) SyncFunctionEnv(ctx context.Context, repoClass, key, want string) (bool, error) {
+	name := LambdaName(repoClass)
+	// GetFunction rather than GetFunctionConfiguration, so the narrowed
+	// lambdaAPI above does not have to grow a method for one read.
+	got, err := s.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(name)})
+	if err != nil {
+		if isAPIErrorCode(err, "ResourceNotFoundException") {
+			// Nothing deployed yet. The bootstrap supplies the value.
+			return false, nil
+		}
+		return false, fmt.Errorf("reading the %s function's configuration: %w", name, err)
+	}
+	vars := map[string]string{}
+	if got.Configuration != nil && got.Configuration.Environment != nil {
+		for k, v := range got.Configuration.Environment.Variables {
+			vars[k] = v
+		}
+	}
+	if vars[key] == want {
+		return false, nil
+	}
+	if want == "" {
+		delete(vars, key)
+	} else {
+		vars[key] = want
+	}
+	if _, err := s.Lambda.UpdateFunctionConfiguration(ctx, &lambda.UpdateFunctionConfigurationInput{
+		FunctionName: aws.String(name),
+		Environment:  &lambdatypes.Environment{Variables: vars},
+	}); err != nil {
+		return false, fmt.Errorf("updating the %s function's configuration: %w", name, err)
+	}
+	return true, nil
 }
 
 // DeployLambda creates or updates a Lambda from a container image.

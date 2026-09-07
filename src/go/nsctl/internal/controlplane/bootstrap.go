@@ -238,7 +238,8 @@ func deployFoundationService(ctx context.Context, opts *Options, docker *contain
 	config := floci.LocalizeServiceConfig(
 		floci.ServiceConfig(resolver.Dir(repoClass)),
 		floci.ControlPlaneDBAlias, floci.LambdaName(repoClass), CPGraphHost, repoClass, names)
-	env := floci.ServiceEnv(repoClass, version, names, floci.ControlPlaneDBAlias, config)
+	env := floci.ServiceEnv(repoClass, version, names, floci.ControlPlaneDBAlias, config,
+		floci.ServiceEnvOpts{WorkflowRunnerURL: RunnerInternalURL(opts)})
 	for k, v := range floci.ServiceParameters(resolver.Dir(repoClass)) {
 		env[k] = v
 	}

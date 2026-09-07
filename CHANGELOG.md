@@ -2,6 +2,33 @@
 
 ## 2026-09-07
 
+- fix: Give the control plane somewhere to submit deployment workflows
+
+  `hmd-ms-deployment` resolves its workflow runner from
+  `HMD_WORKFLOW_RUNNER_URL`, and nothing set it -- not `floci.ServiceEnv`, not
+  the compose file, not the Python CLI. So `HMD_LOCAL_SERVICE_SUBMIT=1` seeded a
+  changeset, waited its two minutes for a workflow nobody had been asked to
+  submit, and failed "no workflow appeared". Phase 4 recorded the inversion as a
+  met deliverable; half of it had never been built.
+
+  `ServiceEnv` sets it now, for `hmd-ms-deployment` alone and only when the
+  runner is enabled. Both halves matter. It goes in `ServiceEnv` rather than at
+  a call site because that function builds every foundation Lambda's
+  environment, so the "this service only" rule cannot be forgotten by a new
+  caller; and it is gated because a control plane told to submit to a runner
+  that is not running fails *every* deploy, where an unset variable falls back
+  to executing the deployment in-process.
+
+  The address is `http://hmd_nsrunner:8080`, not `http://localhost/nsrunner`.
+  The consumer is a Lambda inside Floci, where the host route through hmd_proxy
+  resolves to its own container. `RunnerInternalURL` is now the one place that
+  string lives; `RunnerRoute` had been a second copy of it.
+
+  The bootstrap deploys the foundation Lambdas once and a warm start skips it,
+  so this alone would only ever have reached a control plane that had never been
+  started. `syncRunnerSelection` reconciles the variable onto the deployed
+  function on every start, in both directions.
+
 - fix: Replace the directory Docker leaves where the kubeconfig belongs
 
   Docker creates a missing bind-mount source as a directory. A deploy that

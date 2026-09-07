@@ -92,9 +92,9 @@ harness are still open.
        core Resources. See the SPEC.
    * - 010
      - **amended**
-     - The submit envelope is Argo's; its contents are not. The CLI-submits
-       path works; the service-submits one cannot, because nothing sets
-       ``HMD_WORKFLOW_RUNNER_URL`` -- see Phase 4's correction.
+     - The submit envelope is Argo's; its contents are not. Both submit paths
+       are wired: ``HMD_WORKFLOW_RUNNER_URL`` is set now, having been the thing
+       that made the service-submits path unreachable.
    * - 011
      - **amended**
      - Implemented. One clause of it is not implementable as written, and
@@ -176,7 +176,9 @@ in the SPECs rather than quietly worked around:
 12. **The control plane cannot submit to the runner** (SPEC010, Phase 4).
     ``hmd-ms-deployment`` reads ``HMD_WORKFLOW_RUNNER_URL`` and nothing sets
     it, so the inversion this phase exists for has never run. Phase 4 recorded
-    it as a met deliverable.
+    it as a met deliverable. *Wired since:* ``floci.ServiceEnv`` sets it for
+    that one service, gated on the runner being enabled, and a warm start
+    reconciles it onto an already-deployed Lambda.
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1637,6 +1639,26 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     (``http://hmd_nsrunner:8080``, not the host route), and only when the
     runner is enabled -- a control plane told to submit to a runner that is not
     running would fail every deploy instead of falling back.
+
+    *Wired (2026-09-07):* exactly that. ``ServiceEnv`` grew a ``ServiceEnvOpts``
+    rather than a fifth positional argument, and sets the variable only for
+    ``hmd-ms-deployment`` -- the rule lives in the one function every foundation
+    Lambda's environment comes from, so no call site can hand ms-naming a
+    runner. ``controlplane.RunnerInternalURL`` is now the single source of the
+    address, shared with ``RunnerRoute``, which had the same string as a second
+    literal.
+
+    One thing the correction above did not anticipate: the bootstrap deploys the
+    foundation Lambdas **once**, and a warm start skips it, so the variable would
+    only ever have reached a control plane that had never been started -- which
+    is no existing machine. ``syncRunnerSelection`` reconciles it on every start
+    against the deployed function's own configuration, in both directions.
+
+    *Still unverified:* the end-to-end submit. Nothing has yet run
+    ``HMD_LOCAL_SERVICE_SUBMIT=1`` against a control plane with the runner on,
+    so ``call_deploy_change_set_deployment`` -- the async self-invoking Lambda
+    this *Not done* named -- remains as unproven under Floci as it was. What has
+    changed is that it is now reachable.
 
     *Superseded by Phase 6:* the image is not published and will not be. It is
     built on demand from sources embedded in the binary, so a Homebrew install

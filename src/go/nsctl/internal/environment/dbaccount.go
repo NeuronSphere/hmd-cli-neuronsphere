@@ -43,7 +43,10 @@ func EnsureDBAccount(ctx context.Context, opts *Options, reg *registry.Registry,
 		floci.ServiceConfig(resolver.Dir(DBAccountRepoClass)),
 		env.DBContainer, floci.LambdaName(DBAccountRepoClass), env.GraphContainer,
 		DBAccountRepoClass, names)
-	envVars := floci.ServiceEnv(DBAccountRepoClass, version, names, env.DBContainer, serviceConfig)
+	// No runner URL: dbaccount does not submit deployment workflows, and
+	// ServiceEnv would refuse it one anyway.
+	envVars := floci.ServiceEnv(DBAccountRepoClass, version, names, env.DBContainer, serviceConfig,
+		floci.ServiceEnvOpts{})
 
 	opts.step("Deploying %s...", DBAccountRepoClass)
 	apiID, err := services.SetupService(ctx, DBAccountRepoClass, image, envVars)
