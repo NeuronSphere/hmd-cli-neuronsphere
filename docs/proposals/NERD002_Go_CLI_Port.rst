@@ -38,9 +38,11 @@ Implementation Status
 ---------------------
 
 All six phases have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
-control plane from an empty ``HMD_HOME``, starts and stops environments,
-reconciles them to a manifest, and coexists with the Python CLI against one
-``HMD_HOME``. Deployments are submitted to a DAG-runner service rather than run
+control plane and an environment from an empty ``HMD_HOME`` and an empty
+deployment graph -- which it could not do until the graph was genuinely empty
+for the first time; see `The cold start had never run`_ -- starts and stops
+environments, reconciles them to a manifest, and coexists with the Python CLI
+against one ``HMD_HOME``. Deployments are submitted to a DAG-runner service rather than run
 inside the CLI, so they outlive the command that started them, and the runner
 schedules their nodes on the dependency edges the payload has always carried
 rather than one at a time. It ships through a Homebrew tap, an install script
@@ -60,8 +62,9 @@ harness are still open.
      - ``env purge`` is the one verb still missing; the ``repo`` verbs and
        ``env apply`` were added to the surface, ``load-plugin`` withdrawn.
    * - 002
-     - implemented
-     - Cold bootstrap included. ``env purge`` outstanding.
+     - **amended**
+     - The lifecycle is implemented. "Cold bootstrap included" was wrong until
+       2026-09-07: five seeding steps had never run. ``env purge`` outstanding.
    * - 003
      - implemented
      - Cross-checked against the literal JSON the Python CLI writes.
@@ -83,15 +86,17 @@ harness are still open.
      - **amended**
      - Two of its routes were wrong; the conclusion holds. See the SPEC.
    * - 009
-     - implemented
-     -
+     - **amended**
+     - Its seeding sequence was incomplete: resource definitions, the
+       DeploymentSet payload, and the two-phase apply that submits the concrete
+       core Resources. See the SPEC.
    * - 010
      - **amended**
      - The submit envelope is Argo's; its contents are not. See the SPEC.
    * - 011
      - **amended**
-     - Implemented. One clause of it is not implementable as written -- see
-       the SPEC.
+     - Implemented. One clause of it is not implementable as written, and
+       concurrency needed a bound the DAG does not express -- see the SPEC.
    * - 012
      - partly implemented
      - Verified by running the Python CLI against nsctl-created containers.
@@ -112,8 +117,8 @@ harness are still open.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Eight things this proposal asserted turned out to be wrong, and are corrected in
-the SPECs rather than quietly worked around:
+Eleven things this proposal asserted turned out to be wrong, and are corrected
+in the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
    published tag was checked. Kubernetes work execs into the k3s node instead,
@@ -154,6 +159,50 @@ the SPECs rather than quietly worked around:
    that does not exist -- and publishing it would still not have let a
    Homebrew install build a modified runner. ``nsctl`` carries its own sources
    and builds the image on demand instead.
+9. **The seeding sequence in SPEC009 is incomplete** (SPEC009). Resource
+   definitions must be registered before anything declares producing one, a
+   DeploymentSet needs a base64-JSON ``definition``, and the concrete core
+   Resources have to be submitted between two changesets. All three are
+   invisible on a graph something else has already seeded.
+10. **Declaring a produced type does not satisfy a tag_selector** (SPEC009). A
+    selector matches concrete Resources. This is why an apply is two
+    changesets rather than one: the Resources attach to a deployment that only
+    the first changeset creates.
+11. **In-degree scheduling is not a sufficient concurrency bound** (SPEC011).
+    Nodes of one RepoClass share a working tree, and the DAG has no edge to
+    express it. The scheduler serialises per class.
+
+The cold start had never run
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every claim this document made about bootstrapping from nothing was untested
+until 2026-09-07, and five of them were false. The reason is worth recording,
+because it is not a coding mistake and the same shape will recur.
+
+``nsctl`` was developed against machines where ``hmd neuronsphere up`` had run
+at some point. The deployment graph is durable -- it lives in the control
+plane's Postgres, and survives ``env delete``, restarts, and everything short
+of ``down --purge`` -- so the rows the Python CLI seeds *stay seeded*. Every one
+of nsctl's seeding steps is guarded find-first, which is correct and is exactly
+what hid the gap: a step that finds what it needs already present returns
+without exercising the code that would have created it. The first genuinely
+empty graph found all five in sequence, each one only reachable once the
+previous was fixed:
+
+1. **Resource definitions were never registered.** ``declare_produces_resource_definition``
+   was called for types nothing had created (SPEC009, amended).
+2. **A DeploymentSet was created with the wrong payload** -- no ``definition``,
+   and an ``environment`` field the entity does not have.
+3. **The concrete core Resources were never submitted at all**, so a dependency
+   carrying a ``tag_selector`` could not resolve (SPEC009, amended).
+4. **nginx capped a runner submission at 1 MB**, which 28 instances exceed.
+5. **A Docker-created directory sat where the kubeconfig belongs**, because a
+   deploy mounted the path before the cluster had written it.
+
+Three of these are ordering: the graph has a shape that must be built up in a
+particular sequence, and a warm graph already has it. The lesson for the rest of
+this port is that "verified against a running platform" and "verified from
+nothing" are different claims, and only the second one tests a bootstrap.
 
 Motivation
 ----------
@@ -901,7 +950,46 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: ms-deployment client -- the BOM and apiop protocol
     :id: HMD_CLI_NERD002_SPEC009
     :links: HMD_CLI_NERD002
-    :status: implemented
+    :status: amended
+
+    .. warning::
+
+       **The sequence below is not the whole of what seed_bom does, and the
+       missing parts are the ones a cold graph needs.** Three steps had to be
+       added; every one of them is invisible on a graph the Python CLI has
+       already seeded.
+
+       **Resource types must be registered before anything produces one.**
+       ``seed_base_resource_definitions`` for the supertypes ms-deployment
+       bundles, then each producing repo's own ``meta-data/resources/*.yaml``.
+       A repo's definition parents onto a base type -- hmd-postgres-rds's
+       ``aws.neuronsphere.io/aurora-postgres`` onto
+       ``database.neuronsphere.io/postgres`` -- so the order is the service's
+       contract. Without it ``declare_produces_resource_definition`` answers
+       ``400 ... aurora-postgres ... not found``.
+
+       **A DeploymentSet carries a base64-JSON ``definition``, not an
+       ``environment`` field.** The entity has no such field and requires the
+       definition, so creating one answered ``422 {"loc":["body","definition"]}``.
+       It names the environment by *slug*: hardcoding ``local`` would make
+       every named environment's changeset resolve to the default
+       environment's graph.
+
+       **The concrete core Resources are not optional, and they need a phase
+       of their own.** A dependency carrying a ``tag_selector`` is matched
+       against Resources, not against the produced *types* this SPEC's
+       ``declare_produces`` step records -- hmd-database-account's
+       ``create-service`` role asks for an
+       ``application.neuronsphere.io/microservice`` tagged
+       ``repo_class=hmd-ms-dbaccount``. Those Resources attach to a
+       RepoInstanceDeployment, which only exists once a changeset has created
+       one, so an apply is **two changesets**: the substrate deploys, its
+       Resources are submitted (``bom.LocalCoreResources`` --
+       the Docker network, the cluster's compute node and its
+       Traefik-as-ingress-controller, and one tagged microservice Resource per
+       foundation service), and only then is what the manifest declares
+       seeded. The Python has always done this; the sequence below simply did
+       not describe it.
 
     ``internal/bom`` re-implements ``bom_seeder.py`` (the single densest module
     in the port, ~2,350 lines) over ``net/http``. Nothing here is a library
@@ -1097,6 +1185,26 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
        service in Phase 4 -- ``Store.ActiveFor`` plus the submit lock -- so a
        second submission against a busy environment is refused ``409`` rather
        than interleaved.
+
+       **Two nodes of one repo class must not run together, and the DAG does
+       not say so.** In-degree scheduling over the payload's ``dependencies``
+       is necessary and not sufficient: nodes of the same RepoClass share a
+       working tree, and therefore share its ``cdktf.out``. Three
+       ``hmd-inf-s3bucket`` instances dispatched at once and one node's
+       ``rmtree("cdktf.out")`` deleted the provider directory another was
+       walking, killing the deploy with ``FileNotFoundError: 'linux_arm64'``.
+       An environment declaring six buckets and four database accounts meets
+       this every run.
+
+       It is not a dependency -- there is no edge to add, and adding one would
+       impose an order where none exists -- it is a shared resource, so the
+       scheduler carries it: a class is busy while one of its nodes runs, and
+       ``take()`` passes *over* a ready node whose class is busy rather than
+       stopping at it. Stopping would idle every worker behind the first
+       bucket; passing over keeps unrelated repos overlapping, which is the
+       whole of what this SPEC bought. Freeing the class is separate from
+       releasing the dependency edge: a failed node frees its class too, or one
+       failure strands every sibling while dispatch drains.
 
     ``LocalWorkflowRunner.run()`` is a strictly sequential ``for node in
     nodes:`` that returns at the first failure. It has no threads, no
@@ -1530,6 +1638,13 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     speedup, only a synthetic DAG of the same shape. The real one is dominated
     by container pulls and Terraform, and its gain will be smaller.
 
+    *Amended again (2026-09-07):* the first real DAG run showed in-degree
+    scheduling is necessary and not sufficient. Nodes of one RepoClass share a
+    working tree and corrupt each other's ``cdktf.out``; the scheduler now
+    serialises per class while unrelated repos still overlap. The synthetic DAG
+    could not have caught it -- every node in it is a different instance of the
+    same fake class, and none of them touches a working tree.
+
     **Phase 6 -- Distribution. [DONE]** GoReleaser, the Homebrew tap, the
     install script, and documentation making ``nsctl`` the recommended path for
     new users while the Python CLI remains supported. Also: the CI Phase 0
@@ -1556,6 +1671,18 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Untested:* the Homebrew cask cannot be exercised without pushing to
     ``neuronsphere/homebrew-tap``. GoReleaser generates it and its shape was
     checked against ``hmd-cli-bartleby``'s, but no ``brew install`` has run.
+
+    **Phase 7 -- The cold start. [DONE]** Not planned, and not optional. The
+    purge that Phase 6's verification prompted produced the first empty
+    deployment graph nsctl had ever seen, and five bootstrap defects with it:
+    resource-definition seeding, the DeploymentSet payload, the concrete core
+    Resources and their two-phase apply (SPEC009), nginx's body cap, and a
+    Docker-created directory where the kubeconfig belongs. See `The cold start
+    had never run`_.
+
+    *Deliverable met:* ``nsctl env start`` brings up a control plane, an
+    environment and a 28-instance manifest from a purged ``HMD_HOME`` with no
+    Python CLI involved.
 
 Dependency Map
 --------------
