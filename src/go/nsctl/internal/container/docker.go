@@ -260,29 +260,51 @@ func (d *Docker) NetworkAliases(ctx context.Context, name, network string) []str
 	return aliases
 }
 
-// EnsureNetworkAlias attaches an alias to a container on a network.
+// EnsureNetworkAlias attaches an alias to a container on a network, reporting
+// whether it had to reconnect the container to do it.
 //
 // Docker refuses to add an alias to an existing endpoint, so this disconnects
-// and reconnects. That is safe because it is skipped entirely when the alias is
-// already present, so a restart does not churn the container's networking.
+// and reconnects. It is skipped entirely when the alias is already present, so
+// a warm start does not churn the container's networking.
 //
 // The alias is what makes Floci's opaquely named backend reachable: the whole
 // local platform addresses the database as hmd_db -- compose peers, psql, and
 // cloud Helm charts running unmodified in k3s -- and aliasing restores that one
 // canonical name instead of rewriting every consumer.
-func (d *Docker) EnsureNetworkAlias(ctx context.Context, name, alias, network string) error {
+//
+// The bool is not decoration. A reconnect gives the container a *new IP*, and a
+// server that bound to the old one keeps listening there: the Gremlin server in
+// hmd-img-gremlin-server binds the container's specific address, so a cold
+// bootstrap left the control-plane graph listening on 172.18.0.8 while
+// `global-graph` resolved to 172.18.0.7, and every client got connection
+// refused. Nothing looked wrong -- `docker ps` reported it up and its own log
+// showed a healthy server. Invisible on a warm platform, where the alias is
+// already present and this returns at the loop above.
+//
+// Only the caller knows whether its container survives a restart, so the
+// decision is returned rather than taken here.
+func (d *Docker) EnsureNetworkAlias(ctx context.Context, name, alias, network string) (bool, error) {
 	for _, existing := range d.NetworkAliases(ctx, name, network) {
 		if existing == alias {
-			return nil
+			return false, nil
 		}
 	}
 	if _, err := d.capture(ctx, "network", "disconnect", network, name); err != nil {
-		return fmt.Errorf("disconnecting %s from %s: %w", name, network, err)
+		return false, fmt.Errorf("disconnecting %s from %s: %w", name, network, err)
 	}
 	if _, err := d.capture(ctx, "network", "connect", "--alias", alias, network, name); err != nil {
-		return fmt.Errorf("reconnecting %s to %s as %s: %w", name, network, alias, err)
+		return false, fmt.Errorf("reconnecting %s to %s as %s: %w", name, network, alias, err)
 	}
-	return nil
+	return true, nil
+}
+
+// Restart restarts a container.
+func (d *Docker) Restart(ctx context.Context, name string) error {
+	if name == "" {
+		return nil
+	}
+	_, err := d.capture(ctx, "restart", name)
+	return err
 }
 
 // Run executes a docker subcommand, returning stdout and stderr separately.

@@ -10,13 +10,15 @@ import (
 
 // fakeContainers implements the Docker surface the lifecycle helpers use.
 type fakeContainers struct {
-	name      string
-	running   bool
-	started   []string
-	aliased   []string
-	startErr  error
-	psqlAfter int
-	psqlCalls int
+	restarted           []string
+	aliasAlreadyPresent bool
+	name                string
+	running             bool
+	started             []string
+	aliased             []string
+	startErr            error
+	psqlAfter           int
+	psqlCalls           int
 }
 
 func (f *fakeContainers) FlociContainer(context.Context, string, string, string) (string, bool) {
@@ -32,8 +34,15 @@ func (f *fakeContainers) Start(_ context.Context, name string) error {
 	return nil
 }
 
-func (f *fakeContainers) EnsureNetworkAlias(_ context.Context, name, alias, _ string) error {
+func (f *fakeContainers) EnsureNetworkAlias(_ context.Context, name, alias, _ string) (bool, error) {
 	f.aliased = append(f.aliased, name+"="+alias)
+	// The cold-start shape by default: the alias was not there, so attaching it
+	// reconnected the container and renumbered it.
+	return !f.aliasAlreadyPresent, nil
+}
+
+func (f *fakeContainers) Restart(_ context.Context, name string) error {
+	f.restarted = append(f.restarted, name)
 	return nil
 }
 
@@ -139,5 +148,61 @@ func TestEnvDBIdentifier(t *testing.T) {
 	want := "environment-db-hmd-postgres-rds-local-local-reg1-hmdtr1"
 	if got := EnvDBIdentifier(names); got != want {
 		t.Errorf("EnvDBIdentifier = %q, want %q", got, want)
+	}
+}
+
+// The sixth defect a cold start found, and the one that looked least like a
+// defect: `docker ps` reported the graph healthy and its own log showed a
+// working Gremlin server, while every client got connection refused.
+//
+// Attaching the alias disconnects and reconnects the container, which renumbers
+// it. The Gremlin server binds the container's specific address rather than
+// 0.0.0.0, so it kept listening on the address it had at startup while
+// `global-graph` resolved to the new one.
+func TestTheGraphIsRestartedOntoTheAddressAliasingGaveIt(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeContainers{name: "floci-neptune-cp", running: true}
+	name, err := EnsureNeptuneRunning(context.Background(), f, "000000000000", "cp-graph",
+		"global-graph", "neuronsphere_default")
+	if err != nil {
+		t.Fatalf("EnsureNeptuneRunning: %v", err)
+	}
+	if name != "floci-neptune-cp" {
+		t.Fatalf("name = %q", name)
+	}
+	if len(f.restarted) != 1 || f.restarted[0] != "floci-neptune-cp" {
+		t.Errorf("restarted = %v, want the graph once: a reconnect moved it and the server did not follow", f.restarted)
+	}
+}
+
+// And not otherwise. On a warm start the alias is already attached, nothing
+// reconnects, and restarting the graph would drop every open Gremlin
+// connection for no reason at all.
+func TestAWarmStartDoesNotRestartTheGraph(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeContainers{name: "floci-neptune-cp", running: true, aliasAlreadyPresent: true}
+	if _, err := EnsureNeptuneRunning(context.Background(), f, "000000000000", "cp-graph",
+		"global-graph", "neuronsphere_default"); err != nil {
+		t.Fatalf("EnsureNeptuneRunning: %v", err)
+	}
+	if len(f.restarted) != 0 {
+		t.Errorf("restarted = %v on a warm start, want none", f.restarted)
+	}
+}
+
+// The database is deliberately left alone either way: Postgres listens on
+// 0.0.0.0, so the address it was given is not the address it serves on.
+func TestTheDatabaseIsNotRestartedByAliasing(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeContainers{name: "floci-rds-db", running: true}
+	if _, err := EnsureRDSRunning(context.Background(), f, "000000000000", "env-db",
+		"hmd_db", "neuronsphere_default", time.Second, time.Millisecond); err != nil {
+		t.Fatalf("EnsureRDSRunning: %v", err)
+	}
+	if len(f.restarted) != 0 {
+		t.Errorf("restarted = %v, want none: Postgres does not bind its container IP", f.restarted)
 	}
 }

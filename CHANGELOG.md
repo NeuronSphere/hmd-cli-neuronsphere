@@ -2,6 +2,32 @@
 
 ## 2026-09-07
 
+- fix: Restart the graph onto the address aliasing gave it
+
+  The sixth defect a cold start found, and the one that looked least like a
+  defect: `docker ps` reported the control-plane graph healthy, its own log
+  showed a working Gremlin server, and every client got connection refused. The
+  artifact librarian answered 500 to every request.
+
+  `EnsureNetworkAlias` attaches `global-graph` by disconnecting and reconnecting
+  the container, because Docker will not add an alias to an existing endpoint.
+  A reconnect assigns a **new IP**. The Gremlin server in
+  `hmd-img-gremlin-server` binds the container's specific address rather than
+  `0.0.0.0`, so it went on listening on `172.18.0.8` while `global-graph`
+  resolved to `172.18.0.7` -- and `172.18.0.8` had since been handed to a
+  passing Lambda container.
+
+  Invisible on a warm platform, like the five before it: the alias is already
+  attached, nothing reconnects, and the address the server bound at its last
+  start is still its own. The function's comment said the disconnect "is safe
+  because it is skipped entirely when the alias is already present" -- right
+  about churn, and silent about the one start where it is not skipped.
+
+  `EnsureNetworkAlias` reports whether it reconnected, and the graph is
+  restarted when it did. The database is deliberately left alone: Postgres
+  listens on `0.0.0.0`, so the address it was given is not the address it serves
+  on, and restarting it mid-bootstrap would buy nothing.
+
 - fix: Say why the inverted submit path times out, now that it has been run
 
   Phase 4's *Not done* named `call_deploy_change_set_deployment` -- "an async

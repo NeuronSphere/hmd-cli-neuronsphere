@@ -45,7 +45,8 @@ func EnvDBIdentifier(names Names) string {
 type Containers interface {
 	FlociContainer(ctx context.Context, service, accountID, resourceID string) (string, bool)
 	Start(ctx context.Context, name string) error
-	EnsureNetworkAlias(ctx context.Context, name, alias, network string) error
+	EnsureNetworkAlias(ctx context.Context, name, alias, network string) (bool, error)
+	Restart(ctx context.Context, name string) error
 	Exec(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
@@ -78,7 +79,10 @@ func EnsureRDSRunning(ctx context.Context, d Containers, accountID, identifier, 
 		return name, err
 	}
 	if alias != "" && network != "" {
-		if err := d.EnsureNetworkAlias(ctx, name, alias, network); err != nil {
+		// The reconnect flag is ignored here on purpose: Postgres listens on
+		// 0.0.0.0, so the new IP a reconnect assigns costs it nothing. The
+		// graph below is the one that cannot say the same.
+		if _, err := d.EnsureNetworkAlias(ctx, name, alias, network); err != nil {
 			return name, err
 		}
 	}
@@ -152,8 +156,29 @@ func EnsureNeptuneRunning(ctx context.Context, d Containers, accountID, identifi
 		}
 	}
 	if alias != "" && network != "" {
-		if err := d.EnsureNetworkAlias(ctx, name, alias, network); err != nil {
+		reconnected, err := d.EnsureNetworkAlias(ctx, name, alias, network)
+		if err != nil {
 			return name, err
+		}
+		// The graph has to be restarted onto its new address, and only when it
+		// actually moved.
+		//
+		// The Gremlin server binds the container's *specific* IP, not 0.0.0.0.
+		// Attaching the alias disconnects and reconnects the container, which
+		// renumbers it -- so on a cold bootstrap the server kept listening on
+		// 172.18.0.8 while `global-graph` resolved to 172.18.0.7, and every
+		// client got ECONNREFUSED against a container Docker called healthy and
+		// whose own log showed a happy server. The artifact librarian answered
+		// 500 to every request for it.
+		//
+		// Invisible on a warm platform: the alias is already attached, nothing
+		// reconnects, and the address the server bound at its last start is
+		// still its own.
+		if reconnected {
+			if err := d.Restart(ctx, name); err != nil {
+				return name, fmt.Errorf(
+					"restarting the graph container %s after aliasing it as %s: %w", name, alias, err)
+			}
 		}
 	}
 	return name, nil
