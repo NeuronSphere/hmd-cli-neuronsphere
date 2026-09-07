@@ -92,7 +92,9 @@ harness are still open.
        core Resources. See the SPEC.
    * - 010
      - **amended**
-     - The submit envelope is Argo's; its contents are not. See the SPEC.
+     - The submit envelope is Argo's; its contents are not. The CLI-submits
+       path works; the service-submits one cannot, because nothing sets
+       ``HMD_WORKFLOW_RUNNER_URL`` -- see Phase 4's correction.
    * - 011
      - **amended**
      - Implemented. One clause of it is not implementable as written, and
@@ -117,7 +119,7 @@ harness are still open.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Eleven things this proposal asserted turned out to be wrong, and are corrected
+Twelve things this proposal asserted turned out to be wrong, and are corrected
 in the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
@@ -171,6 +173,10 @@ in the SPECs rather than quietly worked around:
 11. **In-degree scheduling is not a sufficient concurrency bound** (SPEC011).
     Nodes of one RepoClass share a working tree, and the DAG has no edge to
     express it. The scheduler serialises per class.
+12. **The control plane cannot submit to the runner** (SPEC010, Phase 4).
+    ``hmd-ms-deployment`` reads ``HMD_WORKFLOW_RUNNER_URL`` and nothing sets
+    it, so the inversion this phase exists for has never run. Phase 4 recorded
+    it as a met deliverable.
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1611,6 +1617,26 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     through ``call_deploy_change_set_deployment`` -- an async self-invoking
     Lambda whose behaviour under Floci is unverified. The runner container is
     likewise off by default until its image is published.
+
+    *Corrected (2026-09-07):* the deliverable above is half met, and the
+    *Not done* names the wrong obstacle. **Nothing sets
+    ``HMD_WORKFLOW_RUNNER_URL``.** ``hmd-ms-deployment`` reads it --
+    ``deployment_manager.py`` resolves the runner from it, with tests -- so the
+    service half of "the runner selection in ``hmd-ms-deployment``" did land.
+    The CLI half did not: ``floci.ServiceEnv`` builds the foundation Lambdas'
+    environment and does not include it, the compose file does not set it, and
+    neither does the Python CLI. So the control plane has nowhere to submit,
+    and ``HMD_LOCAL_SERVICE_SUBMIT=1`` cannot work at all rather than working
+    unverifiably: ``env start`` seeds the changeset, waits its two minutes and
+    fails with "no workflow appeared". The Lambda's behaviour under Floci
+    remains unverified, but it is not what is blocking -- it has never been
+    reached.
+
+    Whoever picks this up: the variable belongs in ``floci.ServiceEnv``'s map
+    for ``hmd-ms-deployment``, pointing at the runner's in-network address
+    (``http://hmd_nsrunner:8080``, not the host route), and only when the
+    runner is enabled -- a control plane told to submit to a runner that is not
+    running would fail every deploy instead of falling back.
 
     *Superseded by Phase 6:* the image is not published and will not be. It is
     built on demand from sources embedded in the binary, so a Homebrew install
