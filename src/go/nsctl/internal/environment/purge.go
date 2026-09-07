@@ -175,6 +175,16 @@ func purgeEnvironment(ctx context.Context, opts *Options, env *registry.Environm
 		removeContainers(ctx, opts, d, "deploy", name)
 	}
 
+	// Everything else Floci spawned for this account. The loop above names
+	// three services -- eks, rds, neptune -- and Floci runs more than three: the
+	// first real purge left floci-ecr-registry running, which held its volume
+	// and an endpoint on the platform network, so the volume sweep and the
+	// network removal both failed behind it. Swept by account rather than
+	// enumerated by service, so a service Floci adds later needs no change here.
+	for _, name := range d.ContainersWithLabel(ctx, container.LabelFlociAccount, env.AccountID) {
+		removeContainers(ctx, opts, d, "Floci-spawned", name)
+	}
+
 	r := router.New(opts.Home, opts.Lookup)
 	if err := r.RemoveEnvRoutes(env.Slug); err != nil {
 		opts.warn("%v", err)
@@ -275,6 +285,17 @@ func PurgeAll(ctx context.Context, opts *Options, cp ControlPlaneTeardown) error
 		if err := cp.Stop(ctx); err != nil {
 			opts.warn("%v", err)
 		}
+	}
+
+	// Every remaining Floci-spawned container, across every account. The
+	// environment sweeps above cover the accounts the registry knows about;
+	// this covers the control plane's own Lambdas and anything an environment
+	// purged before this fix landed left behind. It runs before the volume
+	// sweep and the network removal because both of those fail behind a
+	// container still holding what they are trying to remove -- which is
+	// exactly how the first real run of this ended.
+	for _, name := range d.ContainersWithLabel(ctx, container.LabelFloci, "") {
+		removeContainers(ctx, opts, d, "Floci-spawned", name)
 	}
 
 	// A name sweep, after the fact, for the volumes an earlier purge -- or the

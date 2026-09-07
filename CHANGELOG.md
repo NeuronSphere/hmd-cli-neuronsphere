@@ -2,6 +2,41 @@
 
 ## 2026-09-07
 
+- fix: Purge what Floci spawned that a purge does not name
+
+  The first real `nsctl env purge` -- the verb has been unit-tested and never
+  run -- left seven containers, three volumes and the platform network behind,
+  and the three failures were one failure.
+
+  `floci-ecr-registry` is neither an eks, an rds nor a neptune container, and
+  those are the only three services the purge names. It survived, holding
+  `floci-ecr-registry-data` and a live endpoint on
+  `neuronsphere_default-<hash>`, so the leftover-volume sweep and the network
+  removal both failed behind it. Both sweeps are now by label rather than by
+  enumerated service -- `io.floci.account` per environment, and a cross-account
+  `floci` sweep between the control-plane teardown and the volume and network
+  removals -- so a service Floci grows next needs no change here.
+
+  `RemoveVolumes` returned on the first volume it could not remove, so the two
+  `floci-rds-db-*` volumes queued behind the in-use ECR one survived too. A
+  sweep whose stated purpose is "the volumes an earlier purge could not reach"
+  cannot stop at the first volume it cannot reach; that is how forty-nine of
+  them accumulated. It is best-effort per volume now and reports every failure
+  at the end.
+
+  `compose.Runner.Remove` was written for this -- "Only a purge does this" --
+  and nothing ever called it. `PurgeAll` went through `controlplane.Stop`, so a
+  full purge left `hmd_proxy`, `floci`, `hmd_deployment_gui` and `hmd_nsrunner`
+  as Exited containers named after a platform whose network and every
+  `$HMD_HOME` path they were configured from had just been deleted.
+  `controlplane.Remove` is the purge's teardown; `Stop` stays what
+  `control-plane stop` uses, because a stopped container restarting onto the
+  same network is the whole of a warm start.
+
+  The ordering claim the unit tests assert did hold: no purge warned
+  `Could not connect to the endpoint URL "http://localhost:4566/"`, so Floci
+  really is asked for its deletes before it stops.
+
 - test: A parity suite for env start, stop, status and the registry
 
   SPEC012 proposed "a parallel suite parameterised on the binary under test" and

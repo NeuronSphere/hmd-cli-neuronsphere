@@ -524,7 +524,7 @@ naming them.`,
 				// wrong helper finds nothing and reports no error.
 				GraphIdentifier: controlplane.CPGraphIdentifier(names),
 				Stop: func(ctx context.Context) error {
-					return controlplane.Stop(ctx, cpOpts)
+					return controlplane.Remove(ctx, cpOpts)
 				},
 			})
 		},

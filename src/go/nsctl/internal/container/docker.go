@@ -20,6 +20,11 @@ const (
 	LabelFlociService  = "io.floci.service"
 	LabelFlociAccount  = "io.floci.account"
 	LabelFlociResource = "io.floci.resource-id"
+	// LabelFloci is on every container Floci spawns, whatever the service, and
+	// on nothing else -- the compose-created `floci` container itself does not
+	// carry it. It is the only handle on the services a purge does not name
+	// individually: ECR, Lambda, and whatever Floci grows next.
+	LabelFloci = "floci"
 )
 
 // ErrDockerMissing is returned when the docker CLI is not on PATH.
@@ -486,6 +491,7 @@ func (d *Docker) RemoveContainer(ctx context.Context, name string) error {
 
 // RemoveVolumes force-removes volumes, skipping any that are not there.
 func (d *Docker) RemoveVolumes(ctx context.Context, names ...string) error {
+	var failed []string
 	for _, name := range names {
 		if name == "" {
 			continue
@@ -495,8 +501,18 @@ func (d *Docker) RemoveVolumes(ctx context.Context, names ...string) error {
 				strings.Contains(err.Error(), "No such volume") {
 				continue
 			}
-			return fmt.Errorf("removing the volume %s: %w", name, err)
+			// Recorded and carried on, never returned early. The caller that
+			// matters is the purge's end-of-run sweep, whose whole purpose is
+			// the volumes an earlier purge could not reach -- and a sweep that
+			// stops at the first volume it cannot reach is how they accumulate
+			// in the first place. One in-use floci-ecr-registry-data left two
+			// floci-rds-db-* volumes behind on the first real run of this.
+			failed = append(failed, fmt.Sprintf("%s: %v", name, err))
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("could not remove %d of %d volume(s): %s",
+			len(failed), len(names), strings.Join(failed, "; "))
 	}
 	return nil
 }

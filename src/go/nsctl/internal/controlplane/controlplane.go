@@ -470,6 +470,41 @@ func Stop(ctx context.Context, opts *Options) error {
 	return nil
 }
 
+// Remove is Stop for a purge: the containers go rather than stopping.
+//
+// `control-plane stop` must leave them in place -- a stopped container restarts
+// onto the same network with the same config, which is the whole of a warm
+// start. A purge must not: it removes the network those containers are attached
+// to and every path under $HMD_HOME they are configured from, so leaving four
+// exited containers named after a platform that no longer exists is a leftover,
+// and `docker ps -a` said so on the first real run.
+//
+// compose.Runner.Remove was written for this ("Only a purge does this") and
+// nothing called it. PurgeAll went through Stop, so a full purge left hmd_proxy,
+// floci, hmd_deployment_gui and hmd_nsrunner behind as Exited.
+func Remove(ctx context.Context, opts *Options) error {
+	reg, err := registry.Load(opts.Home, opts.Lookup)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	// Profile-blind for the same reason Stop is: a container started while a
+	// profile was active must still be removed by a run without it.
+	project, err := Project(opts, reg, "")
+	if err != nil {
+		return err
+	}
+	runner, err := compose.NewRunner(opts.Out, opts.Err)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+
+	opts.step("Removing control-plane containers...")
+	if err := runner.Remove(ctx, project); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	return nil
+}
+
 // EnsureProjectBuilder pulls the image every kubectl call runs inside.
 func EnsureProjectBuilder(ctx context.Context, opts *Options, runner *compose.Runner) error {
 	image := ProjectBuilderRef(opts)

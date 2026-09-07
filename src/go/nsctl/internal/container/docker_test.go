@@ -1,6 +1,9 @@
 package container
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -136,5 +139,63 @@ func TestParseStateSeparatesUnreadableFromDead(t *testing.T) {
 					tt.out, got, tt.running, tt.status, tt.exitCode)
 			}
 		})
+	}
+}
+
+// A best-effort sweep that stops at its first failure is not a sweep. The first
+// real `nsctl env purge` proved it: floci-ecr-registry-data was in use, and the
+// two floci-rds-db-* volumes queued behind it survived a purge whose entire
+// stated purpose is the volumes an earlier purge could not reach.
+func TestRemoveVolumesKeepsGoingPastOneItCannotRemove(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	log := filepath.Join(dir, "attempted")
+	// Fails only for the in-use volume, exactly as dockerd does, and records
+	// every name it was asked for so the test can see what was attempted rather
+	// than only what succeeded.
+	script := "#!/bin/sh\n" +
+		"name=$4\n" +
+		"echo \"$name\" >> " + log + "\n" +
+		"if [ \"$name\" = stuck ]; then\n" +
+		"  echo 'Error response from daemon: remove stuck: volume is in use' >&2\n" +
+		"  exit 1\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &Docker{Bin: bin}
+	err := d.RemoveVolumes(context.Background(), "stuck", "after-one", "after-two")
+	if err == nil {
+		t.Fatal("a volume that could not be removed must still be reported")
+	}
+	if !strings.Contains(err.Error(), "stuck") {
+		t.Errorf("the error does not name the volume that failed: %v", err)
+	}
+
+	attempted, readErr := os.ReadFile(log)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, want := range []string{"after-one", "after-two"} {
+		if !strings.Contains(string(attempted), want) {
+			t.Errorf("%s was never attempted: the sweep stopped at the first failure", want)
+		}
+	}
+}
+
+// A volume that is simply not there is not a failure -- the sweep runs against
+// a name list that may predate someone else's cleanup.
+func TestRemoveVolumesTreatsAMissingVolumeAsDone(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	script := "#!/bin/sh\necho 'Error: No such volume: gone' >&2\nexit 1\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &Docker{Bin: bin}
+	if err := d.RemoveVolumes(context.Background(), "gone"); err != nil {
+		t.Errorf("a missing volume must not be an error: %v", err)
 	}
 }

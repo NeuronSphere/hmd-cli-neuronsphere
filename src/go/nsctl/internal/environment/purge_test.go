@@ -9,9 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
 // These tests deliberately do not call t.Parallel: withFakes swaps
@@ -38,7 +40,7 @@ type fakeDocker struct {
 	rec        *recorder
 	containers map[string]bool
 	floci      map[string]string
-	labelled   []string
+	labelled   map[string][]string
 	volumes    []string
 }
 
@@ -47,7 +49,17 @@ func (f *fakeDocker) FlociContainer(_ context.Context, service, _, resource stri
 	name := f.floci[service+"/"+resource]
 	return name, name != ""
 }
-func (f *fakeDocker) ContainersWithLabel(context.Context, string, string) []string { return f.labelled }
+
+// Keyed by the filter the caller asks for, because the purge now makes three
+// different label queries and a fake that answers them all identically would
+// let the Floci sweep pass while querying the projectbuilder label.
+func (f *fakeDocker) ContainersWithLabel(_ context.Context, key, value string) []string {
+	filter := key
+	if value != "" {
+		filter = key + "=" + value
+	}
+	return f.labelled[filter]
+}
 func (f *fakeDocker) RemoveContainer(_ context.Context, name string) error {
 	f.rec.log("rm container %s", name)
 	return nil
@@ -189,7 +201,7 @@ func TestAnEnvironmentIsUnregisteredOnlyAfterItIsGone(t *testing.T) {
 		floci: map[string]string{
 			"rds/" + floci.EnvDBIdentifier(floci.NamesFrom(nil, "dev", "dev")): "floci-rds-dev",
 		},
-		labelled: []string{"quirky_bassi"},
+		labelled: map[string][]string{runner.EnvironmentLabel + "=dev": {"quirky_bassi"}},
 	})
 
 	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
@@ -242,5 +254,78 @@ func TestALegacyEnvironmentIsRefusedRatherThanHalfPurged(t *testing.T) {
 	after, _ := registry.Load(home, nil)
 	if _, still := after.Environments["local"]; !still {
 		t.Errorf("a refused purge unregistered the environment anyway")
+	}
+}
+
+// The first real purge left floci-ecr-registry running. It is neither an eks,
+// an rds nor a neptune container, so nothing named it -- and it held its own
+// volume and an endpoint on the platform network, so the volume sweep and the
+// network removal both failed behind it and two floci-rds-db-* volumes survived
+// with it. Sweeping by account catches every service Floci runs, including the
+// ones it grows later.
+func TestAnEnvironmentPurgeSweepsFlociContainersItDoesNotNameByService(t *testing.T) {
+	rec := &recorder{}
+	home := t.TempDir()
+	env := testEnv(home, "dev")
+	home = purgeHome(t, map[string]registry.Environment{"dev": env})
+	withFakes(t, rec, &fakeDocker{
+		rec:   rec,
+		floci: map[string]string{},
+		labelled: map[string][]string{
+			container.LabelFlociAccount + "=" + env.AccountID: {"floci-ecr-registry"},
+		},
+	})
+
+	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
+	if err := Purge(context.Background(), opts, "dev"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if rec.index("rm container floci-ecr-registry") < 0 {
+		t.Errorf("the ECR registry survived the purge; calls were %v", rec.calls)
+	}
+}
+
+// Ordering, which is the whole of this verb. A container still holding a volume
+// or a network endpoint makes both removals fail, so the cross-account sweep has
+// to land between the control-plane teardown and them -- not after, where it
+// would be sweeping up behind two failures it could have prevented.
+func TestTheFlociSweepRunsBeforeTheVolumeAndNetworkRemovals(t *testing.T) {
+	rec := &recorder{}
+	home := purgeHome(t, map[string]registry.Environment{})
+	withFakes(t, rec, &fakeDocker{
+		rec:      rec,
+		floci:    map[string]string{},
+		volumes:  []string{"floci-rds-x"},
+		labelled: map[string][]string{container.LabelFloci: {"floci-ecr-registry"}},
+	})
+
+	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
+	err := PurgeAll(context.Background(), opts, ControlPlaneTeardown{
+		GraphIdentifier: "cp-graph",
+		Stop: func(context.Context) error {
+			rec.log("stop control plane")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("PurgeAll: %v", err)
+	}
+
+	swept := rec.index("rm container floci-ecr-registry")
+	if swept < 0 {
+		t.Fatalf("the cross-account Floci sweep never ran; calls were %v", rec.calls)
+	}
+	if stop := rec.index("stop control plane"); swept < stop {
+		t.Errorf("the sweep ran before the control plane came down, where Floci may still respawn what it removes")
+	}
+	for _, after := range []string{"rm volumes floci-rds-x", "rm network"} {
+		at := rec.index(after)
+		if at < 0 {
+			t.Errorf("%q never happened; calls were %v", after, rec.calls)
+			continue
+		}
+		if at < swept {
+			t.Errorf("%q ran before the Floci sweep, so it fails behind whatever the sweep would have removed", after)
+		}
 	}
 }
