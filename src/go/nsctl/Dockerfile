@@ -7,7 +7,7 @@
 # making it public API.
 FROM golang:1.25-alpine AS build
 WORKDIR /src
-# CGO off so the result runs on scratch.
+# CGO off so the binary carries no libc dependency of its own.
 ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
 RUN go mod download
@@ -15,15 +15,15 @@ COPY . .
 ARG VERSION=dev
 RUN go build -ldflags "-X main.version=${VERSION} -s -w" -o /nsctl .
 
-# scratch, not alpine: the runner shells out to nothing. It speaks to the
-# Docker daemon over the mounted socket, and every command it "runs" is a
-# container the daemon starts, so the image needs no shell, no docker CLI and
-# no kubectl.
-FROM scratch
-# The daemon is addressed over a unix socket, but resolving anything by name --
-# hmd_proxy, ms-deployment -- needs the netgo resolver to have somewhere to
-# start, and TLS to a registry needs roots.
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# docker:cli, not scratch. internal/container drives Docker by shelling out to
+# the CLI rather than through the Engine API, so the binary has to be on PATH:
+# on scratch every deploy node dies with `exec: "docker": executable file not
+# found in $PATH`, which is a runtime failure no unit test sees, because the
+# Docker seam is an interface every test fakes.
+#
+# It also supplies the DNS resolution and CA roots the runner needs to reach
+# hmd_proxy and pull images.
+FROM docker:cli
 COPY --from=build /nsctl /nsctl
 EXPOSE 8080
 ENTRYPOINT ["/nsctl", "runner", "serve", "--addr", ":8080"]

@@ -40,6 +40,17 @@
   because it routes through an async self-invoking Lambda whose behaviour under
   Floci is unverified.
 
+- fix: Give the runner image a docker CLI
+
+  `internal/container` drives Docker by shelling out to the CLI rather than
+  through the Engine API, so the binary has to be on PATH. On the scratch image
+  the service started, served, and accepted submissions perfectly -- and every
+  deploy node died with `exec: "docker": executable file not found in $PATH`.
+
+  No unit test could see it: the Docker seam is an interface every test fakes,
+  which is exactly what makes it fast and exactly what makes it blind here. It
+  took running a real node in a real container to find.
+
 - fix: Collapse duplicate binds when materialising a container
 
   Docker rejects a duplicate mount point outright, so a container that was
