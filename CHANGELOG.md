@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-09-07
+
+- feat: Schedule DAG nodes on their dependencies instead of one at a time
+
+  Every node ms-deployment emits carries `dependencies` -- the instance's real
+  edges, transitively reduced and filtered to this changeset -- and until now
+  nothing read the field. The runner walked the list. It now builds an
+  in-degree map over those edges, dispatches every in-degree-zero node to a
+  bounded pool, and releases successors as each lands. Six independent nodes
+  take 8s at the default concurrency against 21s sequentially.
+
+  Concurrency defaults to 4, which is what the cloud path already runs at
+  (Argo's `spec.parallelism`). A submission may pin its own;
+  `HMD_LOCAL_RUNNER_PARALLELISM=1` is the way back to a sequential deploy.
+
+  Fail-fast stops dispatch rather than cancelling the context, because node
+  execution runs `docker run` under `exec.CommandContext` and cancelling it
+  would kill deploys mid-`terraform apply`. Nodes already in flight finish and
+  report; a node that succeeds after a sibling failed still counts as landed,
+  because the reconcile snapshot must name exactly what is deployed.
+
+  Concurrent nodes share one log, and that log is what `env start` and
+  `env attach` show, so output is prefixed per instance -- and only when more
+  than one node can be in flight.
+
 ## 2026-09-06
 
 - feat: Add the DAG-runner service, and submit deployments to it

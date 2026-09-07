@@ -181,6 +181,29 @@ so every bind mount it composes is resolved by the host's daemon and not inside
 its own filesystem. Making the two path spaces identical is what lets a repo
 working tree reach a deploy node unchanged.
 
+How many nodes deploy at once
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The runner schedules a changeset on its dependency edges rather than walking
+the list, so instances that do not depend on one another deploy together. Four
+at a time by default -- the same ``parallelism`` the cloud path's Argo Workflow
+carries. Set ``HMD_LOCAL_RUNNER_PARALLELISM`` to change it;
+``HMD_LOCAL_RUNNER_PARALLELISM=1`` restores a strictly sequential deploy, which
+is what to reach for when bisecting a failure that only appears under
+concurrency.
+
+Concurrent nodes share one log, so each line is prefixed with the instance that
+wrote it. With one node in flight there is nothing to disambiguate and the
+prefix is absent.
+
+A failure stops anything that has not started; nodes already running are left
+to finish rather than killed part-way through a ``terraform apply``, so a
+failed deploy can take as long as its slowest in-flight node to report. What
+landed is still recorded, and a retry picks up from there.
+
+The in-process fallback -- used when no runner is answering -- is unaffected
+and stays sequential.
+
 Who submits the workflow
 ~~~~~~~~~~~~~~~~~~~~~~~~
 

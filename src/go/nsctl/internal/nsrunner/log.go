@@ -1,6 +1,8 @@
 package nsrunner
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"sync"
 )
@@ -117,4 +119,69 @@ func replayLogBuffer(path string) *logBuffer {
 		lb.lines = []string{string(data)}
 	}
 	return lb
+}
+
+// prefixWriter attributes every line a node writes to that node.
+//
+// Four nodes deploying at once share one logBuffer, and that buffer is exactly
+// what `nsctl env start` and `nsctl env attach` put on the user's screen, so
+// without attribution a parallel deploy reads as four narrations shuffled
+// together.
+//
+// The alternative -- buffering each node and flushing the block when it
+// finishes -- was rejected because the container's own output is not streamed
+// at all: Docker.Run collects stdout and stderr and hands them back at the end,
+// so these progress lines are the only live signal there is. Withholding them
+// until a node completed would leave a multi-minute deploy silent, which is a
+// worse trade than a prefix. Prefixing is skipped entirely when only one node
+// can be in flight, where there is nothing to disambiguate.
+//
+// One writer belongs to one node's goroutine and is not shared, so it carries
+// no lock of its own; the logBuffer underneath has one.
+type prefixWriter struct {
+	w      io.Writer
+	prefix string
+	buf    []byte
+}
+
+func newPrefixWriter(w io.Writer, instance string) *prefixWriter {
+	return &prefixWriter{w: w, prefix: "[" + instance + "] "}
+}
+
+// Write buffers until it has whole lines, then emits them in one call -- so the
+// shared buffer records a node's output as one entry rather than as fragments
+// another node can land between.
+func (p *prefixWriter) Write(b []byte) (int, error) {
+	p.buf = append(p.buf, b...)
+	cut := bytes.LastIndexByte(p.buf, '\n')
+	if cut < 0 {
+		return len(b), nil
+	}
+	p.emit(p.buf[:cut+1])
+	p.buf = append(p.buf[:0], p.buf[cut+1:]...)
+	return len(b), nil
+}
+
+// Close flushes a trailing line that never got its newline.
+func (p *prefixWriter) Close() {
+	if len(p.buf) == 0 {
+		return
+	}
+	p.emit(append(p.buf, '\n'))
+	p.buf = nil
+}
+
+func (p *prefixWriter) emit(chunk []byte) {
+	var out bytes.Buffer
+	for len(chunk) > 0 {
+		i := bytes.IndexByte(chunk, '\n')
+		line := chunk[:i+1]
+		chunk = chunk[i+1:]
+		// A blank line is a separator, and attributing it only adds noise.
+		if len(line) > 1 {
+			out.WriteString(p.prefix)
+		}
+		out.Write(line)
+	}
+	_, _ = p.w.Write(out.Bytes())
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,6 +61,25 @@ func newDeployer(opts *Options, run *runner.Runner, envSlug string) *deployer {
 		d.client = c
 	}
 	return d
+}
+
+// RunnerParallelism is how many nodes the runner may deploy at once, when the
+// user has asked for something other than the default.
+//
+// The runner's own default is the cloud path's spec.parallelism: 4, and nothing
+// here needs to restate it. What this exists for is the way back:
+// HMD_LOCAL_RUNNER_PARALLELISM=1 makes a deploy sequential again, which is what
+// someone bisecting a deploy that only misbehaves under concurrency needs.
+// It has no effect on the in-process fallback, which has no worker pool.
+func RunnerParallelism(lookup func(string) string) int {
+	if lookup == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(lookup("HMD_LOCAL_RUNNER_PARALLELISM")))
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
 }
 
 // ServiceSubmits reports whether the control plane, rather than the CLI, builds
@@ -128,6 +148,7 @@ func (d *deployer) submit(ctx context.Context, csdNid string, nodes []msdeploy.D
 		CSDNid:      csdNid,
 		Environment: d.env,
 		Nodes:       nodes,
+		Parallelism: RunnerParallelism(d.opts.lookup),
 		Config: &nsrunner.ConfigOverride{
 			Network: cfg.Network, Image: cfg.Image,
 			FlociEndpoint: cfg.FlociEndpoint, AccountID: cfg.AccountID,

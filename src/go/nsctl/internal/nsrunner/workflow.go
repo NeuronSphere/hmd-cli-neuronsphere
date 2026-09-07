@@ -84,6 +84,9 @@ type Manifest struct {
 	// it because it has already computed exactly this to reach the same
 	// cluster; anything it leaves empty is still filled in from HMD_HOME.
 	Config *ConfigOverride `json:"config,omitempty"`
+	// Parallelism is how many of these nodes may deploy at once. Zero means
+	// DefaultParallelism, which is what the cloud path already runs at.
+	Parallelism int `json:"parallelism,omitempty"`
 }
 
 // ConfigOverride mirrors the fields of runner.Config a submitter may pin.
@@ -106,11 +109,16 @@ type ConfigOverride struct {
 
 // Workflow is one submitted deployment, and is what the store persists.
 type Workflow struct {
-	Name        string       `json:"name"`
-	Namespace   string       `json:"namespace"`
-	Environment string       `json:"environment"`
-	CSDNid      string       `json:"csd_nid"`
-	Destroy     bool         `json:"destroy"`
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	Environment string `json:"environment"`
+	CSDNid      string `json:"csd_nid"`
+	Destroy     bool   `json:"destroy"`
+	// Parallelism is the concurrency this run was actually scheduled at, after
+	// the default and the node count were applied. It is recorded rather than
+	// recomputed so a run that behaved oddly can be read back instead of
+	// guessed at.
+	Parallelism int          `json:"parallelism,omitempty"`
 	Phase       Phase        `json:"phase"`
 	Message     string       `json:"message,omitempty"`
 	Nodes       []NodeStatus `json:"nodes"`

@@ -114,6 +114,7 @@ func (s *Server) Submit(sub Submission) (Workflow, error) {
 		Environment: m.Environment,
 		CSDNid:      m.CSDNid,
 		Destroy:     m.Destroy,
+		Parallelism: parallelism(m.Parallelism, len(m.Nodes)),
 		Phase:       PhaseRunning,
 		SubmittedAt: now(),
 		Nodes:       make([]NodeStatus, 0, len(m.Nodes)),

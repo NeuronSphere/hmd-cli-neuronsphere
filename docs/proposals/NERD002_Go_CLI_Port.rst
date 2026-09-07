@@ -37,11 +37,13 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 Implementation Status
 ---------------------
 
-Phases 0 through 4 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
+Phases 0 through 5 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
 control plane from an empty ``HMD_HOME``, starts and stops environments,
 reconciles them to a manifest, and coexists with the Python CLI against one
 ``HMD_HOME``. Deployments are submitted to a DAG-runner service rather than run
-inside the CLI, so they outlive the command that started them.
+inside the CLI, so they outlive the command that started them, and the runner
+schedules their nodes on the dependency edges the payload has always carried
+rather than one at a time.
 
 .. list-table::
    :header-rows: 1
@@ -84,8 +86,9 @@ inside the CLI, so they outlive the command that started them.
      - **amended**
      - The submit envelope is Argo's; its contents are not. See the SPEC.
    * - 011
-     - not started
-     - Phase 5.
+     - **amended**
+     - Implemented. One clause of it is not implementable as written -- see
+       the SPEC.
    * - 012
      - implemented
      - Verified by running the Python CLI against nsctl-created containers.
@@ -104,7 +107,7 @@ inside the CLI, so they outlive the command that started them.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Four things this proposal asserted turned out to be wrong, and are corrected in
+Six things this proposal asserted turned out to be wrong, and are corrected in
 the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
@@ -127,6 +130,12 @@ the SPECs rather than quietly worked around:
    Python runs it each time because the work is idempotent; ``nsctl`` runs it
    only when the control plane has not been bootstrapped, and a warm start
    recovers what it needs from Floci's persistent state.
+6. **Fail-fast cannot be a context cancellation** (SPEC011). Node execution
+   runs ``docker run`` under ``exec.CommandContext``, so cancelling the context
+   the nodes execute under kills them where they stand -- which is exactly the
+   half-applied ``terraform apply`` the "let in-flight nodes finish" half of
+   the same sentence exists to avoid. Dispatch is gated on the scheduler
+   instead, and the node context is left alone.
 
 Motivation
 ----------
@@ -1017,7 +1026,56 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Parallel node execution respecting dependencies
     :id: HMD_CLI_NERD002_SPEC011
     :links: HMD_CLI_NERD002
-    :status: not started
+    :status: amended
+
+    .. warning::
+
+       **Fail-fast cannot cancel the context the nodes run under.** This SPEC
+       asks for both halves of one sentence -- cancel the ``context`` so no
+       unstarted node begins, *and* let in-flight nodes finish and report --
+       and they contradict each other in this implementation.
+       ``internal/container`` runs ``docker run`` through
+       ``exec.CommandContext``, so cancelling that context kills the deploys
+       already in flight. A node killed part-way through ``terraform apply``
+       or ``helm upgrade`` leaves state worse than one allowed to finish, and
+       avoiding exactly that is why the second half of the sentence is there.
+
+       So the gate is a flag on the scheduler: after a failure it dispatches
+       nothing further, and the nodes already running keep the context they
+       started with. The observable behaviour SPEC011 asks for is unchanged --
+       no unstarted node begins -- and the context is still what stops
+       dispatch when the *runner itself* is shutting down, which is the one
+       case where killing in-flight work is the point.
+
+       **A node that succeeds after another has failed still counts as
+       landed.** ``Succeeded`` is what the reconcile snapshot is built from,
+       and it must name exactly what is deployed. Dropping a node that
+       genuinely finished because a sibling failed would redeploy it on every
+       subsequent run.
+
+       **Interleaved logs needed a decision, not a default.** Every node
+       writes through one ``logBuffer``, and that buffer is what
+       ``nsctl env start`` and ``nsctl env attach`` put on screen. Four
+       concurrent nodes shred each other's narration. Output is therefore
+       prefixed per instance (``[hmd-vpc] deploying ...``), and only when more
+       than one node can be in flight. The alternative -- a buffer per node,
+       flushed on completion -- was rejected because the container's own
+       output is not streamed at all (``Docker.Run`` collects it and returns
+       it at the end), so these progress lines are the only live signal a
+       watching user has; withholding them until a node finished would leave a
+       multi-minute deploy silent.
+
+       **A cycle is reported rather than hung on.** Nothing upstream should
+       emit one, but a scheduler that waits forever on an unsatisfiable
+       in-degree also holds its environment's mutex forever, which is a far
+       worse failure than a wrong answer. When no node is running and none is
+       runnable, the workflow fails naming the instances that never became
+       runnable.
+
+       **The per-environment mutex arrived early.** It landed with the runner
+       service in Phase 4 -- ``Store.ActiveFor`` plus the submit lock -- so a
+       second submission against a busy environment is refused ``409`` rather
+       than interleaved.
 
     ``LocalWorkflowRunner.run()`` is a strictly sequential ``for node in
     nodes:`` that returns at the first failure. It has no threads, no
@@ -1054,7 +1112,29 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     Nodes for the core repo class (``hmd-cli-neuronsphere``) remain a pure
     status flip that executes nothing, and destroy manifests keep their
-    reversed edge direction, arriving already reversed from the service.
+    reversed edge direction, arriving already reversed from the service. Both
+    still go through the scheduler: the core node executes nothing but must
+    still flip its status and release its successors, and a reversed destroy
+    graph is scheduled by the same in-degree map without being reversed again.
+
+    **What was built.** ``nsrunner``'s ``execute`` builds the in-degree map
+    from each node's ``dependencies``, dispatches every in-degree-zero node to
+    a bounded pool, and releases successors as each completes. A dependency
+    naming an instance outside the changeset is treated as already met -- the
+    field arrives filtered to the instances present, so an edge that survived
+    to something absent points at something already deployed. Concurrency is
+    ``Manifest.parallelism`` on the submission, defaulting to 4 and never
+    exceeding the node count; ``HMD_LOCAL_RUNNER_PARALLELISM`` is how a user
+    reaches it, and ``=1`` is the way back to a sequential deploy for anyone
+    bisecting a problem that only appears under concurrency. The in-process
+    fallback runner (used when no runner service is answering) is unchanged
+    and remains sequential.
+
+    *Measured:* six independent nodes through the real container boundary,
+    submitted twice against the same runner -- 21 s at ``parallelism: 1``
+    against 8 s at the default 4, both Succeeded. ``test/verify-nsrunner.sh``
+    performs this comparison, and checks separately that a diamond's edges are
+    honoured and that its two independent middle nodes genuinely overlap.
 
 .. spec:: Coexistence with the Python CLI
     :id: HMD_CLI_NERD002_SPEC012
@@ -1346,10 +1426,24 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     Lambda whose behaviour under Floci is unverified. The runner container is
     likewise off by default until its image is published.
 
-    **Phase 5 -- Parallelism. [NOT STARTED]** In-degree scheduling, the bounded worker pool,
-    fail-fast cancellation, and the per-environment mutex (SPEC011).
-    *Deliverable:* a cold bootstrap measurably faster than the sequential
-    path, with identical outcomes.
+    **Phase 5 -- Parallelism. [DONE]** In-degree scheduling over the node
+    payload's ``dependencies``, a bounded worker pool defaulting to the cloud
+    path's parallelism of 4 and overridable per submission, and fail-fast that
+    stops dispatch without killing what is already running (SPEC011). The
+    per-environment mutex had already landed in Phase 4.
+
+    *Deliverable met:* six independent nodes take 8 s at the default
+    concurrency against 21 s sequentially, with identical outcomes -- measured
+    end to end through the container boundary by
+    ``test/verify-nsrunner.sh``, which also asserts the edges are respected.
+
+    *Amended:* fail-fast is a dispatch gate rather than a context
+    cancellation, because cancelling the context nodes execute under kills
+    them mid-deploy. See SPEC011.
+
+    *Not done:* nothing in the port measures a *real* cold bootstrap's
+    speedup, only a synthetic DAG of the same shape. The real one is dominated
+    by container pulls and Terraform, and its gain will be smaller.
 
     **Phase 6 -- Distribution. [NOT STARTED]** GoReleaser, the Homebrew tap, the install
     script, and documentation making ``nsctl`` the recommended path for new

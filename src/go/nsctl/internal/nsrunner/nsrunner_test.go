@@ -110,11 +110,15 @@ func submission(nodes ...map[string]any) Submission {
 	return sub
 }
 
-func node(instance, class string) map[string]any {
+// node builds one DAG node. The trailing names are its `dependencies` -- the
+// field ms-deployment has always populated and the scheduler now reads. A node
+// with none is runnable immediately, and several of those run at once.
+func node(instance, class string, deps ...string) map[string]any {
 	return map[string]any{
 		"instance_name": instance, "repo_class_name": class,
 		"version": "0.1", "rid_nid": instance + "-rid",
-		"script": "hmd --repo-name " + class + " deploy",
+		"script":       "hmd --repo-name " + class + " deploy",
+		"dependencies": deps,
 	}
 }
 
@@ -161,9 +165,12 @@ func TestASuccessfulWorkflowRecordsEveryNode(t *testing.T) {
 	}
 }
 
-// A failure must stop the run: everything after it depends on it. The nodes
-// that never ran stay Pending rather than Failed, because calling them failed
-// would be a claim the reconcile snapshot then acts on.
+// A failure must stop the run for everything downstream of it. The nodes that
+// never ran stay Pending rather than Failed, because calling them failed would
+// be a claim the reconcile snapshot then acts on.
+//
+// The chain here is explicit now that the scheduler reads `dependencies`:
+// without the edge these two are independent and would rightly run at once.
 func TestAFailedNodeStopsTheRunAndLeavesLaterNodesPending(t *testing.T) {
 	t.Parallel()
 	d := &fakeDocker{fail: map[int]bool{1: true}}
@@ -171,7 +178,7 @@ func TestAFailedNodeStopsTheRunAndLeavesLaterNodesPending(t *testing.T) {
 
 	wf, err := s.Submit(submission(
 		node("first", "hmd-inf-thing"),
-		node("second", "hmd-inf-thing"),
+		node("second", "hmd-inf-thing", "first"),
 	))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -208,8 +215,8 @@ func TestAPartialRunRecordsWhatLanded(t *testing.T) {
 
 	wf, err := s.Submit(submission(
 		node("first", "hmd-inf-thing"),
-		node("second", "hmd-inf-thing"),
-		node("third", "hmd-inf-thing"),
+		node("second", "hmd-inf-thing", "first"),
+		node("third", "hmd-inf-thing", "second"),
 	))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
