@@ -402,9 +402,16 @@ func apiLocation(path, upstreamHost, gwID, stage, accountID string) string {
 }
 
 // passthroughLocation proxies /<path>/ straight at a URL, with no API Gateway.
+//
+// client_max_body_size 0 -- unlimited -- because the one consumer is the DAG
+// runner, and a submission carries the whole workflow manifest: every node's
+// script, configuration and dependency edges. An environment declaring 28
+// instances exceeds nginx's 1 MB default, and the failure is an nginx 413 the
+// runner never sees, so nothing upstream can report it usefully.
 func passthroughLocation(path, upstream string) string {
 	return fmt.Sprintf(`location /%s/ {
     proxy_pass %s/;
+    client_max_body_size 0;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;

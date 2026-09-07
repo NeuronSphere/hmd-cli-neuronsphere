@@ -202,3 +202,75 @@ func decodeConfiguration(value any) map[string]any {
 	}
 	return nil
 }
+
+// CoreInstanceDeployment resolves the RepoInstanceDeployment of a named
+// instance in one environment.
+//
+// A port of find_core_deployment_node. On a restart the local-neuronsphere
+// deployment persists in ms-deployment but the nodes list a seed returns is
+// gone, so the concrete core Resources can be reattached to it without
+// re-seeding a changeset -- which would create a duplicate.
+//
+// Every environment has its own instance of that name, so membership is
+// narrowed through environment_has_repo_instance before a deployment is picked.
+// Best-effort: any lookup failure answers "" and the caller carries on.
+func (c *Client) CoreInstanceDeployment(ctx context.Context, instanceName, envSlug string) (string, error) {
+	environments, err := c.Search(ctx, EntityEnvironment, Filter{Attribute: "type", Operator: "=", Value: envSlug})
+	if err != nil {
+		return "", err
+	}
+	envNids := map[string]bool{}
+	for _, e := range environments {
+		if nid, _ := e["identifier"].(string); nid != "" {
+			envNids[nid] = true
+		}
+	}
+	if len(envNids) == 0 {
+		return "", nil
+	}
+
+	instances, err := c.Search(ctx, EntityRepoInstance, Filter{Attribute: "name", Operator: "=", Value: instanceName})
+	if err != nil {
+		return "", err
+	}
+	membership, err := c.Search(ctx, EntityEnvironmentHasInstance, Filter{})
+	if err != nil {
+		return "", err
+	}
+	// The edge search is not assumed to filter by ref_from, so the join is done
+	// here. The local graph is small enough that this is cheaper than a round
+	// trip per instance.
+	owned := map[string]bool{}
+	for _, edge := range membership {
+		from, _ := edge["ref_from"].(string)
+		to, _ := edge["ref_to"].(string)
+		if envNids[from] {
+			owned[to] = true
+		}
+	}
+	instanceNids := map[string]bool{}
+	for _, instance := range instances {
+		if nid, _ := instance["identifier"].(string); nid != "" && owned[nid] {
+			instanceNids[nid] = true
+		}
+	}
+	if len(instanceNids) == 0 {
+		return "", nil
+	}
+
+	edges, err := c.Search(ctx, EntityRepoInstanceHasRID, Filter{})
+	if err != nil {
+		return "", err
+	}
+	// The most recent wins: an instance redeployed across restarts has several,
+	// and Resources belong on the one in force.
+	var latest string
+	for _, edge := range edges {
+		from, _ := edge["ref_from"].(string)
+		to, _ := edge["ref_to"].(string)
+		if instanceNids[from] && to > latest {
+			latest = to
+		}
+	}
+	return latest, nil
+}

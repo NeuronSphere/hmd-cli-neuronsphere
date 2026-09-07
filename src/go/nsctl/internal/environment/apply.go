@@ -174,19 +174,22 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Warn:           opts.warn,
 	}
 
-	opts.step("Seeding the substrate changeset...")
-	csdNid, nodes, err := seeder.Seed(ctx, bomEnv, entries)
-	if err != nil {
-		return nserr.Wrap(nserr.Fail, err)
-	}
-	// No nodes means nothing to do -- unless the control plane submitted the
-	// workflow itself, in which case the work exists and is simply not here.
-	if !ServiceSubmits(opts.lookup) {
-		opts.step("  %d deployment node(s)", len(nodes))
-		if len(nodes) == 0 {
-			return nil
-		}
-	}
+	// Two phases, not one changeset.
+	//
+	// A dependency carrying a tag_selector is matched against concrete
+	// Resources, not against produced types, and the Resources describing this
+	// environment's core can only be attached once local-neuronsphere has a
+	// RepoInstanceDeployment -- which a changeset is what creates. Seeding
+	// everything at once therefore fails at apply on a graph where those
+	// Resources do not already exist:
+	//
+	//	For RepoInstance, airflow-db-account, role, create-service: supplied
+	//	instance, local-neuronsphere, satisfies neither the required resource
+	//	type ... nor a suggested repo_class.
+	//
+	// So: the substrate applies and deploys first, its Resources are submitted,
+	// and only then is everything above it seeded.
+	phaseA, phaseB := splitSubstrate(entries)
 
 	run := &runner.Runner{
 		Docker: d,
@@ -212,9 +215,10 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Out: opts.Out, Err: opts.Err,
 	}
 
-	opts.step("Running the deployment...")
 	deployer := newDeployer(opts, run, env.Slug)
-	err = deployer.deploy(ctx, csdNid, nodes)
+
+	// Phase A: the substrate.
+	substrateNodes, err := runPhase(ctx, opts, seeder, deployer, bomEnv, phaseA, "substrate")
 	if err != nil && subnetGroupCollision(deployer.lastFailure()) {
 		// A one-time migration for an environment provisioned before hmd-vpc
 		// owned the network. The CLI created the DB subnet group imperatively,
@@ -238,14 +242,27 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				opts.warn("%v", relErr)
 			} else if released {
 				opts.step("  released the CLI-created DB subnet group; retrying so base-vpc can own it")
-				csdNid, nodes, err = seeder.Seed(ctx, bomEnv, entries)
-				if err != nil {
-					return nserr.Wrap(nserr.Fail, err)
-				}
-				err = deployer.deploy(ctx, csdNid, nodes)
+				substrateNodes, err = runPhase(ctx, opts, seeder, deployer, bomEnv, phaseA, "substrate")
 			}
 		}
 	}
+	// The concrete Resources describing this environment's core, attached to
+	// the deployment Phase A just created. Between the phases, because a
+	// Phase-B entry whose dependency selects one needs it to already exist.
+	if err == nil {
+		cluster := ""
+		if k3sEnabled(opts) {
+			cluster = bomEnv.K3sCluster
+		}
+		resources := bom.LocalCoreResources(bomEnv, reg.ControlPlane.Network, cluster, foundationServices(env.Slug))
+		opts.step("Submitting core resources...")
+		count := seeder.SubmitResources(ctx, seeder.CoreDeploymentID(ctx, bomEnv, substrateNodes), resources)
+		opts.step("  %d core resource(s) submitted", count)
+
+		// Phase B: everything the manifest declares.
+		_, err = runPhase(ctx, opts, seeder, deployer, bomEnv, phaseB, "declared")
+	}
+
 	// Recorded before the error is returned, so a run that failed partway
 	// still keeps what it settled and a retry picks up where it stopped
 	// rather than redeploying the instances that worked.
@@ -310,4 +327,70 @@ func projectBuilderRef(opts *Options) string {
 		version = "stable"
 	}
 	return fmt.Sprintf("%s/hmd-img-projectbuilder:%s", registryHost, version)
+}
+
+// splitSubstrate divides a plan's entries into the two changesets an apply
+// seeds: the substrate, then everything declared on top of it.
+//
+// Order within each half is preserved, since Seed topologically sorts what it
+// is given and the input order is already dependency-ordered.
+func splitSubstrate(entries []bom.Entry) (substrate, declared []bom.Entry) {
+	for _, e := range entries {
+		if bom.IsSubstrate(e.RepoInstanceName) {
+			substrate = append(substrate, e)
+		} else {
+			declared = append(declared, e)
+		}
+	}
+	return substrate, declared
+}
+
+// runPhase seeds one changeset and deploys it, returning the nodes it created.
+//
+// An empty phase is not an error and not a no-op worth announcing: a reconcile
+// plan that found the substrate already current leaves nothing to apply, and
+// the phase after it still has work.
+func runPhase(ctx context.Context, opts *Options, seeder *bom.Seeder, d *deployer,
+	env bom.Environment, entries []bom.Entry, label string) ([]msdeploy.DeploymentNode, error) {
+
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	opts.step("Seeding the %s changeset...", label)
+	csdNid, nodes, err := seeder.Seed(ctx, env, entries)
+	if err != nil {
+		return nil, nserr.Wrap(nserr.Fail, err)
+	}
+	// No nodes means nothing to do -- unless the control plane submitted the
+	// workflow itself, in which case the work exists and is simply not here.
+	if !ServiceSubmits(opts.lookup) {
+		opts.step("  %d deployment node(s)", len(nodes))
+		if len(nodes) == 0 {
+			return nodes, nil
+		}
+	}
+	opts.step("Running the %s deployment...", label)
+	return nodes, d.deploy(ctx, csdNid, nodes)
+}
+
+// foundationServices are the Lambdas nsctl owns directly, advertised as
+// microservice Resources so a dependency naming one by tag_selector resolves.
+//
+// They are never RepoInstances -- their own manifests' required dependencies
+// would not resolve locally -- so a concrete Resource is the only way a
+// consumer can find them. hmd-ms-dbaccount is the one that matters most:
+// every hmd-database-account instance's create-service role selects it.
+func foundationServices(envSlug string) []bom.ServiceSpec {
+	return []bom.ServiceSpec{
+		{
+			Name:       "hmd_ms_dbaccount",
+			RepoClass:  DBAccountRepoClass,
+			APIBaseURL: "http://localhost/" + envSlug + "/hmd_ms_dbaccount",
+		},
+		// Control-plane services are addressed unprefixed; an environment's own
+		// sit under its /<slug>/ prefix.
+		{Name: "hmd_ms_deployment", RepoClass: "hmd-ms-deployment", APIBaseURL: DefaultMSDeploymentURL},
+		{Name: "hmd_ms_naming", RepoClass: "hmd-ms-naming", APIBaseURL: "http://localhost/hmd_ms_naming"},
+		{Name: "hmd_ms_artifact_lib", RepoClass: "hmd-ms-artifact-lib", APIBaseURL: "http://localhost/hmd_ms_artifact_lib"},
+	}
 }

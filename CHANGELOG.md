@@ -2,6 +2,48 @@
 
 ## 2026-09-07
 
+- feat: Apply the substrate and the manifest as two changesets, with core resources between
+
+  A dependency carrying a `tag_selector` is matched against concrete Resources,
+  not against produced types. hmd-database-account's `create-service` role asks
+  for an `application.neuronsphere.io/microservice` tagged
+  `repo_class=hmd-ms-dbaccount`, so declaring that the core instance produces
+  `microservice` was never enough, and one changeset holding all 32 instances
+  failed at apply:
+
+      For RepoInstance, airflow-db-account, role, create-service: supplied
+      instance, local-neuronsphere, satisfies neither the required resource
+      type ... nor a suggested repo_class.
+
+  Those Resources can only be attached once `local-neuronsphere` has a
+  RepoInstanceDeployment, which a changeset is what creates -- hence two
+  phases. The substrate applies and deploys, its Resources are submitted, then
+  everything the manifest declares is seeded. `bom.LocalCoreResources` builds
+  the Docker network, the cluster's compute node and Traefik-as-ingress-
+  controller, and one tagged microservice Resource per foundation service;
+  `SubmitResources` attaches them, per-resource best-effort. On a restart the
+  deployment is recovered from the graph rather than re-seeded, so a running
+  environment picks up newly-defined core Resources without a rebuild.
+
+  Verified on a cold start against a purged graph: four substrate instances
+  deployed, seven core Resources submitted, and the declared changeset applied
+  where it had been failing.
+
+- fix: Stop nginx truncating a runner submission at 1 MB
+
+  A submission carries the whole workflow manifest -- every node's script,
+  configuration and dependency edges -- and 28 instances exceed nginx's
+  default `client_max_body_size`. The proxy answered 413 before the runner saw
+  the request, so `the runner answered 413: <html>` was all any layer could
+  report. The passthrough location no longer caps it.
+
+- fix: Say which toggle is missing when the runner is unreachable
+
+  `hmd_nsrunner` has `restart: unless-stopped`, so it survives a control-plane
+  start that did not enable it -- but the proxy route is only written when it
+  is enabled, leaving the container up and unreachable. The error said only
+  that nothing answered, which points at the container rather than the flag.
+
 - fix: Register resource types and a deployment set's definition on a cold start
 
   Two seeding steps nsctl never performed, both invisible until the first

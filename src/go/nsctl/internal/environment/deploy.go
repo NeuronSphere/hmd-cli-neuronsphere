@@ -117,8 +117,17 @@ func (d *deployer) deploy(ctx context.Context, csdNid string, nodes []msdeploy.D
 // background, so the workflow it will create does not exist yet.
 func (d *deployer) watch(ctx context.Context, csdNid string) error {
 	if d.client == nil {
+		// Naming the toggle, because the likeliest cause is not a dead
+		// container. hmd_nsrunner has `restart: unless-stopped`, so it survives
+		// a start that did not enable it -- but the proxy route only exists
+		// when it is enabled (RunnerRoute), leaving the container up and
+		// unreachable. The message said only that nothing answered, which sent
+		// you looking at the container.
 		return nserr.New(nserr.Usage,
-			"HMD_LOCAL_SERVICE_SUBMIT is set but no runner is answering at %s", RunnerURL(d.opts.lookup))
+			"HMD_LOCAL_SERVICE_SUBMIT is set but no runner is answering at %s. "+
+				"Set HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true and start the control plane, "+
+				"which also writes the proxy route the runner is reached through.",
+			RunnerURL(d.opts.lookup))
 	}
 	d.opts.step("  waiting for the control plane to submit the workflow...")
 	wf, err := d.client.WaitForActive(ctx, d.env, d.env, csdNid, 2*time.Minute)
@@ -190,7 +199,9 @@ func (d *deployer) submit(ctx context.Context, csdNid string, nodes []msdeploy.D
 // instances that settled, and the failure detail the subnet-group migration
 // reads.
 func (d *deployer) record(wf nsrunner.Workflow) error {
-	d.remoteSucceeded = wf.Succeeded
+	// Appended, not assigned: an apply runs two phases through one deployer,
+	// and the reconcile snapshot has to see what both settled.
+	d.remoteSucceeded = append(d.remoteSucceeded, wf.Succeeded...)
 	if wf.Failure != nil {
 		d.remoteFailure = &runner.Result{
 			Node:   msdeploy.DeploymentNode{InstanceName: wf.Failure.InstanceName},

@@ -507,3 +507,18 @@ func declares(entries []Entry, repoClass string) bool {
 	}
 	return false
 }
+
+// substrateInstances is what Substrate names, as a set.
+var substrateInstances = map[string]bool{
+	CoreInstanceName:   true,
+	BaseVPCInstance:    true,
+	EnvDBInstance:      true,
+	EKSClusterInstance: true,
+}
+
+// IsSubstrate reports whether an instance is part of the substrate rather than
+// something declared on top of it.
+//
+// The two are applied as separate changesets, so this is what decides which
+// phase an entry belongs to.
+func IsSubstrate(instanceName string) bool { return substrateInstances[instanceName] }

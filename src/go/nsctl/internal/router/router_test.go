@@ -411,3 +411,16 @@ func TestReloadStopsWhenTheConfigIsInvalid(t *testing.T) {
 		t.Errorf("error %q does not carry nginx's output", err)
 	}
 }
+
+// A runner submission carries the whole workflow manifest -- every node's
+// script, configuration and dependency edges -- and an environment declaring 28
+// instances exceeds nginx's 1 MB default. The failure is an nginx 413 the
+// runner never sees, so nothing upstream can explain it.
+func TestPassthroughLocationLiftsTheBodySizeCap(t *testing.T) {
+	t.Parallel()
+
+	got := passthroughLocation("nsrunner", "http://hmd_nsrunner:8080")
+	if !strings.Contains(got, "client_max_body_size 0;") {
+		t.Errorf("passthrough location caps the body size:\n%s", got)
+	}
+}
