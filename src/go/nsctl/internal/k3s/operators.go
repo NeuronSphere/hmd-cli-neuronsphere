@@ -441,6 +441,8 @@ func (o *Operators) EnsureIngressController(ctx context.Context) error {
 		return nil
 	}
 
+	o.warnLegacyTraefikRelease(ctx)
+
 	if err := o.PatchTraefikManifest(ctx); err != nil {
 		o.warn("%v", err)
 	}
@@ -544,4 +546,44 @@ func SortedRecords(records []CoreDNSRecord) []CoreDNSRecord {
 	out := append([]CoreDNSRecord(nil), records...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host < out[j].Host })
 	return out
+}
+
+// legacyTraefikReleaseScript looks for the Helm release the Python CLI's
+// one-time migration removes.
+//
+// A Helm release is a Secret in its namespace labelled owner=helm,name=<release>,
+// so this needs no helm binary -- which is the point: SPEC008 makes docker the
+// only host tool, and helm is not one of the two that run inside the k3s node.
+const legacyTraefikReleaseScript = `set -e
+kubectl -n kube-system get secret -l owner=helm,name=traefik -o name 2>/dev/null | head -n1
+`
+
+// warnLegacyTraefikRelease names a cluster that predates the baked-in ingress.
+//
+// SPEC014 recorded two host-only helm paths dropped rather than ported, and
+// said both must be "detected and named, not silently mishandled". This is the
+// half that is still live. The k3s image bakes the rendered Traefik chart into
+// k3s's auto-deploying manifests now, but a cluster or volume created before
+// that may still carry the Helm release the Python installed at runtime, under
+// the same name and namespace -- and the two collide.
+//
+// Named rather than removed: uninstalling a Helm release needs helm, which
+// nsctl deliberately does not have, and doing it by deleting the release Secret
+// would leave the release's own resources behind. A warning points at the one
+// command that fixes it.
+func (o *Operators) warnLegacyTraefikRelease(ctx context.Context) {
+	stdout, _, err := o.Kube.RunKube(ctx, []byte(legacyTraefikReleaseScript), nil)
+	if err != nil {
+		// Unreadable is not the same as absent, and this is advisory: a cluster
+		// that cannot answer has bigger problems, reported elsewhere.
+		return
+	}
+	if strings.TrimSpace(string(stdout)) == "" {
+		return
+	}
+	o.warn("this cluster still carries the runtime-installed Traefik Helm release from before " +
+		"ingress was baked into the k3s image, which collides with the baked-in manifest. " +
+		"nsctl cannot remove it -- uninstalling a Helm release needs helm, which nsctl does not " +
+		"ship. Run `hmd neuronsphere up --env <name>` once, which does the migration, or " +
+		"`helm uninstall traefik --namespace kube-system` against this cluster.")
 }

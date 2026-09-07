@@ -2,6 +2,24 @@
 
 ## 2026-09-07
 
+- fix: Name a cluster that predates the Traefik migration
+
+  SPEC014 said two dropped host-only helm paths "must be detected and named, not
+  silently mishandled", and neither was. One of the two turns out not to exist:
+  the direct `helm upgrade --install` of ext-secrets is dead in the Python too,
+  since ext-secrets became a BOM entry, and nsctl deploys it as a DAG node now.
+
+  The other is real. A cluster or volume created before ingress was baked into
+  the k3s image still carries the Helm release the Python installed at runtime,
+  under the same name and namespace as the baked-in manifest, and the two
+  collide -- with nothing telling its owner. `EnsureIngressController` looks for
+  the release's own Secret (`owner=helm,name=traefik` in kube-system, which
+  needs no helm binary) and names both fixes.
+
+  Named rather than removed: uninstalling a release needs helm, which SPEC008
+  keeps off the host deliberately, and deleting the Secret alone would leave the
+  release's resources behind on a cluster that then looks migrated.
+
 - feat: Bundle the repo trees a deploy needs, and declare External Secrets
 
   A Homebrew-installed nsctl could not deploy an environment. The substrate's

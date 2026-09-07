@@ -1514,6 +1514,22 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     follow for any others: name the missing declaration, do not substitute for
     it.
 
+    **The change needed, so this is tracked rather than merely reported.** In
+    ``hmd-ms-artifact-lib``'s ``meta-data/manifest.json``, under
+    ``deploy.default_configuration``, alongside the ``service_config`` block
+    that is already read from there. ``floci.ServiceParameters`` reads that
+    section and merges what it finds into the Lambda's environment, so a
+    ``BUCKET_NAME`` declared there arrives without ``nsctl`` knowing anything
+    about librarians. The bucket itself is created the same way any other
+    RepoClass-declared bucket is.
+
+    Until that lands, ``nsctl`` warns at bootstrap that the service will not
+    serve, and the control plane is otherwise unaffected. **This is a change in
+    another repository and nothing in this one can close it**; recording the
+    exact edit here is the most this SPEC can do. Accepting it permanently would
+    mean accepting a foundation service that answers every request with an
+    error, which is not a state to design around.
+
     **GAP: the RepoClass declares cloud wiring, which must be resolved.** A
     service's declared engines name a Secrets Manager secret by dependency and
     route through pgbouncer; locally there is neither. Left unresolved the
@@ -1644,6 +1660,31 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     A cluster predating the Traefik migration, or a user who disables
     ext-secrets without declaring it in the BOM, needs the Python CLI. Both
     cases must be detected and named, not silently mishandled.
+
+    *Amended 2026-09-07: one half is moot and the other is detected.*
+
+    **The ext-secrets half does not exist.** The direct ``helm upgrade
+    --install`` it names is dead in the Python too, not merely on the default
+    path -- ``k3s_operators``' own comment says so, "dead code once ext-secrets
+    is part of the BOM", which it has been by default since. ``nsctl`` declares
+    the same two BOM entries now (SPEC006) and bundles the repos, so it deploys
+    them as ordinary DAG nodes. There is no path left to detect, and building a
+    detector for one would have been work in service of a sentence rather than
+    of a user.
+
+    **The Traefik half is live and is now named.** The k3s image bakes the
+    rendered Traefik chart into k3s's auto-deploying manifests, but a cluster or
+    volume created before that still carries the Helm release the Python
+    installed at runtime, under the same name and namespace, and the two
+    collide. ``EnsureIngressController`` looks for the release's own Secret --
+    ``owner=helm,name=traefik`` in ``kube-system``, which needs no helm binary
+    -- and warns, naming both ``hmd neuronsphere up`` and the ``helm uninstall``
+    that fixes it.
+
+    Named rather than removed, deliberately: uninstalling a Helm release needs
+    helm, which SPEC008 keeps off the host on purpose, and deleting the release
+    Secret directly would leave the release's own resources behind -- a cluster
+    that looks migrated and is not.
 
     **GAP: Platform mode is not ported.** Users on
     ``HMD_LOCAL_NEURONSPHERE_MODE=platform`` stay on the Python CLI. This is

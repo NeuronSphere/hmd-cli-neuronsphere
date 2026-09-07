@@ -402,3 +402,63 @@ func TestHelmReleaseName(t *testing.T) {
 		t.Errorf("HelmReleaseName = %q, want redis-local", got)
 	}
 }
+
+// SPEC014 said the two dropped host-only helm paths must be "detected and
+// named, not silently mishandled". This is the one that is still live: a
+// cluster or volume created before ingress was baked into the k3s image carries
+// the Helm release the Python installed at runtime, under the same name and
+// namespace as the baked-in manifest, and the two collide. Its owner has no way
+// to know.
+func TestALegacyTraefikReleaseIsNamed(t *testing.T) {
+	t.Parallel()
+
+	var warnings strings.Builder
+	ops := &Operators{
+		Kube: &Kube{Cluster: "k3s-dev", Container: "floci-eks-dev",
+			Run: func(_ context.Context, args ...string) ([]byte, []byte, error) {
+				// The release Secret, which is how a Helm release is stored --
+				// so this needs no helm binary, and nsctl ships none.
+				if len(args) > 0 && args[0] == "exec" {
+					return []byte("secret/sh.helm.release.v1.traefik.v1\n"), nil, nil
+				}
+				return nil, nil, nil
+			}},
+		Err: &warnings,
+	}
+	ops.warnLegacyTraefikRelease(context.Background())
+
+	got := warnings.String()
+	if !strings.Contains(got, "helm uninstall traefik") || !strings.Contains(got, "hmd neuronsphere up") {
+		t.Errorf("the warning does not name a fix: %q", got)
+	}
+}
+
+// Nothing found and nothing readable are both silence: this is advisory, and a
+// cluster that cannot answer has larger problems already reported elsewhere.
+func TestNoLegacyReleaseMeansNoWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		stdout []byte
+		err    error
+	}{
+		{"a migrated cluster", []byte("\n"), nil},
+		{"an unreadable one", nil, errors.New("exec failed")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var warnings strings.Builder
+			ops := &Operators{
+				Kube: &Kube{Container: "c", Run: func(context.Context, ...string) ([]byte, []byte, error) {
+					return tt.stdout, nil, tt.err
+				}},
+				Err: &warnings,
+			}
+			ops.warnLegacyTraefikRelease(context.Background())
+			if warnings.Len() != 0 {
+				t.Errorf("warned anyway: %q", warnings.String())
+			}
+		})
+	}
+}
