@@ -52,11 +52,10 @@ any of these costs nothing:
 - **`nsctl env purge` also unregisters the environment; `hmd neuronsphere down
   --purge --env` does not.** Both destroy the same resources. Only one leaves
   the name behind for another `up`.
-- **Only an environment named `local` can deploy.** Any other slug registers and
-  starts, and its first CDKTF node fails in `tofu init` -- `hmd-lib-cdktf` gates
-  path-style S3 addressing on the deployment tier being literally `"local"`,
-  while ms-deployment passes the environment's slug. `nsctl` warns; the fix is
-  in that repo, and the Python CLI is affected identically.
+- **An environment not named `local` needs a projectbuilder image carrying
+  hmd-lib-cdktf's 2026-09-08 fix.** Before it, path-style S3 addressing was
+  gated on the environment's *name* while ms-deployment passes its slug, so any
+  other name failed its first CDKTF node. `nsctl` warns until the image has it.
 - **Plugin-contributed workloads need `nsctl repo import` once** per
   environment that was brought up with `hmd`.
 - **The DAG runner is opt-in** and its first start builds a local image.

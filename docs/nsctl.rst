@@ -104,14 +104,14 @@ carry on:
   another ``up`` brings it back. Neither is wrong -- but a script that swaps one
   for the other will surprise someone.
 
-- **Only an environment named** ``local`` **can deploy.** ``nsctl env add dev2``
-  registers, starts, stops and purges correctly, and its first CDKTF node fails
-  in ``tofu init``: ``hmd-ms-deployment`` passes the environment's slug as
-  ``hmd deploy --environment``, and ``hmd-lib-cdktf`` reads that value as the
-  AWS deployment tier and enables path-style S3 addressing only when it is
-  literally ``"local"``. Neither front end is affected differently -- the Python
-  seeds the same ``Environment.type`` -- and the fix is in ``hmd-lib-cdktf``.
-  ``nsctl`` warns at ``env add`` and again before the deploy.
+- **An environment not named** ``local`` **needs a recent projectbuilder.**
+  ``hmd-lib-cdktf`` used to decide S3 path-style addressing by comparing the
+  environment's *name*, while ``hmd-ms-deployment`` passes the environment's own
+  slug as ``hmd deploy --environment`` -- so any other name failed its first
+  CDKTF node in ``tofu init``. Fixed there on 2026-09-08 by asking whether
+  ``AWS_ENDPOINT_URL`` is set instead, but the fix reaches a deploy through the
+  projectbuilder image, so a stale one still fails. ``nsctl`` warns at
+  ``env add`` and again before the deploy.
 - **Plugin-contributed workloads are invisible until imported.** Anything an
   installed plugin package contributed to an environment brought up by ``hmd``
   needs ``nsctl repo import`` once. See `Using it alongside the Python CLI`_.

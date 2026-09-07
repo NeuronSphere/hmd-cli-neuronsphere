@@ -150,10 +150,10 @@ recorded in `What implementation changed about the design`_ and
      - The HIGH risk is retired. Of its three gaps, one is **closed**:
        ``BUCKET_NAME`` is derived here, and the cross-repo edit the SPEC
        prescribed would have been wrong (item 16). The container-name collision
-       is still detected and not fixed, deliberately. Two new gaps join them --
-       the environment-name collision (item 17) and the unpublished backend
-       images (item 21) -- both fixable only elsewhere, both now named rather
-       than silently hit.
+       is still detected and not fixed, deliberately. The environment-name
+       collision (item 17) is **closed** since 2026-09-08 and its
+       two-environment verification run. The unpublished backend images
+       (item 22) remain, fixable only in the image repositories.
    * - 015
      - **amended**
      - Phase 3's content changed substantially once plugins were dropped.
@@ -276,9 +276,22 @@ five of the seven were invisible until a genuinely cold platform ran them.
     name therefore gets virtual-host S3 addressing against a Floci that
     publishes no per-bucket DNS, and the environment's first CDKTF node dies in
     ``tofu init`` with ``no such host`` for the tfstate bucket. One name doing
-    two jobs. Not introduced by this port and not fixable from it -- the Python
-    seeds the identical ``Environment.type``. It had simply never been tried,
-    because every local environment anyone had deployed was called ``local``.
+    two jobs. Not introduced by this port -- the Python seeds the identical
+    ``Environment.type``. It had simply never been tried, because every local
+    environment anyone had deployed was called ``local``.
+
+    *Fixed 2026-09-08, in ``hmd-lib-cdktf``.* ``is_local_environment()`` is one
+    predicate and ``HmdCdkTfStack.is_local`` is resolved from it once; the
+    seventeen sites that compared the environment's *name* now ask it instead.
+    It is true when the environment is named ``local`` **or**
+    ``AWS_ENDPOINT_URL`` is set -- the first clause keeping every environment
+    that works today bit-identical, the second being the fix.
+    ``AWS_ENDPOINT_URL`` is what those callers are really asking about, is set
+    by both front ends for deploy nodes, and is set by no cloud path.
+    ``HMD_ENVIRONMENT`` was the obvious alternative and is the wrong one: it is
+    commonly ``local`` in a developer's ``hmd.env``, so keying off it would make
+    ``hmd deploy --environment dev`` from a laptop take local branches against
+    real AWS.
 
 18. **The kubeconfig has to be written between the two changesets** (SPEC009).
     ``Start`` knows the cluster "may only now exist" and re-runs
@@ -431,11 +444,21 @@ repository at all and could not have been found any other way.
 
 **What could not be verified here, and why.**
 
-- **A second environment.** Item 17 makes any slug but ``local`` fail its first
-  CDKTF node, so the two-environment check that would compare two operators'
-  account keys side by side cannot be run until that is fixed elsewhere. The
-  single-environment half was verified instead, and is weaker: it shows the
-  injected key is the environment's own, not that two environments differ.
+- **A second environment.** *Blocked then; run on 2026-09-08, once item 17 was
+  fixed.* Two environments up at once, ``dev2`` and ``dev3``, each with no
+  manifest so their ext-secrets entries came from ``bom.ExtSecrets`` alone::
+
+      dev2  account 000000000002   pod AWS_ACCESS_KEY_ID 000000000002   store secret 000000000002
+      dev3  account 000000000003   pod AWS_ACCESS_KEY_ID 000000000003   store secret 000000000003
+
+  Checked in **both** places the code distinguishes -- the pod's environment and
+  the rendered ClusterSecretStore Secret, which is the operative one because a
+  ``secretRef`` store signs with what the chart rendered and never consults the
+  pod's environment -- and both stores reconciled to ``Valid`` in each cluster.
+  This is the check that catches nothing when it passes and everything when it
+  fails: one Floci serves every account and reads the account off the key, and
+  the secret names are identical across environments, so a shared key would
+  have meant one environment silently reading the other's secrets.
 - **The legacy-Traefik warning.** It fires only on a cluster predating the
   baked-in ingress, carrying the Helm release the Python installed at runtime.
   The purge destroyed the only such cluster on this machine. Planting an
@@ -1769,7 +1792,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Coexistence with the Python CLI
     :id: HMD_CLI_NERD002_SPEC012
     :links: HMD_CLI_NERD002
-    :status: implemented
+    :status: partly implemented
 
     The Python ``hmd neuronsphere`` surface is **not** deprecated by this
     proposal and is not removed on any schedule set here. Both front ends
@@ -2108,6 +2131,15 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     ``env start`` name it at both ends rather than letting it surface 955 lines
     into Terraform output. Registering, starting, stopping and purging such an
     environment all work; only deploys are affected.
+
+    **CLOSED 2026-09-08.** ``hmd-lib-cdktf`` gained
+    ``is_local_environment()`` and ``HmdCdkTfStack.is_local``, and the
+    seventeen name comparisons across it and ``hmd-lib-cdktf-factories`` moved
+    onto them. Verified: an environment named ``dev2`` deploys its whole
+    substrate -- ``base-vpc``, ``eks-cluster``, ``environment-db`` and the
+    External Secrets pair -- where before it failed on its first CDKTF node.
+    The fix is in a library, so it reaches a deploy through the projectbuilder
+    image; ``nsctl``'s warning stays until one ships carrying it.
 
     **GAP: the images Floci spawns its backends from are not published.** The
     compose file pins ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,

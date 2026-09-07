@@ -2,6 +2,27 @@
 
 ## 2026-09-08
 
+- fix: say what a differently-named environment now needs, rather than that it cannot work
+
+  `hmd-lib-cdktf` gained `is_local_environment()` on 2026-09-08, so an
+  environment not named `local` deploys -- verified by bringing up `dev2` and
+  `dev3` and watching both substrates come up.
+
+  The warning stays, reworded. The fix lives in a library that reaches a deploy
+  only through the projectbuilder image, so until one ships carrying it a
+  differently-named environment still fails exactly as before, and a removed
+  warning would leave that unexplained. It now names what is needed instead of
+  asserting the case is impossible.
+
+  NERD0002 records the rest: item 17 and SPEC014's environment-name gap are
+  closed, and the two-environment ext-secrets check that was blocked on them has
+  been run -- `dev2` and `dev3` simultaneously, each operator on its own Floci
+  account, checked both in the pod's environment and in the rendered
+  ClusterSecretStore Secret, which is the one a `secretRef` store actually signs
+  with. SPEC012's status field also said `implemented` while its own prose and
+  the status table said it covers five verbs and no more; it now says
+  `partly implemented`.
+
 - feat: Serve the mock identity provider from the control plane
 
   `nsctl authd serve` runs as a fifth control-plane container, gated by

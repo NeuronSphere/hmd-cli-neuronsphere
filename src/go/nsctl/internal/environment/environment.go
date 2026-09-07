@@ -690,10 +690,16 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 // AWS_ENDPOINT_URL in the environment" -- so the predicate should be "the
 // endpoint is a local Floci", not "the tier is literally called local".
 //
-// Not introduced by this port and not fixable from here: the Python CLI seeds
-// the identical Environment.type and would fail identically. It had simply
-// never been tried, because every local environment anyone has ever deployed
-// was called `local`.
+// Fixed in hmd-lib-cdktf on 2026-09-08: is_local_environment() asks whether
+// AWS_ENDPOINT_URL is set rather than what the environment is called, and
+// HmdCdkTfStack.is_local carries the answer to all seventeen sites that used
+// to compare the name.
+//
+// The warning stays anyway, because the fix lives in a library that reaches a
+// deploy only through the projectbuilder image. Until one ships carrying it,
+// a differently-named environment still fails exactly as described, and a
+// removed warning would leave that unexplained. Delete this, its two callers
+// and the bullets in docs/nsctl.rst and the README once the image has it.
 const DeployableSlug = "local"
 
 // WarnUndeployableSlug names the defect above before it costs a deploy.
@@ -710,10 +716,11 @@ func WarnUndeployableSlug(warn func(string, ...any), slug string) {
 	if slug == "" || slug == DeployableSlug {
 		return
 	}
-	warn("environment %q is not named %q, and every CDKTF node it deploys will fail in `tofu init` with "+
-		"\"no such host\" for the tfstate bucket.\n"+
-		"  hmd-lib-cdktf decides S3 path-style addressing with `self.environment == \"local\"`, and "+
-		"ms-deployment passes the environment's own slug as --environment.\n"+
-		"  The substrate's cluster and database still come up; only deploys are affected. "+
+	warn("environment %q is not named %q. Its CDKTF nodes will fail in `tofu init` with "+
+		"\"no such host\" for the tfstate bucket unless the projectbuilder image carries "+
+		"hmd-lib-cdktf's is_local_environment fix (2026-09-08).\n"+
+		"  Before it, hmd-lib-cdktf decided S3 path-style addressing by comparing the environment's "+
+		"name, while ms-deployment passes the environment's own slug as --environment.\n"+
+		"  The substrate's cluster and database come up either way; only deploys are affected. "+
 		"See SPEC014.", slug, DeployableSlug)
 }
