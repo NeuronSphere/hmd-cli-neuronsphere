@@ -58,6 +58,8 @@ Commands
      - Start an environment: database, graph, cluster, routes, then apply.
    * - ``nsctl env apply [name]``
      - Reconcile an environment to its manifest without restarting it.
+   * - ``nsctl env attach [name]``
+     - Watch a deployment already in flight.
    * - ``nsctl env stop [name]``
      - Stop it, leaving its state in place.
    * - ``nsctl env list`` / ``env status [name]``
@@ -147,6 +149,47 @@ running**. Removing a line from a manifest is not an instruction to destroy
 what it deployed; tear it down yourself if that is what you meant.
 
 ``--force-full-redeploy`` skips the comparison entirely.
+
+The DAG runner
+--------------
+
+A deployment can be executed by the CLI or submitted to **nsrunner**, a
+control-plane service that runs it instead. Submitting is what makes a deploy
+outlive the command that started it: the terminal can be closed, the deployment
+carries on, and ``nsctl env attach`` rejoins it from anywhere. A second
+``env start`` against an environment already deploying is refused rather than
+allowed to race.
+
+It is off by default, because its image is not published yet. To use it:
+
+.. code-block:: shell
+
+   make image                                        # build hmd-img-nsrunner
+   export HMD_NSRUNNER_IMAGE=hmd-img-nsrunner:0.5
+   export HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true
+   nsctl control-plane start
+
+``nsctl`` then submits automatically. With no runner answering it executes the
+nodes itself, which is what every existing installation keeps doing -- the
+check is a three-second probe, so a machine without one does not pay for the
+question.
+
+The runner container mounts ``$HMD_HOME`` and ``$HMD_REPO_HOME`` at their own
+absolute paths. That is load-bearing rather than tidy: the runner launches
+``hmd-img-projectbuilder`` as a *sibling* container through the Docker socket,
+so every bind mount it composes is resolved by the host's daemon and not inside
+its own filesystem. Making the two path spaces identical is what lets a repo
+working tree reach a deploy node unchanged.
+
+Who submits the workflow
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default ``nsctl`` submits. Setting ``HMD_LOCAL_SERVICE_SUBMIT=1`` inverts
+the last step so ``hmd-ms-deployment`` submits instead -- exactly as it submits
+to Argo in the cloud -- and ``nsctl`` only watches. That needs the control
+plane configured with ``HMD_WORKFLOW_RUNNER_URL``, and is opt-in because it
+routes through an async self-invoking Lambda whose behaviour under Floci is not
+yet proven.
 
 Using it alongside the Python CLI
 ---------------------------------

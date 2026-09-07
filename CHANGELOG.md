@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-09-06
+
+- feat: Add the DAG-runner service, and submit deployments to it
+
+  The CLI used to pull. It asked ms-deployment for a node list and executed
+  that list in its own process, so a deployment lived and died with the command
+  that started it: a closed terminal killed a half-finished deploy, a second
+  `env start` raced the first, and the control plane had no idea a workflow
+  engine existed. In the cloud the same changeset becomes an Argo Workflow and
+  the CLI does not run it at all.
+
+  `nsctl runner serve` inverts the local path to match, and it runs as a
+  control-plane container. `nsctl env attach` joins a deployment already in
+  flight -- from another terminal, or after the first was closed.
+
+  The routes are Argo's, because ms-deployment already speaks them, so
+  selecting a runner is a client choice rather than a second protocol. What
+  travels inside the envelope is not: `workflow` carries the node manifest
+  `generate_local_deployment` already produces, since there is no argoproj.io
+  CRD locally.
+
+  Node execution is not reimplemented -- `internal/runner` already did it and is
+  used verbatim. Only two seams were added to it, a configurable work dir and
+  exported status flips. That status already flows over REST rather than
+  through the CLI's memory is what keeps the change this small.
+
+  Off by default. The image is not published yet, and the in-process path stays
+  a live code path regardless: the control-plane bootstrap deploys
+  ms-deployment as its last node, so routing it through a service that is part
+  of the control plane would be circular.
+
+- feat: Let the control plane submit the workflow
+
+  `skip_async` stops being hardcoded. It was the local marker -- the flag whose
+  only job was to stop ms-deployment building an Argo workflow -- and with
+  `HMD_WORKFLOW_RUNNER_URL` the control plane has somewhere real to submit.
+  `HMD_LOCAL_SERVICE_SUBMIT=1` selects the fully inverted path; it is opt-in
+  because it routes through an async self-invoking Lambda whose behaviour under
+  Floci is unverified.
+
+- fix: Collapse duplicate binds when materialising a container
+
+  Docker rejects a duplicate mount point outright, so a container that was
+  merely over-specified failed to be created at all. The runner mounts
+  `HMD_HOME` and `HMD_REPO_HOME` at their own paths, which are the same
+  directory whenever repos live under the home.
+
 ## 2026-09-05
 
 - fix: Rewrite ALB wildcard Ingress paths so Traefik can match them

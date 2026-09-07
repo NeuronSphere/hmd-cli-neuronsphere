@@ -37,10 +37,11 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 Implementation Status
 ---------------------
 
-Phases 0 through 3 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
+Phases 0 through 4 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
 control plane from an empty ``HMD_HOME``, starts and stops environments,
 reconciles them to a manifest, and coexists with the Python CLI against one
-``HMD_HOME``.
+``HMD_HOME``. Deployments are submitted to a DAG-runner service rather than run
+inside the CLI, so they outlive the command that started them.
 
 .. list-table::
    :header-rows: 1
@@ -80,8 +81,8 @@ reconciles them to a manifest, and coexists with the Python CLI against one
      - implemented
      -
    * - 010
-     - not started
-     - Phase 4.
+     - **amended**
+     - The submit envelope is Argo's; its contents are not. See the SPEC.
    * - 011
      - not started
      - Phase 5.
@@ -90,7 +91,8 @@ reconciles them to a manifest, and coexists with the Python CLI against one
      - Verified by running the Python CLI against nsctl-created containers.
    * - 013
      - partly implemented
-     - ``make install`` exists; GoReleaser and the Homebrew tap are Phase 6.
+     - ``make install`` and ``make image`` exist; GoReleaser and the Homebrew
+       tap are Phase 6.
    * - 014
      - **amended**
      - The HIGH risk is retired; three gaps found in implementation are
@@ -115,7 +117,13 @@ the SPECs rather than quietly worked around:
 3. **Plugin discovery should not be ported at all** (SPEC005). A RepoClass
    already declares what it needs and produces, in the files the cloud deploy
    path reads. The parallel inventory is the copy that goes stale -- and did.
-4. **The control plane's bootstrap does not need to run on every start.** The
+4. **A second Go module was the wrong shape for the runner** (SPEC010). Go
+   scopes ``internal/`` per module, so ``src/go/nsrunner`` could not have
+   imported ``internal/runner`` and would have had to duplicate node execution
+   or force it public. It ships as ``nsctl runner serve`` in the one module
+   instead, with a scratch image of the same binary.
+
+5. **The control plane's bootstrap does not need to run on every start.** The
    Python runs it each time because the work is idempotent; ``nsctl`` runs it
    only when the control plane has not been bootstrapped, and a warm start
    recovers what it needs from Floci's persistent state.
@@ -247,11 +255,15 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     |               +-- environment/  # lifecycle and apply
     |               +-- status/       # what env status and cp status report
     |               +-- bundled/      # go:embed of services/ (SPEC006)
-    +-- src/go/nsrunner/              # the DAG-runner service (SPEC010, Phase 4)
-        +-- cmd/, internal/, Dockerfile
-
     ``internal/plugin`` is absent: plugin discovery is withdrawn (SPEC005).
-    ``nsrunner`` does not exist yet.
+
+    ``src/go/nsrunner/`` was reserved for the DAG-runner service and is **not**
+    what was built. Go scopes ``internal/`` per module, so a second module could
+    not import ``internal/runner`` -- the finished node executor -- and would
+    have had to duplicate it or force it public. The runner instead ships inside
+    this module as ``internal/nsrunner`` behind a hidden ``nsctl runner serve``
+    subcommand, with ``Dockerfile`` producing a scratch image of the same
+    binary. One binary that can also serve costs a command nobody types.
 
 .. spec:: Command surface
     :id: HMD_CLI_NERD002_SPEC001
@@ -896,7 +908,47 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: The DAG-runner service replaces the in-process runner
     :id: HMD_CLI_NERD002_SPEC010
     :links: HMD_CLI_NERD002
-    :status: not started
+    :status: amended
+
+    .. warning::
+
+       **The submit envelope is Argo's. Its contents are not.** This SPEC
+       implies ``nsrunner`` receives what ``submit_workfow`` sends, and it does
+       not: ``submit_workfow`` posts an ``argoproj.io`` ``Workflow`` CRD, while
+       the local path has ``generate_local_deploy_manifest``'s
+       ``{"nodes": [...], "destroy": bool}``. Building a CRD locally so the
+       payloads matched would produce a document nothing consumes, from
+       generation code that needs ``HMD_APP_IMAGE``, ``WORKERS_INSTANCE_NAME``
+       and an Okta service-account token that do not exist locally.
+
+       So the *route* is kept and the *payload* is the node manifest. That is
+       enough for the claim this SPEC actually rests on -- selecting a runner is
+       a client choice, not a second protocol -- and it is why the branch in
+       ``hmd-ms-deployment`` sits **before** ``generate_deploy_workflow`` rather
+       than inside ``submit_workfow``.
+
+       **The open questions are closed.** Authentication: none, and
+       deliberately. Argo's bearer token exists because its server is reachable
+       across a cluster; the runner publishes no host port -- the
+       exclusive-publisher rule permits only the proxy -- so it sits inside the
+       same trust boundary as every other control-plane service, where a token
+       would secure nothing and would need somewhere to live. An in-flight
+       workflow when the control plane stops: the runner stops listening, waits
+       up to 30 s for running nodes, and a record still marked ``Running`` when
+       a later process reads it is recovered as failed rather than left holding
+       its environment forever.
+
+       **Two things this SPEC did not anticipate.** Node execution runs in a
+       container now, and it launches projectbuilder as a *sibling* through the
+       Docker socket -- so every bind mount it composes is resolved by the host
+       daemon, not inside its own filesystem. ``HMD_HOME`` and
+       ``HMD_REPO_HOME`` are therefore mounted at their own absolute paths, and
+       overlay workspaces moved out of the system temp dir and under
+       ``HMD_HOME``, so the two path spaces coincide and the existing workspace
+       code needs no translation. And the in-process runner is **not** removed:
+       the control-plane bootstrap deploys ``hmd-ms-deployment`` as its last
+       node, so routing it through a service that is itself part of the control
+       plane would be circular.
 
     **Today the CLI pulls.** ``bom_seeder`` posts ``apply_changeset`` with
     ``skip_async: true`` -- a payload boolean whose only function is to stop
@@ -1279,12 +1331,20 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Not done:* ``env purge``, and the full parity harness -- parity was
     checked by targeted cross-front-end operations rather than by a suite.
 
-    **Phase 4 -- The runner service. [NOT STARTED]** ``src/go/nsrunner`` with the submit API
-    and inherited node execution (SPEC010); the runner selection in
-    ``hmd-ms-deployment``; ``nsctl`` attaching to and streaming an in-flight
+    **Phase 4 -- The runner service. [DONE]** ``internal/nsrunner`` with the
+    submit API and inherited node execution (SPEC010); the runner selection in
+    ``hmd-ms-deployment``; ``nsctl env attach`` streaming an in-flight
     deployment.
-    *Deliverable:* deploys survive the CLI exiting; ``skip_async`` retires as
-    the local marker.
+
+    *Deliverable met:* a deploy survives the CLI exiting, and ``skip_async``
+    stops being hardcoded -- ``HMD_WORKFLOW_RUNNER_URL`` gives the control plane
+    somewhere real to submit.
+
+    *Not done:* the fully inverted path is opt-in
+    (``HMD_LOCAL_SERVICE_SUBMIT=1``) rather than default, because it routes
+    through ``call_deploy_change_set_deployment`` -- an async self-invoking
+    Lambda whose behaviour under Floci is unverified. The runner container is
+    likewise off by default until its image is published.
 
     **Phase 5 -- Parallelism. [NOT STARTED]** In-degree scheduling, the bounded worker pool,
     fail-fast cancellation, and the per-environment mutex (SPEC011).
