@@ -14,6 +14,9 @@ LDFLAGS   := -ldflags "-X main.version=$(VERSION) -s -w"
 # without installing it, e.g.
 #   make test-robot ROBOT="uvx --from robotframework robot"
 ROBOT         ?= python3 -m robot
+
+# The Python front end, for the parity suite. Override if `hmd` is not on PATH.
+HMD_BIN       ?= hmd
 ROBOT_RESULTS := test/results
 ROBOT_TS      := $(shell date -u +%Y-%m-%dT%H%M%S)
 ROBOT_FLAGS    = --variable BINARY:$(abspath $(BUILD_DIR)/$(BINARY)) \
@@ -64,7 +67,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSRUNNER_IMAGE ?= hmd-img-nsrunner:$(VERSION)
 
-.PHONY: all build generate generate-verbose refresh-bundled-repos image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+.PHONY: test-parity all build generate generate-verbose refresh-bundled-repos image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
@@ -187,6 +190,27 @@ run: build
 ## test-cli: build, then run the fast contract suite (no Docker)
 test-cli: build
 	$(ROBOT) $(ROBOT_FLAGS) test/nsctl_cli.robot
+
+## test-parity: SPEC012's parity suite -- needs Docker, a platform and an HMD_HOME
+#
+# Deliberately not part of `check`, CI or test-cli: it performs an operation
+# with one front end and verifies it with the other, so it needs both installed
+# and a real platform to operate on.
+#
+# It starts and stops a real environment in the HMD_HOME it is given, so it asks
+# for that in writing. HMD_HOME alone is not consent -- it is set in every shell
+# anyone works in, which makes `make test-parity` far too easy to run at the
+# wrong platform by reflex. NSCTL_PARITY_ENV names the environment to use and
+# has no default for the same reason.
+test-parity: build
+	@test -n "$(HMD_HOME)" || { echo "export HMD_HOME: this suite operates on a real platform"; exit 2; }
+	@test -n "$(NSCTL_PARITY_ENV)" || { \
+	  echo "This suite STARTS AND STOPS a real environment in $(HMD_HOME)."; \
+	  echo "Name the environment to use it on:"; \
+	  echo "    make test-parity NSCTL_PARITY_ENV=<slug>"; \
+	  exit 2; }
+	$(ROBOT) $(ROBOT_FLAGS) --variable HMD:$(HMD_BIN) --variable ENV:$(NSCTL_PARITY_ENV) \
+	  test/nsctl_parity.robot
 
 ## help: show this help
 help:

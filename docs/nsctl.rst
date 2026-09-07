@@ -87,11 +87,11 @@ What it does not do yet
 nothing here is a one-way door -- reach for the Python CLI for any of it and
 carry on:
 
-- **There is no automated parity harness.** SPEC012 proposed a test suite
-  parameterised on the front end under test; it was never built. Parity is
-  checked by performing an operation with one front end and verifying it with
-  the other, which is thorough but manual -- so a command that has not been
-  exercised that way has not been proven equivalent.
+- **The parity harness covers the core and no more.**
+  ``test/nsctl_parity.robot`` checks ``env start``, ``env stop``, ``status``
+  and the registry from both front ends, in both directions. Every other verb is
+  still checked by hand, so one that has not been exercised that way has not
+  been proven equivalent.
 - **Plugin-contributed workloads are invisible until imported.** Anything an
   installed plugin package contributed to an environment brought up by ``hmd``
   needs ``nsctl repo import`` once. See `Using it alongside the Python CLI`_.

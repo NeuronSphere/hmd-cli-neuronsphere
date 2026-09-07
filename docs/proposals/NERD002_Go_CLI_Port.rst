@@ -101,9 +101,9 @@ harness are still open.
        concurrency needed a bound the DAG does not express -- see the SPEC.
    * - 012
      - partly implemented
-     - Verified by running the Python CLI against nsctl-created containers.
-       The parity *harness* -- a suite parameterised on the front end under
-       test -- was never built, so parity is checked by hand.
+     - The harness exists for the core SPEC012 states -- ``env start``,
+       ``env stop``, ``status`` and the registry -- and for nothing else.
+       Every other verb is still checked by hand.
    * - 013
      - **amended**
      - Implemented. Windows is dropped and the Docker image is built rather
@@ -1395,6 +1395,21 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     parameterised on the binary under test (``hmd neuronsphere`` vs ``nsctl``)
     is the parity harness.
 
+    *Built 2026-09-07, for the core and no more.* ``test/nsctl_parity.robot``
+    performs each operation with one front end and verifies it with the other,
+    in both directions, for ``env start``, ``env stop``, ``status`` and the
+    registry. **That is the whole of it.** Full parity across every verb is a
+    much larger suite, and claiming this one covers it would repeat the mistake
+    Phase 4 made about the runner: recording a deliverable as met because part
+    of it was.
+
+    It needs a real platform by definition, so it sits with the Docker-dependent
+    suites and is not wired into ``make test-cli`` or CI. ``make test-parity``
+    requires ``NSCTL_PARITY_ENV`` to be named explicitly: it starts and stops a
+    real environment, and ``HMD_HOME`` alone is not consent, being set in every
+    shell anyone works in. That guard was added after running the suite at a
+    live platform by reflex during its own development.
+
 .. spec:: Build and distribution
     :id: HMD_CLI_NERD002_SPEC013
     :links: HMD_CLI_NERD002
@@ -1878,8 +1893,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     binary without that would have been a claim the repository could not
     support.
 
-    *Half closed (2026-09-07):* ``env purge`` exists, and its bullet is gone
-    from both documents. The parity bullet stands.
+    *Closed (2026-09-07):* ``env purge`` exists and the parity harness covers
+    the core, so both bullets are gone from the two documents. The parity one is
+    replaced rather than deleted: what is now unproven is every verb *outside*
+    that core, which is a smaller and more honest claim than "there is no
+    harness".
 
     *Untested:* the Homebrew cask cannot be exercised without pushing to
     ``neuronsphere/homebrew-tap``. GoReleaser generates it and its shape was

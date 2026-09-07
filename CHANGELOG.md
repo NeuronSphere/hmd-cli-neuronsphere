@@ -2,6 +2,25 @@
 
 ## 2026-09-07
 
+- test: A parity suite for env start, stop, status and the registry
+
+  SPEC012 proposed "a parallel suite parameterised on the binary under test" and
+  it was never built, which is why docs/nsctl.rst and the README carried a "no
+  automated parity harness" bullet instead of recommending nsctl outright.
+
+  `test/nsctl_parity.robot` performs each operation with one front end and
+  verifies it with the other, in both directions, for the four things SPEC012's
+  acceptance test names. That is the whole of it: full parity across every verb
+  is a much larger suite, and the SPEC now says only the core was built rather
+  than recording the deliverable as met.
+
+  It needs a real platform, so it sits with the Docker-dependent suites and is
+  not wired into `make test-cli` or CI. `make test-parity` requires
+  NSCTL_PARITY_ENV to be named: the suite starts and stops a real environment,
+  and HMD_HOME alone is not consent, being set in every shell anyone works in.
+  That guard exists because the suite was run at a live platform by reflex
+  during its own development.
+
 - fix: Name a cluster that predates the Traefik migration
 
   SPEC014 said two dropped host-only helm paths "must be detected and named, not

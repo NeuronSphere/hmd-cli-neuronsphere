@@ -44,9 +44,8 @@ Full guide: [`docs/nsctl.rst`](docs/nsctl.rst).
 Both front ends work against one `HMD_HOME`, so reaching for the Python CLI for
 any of these costs nothing:
 
-- **No automated parity harness.** Parity between the two front ends is
-  verified by performing an operation with one and checking it with the other,
-  not by a test suite.
+- **The parity harness covers `env start`, `env stop`, `status` and the
+  registry.** Every other verb's parity is still checked by hand.
 - **Plugin-contributed workloads need `nsctl repo import` once** per
   environment that was brought up with `hmd`.
 - **The DAG runner is opt-in** and its first start builds a local image.
