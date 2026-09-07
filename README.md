@@ -45,7 +45,13 @@ Both front ends work against one `HMD_HOME`, so reaching for the Python CLI for
 any of these costs nothing:
 
 - **The parity harness covers `env start`, `env stop`, `status`, `env purge` and
-  the registry.** Every other verb's parity is still checked by hand.
+  the registry.** Every other verb's parity is still checked by hand, and one
+  test inside it is opt-in and unproven: reading an environment
+  `hmd neuronsphere up` created, which deploys its whole default BOM and took
+  over 45 minutes against `nsctl env start`'s three and a half.
+- **`nsctl env purge` also unregisters the environment; `hmd neuronsphere down
+  --purge --env` does not.** Both destroy the same resources. Only one leaves
+  the name behind for another `up`.
 - **Only an environment named `local` can deploy.** Any other slug registers and
   starts, and its first CDKTF node fails in `tofu init` -- `hmd-lib-cdktf` gates
   path-style S3 addressing on the deployment tier being literally `"local"`,

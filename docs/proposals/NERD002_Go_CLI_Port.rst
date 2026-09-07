@@ -1803,9 +1803,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     would repeat the mistake Phase 4 made about the runner: recording a
     deliverable as met because part of it was.
 
-    *The suite had never finished a run, and finishing one found four failures
-    -- three of them in the suite.* This is the same shape as everything else
-    that landed on 2026-09-07: written, unit-reasoned, unrun.
+    *The suite had never finished a run. Finishing one found four failures --
+    three of them in the suite -- and a second run found two more.* This is the
+    same shape as everything else that landed on 2026-09-07: written,
+    unit-reasoned, unrun. It now completes green: six passed, one skipped by
+    design, exit 0.
 
     - **A test asserted the opposite of its own documentation.** "Both Front
       Ends Report The Same Environment Status" opens "Not a string comparison --
@@ -1830,10 +1832,39 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     - **The one that was not the suite's fault:** Robot SIGKILLed
       ``hmd neuronsphere up`` at twenty minutes, reporting rc ``-9``, which reads
-      as a parity failure and is a stopwatch. A cold ``up`` from the Python front
-      end deploys its own ``LOCAL_BOM`` through projectbuilder and is the slowest
-      thing either CLI does. The timeout is 45 minutes and is a named variable
-      rather than a literal repeated in two keywords.
+      as a parity failure and is a stopwatch. The timeout is 45 minutes now, and
+      a named variable rather than a literal repeated in two keywords.
+
+      The reason is worth stating, because it makes the suite permanently
+      lopsided: **the two front ends' start verbs are not the same size.**
+      ``nsctl env start`` brings up the substrate -- core instance, VPC,
+      database, cluster, and the ext-secrets pair -- and stops, because every
+      workload above that is a RepoClass a user adds. ``hmd neuronsphere up``
+      seeds its own plugin-derived BOM and deploys the lot: airflow, argo, the
+      transform broker, cert-manager, trino, superset and the rest.
+
+      Raising the timeout to 45 minutes did not make it pass either; the second
+      run was SIGKILLed at 45 with pods still coming up. So that test is now
+      opt-in, behind ``-v DEEP:True``, with the measurement in its own
+      documentation. A test that cannot pass is worse than one that says why it
+      did not run, and burying half an hour inside a suite people are told to
+      run is how a suite stops being run at all. **It remains unproven**, which
+      is the honest position: the case it covers -- reading an environment the
+      Python brought up -- is the case every existing user is in, and this
+      document should not claim it has been checked by a suite that has never
+      completed it.
+
+    - **The two purge verbs are not the same operation**, which this suite
+      asserted before anyone ran it. ``nsctl env purge`` destroys an environment
+      *and* unregisters it -- SPEC001 made it "the teardown ``env delete``
+      refuses to be". ``hmd neuronsphere down --purge --env`` destroys the state
+      and **keeps** the registration, so another ``up`` brings the environment
+      back. Both are defensible; they are not interchangeable, and a test
+      demanding the second behave like the first was testing a symmetry that had
+      never been claimed. What must agree is everything else: the resources are
+      gone from Docker, and both front ends read the same registry, so an
+      environment the Python left registered is one nsctl still lists. That is
+      what it checks now.
 
     *``env purge`` added after the verification pass, and the cost is recorded
     rather than discovered.* It is the newest verb, the one where a leftover is

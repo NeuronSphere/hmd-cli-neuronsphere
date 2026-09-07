@@ -91,7 +91,18 @@ carry on:
   ``test/nsctl_parity.robot`` checks ``env start``, ``env stop``, ``status``,
   ``env purge`` and the registry from both front ends, in both directions. Every
   other verb is still checked by hand, so one that has not been exercised that
-  way has not been proven equivalent.
+  way has not been proven equivalent. One test inside it is opt-in and unproven:
+  reading an environment ``hmd neuronsphere up`` created, because that verb
+  deploys its whole default BOM and took over 45 minutes where
+  ``nsctl env start`` took three and a half. Run it with
+  ``make test-parity NSCTL_PARITY_ENV=<slug> ROBOT_FLAGS=... -v DEEP:True`` and
+  give it an hour.
+
+- **``nsctl env purge`` and ``hmd neuronsphere down --purge --env`` are not the
+  same operation.** Both destroy an environment's cluster, database, graph and
+  state. ``nsctl`` also unregisters it; the Python keeps the registration, so
+  another ``up`` brings it back. Neither is wrong -- but a script that swaps one
+  for the other will surprise someone.
 
 - **Only an environment named** ``local`` **can deploy.** ``nsctl env add dev2``
   registers, starts, stops and purges correctly, and its first CDKTF node fails

@@ -2,6 +2,33 @@
 
 ## 2026-09-07
 
+- test: Two more things the parity suite found once it could run
+
+  With the first three defects fixed the suite got further and found two more.
+
+  **`hmd neuronsphere up` cannot finish inside any timeout tried.** Raising 20
+  minutes to 45 did not help; the second run was SIGKILLed at 45 with pods still
+  coming up. The two start verbs are not the same size: `nsctl env start` brings
+  up the substrate and stops, because every workload above it is a RepoClass a
+  user adds, while `hmd neuronsphere up` seeds its own plugin-derived BOM and
+  deploys airflow, argo, the transform broker, cert-manager, trino and superset.
+  Three and a half minutes against over forty-five.
+
+  That test is opt-in now, behind `-v DEEP:True`, with the measurement in its own
+  documentation. **It remains unproven, and that is the honest position** -- the
+  case it covers is the one every existing user is in, and a suite that has never
+  completed it should not be described as covering it.
+
+  **`nsctl env purge` and `hmd neuronsphere down --purge --env` are not the same
+  operation.** nsctl destroys the environment *and* unregisters it -- SPEC001
+  made purge "the teardown `env delete` refuses to be". The Python destroys the
+  state and keeps the registration, so another `up` brings it back. Both are
+  defensible and they are not interchangeable; the test demanded a symmetry
+  nobody had claimed. It checks the real contract now: the resources are gone
+  from Docker, and both front ends read the same registry.
+
+  The suite completes green: six passed, one skipped by design, exit 0.
+
 - test: Fix the three things the parity suite's first complete run found in itself
 
   The suite had never finished a run. Finishing one produced four failures, and
