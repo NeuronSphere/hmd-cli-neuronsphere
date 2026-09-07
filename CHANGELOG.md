@@ -2,6 +2,42 @@
 
 ## 2026-09-07
 
+- fix: Register resource types and a deployment set's definition on a cold start
+
+  Two seeding steps nsctl never performed, both invisible until the first
+  `env start` against a graph nothing had seeded before.
+
+  `declare_produces_resource_definition` was called for types that were never
+  registered, so a purged graph answered `HTTP 400: ResourceDefinition
+  {'resource_definition_name': 'aurora-postgres', ...} not found`. Seed now
+  calls `seed_base_resource_definitions` for the bundled supertypes and upserts
+  each producing repo's own `meta-data/resources/*.yaml` before declaring
+  anything -- a repo's definition parents onto a base type, so the order is the
+  contract, not a preference. Per-repo upserts warn rather than fail, because
+  the declaration that follows is what actually needs the type and says so
+  precisely.
+
+  `EnsureDeploymentSet` sent `{name, environment}`. The entity has no
+  `environment` field and requires `definition`, so a create answered `HTTP
+  422: {"loc":["body","definition"],"msg":"Field required"}`. It now sends the
+  base64-JSON definition naming the environment by slug, and repairs a row that
+  names a different one -- which the function's own comment already promised
+  and did not do. Only a cold start reached either: on a graph that already had
+  the row, the find-first guard returned before the PUT.
+
+- fix: Point every `nsctl ...` suggestion at a command that exists
+
+  The error you hit with no environments registered said to run `nsctl env add
+  --name local`. There is no `--name` flag; `env add` takes a positional, so
+  following the advice produced a second error. Four printed strings had it,
+  plus a comment naming `nsctl env down --purge`, which has never been a
+  command.
+
+  `cmd/suggestions_test.go` now walks the module for backticked `nsctl ...`
+  strings -- messages and comments alike -- and resolves each against the live
+  cobra tree: subcommands must exist, and every `--flag` must exist on the
+  command it is attached to.
+
 - fix: Stop the DAG runner on `down`, which left its container running
 
   `hmd neuronsphere down --purge` set `COMPOSE_PROFILES` to the Deployment GUI

@@ -235,14 +235,23 @@ type Seeder struct {
 	// runner. When true the control plane submits the workflow, and Seed
 	// returns no nodes because there is nothing here left to run.
 	ServiceSubmits bool
+	// Warn reports something a seed carried on past. Optional; nil discards.
+	Warn func(format string, a ...any)
+}
+
+func (s *Seeder) warn(format string, a ...any) {
+	if s.Warn != nil {
+		s.Warn(format, a...)
+	}
 }
 
 // Seed registers the repo classes, applies a changeset and returns the
 // ChangeSetDeployment id with the nodes to execute.
 //
 // The order is ms-deployment's contract, not a preference: repo class versions
-// first, then the produced-resource declarations, then the Environment and
-// DeploymentSet, then the ChangeSet, then apply, then generate.
+// first, then the resource-type definitions, then the produced-resource
+// declarations, then the Environment and DeploymentSet, then the ChangeSet,
+// then apply, then generate.
 // ResolveVersions fills in each entry's RepoClassVersion.
 //
 // Called before the reconcile plan is computed, not left to Seed: the version
@@ -301,7 +310,20 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 		entries[i].RepoClassVersion = version
 	}
 
-	// 2. Declare what each producing RepoClass provides, before the changeset
+	// 2. Register the resource types before anything claims to produce one.
+	// The base catalog first, because a repo's own definition parents onto it;
+	// then each producing repo's own declarations. Skipping this worked only
+	// against a graph something else had already seeded.
+	if err := s.SeedBaseResourceDefinitions(ctx); err != nil {
+		return "", nil, fmt.Errorf("seeding the base resource definitions: %w", err)
+	}
+	for _, repoClass := range producingClasses(entries) {
+		if err := s.UpsertResourceDefinitions(ctx, repoClass); err != nil {
+			return "", nil, fmt.Errorf("reading the resource types %s declares: %w", repoClass, err)
+		}
+	}
+
+	// 3. Declare what each producing RepoClass provides, before the changeset
 	// applies, so a resource-typed dependency validates against a producing
 	// instance rather than failing to resolve.
 	if err := s.DeclareCoreProduces(ctx); err != nil {
@@ -320,7 +342,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 		}
 	}
 
-	// 3. The environment's own entities.
+	// 4. The environment's own entities.
 	if err := s.Client.EnsureEnvironment(ctx, env.Slug, env.AccountID, env.Region); err != nil {
 		return "", nil, err
 	}
@@ -328,7 +350,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 		return "", nil, err
 	}
 
-	// 4. The changeset. Entries are topologically sorted first, because
+	// 5. The changeset. Entries are topologically sorted first, because
 	// apply_changeset_to_environment processes them in list order and resolves
 	// each entry's dependencies only against instances already added earlier in
 	// the same call -- an out-of-order list fails with "No repo instance". This
@@ -364,7 +386,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 		return "", nil, err
 	}
 
-	// 5 and 6. Apply, then ask for the ordered nodes.
+	// 6 and 7. Apply, then ask for the ordered nodes.
 	csdNid, err := s.Client.ApplyChangeSet(ctx, changeSetName, env.Slug, !s.ServiceSubmits)
 	if err != nil {
 		return "", nil, err

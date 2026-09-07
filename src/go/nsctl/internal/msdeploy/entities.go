@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // Entity types in the hmd_lang_deployment language pack. Fully qualified: the
@@ -61,14 +62,76 @@ func (c *Client) EnsureDeploymentSet(ctx context.Context, name, envSlug string) 
 	if err != nil {
 		return err
 	}
-	if len(existing) > 0 {
+	definition, err := EncodeCollection(deploymentSetDefinition(envSlug))
+	if err != nil {
+		return err
+	}
+
+	if len(existing) == 0 {
+		_, err = c.PutEntity(ctx, EntityDeploymentSet, map[string]any{
+			"name":       name,
+			"definition": definition,
+		})
+		return err
+	}
+
+	row := existing[0]
+	if targets := deploymentSetEnvironments(row); len(targets) == 1 && targets[envSlug] {
 		return nil
 	}
-	_, err = c.PutEntity(ctx, EntityDeploymentSet, map[string]any{
-		"name":        name,
-		"environment": envSlug,
-	})
-	return err
+	// The repair. A row naming the wrong environment is not a cosmetic
+	// mismatch: every changeset applied through it lands on that environment's
+	// graph, and a --prune would destroy from it.
+	if _, err := c.PutEntity(ctx, EntityDeploymentSet, map[string]any{
+		"identifier": row["identifier"],
+		"name":       name,
+		"definition": definition,
+	}); err != nil {
+		return fmt.Errorf(
+			"deployment set %q targets %v instead of %q, and could not be updated: %w. "+
+				"It predates environments being typed by name; recreate the local deployment "+
+				"graph with `hmd neuronsphere down --purge` before starting %q again",
+			name, sortedKeys(deploymentSetEnvironments(row)), envSlug, err, envSlug)
+	}
+	return nil
+}
+
+// deploymentSetDefinition is the one-environment definition for envSlug.
+//
+// A deployment set names its environments by Environment.type, which for a
+// local environment is its slug. Hardcoding "local" would make every named
+// environment's changeset resolve to the default environment's graph.
+func deploymentSetDefinition(envSlug string) []map[string]any {
+	return []map[string]any{{
+		"environment":     envSlug,
+		"deployment_gate": map[string]any{"transforms": []any{}, "approval": false},
+	}}
+}
+
+// deploymentSetEnvironments is the set of environments a row's definition
+// names. An undecodable definition yields none, which reads as "wrong" and
+// sends the caller down the repair path -- the safe direction.
+func deploymentSetEnvironments(row map[string]any) map[string]bool {
+	targets := map[string]bool{}
+	entries, err := DecodeCollection(row["definition"])
+	if err != nil {
+		return targets
+	}
+	for _, entry := range entries {
+		if env, ok := entry["environment"].(string); ok && env != "" {
+			targets[env] = true
+		}
+	}
+	return targets
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // NewChangeSetName picks a name not already in use.

@@ -498,7 +498,7 @@ func K3sVolumeCandidates(cluster, accountID string) []string {
 // alone: both are questions rather than answers, and destroying a cluster over
 // one costs a datastore. A container that exists but will not start is also
 // left alone, where the Python recreates it -- `docker start` returning
-// non-zero is not evidence the datastore is bad, and `nsctl env down --purge`
+// non-zero is not evidence the datastore is bad, and `hmd neuronsphere down --purge`
 // is the deliberate way to ask for that.
 func ReconcileK3sCluster(ctx context.Context, api K3sClusters, d K3sReconcileContainers,
 	o K3sReconcileOptions) (K3sReconcileAction, error) {

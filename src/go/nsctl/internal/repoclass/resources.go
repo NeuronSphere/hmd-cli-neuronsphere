@@ -31,6 +31,13 @@ type ResourceDeclaration struct {
 	// type. A declaration without it describes a type the repo defines but
 	// does not itself create.
 	Produces bool `yaml:"produces"`
+	// The remaining fields describe the type to ms-deployment when the
+	// definition is upserted. They are carried as `any` because nsctl never
+	// reads into them -- it forwards the repo's own document, and typing them
+	// would be a second schema to keep in step with the service's.
+	Description      string `yaml:"description"`
+	ResourceMetadata any    `yaml:"resource_metadata"`
+	OutputSchema     any    `yaml:"output_schema"`
 	// Path is the file this came from, for an error that names it.
 	Path string `yaml:"-"`
 }

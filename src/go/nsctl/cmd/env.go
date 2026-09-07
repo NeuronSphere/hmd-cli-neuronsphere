@@ -230,7 +230,7 @@ func renderEnvList(out, errOut io.Writer, reg *registry.Registry) {
 	if len(names) == 0 {
 		// An empty result is worth a sentence, not a blank line.
 		fmt.Fprintln(out, "No environments registered.")
-		fmt.Fprintln(out, "Create one with `nsctl env add --name <name>`.")
+		fmt.Fprintln(out, "Create one with `nsctl env add <name>`.")
 		return
 	}
 	if reg.Synthesized {

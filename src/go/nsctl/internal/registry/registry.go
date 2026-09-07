@@ -163,9 +163,9 @@ type UnknownEnvironmentError struct {
 
 func (e *UnknownEnvironmentError) Error() string {
 	if len(e.Available) == 0 {
-		return fmt.Sprintf("no environment %q, and none are registered. Create one with `nsctl env add --name %s`", e.Name, e.Name)
+		return fmt.Sprintf("no environment %q, and none are registered. Create one with `nsctl env add %s`", e.Name, e.Name)
 	}
-	return fmt.Sprintf("no environment %q. Registered: %s. Create it with `nsctl env add --name %s`",
+	return fmt.Sprintf("no environment %q. Registered: %s. Create it with `nsctl env add %s`",
 		e.Name, strings.Join(e.Available, ", "), e.Name)
 }
 
@@ -456,7 +456,7 @@ func (r *Registry) UsedAccounts() map[string]bool {
 func (r *Registry) AllocatePortSlot(name string) (int, error) {
 	used := r.UsedSlots()
 	if len(used) >= MaxEnvs {
-		return 0, fmt.Errorf("all %d environment port slots are in use; delete one with `nsctl env delete --name <name>` first", MaxEnvs)
+		return 0, fmt.Errorf("all %d environment port slots are in use; delete one with `nsctl env delete <name>` first", MaxEnvs)
 	}
 	preferred := int(crc32.ChecksumIEEE([]byte(name))) % MaxEnvs
 	if !used[preferred] {

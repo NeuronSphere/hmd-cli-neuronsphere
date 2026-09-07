@@ -168,7 +168,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		entries = plan.Deploy()
 	}
 
-	seeder := &bom.Seeder{Client: client, Versions: resolver, ServiceSubmits: ServiceSubmits(opts.lookup)}
+	seeder := &bom.Seeder{
+		Client: client, Versions: resolver,
+		ServiceSubmits: ServiceSubmits(opts.lookup),
+		Warn:           opts.warn,
+	}
 
 	opts.step("Seeding the substrate changeset...")
 	csdNid, nodes, err := seeder.Seed(ctx, bomEnv, entries)

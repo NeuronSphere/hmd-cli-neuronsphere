@@ -216,3 +216,117 @@ func TestServiceVersionUnreachable(t *testing.T) {
 		t.Fatalf("ServiceVersion() = %q, true; want unreachable", got)
 	}
 }
+
+// A DeploymentSet carries its environments in a base64-JSON `definition`, and
+// the field is required. nsctl sent {name, environment} instead, which the
+// entity rejects:
+//
+//	PUT hmd_lang_deployment.deployment_set: HTTP 422:
+//	{"detail":[{"type":"missing","loc":["body","definition"], ...}]}
+//
+// Only a cold start reached it -- on any graph that already had the row, the
+// find-first guard returned before the PUT.
+func TestEnsureDeploymentSetCreatesADefinition(t *testing.T) {
+	t.Parallel()
+
+	var put map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			_ = json.NewDecoder(r.Body).Decode(&put)
+			_, _ = w.Write([]byte(`{"identifier":"ds-1"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`[]`)) // no existing row
+	}))
+	defer server.Close()
+
+	if err := New(server.URL).EnsureDeploymentSet(context.Background(), "dev2", "dev2"); err != nil {
+		t.Fatal(err)
+	}
+	if put["name"] != "dev2" {
+		t.Errorf("name = %v, want dev2", put["name"])
+	}
+	entries := decodeForTest(t, put["definition"])
+	if len(entries) != 1 {
+		t.Fatalf("definition has %d entries, want 1: %v", len(entries), entries)
+	}
+	// The slug, not a hardcoded "local": otherwise every named environment's
+	// changeset resolves to the default environment's graph.
+	if entries[0]["environment"] != "dev2" {
+		t.Errorf("definition names %v, want dev2", entries[0]["environment"])
+	}
+	if _, ok := entries[0]["deployment_gate"]; !ok {
+		t.Errorf("definition entry has no deployment_gate: %v", entries[0])
+	}
+}
+
+// A row naming the wrong environment is repaired in place, because every
+// changeset applied through it would otherwise land on that environment's
+// graph.
+func TestEnsureDeploymentSetRepairsAWrongEnvironment(t *testing.T) {
+	t.Parallel()
+
+	stale, err := EncodeCollection([]map[string]any{{"environment": "local"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var put map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			_ = json.NewDecoder(r.Body).Decode(&put)
+			_, _ = w.Write([]byte(`{"identifier":"ds-1"}`))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `[{"identifier":"ds-1","name":"dev2","definition":%q}]`, stale)
+	}))
+	defer server.Close()
+
+	if err := New(server.URL).EnsureDeploymentSet(context.Background(), "dev2", "dev2"); err != nil {
+		t.Fatal(err)
+	}
+	if put["identifier"] != "ds-1" {
+		t.Fatalf("repair sent identifier %v, want ds-1 -- without it the CRUD layer adds a second row", put["identifier"])
+	}
+	if entries := decodeForTest(t, put["definition"]); entries[0]["environment"] != "dev2" {
+		t.Errorf("repaired definition names %v, want dev2", entries[0]["environment"])
+	}
+}
+
+// A row that already names the right environment is left alone.
+func TestEnsureDeploymentSetLeavesAMatchingRow(t *testing.T) {
+	t.Parallel()
+
+	current, err := EncodeCollection([]map[string]any{{"environment": "dev2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			puts++
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		_, _ = fmt.Fprintf(w, `[{"identifier":"ds-1","name":"dev2","definition":%q}]`, current)
+	}))
+	defer server.Close()
+
+	if err := New(server.URL).EnsureDeploymentSet(context.Background(), "dev2", "dev2"); err != nil {
+		t.Fatal(err)
+	}
+	if puts != 0 {
+		t.Errorf("wrote %d times, want none", puts)
+	}
+}
+
+func decodeForTest(t *testing.T, value any) []map[string]any {
+	t.Helper()
+	entries, err := DecodeCollection(value)
+	if err != nil {
+		t.Fatalf("decoding the definition: %v", err)
+	}
+	return entries
+}
