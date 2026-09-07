@@ -86,6 +86,14 @@ type Config struct {
 	CustomerCode string
 	// Extra is passed through as additional environment variables.
 	Extra map[string]string
+	// WorkDir is where the overlay workspaces and generated scripts are
+	// written. Empty means the system temp dir, which is right for the CLI.
+	//
+	// It matters when the runner is itself containerised: the paths below are
+	// bind-mount sources resolved by the *host* daemon, not inside this
+	// process's filesystem, so they have to name a directory that exists at the
+	// same absolute path on both sides.
+	WorkDir string
 }
 
 // Runner executes nodes and records what happened.
@@ -142,15 +150,15 @@ func (r *Runner) Run(ctx context.Context, csdNid string, nodes []msdeploy.Deploy
 		if res.Failed {
 			failure := res
 			r.LastFailure = &failure
-			r.setNodeStatus(ctx, node, StatusFailed)
-			r.setCSDStatus(ctx, csdNid, CSDStatusFailed)
+			r.SetNodeStatus(ctx, node, StatusFailed)
+			r.SetCSDStatus(ctx, csdNid, CSDStatusFailed)
 			r.printFailure(res)
 			return fmt.Errorf("deploying %s failed", node.InstanceName)
 		}
 		r.Succeeded = append(r.Succeeded, node.InstanceName)
-		r.setNodeStatus(ctx, node, StatusDeployed)
+		r.SetNodeStatus(ctx, node, StatusDeployed)
 	}
-	r.setCSDStatus(ctx, csdNid, CSDStatusCompleted)
+	r.SetCSDStatus(ctx, csdNid, CSDStatusCompleted)
 	return nil
 }
 
@@ -182,7 +190,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 	}
 	defer cleanup()
 
-	scriptFile, err := os.CreateTemp("", "nsctl-deploy-*.sh")
+	scriptFile, err := os.CreateTemp(r.Config.WorkDir, "nsctl-deploy-*.sh")
 	if err != nil {
 		return Result{Node: node, Failed: true, Err: fmt.Errorf("writing the deploy script: %w", err)}
 	}
@@ -375,7 +383,7 @@ func tail(s string, n int) string {
 	return "... (" + fmt.Sprint(len(lines)-n) + " earlier lines omitted)\n" + strings.Join(lines[len(lines)-n:], "\n")
 }
 
-func (r *Runner) setNodeStatus(ctx context.Context, node msdeploy.DeploymentNode, status string) {
+func (r *Runner) SetNodeStatus(ctx context.Context, node msdeploy.DeploymentNode, status string) {
 	if r.Client == nil || node.RIDNid == "" {
 		return
 	}
@@ -388,7 +396,7 @@ func (r *Runner) setNodeStatus(ctx context.Context, node msdeploy.DeploymentNode
 	}
 }
 
-func (r *Runner) setCSDStatus(ctx context.Context, csdNid, status string) {
+func (r *Runner) SetCSDStatus(ctx context.Context, csdNid, status string) {
 	if r.Client == nil || csdNid == "" {
 		return
 	}

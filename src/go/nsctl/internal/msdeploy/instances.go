@@ -20,6 +20,9 @@ const (
 const (
 	StatusDeployed = "DEPLOYED"
 	StatusFailed   = "FAILED"
+	// StatusDestroyed is the terminal status of a destroy manifest's nodes,
+	// which are the same nodes with their edges reversed.
+	StatusDestroyed = "DESTROYED"
 
 	// StatusNeverDeployed is reported for an instance that exists in the graph
 	// but has no deployment in this environment. Distinct from an instance
@@ -33,6 +36,13 @@ const (
 const (
 	CSDStatusCompleted = "COMPLETED"
 	CSDStatusFailed    = "FAILED"
+	// CSDStatusStarted is set when execution begins. The in-process runner
+	// never sent it -- nothing could observe a deployment it owned anyway --
+	// but a submitted workflow is observable while it runs, so the changeset
+	// has to say so.
+	CSDStatusStarted = "STARTED"
+	// CSDStatusDestroyed is the terminal status of a destroy changeset.
+	CSDStatusDestroyed = "DESTROYED"
 )
 
 // InstanceStatus maps each repo instance name to the status of its most recent

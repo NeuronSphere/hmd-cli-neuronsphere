@@ -125,6 +125,7 @@ nothing on them. Everything above that is a RepoClass you add.`,
 		newEnvCommand(opts),
 		newRepoCommand(opts),
 		newControlPlaneCommand(opts),
+		newRunnerCommand(opts),
 		newVersionCommand(opts),
 	)
 
