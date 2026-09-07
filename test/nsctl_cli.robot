@@ -55,7 +55,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    repo    control-plane    version
+    FOR    ${command}    IN    env    repo    control-plane    authd    version
         Should Contain    ${result.stdout}    ${command}
     END
 

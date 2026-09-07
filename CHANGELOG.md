@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-09-08
+
+- feat: A local mock identity provider, so Rego policies can be tested
+
+  Nothing on the local platform has a token. Every app runs `AUTH_TYPE =
+  AUTH_DB`, every microservice runs unauthenticated, and the consequence is that
+  the Rego policies every service authorizes against are only ever exercised in
+  the cloud. `nsctl authd` is the token source that makes them testable here.
+
+  **Okta-shaped, because the consumers are.** Superset and Airflow build their
+  endpoints as `OKTA_BASE_URL + "v1/token"`, and `hmd-lib-auth` hands an issuer
+  to `AccessTokenVerifier`, which fetches `{issuer}/v1/keys`. None of that is
+  configurable, so the paths are Okta's: `/oauth2/{ns,services}/v1/...`, with
+  both discovery documents served because Superset and Airflow ask for
+  `oauth-authorization-server` while Trino asks for `openid-configuration`.
+
+  **Two authorization servers, not one.** `lambda_helper._get_issuer_and_audience`
+  picks `services_issuer` with `api://neuronsphere-services` for a service
+  account and `ns_issuer` with `api://neuronsphere` otherwise, and every Rego
+  bundle's `token_is_valid` admits exactly those two. One server issuing both
+  audiences would have made the distinction untestable, which is most of what
+  there is to test.
+
+  **No client registration.** A client's secret is its id — the convention local
+  Postgres users already follow — so nothing has to call an admin API before it
+  can authenticate.
+
+  Signing is hand-rolled against `crypto/rsa` rather than adding a JWT
+  dependency: only the minting direction is needed, and it is three standard
+  library calls. Nothing here verifies. The key is persisted under `$HMD_HOME`
+  because a container restart that rotated it would invalidate every live
+  session and look like an authentication bug.
+
+  Verified end to end before landing, with the platform's own pieces rather than
+  stand-ins: PyJWT resolves the published JWKS and verifies a minted token's
+  signature, issuer and audience; and the real `system/shared.rego` from
+  hmd-inf-openpolicyagent, running in the OPA version and v0 mode the chart
+  pins, allows `token_is_valid` for the right audience and leaves it undefined
+  for the wrong one. That is the capability this exists for.
+
 ## 2026-09-07
 
 - test: Two more things the parity suite found once it could run
