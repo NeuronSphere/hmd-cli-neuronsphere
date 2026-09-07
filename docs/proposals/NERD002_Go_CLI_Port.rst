@@ -442,7 +442,8 @@ already had what a cold one has to create. Three were verbs that had only ever
 been unit-tested. One, the unpublished images, is not a defect in this
 repository at all and could not have been found any other way.
 
-**What could not be verified here, and why.**
+**What could not be verified here, and why.** Two of the three, now: the second
+environment was blocked on item 17 and has been run since it was fixed.
 
 - **A second environment.** *Blocked then; run on 2026-09-08, once item 17 was
   fixed.* Two environments up at once, ``dev2`` and ``dev3``, each with no
@@ -2532,8 +2533,8 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Deliverable met:* the requirement's own sentence, executed. A machine with
     no checkout of any repo deploys a control plane and an environment from the
     trees inside the binary, with External Secrets reconciled and no manifest
-    involved. See `Verified from nothing`_ for what passed, what failed, and the
-    three things that could not be verified here and why.
+    involved. See `Verified from nothing`_ for what passed, what failed, and
+    what could not be verified here and why.
 
 Dependency Map
 --------------
