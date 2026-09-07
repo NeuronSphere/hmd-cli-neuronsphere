@@ -56,8 +56,12 @@ const MSDeploymentURL = "http://localhost/hmd_ms_deployment"
 
 // Options configures a start or a stop.
 type Options struct {
-	Home    string
-	Lookup  func(string) string
+	Home   string
+	Lookup func(string) string
+	// Version is the -ldflags-injected build version. It tags the DAG-runner
+	// image this nsctl builds, so an image can be traced back to the binary
+	// that produced it.
+	Version string
 	Verbose bool
 	// Upgrade pulls newer images before starting, rather than reusing what is
 	// already local.
@@ -234,6 +238,15 @@ func Start(ctx context.Context, opts *Options) error {
 	ours := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
 	for _, c := range compose.CheckInUse(ctx, project, active, ours, nil) {
 		opts.warn("%s", c)
+	}
+
+	// Before compose: a profile is active for a container whose image does not
+	// exist yet, and compose would fail trying to pull it from a registry that
+	// does not have it.
+	if RunnerEnabled(opts) {
+		if err := EnsureRunnerImage(ctx, opts, docker); err != nil {
+			return err
+		}
 	}
 
 	if err := runner.EnsureNetwork(ctx, reg.ControlPlane.Network); err != nil {
@@ -498,6 +511,13 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	if guiImage != "" {
 		overlay["HMD_DEPLOYMENT_GUI_IMAGE"] = guiImage
 	}
+	// Always set, so the compose file's own default -- a plain
+	// hmd-img-nsrunner:latest, which is only ever a hand build -- never
+	// decides which image the runner runs. EnsureRunnerImage has already made
+	// sure this tag exists.
+	if RunnerEnabled(opts) {
+		overlay["HMD_NSRUNNER_IMAGE"] = RunnerImageRef(opts)
+	}
 	// The runner mounts HMD_REPO_HOME at its own absolute path, so the compose
 	// interpolation needs a real one. Defaulting it to HMD_HOME keeps the bind
 	// valid when the variable is unset; the runner then reports a missing
@@ -530,10 +550,12 @@ func ActiveProfiles(opts *Options) map[string]bool {
 
 // RunnerEnabled reports whether the DAG-runner container should run.
 //
-// Off by default, for now. Its image is not published yet, and a control plane
-// that fails to start because it cannot pull one would be a worse default than
-// the in-process execution that already works. Turning it on is
-// HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true plus `make image`.
+// Off by default. The image is not published, so the first start with the
+// runner on pays a one-to-two-minute local build (EnsureRunnerImage); making
+// every user pay that for a service the in-process path already covers would
+// be a worse default than asking for it. Turning it on is
+// HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true, and nothing else -- the image
+// builds itself.
 func RunnerEnabled(opts *Options) bool {
 	switch strings.ToLower(strings.TrimSpace(opts.lookup("HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER"))) {
 	case "1", "true", "yes":

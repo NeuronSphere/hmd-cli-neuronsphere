@@ -37,13 +37,16 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 Implementation Status
 ---------------------
 
-Phases 0 through 5 have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
+All six phases have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
 control plane from an empty ``HMD_HOME``, starts and stops environments,
 reconciles them to a manifest, and coexists with the Python CLI against one
 ``HMD_HOME``. Deployments are submitted to a DAG-runner service rather than run
 inside the CLI, so they outlive the command that started them, and the runner
 schedules their nodes on the dependency edges the payload has always carried
-rather than one at a time.
+rather than one at a time. It ships through a Homebrew tap, an install script
+and GitHub Releases, and the documentation recommends it -- with an explicit
+list of what it does not do yet, because ``env purge`` and SPEC012's parity
+harness are still open.
 
 .. list-table::
    :header-rows: 1
@@ -90,12 +93,14 @@ rather than one at a time.
      - Implemented. One clause of it is not implementable as written -- see
        the SPEC.
    * - 012
-     - implemented
-     - Verified by running the Python CLI against nsctl-created containers.
-   * - 013
      - partly implemented
-     - ``make install`` and ``make image`` exist; GoReleaser and the Homebrew
-       tap are Phase 6.
+     - Verified by running the Python CLI against nsctl-created containers.
+       The parity *harness* -- a suite parameterised on the front end under
+       test -- was never built, so parity is checked by hand.
+   * - 013
+     - **amended**
+     - Implemented. Windows is dropped and the Docker image is built rather
+       than published. See the SPEC.
    * - 014
      - **amended**
      - The HIGH risk is retired; three gaps found in implementation are
@@ -107,7 +112,7 @@ rather than one at a time.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Six things this proposal asserted turned out to be wrong, and are corrected in
+Eight things this proposal asserted turned out to be wrong, and are corrected in
 the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
@@ -124,7 +129,10 @@ the SPECs rather than quietly worked around:
    scopes ``internal/`` per module, so ``src/go/nsrunner`` could not have
    imported ``internal/runner`` and would have had to duplicate node execution
    or force it public. It ships as ``nsctl runner serve`` in the one module
-   instead, with a scratch image of the same binary.
+   instead, as an image of the same binary -- ``docker:cli``, not the scratch
+   base first proposed, since ``internal/container`` shells out to the Docker
+   CLI and on scratch every deploy node dies with ``exec: "docker": executable
+   file not found in $PATH``.
 
 5. **The control plane's bootstrap does not need to run on every start.** The
    Python runs it each time because the work is idempotent; ``nsctl`` runs it
@@ -136,6 +144,16 @@ the SPECs rather than quietly worked around:
    half-applied ``terraform apply`` the "let in-flight nodes finish" half of
    the same sentence exists to avoid. Dispatch is gated on the scheduler
    instead, and the node context is left alone.
+7. **``windows/amd64`` was never a shippable target** (SPEC013). Shelling out
+   to ``docker``, mounting ``/var/run/docker.sock``, and composing host
+   absolute paths that a sibling container resolves identically are three
+   things Windows has no equivalent for. The archive would have installed and
+   then failed at the first command that touched Docker.
+8. **The runner image is built, not published** (SPEC013). A published tag was
+   a promise the repository was not keeping -- the compose default named one
+   that does not exist -- and publishing it would still not have let a
+   Homebrew install build a modified runner. ``nsctl`` carries its own sources
+   and builds the image on demand instead.
 
 Motivation
 ----------
@@ -271,8 +289,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     not import ``internal/runner`` -- the finished node executor -- and would
     have had to duplicate it or force it public. The runner instead ships inside
     this module as ``internal/nsrunner`` behind a hidden ``nsctl runner serve``
-    subcommand, with ``Dockerfile`` producing a scratch image of the same
-    binary. One binary that can also serve costs a command nobody types.
+    subcommand, with ``Dockerfile`` producing a ``docker:cli`` image of the
+    same binary -- not the scratch image first proposed, since
+    ``internal/container`` shells out to the Docker CLI. One binary that can
+    also serve costs a command nobody types. Nothing publishes that image;
+    ``nsctl`` builds it on demand from sources it carries (SPEC013).
 
 .. spec:: Command surface
     :id: HMD_CLI_NERD002_SPEC001
@@ -1168,7 +1189,48 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Build and distribution
     :id: HMD_CLI_NERD002_SPEC013
     :links: HMD_CLI_NERD002
-    :status: partly implemented
+    :status: amended
+
+    .. warning::
+
+       **Implemented, with one target dropped and one channel narrowed.** All
+       four channels exist; two of them are not quite what this SPEC described.
+
+       **windows/amd64 is gone, and was never going to work.** ``nsctl`` drives
+       Docker by shelling out to the CLI, mounts ``/var/run/docker.sock``, and
+       composes host absolute paths that a sibling container must resolve
+       *identically* -- that last one is the whole reason the runner binds
+       ``$HMD_HOME`` and ``$HMD_REPO_HOME`` at their own absolute paths
+       (SPEC010). None of the three has a Windows equivalent, so the archive
+       this SPEC asked for would have installed and then failed at the first
+       command that touched Docker. Publishing a target that cannot run is
+       worse than not publishing it. Released targets are ``darwin`` and
+       ``linux`` on ``amd64`` and ``arm64`` -- the set ``hmd-cli-bartleby``
+       ships -- and WSL2 users take ``linux/amd64``, which is what they were
+       going to get anyway.
+
+       **The Docker image is built, not published.** This SPEC listed "Docker
+       image for CI" alongside three channels that publish. It is instead the
+       DAG-runner image (``hmd-img-nsrunner``), which ``nsctl`` builds on
+       demand from sources embedded in the binary, and whose ``ENTRYPOINT`` was
+       split from its ``CMD`` so the same image is also a CLI: ``docker run
+       <image> env list``. Nothing pushes it to a registry. That closes a
+       promise the repository was not keeping -- the compose file defaulted
+       ``HMD_NSRUNNER_IMAGE`` to ``ghcr.io/neuronsphere/hmd-img-nsrunner:stable``,
+       a tag that does not exist -- and it is what lets a Homebrew install
+       enable the runner at all, since a released binary has no working tree to
+       build from.
+
+       **Two things the version story needed that this SPEC did not say.**
+       ``-s -w`` is load-bearing, not tidiness: 34.4 MB stripped against
+       49.4 MB unstripped, so a GoReleaser build without them meets the 50 MB
+       target by 0.6 MB instead of 15. And the repository has *two* version
+       spaces -- ``meta-data/VERSION`` (``0.5``, which ``make install``
+       injects) and ``v``-prefixed release tags (``v0.5.0``, which GoReleaser
+       injects) -- which coexist on one history alongside BACON pipeline tags
+       (``0.5.202``) that release nothing. GoReleaser is configured to ignore
+       the pipeline tags, and ``docs/nsctl.rst`` tells a user which of the two
+       they are looking at.
 
     **Build.** A repository-root ``Makefile`` with ``build``/``test``/``vet``/
     ``tidy``/``clean`` targets, binary at ``src/go/nsctl/build/nsctl``, version
@@ -1184,11 +1246,15 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     **Distribution.**
 
     1. **Homebrew tap** -- ``neuronsphere/tap/nsctl``, the channel
-       ``bartleby`` already uses.
+       ``bartleby`` already uses. Shipped as a cask rather than the formula
+       ``bartleby`` uses, because GoReleaser deprecated ``brews:``; casks are
+       macOS-only, and Linux users take the install script.
     2. **GitHub Releases** via GoReleaser: ``darwin/{amd64,arm64}``,
-       ``linux/{amd64,arm64}``, ``windows/amd64``.
+       ``linux/{amd64,arm64}``, ``windows/amd64``. *Windows dropped -- see the
+       amendment above.*
     3. **Install script** -- platform-detecting curl-pipe-sh.
-    4. **Docker image** for CI.
+    4. **Docker image** for CI. *Built on demand, not published -- see the
+       amendment above.*
 
     ``nsctl version`` reports the binary version and, when a control plane is
     reachable, the ms-deployment version it is talking to.
@@ -1359,15 +1425,22 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     and 2 are verifiable against a platform brought up by the Python CLI, which
     means the port is exercised long before it can break anything.
 
-    **Phases 0-3 have landed.** Phase 3's content changed substantially once
-    plugin discovery was withdrawn; its entry below is rewritten to describe
-    what was built rather than what was planned. Phases 4-6 are unchanged and
-    not started.
+    **All six phases have landed.** Phase 3's content changed substantially
+    once plugin discovery was withdrawn; its entry below is rewritten to
+    describe what was built rather than what was planned. Phases 0, 2, 4 and 6
+    carry corrections where the entry as written turned out not to match what
+    shipped.
 
     **Phase 0 -- Foundation. [LANDED]** Scaffold ``src/go/nsctl/`` from the
     ``go_cli_repo`` cookiecutter; root ``Makefile``; cobra root with
     ``--home``; ``hmd.env`` loading; ``nsctl version``; CI (build, vet, test).
     *Deliverable:* the binary builds and reports its version.
+
+    *Corrected:* CI did not land here. What landed was a ``make check`` target
+    -- ``fmt-check vet test``, commented "the CI target" -- that nothing
+    invoked; the repository had no ``.github/`` directory at all until Phase 6
+    added one. (``hmd-cli-bartleby`` has the same gap: its only workflow runs
+    GoReleaser and never ``make check``.)
 
     **Phase 1 -- Read-only. [LANDED]** ``internal/registry`` (SPEC003) including the
     ``legacy_layout`` case and the literal-JSON fixture; ``nsctl env list``,
@@ -1383,6 +1456,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     phase -- k3s provisioning, ingress and route discovery all sit on it.
     *Deliverable:* ``nsctl`` brings up a control plane and an environment's
     infrastructure; the Python CLI can then complete the deploy.
+
+    *Corrected:* ``env purge`` is listed above and did not land, here or since.
+    The Implementation Status table (001, 002) and Phase 3's *Not done* are the
+    entries that are right; ``hmd neuronsphere down --purge`` is still the only
+    way to purge an environment.
 
     **Phase 3 -- BOM, manifests and the cold bootstrap. [LANDED]** Rewritten:
     the plugin half of this phase is withdrawn (SPEC005), and the cold
@@ -1426,6 +1504,13 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     Lambda whose behaviour under Floci is unverified. The runner container is
     likewise off by default until its image is published.
 
+    *Superseded by Phase 6:* the image is not published and will not be. It is
+    built on demand from sources embedded in the binary, so a Homebrew install
+    can enable the runner. It stays off by default for a different reason --
+    the first start with it on pays a one-to-two-minute local build -- and
+    turning it on is now ``HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true`` and
+    nothing else.
+
     **Phase 5 -- Parallelism. [DONE]** In-degree scheduling over the node
     payload's ``dependencies``, a bounded worker pool defaulting to the cloud
     path's parallelism of 4 and overridable per submission, and fail-fast that
@@ -1445,9 +1530,32 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     speedup, only a synthetic DAG of the same shape. The real one is dominated
     by container pulls and Terraform, and its gain will be smaller.
 
-    **Phase 6 -- Distribution. [NOT STARTED]** GoReleaser, the Homebrew tap, the install
-    script, and documentation making ``nsctl`` the recommended path for new
-    users while the Python CLI remains supported.
+    **Phase 6 -- Distribution. [DONE]** GoReleaser, the Homebrew tap, the
+    install script, and documentation making ``nsctl`` the recommended path for
+    new users while the Python CLI remains supported. Also: the CI Phase 0
+    claimed, a repository-root ``README.md`` (there was none), the contract
+    suite ``make test-cli`` had been pointing at a nonexistent file for, and
+    ``nsctl version`` reporting the ms-deployment version, which SPEC013 asked
+    for and Phase 2a's absence had blocked.
+
+    *Deliverable met:* ``brew install neuronsphere/tap/nsctl``, a
+    checksum-verifying ``install.sh``, and tag-triggered GitHub Releases for
+    four platforms -- 34.4 MB (linux/arm64) to 39.0 MB (darwin/amd64), against
+    SPEC013's 50 MB target.
+
+    *Amended:* ``windows/amd64`` is dropped, and the Docker image is built on
+    demand rather than published. Both are recorded in SPEC013.
+
+    *Not done:* the recommendation is qualified rather than unconditional.
+    ``nsctl env purge`` still does not exist and SPEC012's parity harness was
+    never built, so ``docs/nsctl.rst`` and the README carry a "What it does not
+    do yet" section naming both, and say what to use instead. Recommending the
+    binary without that would have been a claim the repository could not
+    support.
+
+    *Untested:* the Homebrew cask cannot be exercised without pushing to
+    ``neuronsphere/homebrew-tap``. GoReleaser generates it and its shape was
+    checked against ``hmd-cli-bartleby``'s, but no ``brew install`` has run.
 
 Dependency Map
 --------------

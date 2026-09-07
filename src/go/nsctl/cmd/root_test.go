@@ -3,6 +3,9 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,10 +34,17 @@ func run(t *testing.T, env hmdenv.Lookup, args ...string) (string, string, error
 	return out.String(), errBuf.String(), err
 }
 
+// noControlPlane points the ms-deployment probe at a closed port, so a version
+// test asserts on the binary line alone and never reaches whatever platform
+// happens to be running on the machine executing it.
+func noControlPlane() hmdenv.Lookup {
+	return fakeEnv(map[string]string{"HMD_LOCAL_MS_DEPLOYMENT_URL": "http://127.0.0.1:1"})
+}
+
 func TestVersionPrintsTheInjectedVersion(t *testing.T) {
 	t.Parallel()
 
-	out, _, err := run(t, fakeEnv(nil), "version")
+	out, _, err := run(t, noControlPlane(), "version")
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
@@ -43,10 +53,36 @@ func TestVersionPrintsTheInjectedVersion(t *testing.T) {
 	}
 }
 
+// SPEC013: the second line appears only when a control plane answers, and it
+// names the service version rather than the binary's.
+func TestVersionReportsMSDeploymentWhenReachable(t *testing.T) {
+	t.Parallel()
+
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/openapi.json" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		fmt.Fprint(w, `{"openapi":"3.1.0","info":{"title":"ms-deployment","version":"0.4"}}`)
+	}))
+	defer service.Close()
+
+	out, _, err := run(t, fakeEnv(map[string]string{"HMD_LOCAL_MS_DEPLOYMENT_URL": service.URL}), "version")
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if !strings.Contains(out, "nsctl 9.9.9") {
+		t.Errorf("version printed %q, want the binary version", out)
+	}
+	if !strings.Contains(out, "hmd-ms-deployment 0.4 ("+service.URL+")") {
+		t.Errorf("version printed %q, want the ms-deployment line", out)
+	}
+}
+
 func TestVersionFlagUsesTheSameTemplate(t *testing.T) {
 	t.Parallel()
 
-	out, _, err := run(t, fakeEnv(nil), "--version")
+	out, _, err := run(t, noControlPlane(), "--version")
 	if err != nil {
 		t.Fatalf("--version: %v", err)
 	}
@@ -60,7 +96,7 @@ func TestVersionRunsWithoutAnHmdHome(t *testing.T) {
 
 	// A missing HMD_HOME must not stop the one command you run to check the
 	// install.
-	if _, _, err := run(t, fakeEnv(nil), "version"); err != nil {
+	if _, _, err := run(t, noControlPlane(), "version"); err != nil {
 		t.Errorf("version without HMD_HOME: %v", err)
 	}
 }

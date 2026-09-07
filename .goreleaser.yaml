@@ -1,0 +1,99 @@
+# Release build for nsctl. Modeled on hmd-cli-bartleby's, which publishes
+# through the same channels, with four deliberate divergences -- each noted
+# below, because copying that file verbatim would be wrong in all four places.
+version: 2
+project_name: nsctl
+
+before:
+  hooks:
+    # Not optional, unlike bartleby's single tidy. internal/bundled embeds
+    # services/*.yml and runner/*.tar.gz, neither of which is committed: the
+    # compose file's one source of truth is the Python package, and the runner
+    # sources are packed from the module itself. Without this hook a clean CI
+    # checkout fails at `go build` with a missing-embed error.
+    - make generate
+    - go mod tidy -C src/go/nsctl
+
+builds:
+  - main: .
+    dir: src/go/nsctl
+    binary: nsctl
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      # -s -w, which bartleby does not pass. Measured on this binary: 34.4 MB
+      # stripped against 49.4 MB unstripped, so dropping them would meet
+      # SPEC013's 50 MB target by 0.6 MB instead of 15.
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      # No windows. SPEC013 listed windows/amd64 and its amendment records why
+      # it is gone: nsctl shells out to `docker`, mounts /var/run/docker.sock,
+      # and composes host absolute paths that must resolve identically inside
+      # sibling containers (SPEC010). WSL2 users take linux/amd64.
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  # install.sh verifies the downloaded archive against this file, so its name
+  # is part of that script's contract.
+  name_template: "checksums.txt"
+
+git:
+  # This repository carries two tag spaces on one history: BACON pipeline tags
+  # (0.5.202) and release tags (v0.5.0). GoReleaser must never resolve a
+  # pipeline tag as a release version.
+  ignore_tags:
+    - "[0-9]*"
+
+# A cask, not a formula. bartleby ships `brews:`, which GoReleaser deprecated
+# in favour of homebrew_casks -- `goreleaser check` fails on it. The cost of
+# following the deprecation is that casks are macOS-only, where a formula also
+# served Homebrew on Linux; linux users take install.sh, which is the channel
+# built for them anyway.
+#
+# `brew install neuronsphere/tap/nsctl` is unchanged either way.
+homebrew_casks:
+  - name: nsctl
+    binaries: [nsctl]
+    repository:
+      owner: neuronsphere
+      name: homebrew-tap
+    homepage: https://github.com/HMDLabs/hmd-cli-neuronsphere
+    description: "Run the local NeuronSphere: a control plane and the environment substrate deployments sit on"
+    caveats: |
+      nsctl needs Docker running, and an HMD_HOME. It does not default one --
+      guessing would put its containers, volumes and network under a name no
+      other HMD tool computes -- so export it or pass --home:
+
+        export HMD_HOME=~/hmd
+        nsctl control-plane start
+
+      If you use Colima, make sure it is running:
+        colima start
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nsctl"]
+          end
+
+release:
+  # HMDLabs, not NeuronSphere. bartleby lives in the NeuronSphere org and this
+  # repository does not; only the Homebrew tap above is shared between them.
+  github:
+    owner: HMDLabs
+    name: hmd-cli-neuronsphere
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

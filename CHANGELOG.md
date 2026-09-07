@@ -2,6 +2,56 @@
 
 ## 2026-09-07
 
+- feat: Ship nsctl through Homebrew, an install script and GitHub Releases
+
+  `.goreleaser.yaml` and a tag-triggered `release` workflow build
+  darwin/{amd64,arm64} and linux/{amd64,arm64} -- 34.4 MB to 39.0 MB against
+  SPEC013's 50 MB target -- and push a cask to `neuronsphere/homebrew-tap`, so
+  `brew install neuronsphere/tap/nsctl` works. `install.sh` is the
+  platform-detecting curl-pipe-sh for everyone else; it verifies the download
+  against the release's `checksums.txt` and refuses to install on a mismatch.
+
+  `windows/amd64` is dropped rather than published untested. nsctl shells out
+  to `docker`, mounts `/var/run/docker.sock`, and composes host absolute paths
+  a sibling container must resolve identically; none of that has a Windows
+  equivalent, so the archive would have installed and then failed. WSL2 users
+  take linux/amd64.
+
+  `-s -w` is carried across from the Makefile rather than left to GoReleaser's
+  defaults: it is 15 MB, not tidiness.
+
+- feat: Build the DAG-runner image on demand instead of pulling one
+
+  The compose file defaulted `HMD_NSRUNNER_IMAGE` to
+  `ghcr.io/neuronsphere/hmd-img-nsrunner:stable`, a tag nothing publishes,
+  which is why the runner was off by default. Nothing publishes it now either:
+  `make generate` packs this module's sources into a deterministic tarball,
+  nsctl embeds it, and `control-plane start` unpacks it and builds the image
+  when the runner is enabled and the image is absent. A Homebrew install can
+  therefore enable the runner, which a published tag would not have allowed for
+  a locally-modified runner anyway.
+
+  The image tag carries the sources' digest, so it is rebuilt exactly when they
+  change. `ENTRYPOINT` is split from `CMD`, which leaves serving the default
+  and makes the same image usable as a CLI -- SPEC013's fourth channel.
+
+- feat: Report the ms-deployment version from `nsctl version`
+
+  SPEC013 asked for it and the comment in `version.go` said it was waiting on a
+  client that landed in Phase 3. It reads `info.version` from the service's
+  OpenAPI schema, which hmd-base-service builds from `HMD_REPO_VERSION` -- the
+  same variable nsctl sets when it deploys the Lambda. Its own two-second
+  budget, not the client's ninety: this is the command you run to check an
+  install, so it answers on a machine with no platform at all.
+
+- test: Add the CLI contract suite `make test-cli` was pointing at
+
+  The target invoked `test/nsctl_cli.robot`, which did not exist. It does now:
+  seven cases covering the version lines, help, usage exit codes and the
+  missing-HMD_HOME refusal, none of which need Docker. Also the CI workflow
+  NERD002's Phase 0 claimed had landed -- the repository had no `.github/` at
+  all -- running fmt, vet, tests, the race detector and this suite.
+
 - feat: Schedule DAG nodes on their dependencies instead of one at a time
 
   Every node ms-deployment emits carries `dependencies` -- the instance's real

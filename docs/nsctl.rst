@@ -7,19 +7,98 @@ platform ``hmd neuronsphere`` drives, not a replacement for the ``hmd`` CLI:
 both read and write the same environment registry, address the same
 containers, and can be used against the same ``HMD_HOME``.
 
-It is in development. See :doc:`proposals/NERD002_Go_CLI_Port` for the design
-and for what each phase delivers.
+``nsctl`` is the recommended way to run the local platform, and the only one
+that needs nothing but Docker. It is not a superset of ``hmd neuronsphere``:
+see `What it does not do yet`_ before switching a project over. See
+:doc:`proposals/NERD002_Go_CLI_Port` for the design and for what each phase
+delivers.
 
 Installing
 ----------
+
+**Homebrew** (macOS):
+
+.. code-block:: shell
+
+   brew install neuronsphere/tap/nsctl
+
+**Install script** (macOS and Linux) -- ``darwin`` and ``linux`` on both
+``amd64`` and ``arm64``:
+
+.. code-block:: shell
+
+   curl -fsSL https://raw.githubusercontent.com/HMDLabs/hmd-cli-neuronsphere/main/install.sh | sh
+
+It installs to ``~/.local/bin`` by default; set ``PREFIX`` for anywhere else,
+and ``NSCTL_VERSION`` to pin a version rather than take the latest release. It
+verifies the download against the release's ``checksums.txt`` and refuses to
+install on a mismatch.
+
+**GitHub Releases** -- the same archives, at
+https://github.com/HMDLabs/hmd-cli-neuronsphere/releases, if you would rather
+unpack one yourself.
+
+**From a working tree**, which is what you want while changing ``nsctl``:
 
 .. code-block:: shell
 
    make install          # builds and copies to ~/.local/bin
    make install PREFIX=/usr/local/bin
 
-``make uninstall`` removes it. A published binary and a Homebrew tap are
-planned but not yet available, so a Go toolchain is needed to build it.
+``make uninstall`` removes it.
+
+There is no Windows build. ``nsctl`` drives Docker by shelling out to the CLI,
+mounts ``/var/run/docker.sock``, and composes host absolute paths that sibling
+containers have to resolve identically; none of that has a Windows equivalent.
+Under WSL2 it is an ordinary ``linux/amd64`` binary and the install script
+works unchanged.
+
+Which version you are running
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``nsctl version`` prints two different kinds of version depending on how the
+binary got there, and the difference is informative rather than a bug:
+
+.. code-block:: shell
+
+   $ nsctl version
+   nsctl 0.5
+   hmd-ms-deployment 0.4 (http://localhost/hmd_ms_deployment)
+
+- ``0.5`` -- two components, no patch -- is ``meta-data/VERSION``, the BACON
+  MAJOR.MINOR this repository builds under. Only ``make install`` and
+  ``make build`` produce it.
+- ``0.5.0`` -- three components -- comes from a ``v``-prefixed release tag, and
+  means Homebrew, the install script or a downloaded release.
+
+The repository carries both tag spaces on one history: ``0.5.202``-style tags
+belong to the BACON build pipeline and release nothing, while ``v0.5.0`` is
+what triggers a release. GoReleaser is configured to ignore the former.
+
+The second line appears only when a control plane is answering, and reports
+what *it* is running rather than what ``nsctl`` is -- the two version themselves
+independently. With no platform up, ``version`` prints one line and returns
+immediately.
+
+What it does not do yet
+-----------------------
+
+``nsctl`` and ``hmd neuronsphere`` work against the same ``HMD_HOME``, so
+nothing here is a one-way door -- reach for the Python CLI for any of it and
+carry on:
+
+- **``nsctl env purge`` does not exist.** To delete an environment's containers,
+  volumes and state, use ``hmd neuronsphere down --purge``.
+- **There is no automated parity harness.** SPEC012 proposed a test suite
+  parameterised on the front end under test; it was never built. Parity is
+  checked by performing an operation with one front end and verifying it with
+  the other, which is thorough but manual -- so a command that has not been
+  exercised that way has not been proven equivalent.
+- **Plugin-contributed workloads are invisible until imported.** Anything an
+  installed plugin package contributed to an environment brought up by ``hmd``
+  needs ``nsctl repo import`` once. See `Using it alongside the Python CLI`_.
+- **The DAG runner is off by default**, and turning it on costs a one-time
+  local image build. See `The DAG runner`_.
 
 What it ships
 -------------
@@ -160,14 +239,26 @@ carries on, and ``nsctl env attach`` rejoins it from anywhere. A second
 ``env start`` against an environment already deploying is refused rather than
 allowed to race.
 
-It is off by default, because its image is not published yet. To use it:
+It is off by default. To use it:
 
 .. code-block:: shell
 
-   make image                                        # build hmd-img-nsrunner
-   export HMD_NSRUNNER_IMAGE=hmd-img-nsrunner:0.5
    export HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true
    nsctl control-plane start
+
+Nothing else: no registry login and no ``make image``. The runner image is not
+published anywhere, so ``nsctl`` builds it on the first start that needs it,
+from a copy of its own sources carried inside the binary. That build takes a
+minute or two and is then reused -- the image is tagged with the sources'
+digest, so it is rebuilt exactly when the sources change and not otherwise.
+Paying that cost only when asked is why the runner is opt-in rather than the
+default.
+
+``make image`` does the same build from a working tree, which is what you want
+while changing the runner itself; ``HMD_NSRUNNER_IMAGE`` then names the tag to
+run. That image is also a perfectly good way to run ``nsctl`` in CI --
+``docker run --rm <image> env list`` -- since it is the same binary with the
+Docker CLI already on its PATH.
 
 ``nsctl`` then submits automatically. With no runner answering it executes the
 nodes itself, which is what every existing installation keeps doing -- the

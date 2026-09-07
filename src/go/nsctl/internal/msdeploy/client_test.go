@@ -1,9 +1,12 @@
 package msdeploy
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -146,5 +149,70 @@ func TestFilterKeepsFalsyValues(t *testing.T) {
 				t.Errorf("got %s, want %s", data, tt.want)
 			}
 		})
+	}
+}
+
+func TestServiceVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+		wantOK bool
+	}{
+		{
+			// The literal shape hmd-base-service serves: FastAPI builds
+			// info.version from HMD_REPO_VERSION.
+			name:   "reports info.version",
+			status: http.StatusOK,
+			body:   `{"openapi":"3.1.0","info":{"title":"ms-deployment","version":"0.4"}}`,
+			want:   "0.4",
+			wantOK: true,
+		},
+		{
+			name:   "not found",
+			status: http.StatusNotFound,
+			body:   `{"detail":"Not Found"}`,
+		},
+		{
+			name:   "schema without a version",
+			status: http.StatusOK,
+			body:   `{"openapi":"3.1.0","info":{"title":"ms-deployment"}}`,
+		},
+		{
+			name:   "unparseable body",
+			status: http.StatusOK,
+			body:   `<html>gateway</html>`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var path string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				path = r.URL.Path
+				w.WriteHeader(test.status)
+				fmt.Fprint(w, test.body)
+			}))
+			defer server.Close()
+
+			got, ok := New(server.URL).ServiceVersion(context.Background())
+			if ok != test.wantOK || got != test.want {
+				t.Fatalf("ServiceVersion() = %q, %v; want %q, %v", got, ok, test.want, test.wantOK)
+			}
+			if path != "/openapi.json" {
+				t.Errorf("requested %q, want /openapi.json", path)
+			}
+		})
+	}
+}
+
+func TestServiceVersionUnreachable(t *testing.T) {
+	t.Parallel()
+	// A closed port: no control plane at all, which is the ordinary case for
+	// `nsctl version` on a fresh machine.
+	if got, ok := New("http://127.0.0.1:1").ServiceVersion(context.Background()); ok {
+		t.Fatalf("ServiceVersion() = %q, true; want unreachable", got)
 	}
 }

@@ -1,0 +1,35 @@
+# Tag-triggered release. The same shape as hmd-cli-bartleby's, which publishes
+# to the same Homebrew tap.
+#
+# There is no image job. The DAG-runner image is not published anywhere; nsctl
+# builds it from sources embedded in the binary when the runner is enabled.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go/nsctl/go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with repo scope on neuronsphere/homebrew-tap
+          # so GoReleaser can push the updated formula
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -55,7 +55,8 @@ place rather than rebuilt.`,
 				return err
 			}
 			return controlplane.Start(cmd.Context(), &controlplane.Options{
-				Home: home, Lookup: opts.Lookup, Upgrade: upgrade, Verbose: verbose,
+				Home: home, Lookup: opts.Lookup, Version: opts.Version,
+				Upgrade: upgrade, Verbose: verbose,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			})
 		},

@@ -28,22 +28,31 @@ ROBOT_FLAGS    = --variable BINARY:$(abspath $(BUILD_DIR)/$(BINARY)) \
 SERVICES_SRC := src/python/hmd_cli_neuronsphere/services
 EMBED_DIR    := $(GO_DIR)/internal/bundled/services
 
+# The DAG-runner image is not published; nsctl builds it on demand from this
+# module's own sources, which have to travel inside the binary for a `brew
+# install` to be able to. tools/runnersrc packs them deterministically -- the
+# archive's digest is the image tag, so a tarball that churned would rebuild
+# the image on every start.
+RUNNER_EMBED_DIR := $(GO_DIR)/internal/bundled/runner
+
 # Where `make install` puts the binary. ~/.local/bin is on PATH for a normal
 # macOS or Linux login shell and needs no sudo; override for anywhere else.
 PREFIX    ?= $(HOME)/.local/bin
 
-# The DAG-runner image. Local by default: nothing publishes it yet, and a
-# control plane pointed at an unpublished tag would fail to start.
+# The DAG-runner image built by `make image`. Local, always: the image is not
+# published to any registry, so every tag that names it is one built here.
 NSRUNNER_IMAGE ?= hmd-img-nsrunner:$(VERSION)
 
 .PHONY: all build generate image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
-## generate: stage the bundled compose files into the Go module for go:embed
+## generate: stage the bundled compose files and runner sources for go:embed
 generate:
 	@mkdir -p $(EMBED_DIR)
 	@cp $(SERVICES_SRC)/docker-compose.control-plane.yml $(EMBED_DIR)/
+	@mkdir -p $(RUNNER_EMBED_DIR)
+	@cd $(GO_DIR) && $(GO) run ./tools/runnersrc . >/dev/null
 
 ## build: compile the binary to src/go/nsctl/build/nsctl
 build: generate
@@ -51,6 +60,10 @@ build: generate
 	cd $(GO_DIR) && CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o build/$(BINARY) .
 
 ## image: build the nsrunner container image (the same binary, serving)
+#
+# `nsctl control-plane start` builds this itself from the embedded sources when
+# the runner is enabled and the image is absent. This target is the same build
+# from the working tree, for iterating on the runner without a control plane.
 image: generate
 	cd $(GO_DIR) && docker build --build-arg VERSION=$(VERSION) -t $(NSRUNNER_IMAGE) .
 	@echo "built $(NSRUNNER_IMAGE)"
@@ -104,7 +117,7 @@ tidy:
 
 ## clean: remove build artifacts and staged files
 clean:
-	rm -rf $(BUILD_DIR) $(EMBED_DIR)
+	rm -rf $(BUILD_DIR) $(EMBED_DIR) $(RUNNER_EMBED_DIR)
 
 ## run: build and print help (quick smoke test)
 run: build

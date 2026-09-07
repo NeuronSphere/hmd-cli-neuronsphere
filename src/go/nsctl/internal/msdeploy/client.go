@@ -236,3 +236,44 @@ func (c *Client) Reachable(ctx context.Context) bool {
 	// the root still confirms the chain is wired.
 	return resp.StatusCode < 500
 }
+
+// serviceVersionTimeout bounds the OpenAPI fetch. Short, and its own budget
+// rather than the client's 90 s: the only caller is `nsctl version`, the
+// command you run to check an install, which must answer even when the control
+// plane is half up.
+const serviceVersionTimeout = 2 * time.Second
+
+// ServiceVersion is the version the service reports for itself, and whether it
+// answered at all.
+//
+// It comes from the OpenAPI schema's info.version, which hmd-base-service
+// builds from HMD_REPO_VERSION -- the same variable nsctl sets when it deploys
+// the Lambda (floci.ServiceEnv). There is no dedicated version route to ask
+// instead: hmd-ms-base registers only /api/... and /apiop/..., which is why
+// Reachable above settles for a 404 from the root.
+func (c *Client) ServiceVersion(ctx context.Context) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, serviceVersionTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/openapi.json", nil)
+	if err != nil {
+		return "", false
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return "", false
+	}
+	var doc struct {
+		Info struct {
+			Version string `json:"version"`
+		} `json:"info"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&doc); err != nil {
+		return "", false
+	}
+	return doc.Info.Version, doc.Info.Version != ""
+}

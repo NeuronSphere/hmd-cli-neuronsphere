@@ -88,7 +88,7 @@ with it.`,
 			// `env start` starts the control plane implicitly if it is down,
 			// and then leaves it running.
 			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
-				Home: home, Lookup: opts.Lookup, Verbose: verbose,
+				Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: verbose,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}); err != nil {
 				return err

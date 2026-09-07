@@ -1,0 +1,38 @@
+# What NERD002's Phase 0 entry claimed had landed. `make check` existed and was
+# commented "the CI target"; nothing ran it. This does.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go/nsctl/go.mod
+
+      # gofmt, vet and the unit tests. `generate` runs first as a dependency of
+      # every one of these targets: the embedded compose file and runner
+      # sources are not committed.
+      - run: make check
+
+      - run: make test-race
+
+      - run: make build
+
+      # The contract suite: what nsctl must do on a machine with no Docker, no
+      # control plane and no HMD_HOME. Robot Framework is not a Go dependency,
+      # so it is installed here rather than assumed.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install robotframework
+
+      - run: make test-cli

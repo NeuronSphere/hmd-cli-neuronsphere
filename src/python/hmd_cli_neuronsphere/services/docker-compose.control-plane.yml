@@ -229,7 +229,11 @@ services:
   nsrunner:
     container_name: hmd_nsrunner
     profiles: ["nsrunner"]
-    image: ${HMD_NSRUNNER_IMAGE:-ghcr.io/neuronsphere/hmd-img-nsrunner:stable}
+    # No registry: this image is not published anywhere. nsctl always sets
+    # HMD_NSRUNNER_IMAGE explicitly (controlplane.RunnerImageRef), building the
+    # image from sources embedded in the binary if it is absent; this default
+    # only applies when compose is driven by hand after `make image`.
+    image: ${HMD_NSRUNNER_IMAGE:-hmd-img-nsrunner:latest}
     restart: unless-stopped
     # No host port. Only the proxy publishes; nsctl reaches this at
     # http://localhost/nsrunner/ through an hmd_proxy passthrough location.

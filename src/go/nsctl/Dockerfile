@@ -1,5 +1,11 @@
 # The DAG-runner service image.
 #
+# Nothing publishes this. `nsctl control-plane start` builds it from sources
+# carried inside the binary (internal/bundled, tools/runnersrc) when the runner
+# is enabled and the image is absent, so it is reachable from a Homebrew
+# install and not only from a working tree. `make image` does the same build
+# from the tree.
+#
 # It is the nsctl binary with a different entrypoint, not a second program.
 # Node execution lives in internal/runner, and Go scopes internal/ per module,
 # so a separate module could not import it -- one binary that can also serve
@@ -26,4 +32,8 @@ RUN go build -ldflags "-X main.version=${VERSION} -s -w" -o /nsctl .
 FROM docker:cli
 COPY --from=build /nsctl /nsctl
 EXPOSE 8080
-ENTRYPOINT ["/nsctl", "runner", "serve", "--addr", ":8080"]
+# Split so the same image is also the CI image SPEC013 asks for: run with no
+# arguments and it serves, `docker run <image> env list` and it is the CLI.
+# The compose service sets no `command:`, so serving stays the default.
+ENTRYPOINT ["/nsctl"]
+CMD ["runner", "serve", "--addr", ":8080"]
