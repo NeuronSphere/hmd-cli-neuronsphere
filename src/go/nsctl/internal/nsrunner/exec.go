@@ -102,6 +102,7 @@ func (s *Server) execute(ctx context.Context, rec *record, run *runner.Runner, n
 
 		c := <-done
 		inflight--
+		sched.finish(c.index)
 		node := nodes[c.index]
 		if c.result.Failed {
 			s.setNode(rec, c.index, NodeFailed, failureMessage(c.result))
@@ -201,6 +202,15 @@ type schedule struct {
 	unmet      []int   // how many dependencies each node is still waiting on
 	successors [][]int // node -> the nodes waiting on it
 	ready      []int
+	// repoClass per node, and the classes currently deploying. Two instances of
+	// one repo class must not deploy at once: they share a working tree, and so
+	// share its cdktf.out. Six hmd-inf-s3bucket instances dispatched three at a
+	// time is how that was found -- one node's rmtree("cdktf.out") deleted the
+	// provider directory another was walking, and the deploy died with
+	// `FileNotFoundError: 'linux_arm64'`. The dependency graph does not model
+	// this, because it is not a dependency: it is a shared resource.
+	repoClass []string
+	busy      map[string]bool
 }
 
 func newSchedule(nodes []msdeploy.DeploymentNode) *schedule {
@@ -208,7 +218,15 @@ func newSchedule(nodes []msdeploy.DeploymentNode) *schedule {
 	for i, n := range nodes {
 		index[n.InstanceName] = i
 	}
-	s := &schedule{unmet: make([]int, len(nodes)), successors: make([][]int, len(nodes))}
+	s := &schedule{
+		unmet:      make([]int, len(nodes)),
+		successors: make([][]int, len(nodes)),
+		repoClass:  make([]string, len(nodes)),
+		busy:       map[string]bool{},
+	}
+	for i, n := range nodes {
+		s.repoClass[i] = n.RepoClassName
+	}
 	for i, n := range nodes {
 		seen := make(map[int]bool, len(n.Dependencies))
 		for _, dep := range n.Dependencies {
@@ -234,15 +252,35 @@ func newSchedule(nodes []msdeploy.DeploymentNode) *schedule {
 	return s
 }
 
-// take removes the next runnable node. Ready nodes are taken in payload order,
-// so a run is as close to reproducible as a concurrent one can be.
+// take removes the next runnable node whose repo class is not already
+// deploying. Ready nodes are considered in payload order, so a run is as close
+// to reproducible as a concurrent one can be.
+//
+// Skipping over a node rather than stopping at it matters: with six
+// hmd-inf-s3bucket instances ready, stopping would idle every worker behind the
+// first one, and the whole point is that unrelated repos still overlap.
 func (s *schedule) take() (int, bool) {
-	if len(s.ready) == 0 {
-		return 0, false
+	for at, i := range s.ready {
+		if class := s.repoClass[i]; class != "" && s.busy[class] {
+			continue
+		}
+		s.ready = append(s.ready[:at:at], s.ready[at+1:]...)
+		if class := s.repoClass[i]; class != "" {
+			s.busy[class] = true
+		}
+		return i, true
 	}
-	i := s.ready[0]
-	s.ready = s.ready[1:]
-	return i, true
+	return 0, false
+}
+
+// finish records that a node is no longer running, whether it succeeded or
+// failed. Separate from release, which only advances the dependency graph: a
+// failed node frees its repo class just the same, and an in-flight sibling
+// still has to be able to start.
+func (s *schedule) finish(i int) {
+	if class := s.repoClass[i]; class != "" {
+		delete(s.busy, class)
+	}
 }
 
 // release decrements the nodes waiting on i, queueing those that just became

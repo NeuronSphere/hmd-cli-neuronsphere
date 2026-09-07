@@ -44,7 +44,15 @@ func testHome(t *testing.T) (home string, lookup func(string) string) {
 	t.Helper()
 	home = t.TempDir()
 	repoHome := filepath.Join(home, "repos")
-	mkdir(t, filepath.Join(repoHome, "hmd-inf-thing"))
+	// Several classes, not one: two nodes of the same repo class no longer
+	// deploy at once (they share this working tree), so a test that needs two
+	// nodes to overlap has to give them different classes.
+	for _, class := range []string{
+		"hmd-inf-thing", "hmd-inf-left", "hmd-inf-right",
+		"hmd-inf-doomed", "hmd-inf-sibling",
+	} {
+		mkdir(t, filepath.Join(repoHome, class))
+	}
 
 	reg := map[string]any{
 		"version":     1,

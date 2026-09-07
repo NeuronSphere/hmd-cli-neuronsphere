@@ -2,6 +2,22 @@
 
 ## 2026-09-07
 
+- fix: Never deploy two instances of one repo class at once
+
+  They share a working tree, and so share its `cdktf.out`. Three
+  hmd-inf-s3bucket nodes dispatched together and one node's
+  `rmtree("cdktf.out")` deleted the provider directory another was walking:
+
+      FileNotFoundError: [Errno 2] No such file or directory: 'linux_arm64'
+
+  A manifest with six hmd-inf-s3bucket instances and four hmd-database-account
+  ones hits this every run. The dependency graph cannot express it, because it
+  is not a dependency -- it is a shared resource -- so the scheduler tracks
+  which classes are deploying and skips over a ready node whose class is busy.
+  Skips rather than stops: with six buckets ready, stopping would idle every
+  worker behind the first, and unrelated repos still overlapping is the whole
+  point of SPEC011. A failed node frees its class the same as a successful one.
+
 - feat: Apply the substrate and the manifest as two changesets, with core resources between
 
   A dependency carrying a `tag_selector` is matched against concrete Resources,

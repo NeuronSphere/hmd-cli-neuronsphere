@@ -158,8 +158,8 @@ func TestADiamondRespectsItsEdgesAndRunsTheMiddleConcurrently(t *testing.T) {
 
 	wf, err := s.Submit(submission(
 		node("top", "hmd-inf-thing"),
-		node("left", "hmd-inf-thing", "top"),
-		node("right", "hmd-inf-thing", "top"),
+		node("left", "hmd-inf-left", "top"),
+		node("right", "hmd-inf-right", "top"),
 		node("bottom", "hmd-inf-thing", "left", "right"),
 	))
 	if err != nil {
@@ -218,8 +218,8 @@ func TestAFailureStopsUnstartedNodesAndLetsInFlightOnesFinish(t *testing.T) {
 	s := testServer(t, d)
 
 	wf, err := s.Submit(submission(
-		node("doomed", "hmd-inf-thing"),
-		node("sibling", "hmd-inf-thing"),
+		node("doomed", "hmd-inf-doomed"),
+		node("sibling", "hmd-inf-sibling"),
 		node("downstream", "hmd-inf-thing", "doomed"),
 	))
 	if err != nil {
@@ -371,8 +371,8 @@ func TestParallelOutputIsAttributedAndSequentialOutputIsNot(t *testing.T) {
 	s := testServer(t, d)
 
 	wf, err := s.Submit(submission(
-		node("left", "hmd-inf-thing"),
-		node("right", "hmd-inf-thing"),
+		node("left", "hmd-inf-left"),
+		node("right", "hmd-inf-right"),
 	))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
@@ -400,6 +400,94 @@ func nodesByName(wf Workflow) map[string]NodeStatus {
 	out := make(map[string]NodeStatus, len(wf.Nodes))
 	for _, n := range wf.Nodes {
 		out[n.InstanceName] = n
+	}
+	return out
+}
+
+// Two instances of one repo class share a working tree, and so share its
+// cdktf.out. Deploying them at once is what produced
+//
+//	FileNotFoundError: [Errno 2] No such file or directory: 'linux_arm64'
+//
+// on a manifest with six hmd-inf-s3bucket instances: one node's
+// rmtree("cdktf.out") deleted the provider directory another was walking. The
+// dependency graph does not express this -- it is a shared resource, not an
+// edge -- so the scheduler has to.
+func TestNodesOfOneRepoClassNeverOverlap(t *testing.T) {
+	t.Parallel()
+	d := newDagDocker()
+	s := testServer(t, d)
+
+	wf, err := s.Submit(submission(
+		node("bucket-a", "hmd-inf-thing"),
+		node("bucket-b", "hmd-inf-thing"),
+		node("bucket-c", "hmd-inf-thing"),
+	))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	got := waitTerminal(t, s, wf.Name)
+	if got.Phase != PhaseSucceeded {
+		t.Fatalf("phase = %q, want Succeeded (%s)", got.Phase, got.Message)
+	}
+	for _, name := range []string{"bucket-a", "bucket-b", "bucket-c"} {
+		if with := d.alongside(name); len(with) > 0 {
+			t.Errorf("%s ran alongside %v; nodes of one repo class must not overlap", name, keysOf(with))
+		}
+	}
+}
+
+// The serialisation is per class, not global: unrelated repos still overlap, or
+// the fix would have cost the whole of SPEC011.
+func TestADifferentRepoClassStillOverlaps(t *testing.T) {
+	t.Parallel()
+	// The gate only opens if both are inside Run at once, so this fails outright
+	// if they were serialised.
+	d := newDagDocker("left", "right")
+	s := testServer(t, d)
+
+	wf, err := s.Submit(submission(
+		node("left", "hmd-inf-left"),
+		node("right", "hmd-inf-right"),
+	))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if got := waitTerminal(t, s, wf.Name); got.Phase != PhaseSucceeded {
+		t.Fatalf("phase = %q, want Succeeded (%s) -- different classes did not overlap", got.Phase, got.Message)
+	}
+}
+
+// A node that fails still frees its repo class, or one failure would strand
+// every sibling behind it while dispatch drained.
+func TestAFailedNodeFreesItsRepoClass(t *testing.T) {
+	t.Parallel()
+	d := newDagDocker()
+	d.fail["bucket-a"] = true
+	s := testServer(t, d)
+
+	wf, err := s.Submit(submission(
+		node("bucket-a", "hmd-inf-thing"),
+		node("bucket-b", "hmd-inf-thing", "bucket-a"),
+	))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	got := waitTerminal(t, s, wf.Name)
+	if got.Phase != PhaseFailed {
+		t.Fatalf("phase = %q, want Failed", got.Phase)
+	}
+	// bucket-b is gated on the failure, not on the class, so it must not have
+	// run -- but the run has to end rather than hang.
+	if d.ran("bucket-b") {
+		t.Error("bucket-b ran even though its dependency failed")
+	}
+}
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
 	return out
 }
