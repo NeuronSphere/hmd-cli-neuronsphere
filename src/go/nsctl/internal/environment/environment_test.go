@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -115,18 +116,75 @@ func TestIngressEnabled(t *testing.T) {
 	}
 }
 
-// An empty expected image means "do not judge staleness". Guessing a default
-// here would condemn a healthy cluster whose pin lives in the compose file's
-// FLOCI_SERVICES_EKS_DEFAULT_IMAGE.
-func TestExpectedK3sImageDefaultsToNoJudgement(t *testing.T) {
+// fakeEnvReader stands in for the running Floci container's environment.
+type fakeEnvReader map[string]string
+
+func (f fakeEnvReader) ContainerEnv(context.Context, string) map[string]string { return f }
+
+// The pin that decides staleness is the one Floci was actually started with.
+// Reading it back beats reconstructing it, and a Floci that cannot be read
+// still means "do not judge staleness" rather than a guess.
+func TestExpectedK3sImageReadsFlociRatherThanGuessing(t *testing.T) {
 	t.Parallel()
 
-	if got := expectedK3sImage(testOptions("", nil)); got != "" {
+	ctx := context.Background()
+
+	if got := expectedK3sImage(ctx, testOptions("", nil), fakeEnvReader(nil)); got != "" {
 		t.Errorf("expectedK3sImage = %q, want empty so staleness is not guessed at", got)
 	}
+
+	floci := fakeEnvReader{"FLOCI_SERVICES_EKS_DEFAULT_IMAGE": "ghcr.io/example/hmd-img-k3s-floci:0.3"}
+	if got := expectedK3sImage(ctx, testOptions("", nil), floci); got != "ghcr.io/example/hmd-img-k3s-floci:0.3" {
+		t.Errorf("expectedK3sImage = %q, want the pin Floci was started with", got)
+	}
+
 	opts := testOptions("", map[string]string{"HMD_LOCAL_K3S_WRAPPER_IMAGE": "my/image:1"})
-	if got := expectedK3sImage(opts); got != "my/image:1" {
-		t.Errorf("expectedK3sImage = %q, want the override", got)
+	if got := expectedK3sImage(ctx, opts, floci); got != "my/image:1" {
+		t.Errorf("expectedK3sImage = %q, want the override to win", got)
+	}
+}
+
+// A dead cluster must not be advertised on a port nothing listens on: that is
+// exactly how a k3s container that exited eleven seconds in came to be reported
+// as a successful start.
+func TestReadySummaryOmitsTheK3sPortWhenTheClusterIsDead(t *testing.T) {
+	t.Parallel()
+
+	env := &registry.Environment{Slug: "local", PortSlot: 8}
+
+	healthy := strings.Join(readySummary(env, nil), "\n")
+	if !strings.Contains(healthy, "Ready.") {
+		t.Errorf("a healthy summary should lead with Ready., got:\n%s", healthy)
+	}
+	for _, want := range []string{"services", "trino", "k3s"} {
+		if !strings.Contains(healthy, want) {
+			t.Errorf("a healthy summary should list %s, got:\n%s", want, healthy)
+		}
+	}
+
+	dead := strings.Join(readySummary(env, errors.New("it exited")), "\n")
+	if strings.Contains(dead, "k3s        localhost:") {
+		t.Errorf("a dead cluster must not advertise its port, got:\n%s", dead)
+	}
+	if strings.Contains(dead, "Ready.") {
+		t.Errorf("a dead cluster must not report Ready., got:\n%s", dead)
+	}
+	if !strings.Contains(dead, "not running") {
+		t.Errorf("a dead cluster should say so, got:\n%s", dead)
+	}
+	// The rest of the platform is still up and still worth naming.
+	if !strings.Contains(dead, "services") || !strings.Contains(dead, "trino") {
+		t.Errorf("a dead cluster should still list what does work, got:\n%s", dead)
+	}
+}
+
+// The exit code is the half of "fail loudly" a message cannot carry.
+func TestADeadClusterExitsFail(t *testing.T) {
+	t.Parallel()
+
+	err := nserr.Wrap(nserr.Fail, errors.New("the k3s container is not running"))
+	if got := nserr.CodeOf(err); got != nserr.Fail {
+		t.Errorf("CodeOf = %v, want %v", got, nserr.Fail)
 	}
 }
 

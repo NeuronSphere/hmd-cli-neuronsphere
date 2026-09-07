@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -334,4 +335,168 @@ func (d *Docker) ContainerEnv(ctx context.Context, name string) map[string]strin
 		}
 	}
 	return env
+}
+
+// DefaultBridgeNetwork is Docker's built-in bridge, the one every container
+// lands on when none is named at create time.
+const DefaultBridgeNetwork = "bridge"
+
+// State is a container's runtime state as `docker inspect` reports it.
+type State struct {
+	Running    bool   `json:"Running"`
+	Status     string `json:"Status"`
+	ExitCode   int    `json:"ExitCode"`
+	Error      string `json:"Error"`
+	OOMKilled  bool   `json:"OOMKilled"`
+	StartedAt  string `json:"StartedAt"`
+	FinishedAt string `json:"FinishedAt"`
+}
+
+// InspectState reads a container's State.
+//
+// The second return distinguishes "could not ask" from "answered", and callers
+// must honour it. It is the same doctrine as ImageOf's empty result: a docker
+// hiccup read as "the cluster died" would fail a start that was fine.
+func (d *Docker) InspectState(ctx context.Context, name string) (State, bool) {
+	if name == "" {
+		return State{}, false
+	}
+	out, err := d.capture(ctx, "inspect", "-f", "{{json .State}}", name)
+	if err != nil {
+		return State{}, false
+	}
+	return parseState(out)
+}
+
+// parseState decodes `docker inspect -f '{{json .State}}'`. Split out so the
+// malformed case is testable without a daemon.
+func parseState(out string) (State, bool) {
+	var s State
+	if err := json.Unmarshal([]byte(out), &s); err != nil {
+		return State{}, false
+	}
+	if s.Status == "" {
+		return State{}, false
+	}
+	return s, true
+}
+
+// ContainerNetworks lists the networks a container is attached to.
+func (d *Docker) ContainerNetworks(ctx context.Context, name string) []string {
+	if name == "" {
+		return nil
+	}
+	out, err := d.capture(ctx, "inspect", "-f",
+		"{{range $net, $_ := .NetworkSettings.Networks}}{{println $net}}{{end}}", name)
+	if err != nil {
+		return nil
+	}
+	var nets []string
+	for _, line := range strings.Split(out, "\n") {
+		if n := strings.TrimSpace(line); n != "" {
+			nets = append(nets, n)
+		}
+	}
+	return nets
+}
+
+// DetachFromDefaultBridge disconnects a container from Docker's default bridge,
+// leaving keep as its attachment.
+//
+// Floci's EKS spawner attaches the k3s container to `bridge` in addition to the
+// network FLOCI_SERVICES_EKS_DOCKER_NETWORK names -- every other container it
+// spawns (RDS, Neptune, Lambda) gets the configured network alone. k3s then
+// takes eth0, the default bridge, for its node IP, and the default bridge hands
+// out addresses by start order. So the node IP churns between runs while the
+// datastore in /var/lib/rancher/k3s keeps the previous one, and whatever reads
+// the stored address finds no interface holding it.
+//
+// Idempotent in the way EnsureNetworkAlias is: a container that is not on the
+// bridge is left completely alone, so a restart does not churn networking. A
+// container whose *only* network is the bridge is refused rather than stranded
+// -- disconnecting it would leave it unreachable, and that shape means keep is
+// not the network the caller believes it is.
+func (d *Docker) DetachFromDefaultBridge(ctx context.Context, name, keep string) (bool, error) {
+	if name == "" || keep == "" {
+		return false, nil
+	}
+	var onBridge, onKeep bool
+	for _, n := range d.ContainerNetworks(ctx, name) {
+		switch n {
+		case DefaultBridgeNetwork:
+			onBridge = true
+		case keep:
+			onKeep = true
+		}
+	}
+	if !onBridge {
+		return false, nil
+	}
+	if !onKeep {
+		return false, fmt.Errorf("%s is attached only to Docker's default bridge, not to %s; "+
+			"leaving it alone rather than disconnecting its only network", name, keep)
+	}
+	if _, err := d.capture(ctx, "network", "disconnect", DefaultBridgeNetwork, name); err != nil {
+		// Losing the race with another disconnect is the outcome we wanted.
+		if strings.Contains(err.Error(), "is not connected to network") {
+			return false, nil
+		}
+		return false, fmt.Errorf("disconnecting %s from Docker's default bridge: %w", name, err)
+	}
+	return true, nil
+}
+
+// Stop stops a running container.
+func (d *Docker) Stop(ctx context.Context, name string) error {
+	_, err := d.capture(ctx, "stop", name)
+	return err
+}
+
+// Logs is the tail of a container's output, best effort.
+//
+// Combined, because a crash-loop's cause lands on whichever stream the process
+// chose and the caller only wants to quote it back. An unreadable log is "",
+// never an error: it is diagnosis, and failing to gather it must not change
+// what the caller decides.
+func (d *Docker) Logs(ctx context.Context, name string, lines int) string {
+	if name == "" || lines <= 0 {
+		return ""
+	}
+	stdout, stderr, err := d.Run(ctx, "logs", "--tail", strconv.Itoa(lines), name)
+	if err != nil && len(stdout) == 0 && len(stderr) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSpace(string(stdout)) + "\n" + strings.TrimSpace(string(stderr)))
+}
+
+// RemoveContainer force-removes a container. One that is not there is not an
+// error: the caller wanted it gone.
+func (d *Docker) RemoveContainer(ctx context.Context, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, err := d.capture(ctx, "rm", "-f", name); err != nil {
+		if strings.Contains(err.Error(), "No such container") {
+			return nil
+		}
+		return fmt.Errorf("removing the container %s: %w", name, err)
+	}
+	return nil
+}
+
+// RemoveVolumes force-removes volumes, skipping any that are not there.
+func (d *Docker) RemoveVolumes(ctx context.Context, names ...string) error {
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, err := d.capture(ctx, "volume", "rm", "-f", name); err != nil {
+			if strings.Contains(err.Error(), "no such volume") ||
+				strings.Contains(err.Error(), "No such volume") {
+				continue
+			}
+			return fmt.Errorf("removing the volume %s: %w", name, err)
+		}
+	}
+	return nil
 }

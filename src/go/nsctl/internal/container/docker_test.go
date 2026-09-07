@@ -88,3 +88,53 @@ func TestContainerIPRejectsDockersInvalidIPPlaceholder(t *testing.T) {
 		})
 	}
 }
+
+// A state docker could not answer for must be distinguishable from one it
+// answered "dead" to. Reading the first as the second fails a start that was
+// fine, which is the same doctrine ImageOf's empty result follows.
+func TestParseStateSeparatesUnreadableFromDead(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		out      string
+		wantOK   bool
+		running  bool
+		status   string
+		exitCode int
+	}{
+		{
+			name:     "the k3s container after kube-router killed it",
+			out:      `{"Status":"exited","Running":false,"ExitCode":1,"OOMKilled":false,"Error":""}`,
+			wantOK:   true,
+			status:   "exited",
+			exitCode: 1,
+		},
+		{
+			name:    "a healthy container",
+			out:     `{"Status":"running","Running":true,"ExitCode":0}`,
+			wantOK:  true,
+			running: true,
+			status:  "running",
+		},
+		{"docker said nothing", "", false, false, "", 0},
+		{"docker said something unparseable", "not json", false, false, "", 0},
+		{"valid json with no status is not an answer", `{}`, false, false, "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := parseState(tt.out)
+			if ok != tt.wantOK {
+				t.Fatalf("parseState(%q) ok = %v, want %v", tt.out, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if got.Running != tt.running || got.Status != tt.status || got.ExitCode != tt.exitCode {
+				t.Errorf("parseState(%q) = %+v, want running=%v status=%q exit=%d",
+					tt.out, got, tt.running, tt.status, tt.exitCode)
+			}
+		})
+	}
+}

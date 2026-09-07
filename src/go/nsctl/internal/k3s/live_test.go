@@ -131,3 +131,46 @@ func TestLiveReadClusterState(t *testing.T) {
 	}
 	t.Logf("incarnation=%s releases=%d", state.IncarnationID, len(state.HelmReleases))
 }
+
+// The k3s container must be on the NeuronSphere network and nothing else.
+//
+// Floci's EKS spawner attaches it to Docker's default bridge as well -- every
+// other container it spawns (RDS, Neptune, Lambda) gets the configured network
+// alone. k3s then takes eth0, the bridge, for its node IP, and the bridge hands
+// out addresses by start order: the address churns between runs while the
+// datastore in /var/lib/rancher/k3s keeps the previous one. That is what killed
+// the cluster eleven seconds into a warm start, and one inspect catches it.
+func TestLiveK3sContainerIsOnlyOnTheNeuronSphereNetwork(t *testing.T) {
+	o, ctx := liveKube(t)
+
+	d := container.New()
+	d.Timeout = 30 * time.Second
+	nets := d.ContainerNetworks(ctx, o.Env.K3sContainer)
+	if len(nets) == 0 {
+		t.Fatalf("no networks for %s; is it there?", o.Env.K3sContainer)
+	}
+	for _, n := range nets {
+		if n == container.DefaultBridgeNetwork {
+			t.Errorf("%s is still on Docker's default bridge (networks: %v); "+
+				"its node IP will churn on the next restart", o.Env.K3sContainer, nets)
+		}
+	}
+	t.Logf("networks: %v", nets)
+}
+
+// A live run must fail on a dead cluster rather than skip past it: the whole
+// bug was that a container which had exited still read as a successful start.
+func TestLiveK3sContainerIsRunning(t *testing.T) {
+	o, ctx := liveKube(t)
+
+	d := container.New()
+	d.Timeout = 30 * time.Second
+	state, ok := d.InspectState(ctx, o.Env.K3sContainer)
+	if !ok {
+		t.Fatalf("could not read the state of %s", o.Env.K3sContainer)
+	}
+	if !state.Running {
+		t.Fatalf("%s is %s (exit code %d); see `docker logs --tail 50 %s`",
+			o.Env.K3sContainer, state.Status, state.ExitCode, o.Env.K3sContainer)
+	}
+}

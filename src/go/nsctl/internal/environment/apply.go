@@ -148,7 +148,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		// is known, so everything is deployed rather than silently skipped.
 		opts.warn("could not read the deployment graph, so nothing is assumed about what is deployed: %v", err)
 	} else {
-		plan = reconcile.Compute(entries, status, reconcile.LoadSnapshot(env.StateDir), nil)
+		plan = reconcile.Compute(entries, status, reconcile.LoadSnapshot(env.StateDir), opts.redeployInstances)
 		opts.step("Plan: %s", plan.Summary())
 		for _, name := range plan.Remove {
 			// Reported, never acted on. Removing a line from a manifest is not

@@ -164,6 +164,106 @@ func TestIngressHostsOnAnUnreadableCluster(t *testing.T) {
 	}
 }
 
+// The shapes the cloud charts actually ship: trino spells its class in the
+// legacy annotation and its path in ALB syntax, airflow uses the modern class
+// field and a path Traefik already matches.
+const albIngressList = `{"items":[
+  {"metadata":{"name":"alb-ingress","namespace":"trino-local","annotations":{"kubernetes.io/ingress.class":"alb"}},
+   "spec":{"rules":[{"host":"trino.local.neuronsphere.io","http":{"paths":[{"path":"/*"}]}}]}},
+  {"metadata":{"name":"airflow-local-web","namespace":"airflow-local"},
+   "spec":{"ingressClassName":"alb","rules":[{"host":"airflow.local.neuronsphere.io","http":{"paths":[{"path":""}]}}]}},
+  {"metadata":{"name":"other","namespace":"elsewhere","annotations":{"kubernetes.io/ingress.class":"nginx"}},
+   "spec":{"rules":[{"host":"other.example.com","http":{"paths":[{"path":"/*"}]}}]}}
+]}`
+
+// A UI that is up, routed and reachable on its NodePort still 404s through its
+// own hostname while Traefik reads `/*` literally.
+func TestALBWildcardPathsAreRewritten(t *testing.T) {
+	t.Parallel()
+
+	var list struct {
+		Items []ingress `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(albIngressList), &list); err != nil {
+		t.Fatal(err)
+	}
+	patches := albPathPatches(list.Items, "alb")
+
+	if len(patches) != 1 {
+		t.Fatalf("got %+v, want only trino's wildcard rewritten", patches)
+	}
+	want := ingressPathPatch{Namespace: "trino-local", Name: "alb-ingress", NewPath: "/"}
+	if patches[0] != want {
+		t.Errorf("patch = %+v, want %+v", patches[0], want)
+	}
+}
+
+func TestTraefikPathTranslatesALBPatterns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in      string
+		want    string
+		rewrite bool
+	}{
+		{"/*", "/", true},
+		{"/api/*", "/api", true},
+		{"*", "/", true},
+		// Already matchable, so left exactly as the chart wrote it.
+		{"", "", false},
+		{"/", "/", false},
+		{"/api", "/api", false},
+	}
+	for _, tt := range tests {
+		got, rewrite := traefikPath(tt.in)
+		if got != tt.want || rewrite != tt.rewrite {
+			t.Errorf("traefikPath(%q) = %q, %v; want %q, %v", tt.in, got, rewrite, tt.want, tt.rewrite)
+		}
+	}
+}
+
+func TestNormalizeIngressPathsPatchesTheCluster(t *testing.T) {
+	t.Parallel()
+
+	exec := &recordExec{stdout: albIngressList}
+	o := testOperators(exec, &fakeDocker{})
+
+	changed := o.NormalizeIngressPaths(context.Background())
+
+	if len(changed) != 1 || changed[0] != "trino-local/alb-ingress" {
+		t.Fatalf("changed = %v, want trino-local/alb-ingress", changed)
+	}
+	script := exec.seen[ScriptName]
+	for _, want := range []string{
+		"kubectl patch ingress -n trino-local alb-ingress",
+		`"path":"/spec/rules/0/http/paths/0/path","value":"/"`,
+		`"path":"/spec/rules/0/http/paths/0/pathType","value":"Prefix"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("the patch script is missing %q:\n%s", want, script)
+		}
+	}
+}
+
+// Nothing to rewrite must cost no exec: the common case is a cluster whose
+// paths are already matchable.
+func TestNormalizeIngressPathsSkipsAnUnaffectedCluster(t *testing.T) {
+	t.Parallel()
+
+	exec := &recordExec{stdout: `{"items":[
+	  {"metadata":{"name":"airflow-local-web","namespace":"airflow-local"},
+	   "spec":{"ingressClassName":"alb","rules":[{"host":"airflow.local.neuronsphere.io","http":{"paths":[{"path":"/"}]}}]}}
+	]}`}
+	o := testOperators(exec, &fakeDocker{})
+
+	if changed := o.NormalizeIngressPaths(context.Background()); changed != nil {
+		t.Errorf("changed = %v, want none", changed)
+	}
+	if strings.Contains(exec.seen[ScriptName], "kubectl patch") {
+		t.Error("a patch was issued against a cluster with nothing to rewrite")
+	}
+}
+
 func TestNodePortAddress(t *testing.T) {
 	t.Parallel()
 

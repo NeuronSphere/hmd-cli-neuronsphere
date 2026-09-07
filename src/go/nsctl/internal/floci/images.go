@@ -15,7 +15,26 @@ import (
 const (
 	rdsImageEnv     = "FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE"
 	neptuneImageEnv = "FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE"
+	eksImageEnv     = "FLOCI_SERVICES_EKS_DEFAULT_IMAGE"
 )
+
+// ContainerEnvReader reads the environment a container was created with.
+type ContainerEnvReader interface {
+	ContainerEnv(ctx context.Context, name string) map[string]string
+}
+
+// K3sWrapperImage is the image Floci is configured to spawn k3s clusters from,
+// or "" when it cannot be read.
+//
+// Read off the running Floci container rather than reconstructed from the
+// process environment. The pin lives in the compose file, behind two nested
+// defaults, and a reconstruction that disagrees with what Floci actually got
+// declares a healthy cluster stale and destroys it -- a scar the Python's
+// configured_k3s_wrapper_image carries. What Floci was started with is the only
+// answer that decides anything, so ask Floci.
+func K3sWrapperImage(ctx context.Context, d ContainerEnvReader) string {
+	return d.ContainerEnv(ctx, ContainerName)[eksImageEnv]
+}
 
 // ImageChecker reports whether an image reference can be resolved.
 type ImageChecker interface {

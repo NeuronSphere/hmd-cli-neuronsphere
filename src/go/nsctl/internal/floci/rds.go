@@ -173,8 +173,8 @@ type RDSInstances interface {
 // whatever state it is in. But Floci can leave a record behind whose backing
 // container it failed to recreate -- state `failed`, no container -- and no
 // number of re-applies fixes that, because from Terraform's point of view
-// nothing is wrong. reconcile_k3s_container exists for exactly this reason on
-// the cluster side; this is the same repair for the database.
+// nothing is wrong. ReconcileK3sCluster is the same repair on the cluster side;
+// this is the database's.
 //
 // Only a `failed` instance with no container is touched. An `available` one is
 // left alone even if its container is missing: that is a transient state Floci

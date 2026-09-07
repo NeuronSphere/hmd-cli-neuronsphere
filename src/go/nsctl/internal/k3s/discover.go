@@ -154,28 +154,57 @@ const listIngressScript = `set -eu
 kubectl get ingress -A -o json
 `
 
-// IngressHosts is every Ingress hostname declared in this environment's
-// cluster.
-func (o *Operators) IngressHosts(ctx context.Context) []string {
+// ingress is the part of an Ingress the local ALB emulation reads.
+type ingress struct {
+	Metadata struct {
+		Name        string            `json:"name"`
+		Namespace   string            `json:"namespace"`
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
+	Spec struct {
+		IngressClassName string `json:"ingressClassName"`
+		Rules            []struct {
+			Host string `json:"host"`
+			HTTP struct {
+				Paths []struct {
+					Path string `json:"path"`
+				} `json:"paths"`
+			} `json:"http"`
+		} `json:"rules"`
+	} `json:"spec"`
+}
+
+// class is the ingress class this Ingress asks for.
+//
+// Charts spell it either way -- airflow sets spec.ingressClassName, argo and
+// trino the legacy annotation -- and both are served, so both are read.
+func (i ingress) class() string {
+	if i.Spec.IngressClassName != "" {
+		return i.Spec.IngressClassName
+	}
+	return i.Metadata.Annotations["kubernetes.io/ingress.class"]
+}
+
+func (o *Operators) listIngresses(ctx context.Context) []ingress {
 	stdout, _, err := o.Kube.RunKube(ctx, []byte(listIngressScript), nil)
 	if err != nil {
 		return nil
 	}
 	var list struct {
-		Items []struct {
-			Spec struct {
-				Rules []struct {
-					Host string `json:"host"`
-				} `json:"rules"`
-			} `json:"spec"`
-		} `json:"items"`
+		Items []ingress `json:"items"`
 	}
 	if err := json.Unmarshal(stdout, &list); err != nil {
 		return nil
 	}
+	return list.Items
+}
+
+// IngressHosts is every Ingress hostname declared in this environment's
+// cluster.
+func (o *Operators) IngressHosts(ctx context.Context) []string {
 	var hosts []string
 	seen := map[string]bool{}
-	for _, item := range list.Items {
+	for _, item := range o.listIngresses(ctx) {
 		for _, rule := range item.Spec.Rules {
 			if rule.Host != "" && !seen[rule.Host] {
 				seen[rule.Host] = true
@@ -184,6 +213,116 @@ func (o *Operators) IngressHosts(ctx context.Context) []string {
 		}
 	}
 	return hosts
+}
+
+// ingressPathPatch is one Ingress path rewritten out of ALB syntax.
+type ingressPathPatch struct {
+	Namespace string
+	Name      string
+	Rule      int
+	Path      int
+	NewPath   string
+}
+
+// traefikPath translates one ALB path pattern into the prefix Traefik matches,
+// reporting whether a rewrite is needed at all.
+func traefikPath(p string) (string, bool) {
+	if !strings.HasSuffix(p, "*") {
+		return p, false
+	}
+	prefix := strings.TrimSuffix(strings.TrimSuffix(p, "*"), "/")
+	if prefix == "" {
+		return "/", true
+	}
+	return prefix, true
+}
+
+// albPathPatches is every wildcard path to rewrite, for the Ingresses this
+// environment's class actually serves.
+func albPathPatches(items []ingress, class string) []ingressPathPatch {
+	var patches []ingressPathPatch
+	for _, item := range items {
+		if item.class() != class {
+			continue
+		}
+		for r, rule := range item.Spec.Rules {
+			for p, path := range rule.HTTP.Paths {
+				next, ok := traefikPath(path.Path)
+				if !ok {
+					continue
+				}
+				patches = append(patches, ingressPathPatch{
+					Namespace: item.Metadata.Namespace, Name: item.Metadata.Name,
+					Rule: r, Path: p, NewPath: next,
+				})
+			}
+		}
+	}
+	return patches
+}
+
+// patchIngressPathsScript batches every rewrite into one exec, the same way the
+// other Kubernetes steps do.
+//
+// pathType moves to Prefix alongside the path: ALB charts leave it
+// ImplementationSpecific, which is the controller's choice to interpret, and
+// naming the semantics is what keeps the rewritten path matching a subtree.
+func patchIngressPathsScript(patches []ingressPathPatch) string {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	for _, p := range patches {
+		op := fmt.Sprintf(
+			`[{"op":"replace","path":"/spec/rules/%d/http/paths/%d/path","value":"%s"},`+
+				`{"op":"replace","path":"/spec/rules/%d/http/paths/%d/pathType","value":"Prefix"}]`,
+			p.Rule, p.Path, p.NewPath, p.Rule, p.Path,
+		)
+		fmt.Fprintf(&b, "kubectl patch ingress -n %s %s --type=json -p '%s'\n", p.Namespace, p.Name, op)
+	}
+	return b.String()
+}
+
+// NormalizeIngressPaths rewrites the ALB path patterns Traefik cannot match,
+// returning the Ingresses it changed as namespace/name.
+//
+// ALB Ingresses spell "everything under this host" as `path: /*` -- valid ALB
+// syntax, and what the cloud charts ship (hmd-inf-trino does). Traefik reads it
+// literally, as PathPrefix(`/*`), so every request 404s: the UI is running,
+// routed and reachable on its NodePort, yet dead through its own hostname.
+// Absorbing the ALB dialect here is the same move as pointing the alb
+// IngressClass at Traefik -- it is what lets cloud charts deploy unmodified,
+// and the alternative, editing charts to say `/`, would break the real ALB.
+//
+// Unlike the Traefik Deployment, these Ingresses belong to Helm releases rather
+// than a k3s Addon, so nothing reverts the patch. A chart redeploy reintroduces
+// the ALB syntax, and the next start normalizes it again.
+//
+// Idempotent: a rewritten path has no wildcard left to match.
+func (o *Operators) NormalizeIngressPaths(ctx context.Context) []string {
+	if !o.IngressEnabled {
+		return nil
+	}
+	patches := albPathPatches(o.listIngresses(ctx), o.ingressClass())
+	if len(patches) == 0 {
+		return nil
+	}
+	stdout, stderr, err := o.Kube.RunKube(ctx, []byte(patchIngressPathsScript(patches)), nil)
+	if err != nil {
+		o.warn("%v", &StepError{
+			Step:   "rewriting ALB wildcard Ingress paths; the UIs they front will 404 through their hostnames",
+			Stdout: stdout, Stderr: stderr, Err: err,
+		})
+		return nil
+	}
+	var changed []string
+	seen := map[string]bool{}
+	for _, p := range patches {
+		full := p.Namespace + "/" + p.Name
+		if !seen[full] {
+			seen[full] = true
+			changed = append(changed, full)
+		}
+	}
+	return changed
 }
 
 // NodePortAddress is <ip>:<port>, the address hmd_proxy streams to.

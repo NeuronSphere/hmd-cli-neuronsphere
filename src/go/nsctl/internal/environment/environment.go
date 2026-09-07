@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
@@ -36,6 +37,21 @@ type Options struct {
 	Verbose       bool
 	Out           io.Writer
 	Err           io.Writer
+
+	// redeployInstances names instances the deploy must run again even though
+	// the graph calls them DEPLOYED. Clearing a cluster record out from under
+	// the plan is invisible to it -- the graph still says the instance is
+	// deployed and the snapshot still matches -- so without this the reconcile
+	// would delete a cluster nothing then rebuilds.
+	redeployInstances map[string]bool
+}
+
+// markForRedeploy forces one instance into the next plan.
+func (o *Options) markForRedeploy(instance string) {
+	if o.redeployInstances == nil {
+		o.redeployInstances = map[string]bool{}
+	}
+	o.redeployInstances[instance] = true
 }
 
 func (o *Options) lookup(key string) string {
@@ -151,27 +167,85 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		opts.step("  %s is up and aliased as %s", graphContainer, env.GraphContainer)
 	}
 
-	// The k3s cluster. Creating or recreating one is the DAG's job; this only
-	// starts what a non-purge stop left behind.
-	cluster, state, err := floci.EnsureK3sRunning(ctx, d, env.K3sCluster, env.AccountID,
-		expectedK3sImage(opts), 3*time.Minute, 0)
-	if err != nil {
+	// The k3s cluster, in three steps that each refuse the others' job:
+	// the reconcile clears a record whose container Floci cannot serve, the
+	// deploy creates one, and EnsureK3sRunning starts what a non-purge stop
+	// left behind.
+	wrapperImage := expectedK3sImage(ctx, opts, d)
+	if clusters, err := floci.NewClusters(ctx, target); err != nil {
 		opts.warn("%v", err)
+	} else {
+		action, err := floci.ReconcileK3sCluster(ctx, clusters, d, floci.K3sReconcileOptions{
+			Cluster:       env.K3sCluster,
+			AccountID:     env.AccountID,
+			ExpectedImage: wrapperImage,
+		})
+		switch {
+		case err != nil:
+			opts.warn("%v", err)
+		case action == floci.K3sReconcileCleared:
+			opts.markForRedeploy(bom.EKSClusterInstance)
+			opts.step("  cleared the stale k3s cluster %q, keeping its datastore; the deploy recreates it", env.K3sCluster)
+			if opts.NoDeploy {
+				opts.warn("the k3s cluster was cleared, but --no-deploy skips the deploy that recreates it; re-run `nsctl env start` without --no-deploy")
+			}
+		case action == floci.K3sReconcileUnreadable:
+			opts.warn("could not read the image of the k3s container for %q; leaving the cluster alone rather than recreating it", env.K3sCluster)
+		}
 	}
-	switch state {
+
+	res, k3sErr := floci.EnsureK3sRunning(ctx, d, floci.K3sStartOptions{
+		Cluster:          env.K3sCluster,
+		AccountID:        env.AccountID,
+		ExpectedImage:    wrapperImage,
+		Network:          reg.ControlPlane.Network,
+		NormalizeRunning: true,
+		Timeout:          3 * time.Minute,
+	})
+	cluster := res.Container
+	if res.Detached {
+		opts.step("  took the k3s container off Docker's default bridge so its node IP stays put")
+	}
+	if res.DetachErr != nil {
+		opts.warn("%v", res.DetachErr)
+	}
+	if k3sErr != nil {
+		opts.warn("%v", k3sErr)
+	}
+	switch res.State {
 	case floci.K3sMissing:
-		opts.warn("no k3s container for cluster %q; it is created by the eks-cluster deploy, which nsctl cannot run yet", env.K3sCluster)
+		// No container means no cluster, whatever the graph says. The graph
+		// records that the instance is DEPLOYED and the snapshot still matches,
+		// so the plan would call it unchanged and skip it forever -- which is
+		// how a cleared cluster stays cleared. Force it back into the plan.
+		opts.markForRedeploy(bom.EKSClusterInstance)
+		opts.warn("no k3s container for cluster %q; the deploy creates it", env.K3sCluster)
 	case floci.K3sStale:
-		opts.warn("the k3s container for %q runs an unexpected image; recreating it would drop the cluster's datastore, so nsctl leaves it alone. Use `hmd neuronsphere up` to refresh it.", env.K3sCluster)
+		opts.warn("the k3s container for %q runs an unexpected image and the reconcile could not clear it, so nsctl leaves it alone rather than drop its datastore. Use `hmd neuronsphere up` to refresh it.", env.K3sCluster)
 	case floci.K3sStarted:
-		opts.step("  started the k3s container in place, keeping the cluster's datastore")
+		if res.Restarted {
+			opts.step("  restarted the k3s container to apply its network change, keeping the cluster's datastore")
+		} else {
+			opts.step("  started the k3s container in place, keeping the cluster's datastore")
+		}
 	case floci.K3sRunning:
 		opts.step("  k3s is already running")
 	}
 
-	if state == floci.K3sRunning || state == floci.K3sStarted {
-		if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
-			opts.warn("%v", err)
+	// clusterFatal is the one k3s failure that must not be swallowed. Every
+	// step inside startCluster is a best-effort `docker exec` that only warns,
+	// which is right individually and wrong in aggregate: a container that dies
+	// mid-provision warns a dozen times, fails at nothing, and is then
+	// advertised as ready on a port nothing listens on.
+	var clusterFatal error
+	if res.State == floci.K3sRunning || res.State == floci.K3sStarted {
+		if k3sErr != nil {
+			clusterFatal = k3sErr
+		} else {
+			if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+				opts.warn("%v", err)
+			}
+			clusterFatal = floci.VerifyK3sAlive(ctx, d, cluster)
 		}
 	}
 
@@ -197,6 +271,14 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		opts.warn("%v", err)
 	}
 
+	if clusterFatal != nil {
+		opts.warn("%v", clusterFatal)
+		for _, line := range readySummary(env, clusterFatal) {
+			opts.step("%s", line)
+		}
+		return nserr.Wrap(nserr.Fail, clusterFatal)
+	}
+
 	// The substrate deploy, unless the caller asked for infrastructure only.
 	// It runs after the infrastructure because every node needs Floci, the
 	// cluster and the routes that reach them.
@@ -204,18 +286,81 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		if err := Apply(ctx, opts, name); err != nil {
 			return err
 		}
+		// The cluster may only now exist. A run that started with no container
+		// -- a first bootstrap, or one the reconcile just cleared to pick up a
+		// new wrapper image -- skipped every step above that needs a live API
+		// server, so do them now rather than leave the kubeconfig, CoreDNS
+		// records and ingress to a second `nsctl env start` nobody knows to run.
+		if res.State == floci.K3sMissing {
+			after, err := floci.EnsureK3sRunning(ctx, d, floci.K3sStartOptions{
+				Cluster:          env.K3sCluster,
+				AccountID:        env.AccountID,
+				ExpectedImage:    wrapperImage,
+				Network:          reg.ControlPlane.Network,
+				NormalizeRunning: true,
+				Timeout:          3 * time.Minute,
+			})
+			cluster = after.Container
+			if after.Detached {
+				opts.step("  took the k3s container off Docker's default bridge so its node IP stays put")
+			}
+			if after.DetachErr != nil {
+				opts.warn("%v", after.DetachErr)
+			}
+			if err != nil {
+				opts.warn("%v", err)
+				clusterFatal = err
+			} else if after.State == floci.K3sMissing {
+				clusterFatal = fmt.Errorf(
+					"the deploy did not create a k3s container for cluster %q; nothing will schedule."+
+						"\n  Redeploy it with `nsctl env start --force-full-redeploy`", env.K3sCluster)
+			} else if after.State == floci.K3sRunning || after.State == floci.K3sStarted {
+				opts.step("Provisioning the cluster the deploy created...")
+				if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+					opts.warn("%v", err)
+				}
+				clusterFatal = floci.VerifyK3sAlive(ctx, d, cluster)
+			}
+		}
 		// The database may only now exist, and the CoreDNS record and routes
 		// were written before it did.
 		if err := refreshAfterDeploy(ctx, opts, reg, env, d, r, routerEnv, target, cluster, names); err != nil {
 			opts.warn("%v", err)
 		}
+		if clusterFatal != nil {
+			opts.warn("%v", clusterFatal)
+			for _, line := range readySummary(env, clusterFatal) {
+				opts.step("%s", line)
+			}
+			return nserr.Wrap(nserr.Fail, clusterFatal)
+		}
 	}
 
-	opts.step("Ready.")
-	opts.step("  services   http://localhost/%s/<service>/", env.Slug)
-	opts.step("  trino      localhost:%d", env.TrinoPort())
-	opts.step("  k3s        localhost:%d", env.K3sPort())
+	for _, line := range readySummary(env, nil) {
+		opts.step("%s", line)
+	}
 	return nil
+}
+
+// readySummary is the closing report.
+//
+// The k3s line is omitted when the cluster is dead: a port nothing listens on
+// reads as a working cluster, and that is exactly how a dead cluster came to be
+// reported as a successful start.
+func readySummary(env *registry.Environment, clusterFatal error) []string {
+	head := "Ready."
+	if clusterFatal != nil {
+		head = "Started, but the k3s cluster is not running. Nothing will schedule."
+	}
+	lines := []string{
+		head,
+		fmt.Sprintf("  services   http://localhost/%s/<service>/", env.Slug),
+		fmt.Sprintf("  trino      localhost:%d", env.TrinoPort()),
+	}
+	if clusterFatal == nil {
+		lines = append(lines, fmt.Sprintf("  k3s        localhost:%d", env.K3sPort()))
+	}
+	return lines
 }
 
 // startCluster does the work that needs a live cluster: the host routes, the
@@ -305,6 +450,9 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 			opts.step("  UIs served at *.%s.%s", env.Slug, router.IngressDomain)
 		}
 	}
+	if changed := ops.NormalizeIngressPaths(ctx); len(changed) > 0 {
+		opts.step("  rewrote ALB wildcard paths on %s", strings.Join(changed, ", "))
+	}
 
 	// /etc/hosts has no wildcards, so the vhost's *.<slug> server_name cannot
 	// help until each name resolves. Unlike the neuronsphere alias, a missing
@@ -389,14 +537,19 @@ func Stop(ctx context.Context, opts *Options, name string) error {
 	return nil
 }
 
-func expectedK3sImage(opts *Options) string {
+// expectedK3sImage is the wrapper image the k3s container is meant to run.
+//
+// The explicit override wins; otherwise it is read off the running Floci
+// container, which is the only place the effective pin exists -- the compose
+// file's FLOCI_SERVICES_EKS_DEFAULT_IMAGE resolves through two nested defaults
+// and a registry override. Reconstructing it here instead would disagree with
+// what Floci actually got and condemn a healthy cluster; "" when Floci cannot
+// be read means "do not judge staleness", for the same reason.
+func expectedK3sImage(ctx context.Context, opts *Options, d floci.ContainerEnvReader) string {
 	if v := opts.lookup("HMD_LOCAL_K3S_WRAPPER_IMAGE"); v != "" {
 		return v
 	}
-	// Empty means "do not judge staleness": the pin lives in the compose file's
-	// FLOCI_SERVICES_EKS_DEFAULT_IMAGE, and guessing a different default here
-	// would condemn a healthy cluster.
-	return ""
+	return floci.K3sWrapperImage(ctx, d)
 }
 
 func ingressEnabled(opts *Options) bool {

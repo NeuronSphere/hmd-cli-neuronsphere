@@ -1,5 +1,98 @@
 # Changelog
 
+## 2026-09-05
+
+- fix: Rewrite ALB wildcard Ingress paths so Traefik can match them
+
+  Cloud charts spell "everything under this host" the way ALB does, as
+  `path: /*`. Traefik reads that literally, as ``PathPrefix(`/*`)``, so every
+  request 404s -- the UI is running, routed, and reachable on its NodePort, yet
+  dead through its own hostname. `hmd-inf-trino` ships exactly this.
+
+  `NormalizeIngressPaths` rewrites the wildcard to a prefix and moves
+  `pathType` to `Prefix` alongside it, batched into one exec like every other
+  Kubernetes step. Absorbing the ALB dialect here is the same move as pointing
+  the `alb` IngressClass at Traefik: it is what lets cloud charts deploy
+  unmodified, where editing them to say `/` would break the real ALB.
+
+  Unlike the Traefik Deployment, these Ingresses belong to Helm releases rather
+  than a k3s Addon, so nothing reverts the patch -- but a chart redeploy
+  reintroduces the ALB syntax, and the next start normalizes it again. The
+  rewrite is idempotent: a rewritten path has no wildcard left to match.
+
+- fix: Keep the k3s container off Docker's default bridge, and stop reporting a dead cluster as a successful start
+
+  `nsctl env start` printed a page of "container is not running" warnings and
+  then `Ready.` with exit code 0, while the k3s container had exited eleven
+  seconds in with `Failed to start networking: ... failed to find interface
+  with specified node ip`.
+
+  Floci's EKS spawner attaches the k3s container to Docker's default bridge in
+  addition to the network `FLOCI_SERVICES_EKS_DOCKER_NETWORK` names -- every
+  other container it spawns (RDS, Neptune, Lambda) gets the configured network
+  alone. k3s takes eth0, the bridge, for its node IP, and the bridge hands out
+  addresses by start order, so the address churns between runs while the
+  datastore in `/var/lib/rancher/k3s` keeps the previous one. kube-router then
+  finds no interface holding the recorded address and aborts k3s. It is the
+  same reused-volume/churned-identity failure the wrapper image's pinned
+  `--node-name` already fixes, one field over.
+
+  `EnsureK3sRunning` now takes the container off the default bridge before
+  starting it, and bounces a running container that is still dual-homed.
+
+  Reporting was the other half. `PrepareNode` polls `kubectl get nodes`, and
+  during the seconds the API server is alive the *stale* Node object still
+  reads `Ready`, so the probe passed on persisted state; every later step is a
+  best-effort `docker exec` that only warns. Now `WaitForK3sAPI` short-circuits
+  as soon as the container exits instead of burning its whole budget, an
+  already-running container is probed rather than trusted, the cluster is
+  re-checked after provisioning, and a dead one omits the `k3s localhost:<port>`
+  line, skips the deploy and exits non-zero.
+
+- fix: Judge k3s image staleness against the pin Floci was actually started with
+
+  `expectedK3sImage` returned `""` unless `HMD_LOCAL_K3S_WRAPPER_IMAGE` was
+  set, so a wrapper-image bump never marked the old container stale and nsctl
+  restarted it forever. It now reads `FLOCI_SERVICES_EKS_DEFAULT_IMAGE` off the
+  running Floci container -- the only place the effective pin exists, since the
+  compose value resolves through two nested defaults. Reconstructing it from
+  the process environment is what made the Python declare healthy clusters
+  stale and destroy them.
+
+- feat: Port `reconcile_k3s_container` to Go as `ReconcileK3sCluster`
+
+  Closes the `K3sStale` dead end, which previously only warned "use `hmd
+  neuronsphere up`". Terraform reconciles the cluster *record*, so a record
+  Floci still reports as ACTIVE is "no changes" however dead the container is;
+  clearing the record is what makes the next deploy rebuild it.
+
+  Two cases are deliberately stricter than the Python: Floci failing to answer
+  never leads to a delete, and a container whose image cannot be read is left
+  alone. Unlike the Python it also keeps the `/var/lib/rancher/k3s` volume by
+  default -- that drop existed to avoid the ghost-node failure the pinned
+  `--node-name` now prevents, and preserving the datastore is what makes a
+  wrapper-image bump a repair rather than a full BOM redeploy.
+
+  Adds `github.com/aws/aws-sdk-go-v2/service/eks` (nsctl's first EKS calls),
+  which costs 3.3 MB of binary (45.2 -> 48.5 MB) -- well under the 24 MB that
+  got EC2 declined.
+
+- fix: Redeploy the cluster instance when its container is gone
+
+  The reconcile clearing a cluster record is invisible to the deploy plan: the
+  graph still calls `eks-cluster` DEPLOYED and the snapshot still matches, so
+  the plan reported "32 unchanged" and skipped it -- leaving a cluster deleted
+  and nothing rebuilding it. A missing k3s container now forces that instance
+  back into the plan through `reconcile.Compute`'s existing `missingReleases`
+  seam, and a run that ends with no container fails instead of printing
+  `Ready.`. The cluster the deploy creates is also provisioned in the same run
+  rather than waiting for a second `nsctl env start` nobody knows to run.
+
+- fix: Pin the k3s wrapper image to `hmd-img-k3s-floci:0.3`, which disables the
+  NetworkPolicy controller that reads the stale node IP. This is what revives an
+  existing cluster in place, without dropping its datastore or the Helm releases
+  on it.
+
 ## 2026-09-04
 
 - fix: Restart the control-plane graph on a warm start
