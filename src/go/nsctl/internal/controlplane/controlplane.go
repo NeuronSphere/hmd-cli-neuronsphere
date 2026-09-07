@@ -337,7 +337,7 @@ func Start(ctx context.Context, opts *Options) error {
 	// version costs seconds instead of minutes and says which variable is at
 	// fault.
 	if !reg.ControlPlane.Bootstrapped {
-		for _, problem := range floci.CheckBackendImages(ctx, docker, floci.ContainerName) {
+		for _, problem := range floci.EnsureBackendImages(ctx, docker, floci.ContainerName, opts.step) {
 			return nserr.New(nserr.Usage, "%s", problem)
 		}
 	}

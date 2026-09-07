@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -231,5 +232,40 @@ func TestCopyFile(t *testing.T) {
 	}
 	if string(got) != "body" {
 		t.Errorf("copied %q", got)
+	}
+}
+
+// The defect this names is not in this repository, so the test is about the
+// message: an environment named anything but `local` fails its first CDKTF node
+// in `tofu init`, and until hmd-lib-cdktf stops comparing the deployment tier to
+// a literal, the only useful thing nsctl can do is say so before the deploy
+// rather than after 955 lines of Terraform output.
+func TestAnUndeployableSlugIsNamedBeforeItCostsADeploy(t *testing.T) {
+	t.Parallel()
+
+	var got []string
+	warn := func(format string, a ...any) { got = append(got, fmt.Sprintf(format, a...)) }
+
+	WarnUndeployableSlug(warn, DeployableSlug)
+	if len(got) != 0 {
+		t.Fatalf("the deployable slug must warn about nothing: %v", got)
+	}
+
+	WarnUndeployableSlug(warn, "")
+	if len(got) != 0 {
+		t.Fatalf("an unnamed environment is not a naming problem: %v", got)
+	}
+
+	WarnUndeployableSlug(warn, "dev2")
+	if len(got) != 1 {
+		t.Fatalf("want one warning, got %v", got)
+	}
+	// The message has to carry enough to act on: which environment, what
+	// breaks, and where the fix is. A warning that only says "this may not
+	// work" costs a deploy to interpret.
+	for _, want := range []string{"dev2", "local", "tofu init", "hmd-lib-cdktf", "SPEC014"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the warning does not mention %q: %s", want, got[0])
+		}
 	}
 }

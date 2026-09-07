@@ -1,6 +1,8 @@
 package environment
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
@@ -72,4 +74,49 @@ func names(entries []bom.Entry) []string {
 		out = append(out, e.RepoInstanceName)
 	}
 	return out
+}
+
+// The sixth cold-start defect, and the same shape as the five before it: a
+// warm platform always has a kubeconfig on disk, so Phase B read one without
+// anyone noticing that nothing in a cold start writes it.
+func TestKubeconfigUnusableCoversEveryStateACoLdStartProduces(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	missing := filepath.Join(dir, "never-written")
+	if !kubeconfigUnusable(missing) {
+		t.Error("a kubeconfig nothing has written yet is unusable; this is the cold start")
+	}
+
+	// What Docker leaves when a deploy mounts the path before the cluster
+	// writes it. Every later deploy then mounts the directory.
+	asDir := filepath.Join(dir, "docker-made-this")
+	if err := os.MkdirAll(asDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !kubeconfigUnusable(asDir) {
+		t.Error("a directory is never a kubeconfig")
+	}
+
+	empty := filepath.Join(dir, "interrupted")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !kubeconfigUnusable(empty) {
+		t.Error("an empty file is an interrupted write, not a kubeconfig")
+	}
+
+	good := filepath.Join(dir, "kubeconfig")
+	if err := os.WriteFile(good, []byte("apiVersion: v1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if kubeconfigUnusable(good) {
+		t.Error("a warm apply must not rewrite a kubeconfig that works")
+	}
+
+	// No path configured is not a problem to solve here.
+	if kubeconfigUnusable("") {
+		t.Error("an unset path is not an unusable kubeconfig")
+	}
 }

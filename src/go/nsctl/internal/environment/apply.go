@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
@@ -14,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/reconcile"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
@@ -138,9 +140,13 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// Floci spawns its database backend from an image reference pinned into its
 	// own configuration, and a reference that resolves nowhere fails the
 	// instance while the deploy polls indefinitely. Catch it in seconds here.
-	for _, problem := range floci.CheckBackendImages(ctx, d, floci.ContainerName) {
+	for _, problem := range floci.EnsureBackendImages(ctx, d, floci.ContainerName, opts.step) {
 		return nserr.New(nserr.Usage, "%s", problem)
 	}
+
+	// Said here so the `tofu init` failure 955 log lines below has a cause
+	// attached to it, rather than reading as a broken bundled tree.
+	WarnUndeployableSlug(opts.warn, env.Slug)
 
 	if prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err); err == nil {
 		// Clear a database record Floci cannot serve, so the deploy below
@@ -294,6 +300,10 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		count := seeder.SubmitResources(ctx, seeder.CoreDeploymentID(ctx, bomEnv, substrateNodes), resources)
 		opts.step("  %d core resource(s) submitted", count)
 
+		// The cluster Phase A may have just created, made usable before Phase B
+		// deploys the first chart onto it.
+		provisionNewCluster(ctx, opts, reg, env, d)
+
 		// Phase B: everything the manifest declares.
 		_, err = runPhase(ctx, opts, seeder, deployer, bomEnv, phaseB, "declared")
 	}
@@ -441,4 +451,89 @@ func foundationServices(envSlug string) []bom.ServiceSpec {
 		{Name: "hmd_ms_naming", RepoClass: "hmd-ms-naming", APIBaseURL: "http://localhost/hmd_ms_naming"},
 		{Name: "hmd_ms_artifact_lib", RepoClass: "hmd-ms-artifact-lib", APIBaseURL: "http://localhost/hmd_ms_artifact_lib"},
 	}
+}
+
+// provisionNewCluster writes the kubeconfig, CoreDNS records and ingress for a
+// cluster that Phase A has only just created, before Phase B needs them.
+//
+// Start already knows the cluster "may only now exist" and re-runs startCluster
+// for exactly that case -- but it does so *after* Apply returns, and the cluster
+// is created inside Apply's first phase and consumed by its second. On a cold
+// start that ordering never held:
+//
+//	Phase A  eks-cluster deployed        <- the cluster now exists
+//	         7 core resource(s) submitted
+//	Phase B  ext-secrets-crds ...        <- helm, and no kubeconfig has been written
+//	         IsADirectoryError: [Errno 21] Is a directory: '/root/.kube/config'
+//
+// Docker creates a missing bind-mount source as a directory, so the first chart
+// both fails and leaves a directory where the kubeconfig belongs. 538c10a made
+// WriteKubeconfig replace such a directory, which is the right repair and does
+// not help here: nothing had called WriteKubeconfig at all. startCluster is its
+// only caller, and on a cold start it is skipped -- there is no container yet --
+// so the recovery Start performs afterwards is one phase too late to matter.
+//
+// Invisible on a warm platform, like the five defects before it: an environment
+// that has ever been started has a kubeconfig on disk, and Phase B reads it
+// without anyone noticing who wrote it.
+//
+// Best-effort, and quiet when there is nothing to do. A warm apply finds a
+// readable kubeconfig and returns without touching the cluster.
+func provisionNewCluster(ctx context.Context, opts *Options, reg *registry.Registry,
+	env *registry.Environment, d *container.Docker) {
+
+	if !k3sEnabled(opts) {
+		return
+	}
+	cluster := floci.K3sContainerName(env.K3sCluster, env.AccountID, d.ContainerNames(ctx))
+	if running, _ := d.Running(ctx, cluster); !running {
+		// Phase A did not create one, or it is not up. Start's post-Apply
+		// recovery reports that, and reporting it twice from two places is
+		// worse than reporting it once from the one that can act on it.
+		return
+	}
+	if !kubeconfigUnusable(env.Kubeconfig) {
+		return
+	}
+
+	opts.step("Provisioning the cluster the substrate created...")
+	routerEnv := router.Env{
+		Slug: env.Slug, AccountID: env.AccountID,
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(), SparePort: env.SparePort(),
+		IsDefault: env.IsDefault(),
+	}
+	// Resolved now rather than passed in: the database is a Phase A node too,
+	// so its container did not exist when Start looked.
+	dbContainer, _ := d.FlociContainer(ctx, "rds", env.AccountID,
+		floci.EnvDBIdentifier(floci.NamesFrom(opts.Lookup, env.DeploymentID, env.Slug)))
+	graphContainer, _ := d.FlociContainer(ctx, "neptune", env.AccountID,
+		floci.GraphIdentifier(floci.NamesFrom(opts.Lookup, env.DeploymentID, env.Slug)))
+
+	if err := startCluster(ctx, opts, d, router.New(opts.Home, opts.Lookup), routerEnv, env,
+		cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+		opts.warn("%v", err)
+	}
+}
+
+// kubeconfigUnusable reports whether a path cannot be handed to kubectl or helm.
+//
+// Three states, one answer. Absent is the cold start: nothing has written it
+// yet. A *directory* is the daemon's doing -- Docker creates a missing
+// bind-mount source as one, so the first deploy to mount the path before the
+// cluster wrote it leaves a directory that every later deploy then mounts,
+// dying with "IsADirectoryError: [Errno 21] Is a directory: '/root/.kube/config'"
+// and naming only the container's path. Empty is an interrupted write.
+//
+// A stat error other than "not exist" also reads as unusable: something that
+// cannot be inspected cannot be trusted to be a kubeconfig, and rewriting one
+// is cheap.
+func kubeconfigUnusable(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return true
+	}
+	return info.IsDir() || info.Size() == 0
 }

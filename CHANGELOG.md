@@ -2,6 +2,76 @@
 
 ## 2026-09-07
 
+- fix: Name the environment slug that cannot deploy, and the manifest a purge keeps
+
+  Two things verification found that nsctl can report and not fix.
+
+  **Only an environment named `local` can deploy anything.** ms-deployment
+  passes an environment's own name as `hmd deploy --environment`, because a
+  local Environment entity is typed by its slug -- deliberately, in both front
+  ends, so identical instance names stay safe across environments. hmd-lib-cdktf
+  then reads that same value as the AWS deployment *tier*:
+
+      s3_use_path_style=True if self.environment == "local" else None
+      use_path_style=True    if self.environment == "local" else None
+
+  so any other name gets virtual-host S3 addressing against a Floci that
+  publishes no per-bucket DNS, and the environment's first CDKTF node dies in
+  `tofu init` with `dial tcp: lookup hmd.000000000001.reg1.tfstate.neuronsphere:
+  no such host`. One name doing two jobs. The fix belongs in hmd-lib-cdktf,
+  three lines under its own comment that "the endpoint itself comes from
+  AWS_ENDPOINT_URL" -- the predicate should be "the endpoint is a local Floci",
+  not "the tier is spelled local". Not introduced here and not fixable here: the
+  Python seeds the identical Environment.type and fails identically. It had
+  simply never been tried, because every local environment anyone has deployed
+  was called `local`. `nsctl env add` and `env start` now say so, at both ends,
+  rather than letting it surface 955 lines into Terraform output.
+
+  **A purge keeps the environment manifest, and now says which one.** The
+  manifest is the user's declaration, often version-controlled, and rebuilding
+  from it is a common reason to purge -- so deleting it would be wrong. But it
+  lives in `$HMD_HOME/environments/`, not the state directory a purge removes,
+  and a purge also *unregisters* the environment: the file is orphaned and
+  silently adopted again by `env add` under the same name. A purge announcing
+  "none of it comes back" was followed by a start trying to deploy 28 workload
+  repos nobody had declared in that session.
+
+- fix: Three more defects only a cold start could find
+
+  `The cold start had never run` recorded five defects that a warm deployment
+  graph had hidden, and the lesson that "verified against a running platform"
+  and "verified from nothing" are different claims. Verifying the six items of
+  2026-09-07 from nothing found three more of exactly that shape.
+
+  **The kubeconfig is written between the two changesets, not after both.**
+  `Start` already knows the cluster "may only now exist" and re-runs
+  `startCluster` for that case -- but after `Apply` returns, and the cluster is
+  created inside Apply's *first* phase and consumed by its second. On a cold
+  start Phase B's first Helm chart therefore ran against a kubeconfig nothing
+  had written, Docker created the missing bind-mount source as a directory, and
+  `ext-secrets-crds` died with `IsADirectoryError: [Errno 21] Is a directory:
+  '/root/.kube/config'`. 538c10a taught `WriteKubeconfig` to replace such a
+  directory, which is the right repair and did not help: nothing had called
+  `WriteKubeconfig` at all. `provisionNewCluster` now runs between the phases.
+
+  **A database Floci has no record of is deployed, whatever the graph says.**
+  The deployment graph lives in the control plane's Postgres and outlives
+  `nsctl env purge <name>`, which destroys the environment's resources and
+  leaves every RepoInstanceDeployment reading DEPLOYED. So purge, `env add`,
+  `env start` planned "3 unchanged" and never recreated the database -- two
+  lines below its own warning that no database existed. `K3sMissing` already
+  forces the cluster back into the plan for this exact reason; the database now
+  does the same.
+
+  **An uncached backend image is pulled rather than refused.** `CheckBackendImages`
+  stopped the start whenever Floci's pinned Postgres or Gremlin image was not in
+  the local cache. On the machine this proposal is about -- one whose only
+  prerequisite is Docker -- nothing is cached, so the guard turned every
+  genuinely fresh start into a hard stop at the control-plane database. It did
+  exactly that. `EnsureBackendImages` pulls, and keeps the refusal for the case
+  the message was written for: a reference that resolves nowhere. It now names
+  `HMD_LOCAL_NS_CONTAINER_REGISTRY` too, which was the actual cause.
+
 - fix: Purge what Floci spawned that a purge does not name
 
   The first real `nsctl env purge` -- the verb has been unit-tested and never

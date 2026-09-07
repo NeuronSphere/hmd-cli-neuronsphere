@@ -144,7 +144,18 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		// reading of the first sends people looking in the wrong place.
 		switch status := prov.DBInstanceStatus(ctx, dbID); status {
 		case "":
-			opts.warn("no database for %q has ever been deployed; every service addressing it will fail to connect", env.Slug)
+			// No instance record means no database, whatever the deployment
+			// graph says -- the same reasoning K3sMissing applies to the
+			// cluster below, and it has to be applied here for the same reason.
+			//
+			// The graph lives in the control plane's Postgres and outlives an
+			// `env purge`, which destroys the environment's resources and
+			// leaves every RepoInstanceDeployment saying DEPLOYED. So a purge
+			// followed by `env add` and `env start` planned "3 unchanged" and
+			// never recreated the database -- two lines under this very
+			// warning, which had already said it did not exist.
+			opts.markForRedeploy(bom.EnvDBInstance)
+			opts.warn("no database for %q has ever been deployed; the deploy creates it", env.Slug)
 		case "available":
 			opts.warn("Floci reports the database for %q available but spawned no container for it", env.Slug)
 		default:
@@ -648,4 +659,58 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		opts.warn("%v", err)
 	}
 	return r.Reload(ctx, d.Exec)
+}
+
+// DeployableSlug is the only environment name whose CDKTF nodes can deploy
+// today, and the reason is not in this repository.
+//
+// ms-deployment's deploy_base.deploy_node passes the *environment's own name*
+// as `hmd deploy --environment`, because a local Environment entity is typed by
+// its slug -- that is what makes identical instance names safe across
+// environments, and both front ends seed it that way on purpose
+// (deploymentSetDefinition, ensure_environment). hmd-lib-cdktf then reads that
+// same value as the AWS deployment *tier* and decides S3 addressing from it:
+//
+//	s3_use_path_style=True if self.environment == "local" else None
+//	use_path_style=True    if self.environment == "local" else None
+//
+// So an environment named anything else gets virtual-host S3 addressing against
+// Floci, which publishes no per-bucket DNS, and its very first CDKTF node dies
+// in `tofu init`:
+//
+//	Failed to get existing workspaces: ... Get
+//	"http://hmd.000000000001.reg1.tfstate.neuronsphere:4566/?list-type=2...":
+//	dial tcp: lookup hmd.000000000001.reg1.tfstate.neuronsphere: no such host
+//
+// One name overloaded for two jobs. The fix belongs in hmd-lib-cdktf, whose own
+// comment three lines above already says "The endpoint itself comes from
+// AWS_ENDPOINT_URL in the environment" -- so the predicate should be "the
+// endpoint is a local Floci", not "the tier is literally called local".
+//
+// Not introduced by this port and not fixable from here: the Python CLI seeds
+// the identical Environment.type and would fail identically. It had simply
+// never been tried, because every local environment anyone has ever deployed
+// was called `local`.
+const DeployableSlug = "local"
+
+// WarnUndeployableSlug names the defect above before it costs a deploy.
+//
+// A warning rather than a refusal. Nothing here is wrong -- registering,
+// starting, stopping and purging a differently-named environment all work, the
+// substrate's cluster and database come up, and the day hmd-lib-cdktf stops
+// comparing the tier to a literal the name works unchanged. Refusing would
+// forbid a state that is only broken elsewhere.
+//
+// Named at both ends: `env add`, so the choice is informed, and the start, so
+// the failure 955 log lines into `tofu init` has something attached to it.
+func WarnUndeployableSlug(warn func(string, ...any), slug string) {
+	if slug == "" || slug == DeployableSlug {
+		return
+	}
+	warn("environment %q is not named %q, and every CDKTF node it deploys will fail in `tofu init` with "+
+		"\"no such host\" for the tfstate bucket.\n"+
+		"  hmd-lib-cdktf decides S3 path-style addressing with `self.environment == \"local\"`, and "+
+		"ms-deployment passes the environment's own slug as --environment.\n"+
+		"  The substrate's cluster and database still come up; only deploys are affected. "+
+		"See SPEC014.", slug, DeployableSlug)
 }

@@ -375,6 +375,10 @@ what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
 			fmt.Fprintf(out, "  cluster:  %s\n", env.K3sCluster)
 			fmt.Fprintf(out, "  state:    %s\n", env.StateDir)
 			fmt.Fprintf(out, "\nStart it with `nsctl env start %s`.\n", env.Slug)
+			// Before the choice is acted on, not after it fails.
+			environment.WarnUndeployableSlug(func(format string, a ...any) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: "+format+"\n", a...)
+			}, env.Slug)
 			return nil
 		},
 	}

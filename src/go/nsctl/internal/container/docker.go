@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"strconv"
@@ -214,6 +215,29 @@ func (d *Docker) ImagePresent(ctx context.Context, ref string) bool {
 	}
 	_, err := d.capture(ctx, "image", "inspect", "-f", "{{.Id}}", ref)
 	return err == nil
+}
+
+// PullImage fetches an image reference, with no timeout of its own.
+//
+// Deliberately not d.capture: that caps every call at d.Timeout, which is 15
+// seconds, and a cold pull of a Postgres or k3s image is minutes. A pull that
+// inherited it would fail as a timeout and read as a broken registry.
+func (d *Docker) PullImage(ctx context.Context, ref string) error {
+	if ref == "" {
+		return errors.New("no image reference")
+	}
+	var errBuf bytes.Buffer
+	c := exec.CommandContext(ctx, d.bin(), "pull", ref)
+	c.Stdout = io.Discard
+	c.Stderr = &errBuf
+	if err := c.Run(); err != nil {
+		msg := strings.TrimSpace(errBuf.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("docker pull %s: %s", ref, msg)
+	}
+	return nil
 }
 
 // Start starts an existing container.

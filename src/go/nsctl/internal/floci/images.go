@@ -36,23 +36,34 @@ func K3sWrapperImage(ctx context.Context, d ContainerEnvReader) string {
 	return d.ContainerEnv(ctx, ContainerName)[eksImageEnv]
 }
 
-// ImageChecker reports whether an image reference can be resolved.
+// ImageChecker reports whether an image reference can be resolved, and fetches
+// one that cannot.
 type ImageChecker interface {
 	ImagePresent(ctx context.Context, ref string) bool
+	PullImage(ctx context.Context, ref string) error
 	ContainerEnv(ctx context.Context, name string) map[string]string
 }
 
-// CheckBackendImages verifies the images Floci is configured to spawn its
-// database and graph backends from.
+// EnsureBackendImages makes sure the images Floci is configured to spawn its
+// database and graph backends from are in the local cache, pulling any that are
+// not.
 //
-// Worth a pre-flight because the failure is otherwise silent and slow: the
-// compose file's default version is the floating tag `stable`, and a registry
-// override that has no `stable` produces a reference that exists nowhere. The
-// deploy then hangs for as long as anyone lets it.
+// This used to be a check that refused. The refusal was right about the failure
+// it prevents -- a reference that resolves nowhere leaves the instance in state
+// "failed" while Terraform polls "Still creating..." until someone kills it --
+// and wrong about the remedy, because "not cached" is not the same as "does not
+// exist". On the machine this proposal is about, where the only prerequisite is
+// Docker, *nothing* is cached, so the guard turned every genuinely fresh start
+// into a hard stop at the control-plane database. It did exactly that on the
+// first cold start run with no HMD_REPO_HOME.
 //
-// The check is local only -- an image already pulled is proof enough, and a
-// registry round trip would make a start depend on the network.
-func CheckBackendImages(ctx context.Context, d ImageChecker, container string) []string {
+// EnsureProjectBuilder already pulls the one image nsctl names elsewhere, so an
+// absent image was always something nsctl knew how to solve. What survives is
+// the refusal for the case that is genuinely unactionable: a pull that fails,
+// which is the wrong-registry and no-such-tag case the message was written for.
+//
+// Returned rather than raised so the caller decides; both callers stop.
+func EnsureBackendImages(ctx context.Context, d ImageChecker, container string, progress func(string, ...any)) []string {
 	env := d.ContainerEnv(ctx, container)
 	var problems []string
 	for _, key := range []string{rdsImageEnv, neptuneImageEnv} {
@@ -60,9 +71,16 @@ func CheckBackendImages(ctx context.Context, d ImageChecker, container string) [
 		if ref == "" || d.ImagePresent(ctx, ref) {
 			continue
 		}
-		problems = append(problems, fmt.Sprintf(
-			"%s is set to %s, which is not in the local image cache. Floci spawns its backend from that reference and leaves the instance in state \"failed\" when it cannot resolve it, while the deploy polls \"Still creating...\" indefinitely.\n  Pull it, or pin a version that exists -- for the database that is HMD_POSTGRES_BASE_VERSION.",
-			key, ref))
+		if progress != nil {
+			progress("  pulling %s, which Floci spawns its backend from...", ref)
+		}
+		if err := d.PullImage(ctx, ref); err != nil {
+			problems = append(problems, fmt.Sprintf(
+				"%s is set to %s, which is not in the local image cache and could not be pulled:\n  %v\n"+
+					"Floci spawns its backend from that reference and leaves the instance in state \"failed\" when it cannot resolve it, while the deploy polls \"Still creating...\" indefinitely.\n"+
+					"  Pin a version that exists -- for the database that is HMD_POSTGRES_BASE_VERSION -- or check HMD_LOCAL_NS_CONTAINER_REGISTRY.",
+				key, ref, err))
+		}
 	}
 	return problems
 }

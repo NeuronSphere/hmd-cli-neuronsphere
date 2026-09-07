@@ -166,6 +166,10 @@ func indexOf(items []string, want string) int {
 type stubImages struct{}
 
 func (stubImages) ImagePresent(context.Context, string) bool { return false }
+
+// Nothing here pulls: postgresConfig only reads the pinned reference, and a
+// stub that could fetch would let a test pass against an image it invented.
+func (stubImages) PullImage(context.Context, string) error { return nil }
 func (stubImages) ContainerEnv(context.Context, string) map[string]string {
 	return map[string]string{}
 }

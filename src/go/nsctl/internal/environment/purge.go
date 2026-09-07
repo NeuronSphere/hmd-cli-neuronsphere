@@ -7,6 +7,7 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
@@ -206,6 +207,26 @@ func purgeEnvironment(ctx context.Context, opts *Options, env *registry.Environm
 	// which nothing in either implementation has ever cleaned up.
 	if env.IsDefault() {
 		removeIfPresent(opts, legacyKubeconfigPath(opts.Home))
+	}
+
+	// The manifest is left, and said so.
+	//
+	// It is the user's declaration of intent, not this environment's runtime
+	// state -- often version-controlled, and the reason to purge is frequently
+	// to rebuild from it. Deleting it would make `purge` destroy something the
+	// user wrote.
+	//
+	// But it lives in $HMD_HOME/environments/, not in the state directory this
+	// function removes, and a purge *unregisters* the environment -- so the
+	// manifest is orphaned, and `env add` under the same name silently adopts
+	// it again. That is how a purge announcing "none of it comes back" was
+	// followed by a start that tried to deploy 28 workload repos nobody had
+	// declared in that session. Naming the file is the difference between
+	// deliberate and surprising.
+	if path := manifest.DefaultPath(opts.Home, env.Slug); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			opts.step("  kept %s; `nsctl env add %s` will pick it up again", path, env.Slug)
+		}
 	}
 	return nil
 }
