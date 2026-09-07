@@ -253,6 +253,100 @@ what it deployed; tear it down yourself if that is what you meant.
 
 ``--force-full-redeploy`` skips the comparison entirely.
 
+The local identity provider
+---------------------------
+
+Nothing on the local platform has a token. Applications run with database
+authentication, microservices run unauthenticated, and the Rego policies every
+service authorizes against are only ever exercised in the cloud. ``nsctl
+authd`` is a local stand-in for Okta that makes them testable here.
+
+It is off by default. To use it:
+
+.. code-block:: shell
+
+   export HMD_LOCAL_NEURONSPHERE_ENABLE_AUTH=true
+   nsctl control-plane start
+
+Nothing else to build: it runs the same image as the DAG runner, being the same
+binary with different arguments.
+
+Minting a token
+~~~~~~~~~~~~~~~
+
+``nsctl authd token`` prints a signed JWT with whatever claims you name, and
+works whether or not the control plane is running -- which is what makes it
+usable from a test.
+
+.. code-block:: shell
+
+   nsctl authd token --server services --sub ms-deployment
+   nsctl authd token --group 'NeuronSphere Superset Admin - Local (none)'
+   nsctl authd token --claim tenant=acme --claim 'level=3' --show-claims
+
+A ``--claim`` value that parses as JSON is used as JSON, so a policy reading a
+number, a boolean or a list is testable without a second flag. ``--decode``
+prints the claims of a token you already have.
+
+The ``groups`` claim matters most. It decides a user's role in Superset and
+Airflow and every policy decision about them, and the applications parse it by
+shape::
+
+    NeuronSphere <app> <role> - <Environment> (<customer code>)
+    NeuronSphere Airflow Admin - Local (none)
+
+Two authorization servers
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``hmd-lib-auth`` already distinguishes a service account from a user, and the
+policies check the difference, so there are two:
+
+============================  ================================  ==============
+Server                        Audience                          For
+============================  ================================  ==============
+``/oauth2/ns``                ``api://neuronsphere``            users, app SSO
+``/oauth2/services``          ``api://neuronsphere-services``   service accounts
+============================  ================================  ==============
+
+Every Rego bundle's ``token_is_valid`` admits exactly those two audiences, so a
+token minted for the wrong one is denied -- which is the thing worth being able
+to try.
+
+One issuer, three resolvers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The issuer is the base URL every consumer appends to, and it is stamped into
+every token's ``iss``. It has to be **one string** wherever it is read: a
+consumer that fetched the keys under one name and reads ``iss`` as another
+rejects every token, and the failure shows up as a policy denial nowhere near
+the cause.
+
+So ``auth.local.neuronsphere.io`` is made to resolve to ``hmd_proxy`` three
+ways -- an nginx vhost for the browser, a Docker network alias for Floci's
+Lambda containers, and a CoreDNS record for cluster pods. Override it with
+``HMD_LOCAL_AUTH_ISSUER`` if you must; the hostname the vhost, the alias and the
+record use is derived from it, so they cannot drift apart.
+
+Reaching it from a browser costs an ``/etc/hosts`` entry, exactly as the
+environment UIs do::
+
+    127.0.0.1 auth.local.neuronsphere.io
+
+What it does not do
+~~~~~~~~~~~~~~~~~~~
+
+It signs with a key it generated and will mint a token with any claims asked of
+it. It is not an authorization server anyone should trust, and it is not
+reachable from outside this machine.
+
+It also does not yet satisfy ``hmd-lib-auth.verify_token``, which the OPA
+authorizer Lambda calls before it consults a policy: ``okta_jwt_verifier``
+rejects any issuer that is not ``https://`` and offers no way to turn that off,
+so the authorizer end to end still needs a certificate that nothing here
+issues. Policy evaluation itself does not -- every Rego bundle decodes the
+token with ``io.jwt.decode`` rather than verifying it, so realistic *claims*
+are all a policy needs.
+
 The DAG runner
 --------------
 

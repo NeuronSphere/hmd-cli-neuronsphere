@@ -60,6 +60,12 @@ any of these costs nothing:
 - **Plugin-contributed workloads need `nsctl repo import` once** per
   environment that was brought up with `hmd`.
 - **The DAG runner is opt-in** and its first start builds a local image.
+- **The local identity provider is opt-in.** `HMD_LOCAL_NEURONSPHERE_ENABLE_AUTH=true`
+  adds a mock Okta to the control plane, so Rego policies and group-to-role
+  mapping can be tested against realistic tokens instead of only in the cloud.
+  `nsctl authd token --group '...' --claim k=v` mints one. It does not yet
+  satisfy `hmd-lib-auth.verify_token`, which demands an `https://` issuer, so
+  the OPA authorizer end to end still needs a certificate nothing here issues.
 
 ## hmd neuronsphere — the Python CLI
 
