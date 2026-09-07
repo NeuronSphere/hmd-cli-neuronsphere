@@ -2,6 +2,27 @@
 
 ## 2026-09-07
 
+- test: Cover `env purge` in the parity suite, in both directions
+
+  SPEC012 stayed `partly implemented` and the core it covered was four verbs.
+  `env purge` joins them: it is the newest verb, the one where a leftover is the
+  entire failure mode, and the one whose first real run left seven containers,
+  three volumes and the platform network behind.
+
+  Both directions, because they are different claims -- nsctl purges and the
+  Python must not list it; the Python purges with `down --purge --env` and nsctl
+  must not, which is the case every existing user is actually in. The purge
+  tests also ask Docker directly for containers, volumes and networks: what a
+  purge leaves behind is not something either front end is in a position to
+  report on.
+
+  Each direction destroys the environment and rebuilds it, so the suite now
+  costs two cold starts more than it did. That is recorded in the suite's own
+  documentation and in the Makefile rather than discovered by whoever next
+  wonders why it takes so long -- and the rebuild is itself the assertion, since
+  a purge that left something behind surfaces as a bootstrap failure rather than
+  silently.
+
 - fix: Restart the graph onto the address aliasing gave it
 
   The sixth defect a cold start found, and the one that looked least like a

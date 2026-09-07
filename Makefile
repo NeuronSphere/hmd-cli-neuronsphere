@@ -197,11 +197,17 @@ test-cli: build
 # with one front end and verifies it with the other, so it needs both installed
 # and a real platform to operate on.
 #
-# It starts and stops a real environment in the HMD_HOME it is given, so it asks
-# for that in writing. HMD_HOME alone is not consent -- it is set in every shell
-# anyone works in, which makes `make test-parity` far too easy to run at the
-# wrong platform by reflex. NSCTL_PARITY_ENV names the environment to use and
-# has no default for the same reason.
+# It starts, stops and PURGES a real environment in the HMD_HOME it is given, so
+# it asks for that in writing. HMD_HOME alone is not consent -- it is set in
+# every shell anyone works in, which makes `make test-parity` far too easy to run
+# at the wrong platform by reflex. NSCTL_PARITY_ENV names the environment to use
+# and has no default for the same reason.
+#
+# The two purge tests each destroy the environment and rebuild it, so a run
+# costs two cold starts on top of the start/stop pair. That cost is deliberate
+# and recorded rather than discovered: purge is the verb where a leftover is the
+# entire failure mode, and the first real run of it left seven containers, three
+# volumes and the platform network behind.
 test-parity: build
 	@test -n "$(HMD_HOME)" || { echo "export HMD_HOME: this suite operates on a real platform"; exit 2; }
 	@test -n "$(NSCTL_PARITY_ENV)" || { \

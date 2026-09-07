@@ -5,7 +5,7 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 
 .. req:: Deliver the local NeuronSphere as a single Go binary requiring only Docker
     :id: HMD_CLI_NERD002
-    :status: in progress
+    :status: implemented
 
     The extend-mode local platform currently reachable only through
     ``hmd neuronsphere`` shall be delivered as ``nsctl`` -- a single
@@ -19,6 +19,23 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     ``$HMD_HOME`` on-disk layout are unchanged. The Python ``hmd neuronsphere``
     surface coexists throughout the port. All other ``hmd-cli-*`` packages,
     all ``hmd-ms-*`` microservices, and all ``hmd-inf-*`` repos remain Python.
+
+    *Implemented 2026-09-07, and the gate was run rather than argued.* A machine
+    with ``HMD_REPO_HOME`` pointed at an empty directory, a purged
+    ``$HMD_HOME``, and an empty deployment graph bootstrapped a control plane
+    and brought up an environment -- cluster, database and a working External
+    Secrets operator -- entirely from the repo trees inside the binary. That is
+    this requirement's own sentence, and until it had been run it was an
+    argument. See `Verified from nothing`_.
+
+    Two things qualify it, and neither is withdrawn by being recorded here.
+    **The images Floci spawns its backends from are not published** at the
+    versions the compose file pins, so a machine that has never pulled them
+    cannot provision a cluster or a graph however good the binary is; that is a
+    publishing gap in the image repositories and nothing here can close it.
+    **The inverted submit path does not work**, for a reason now known exactly
+    (SPEC010) -- it is opt-in, was always opt-in, and the default path is the
+    one every deploy above took.
 
 .. note::
 
@@ -46,9 +63,14 @@ against one ``HMD_HOME``. Deployments are submitted to a DAG-runner service rath
 inside the CLI, so they outlive the command that started them, and the runner
 schedules their nodes on the dependency edges the payload has always carried
 rather than one at a time. It ships through a Homebrew tap, an install script
-and GitHub Releases, and the documentation recommends it -- with an explicit
-list of what it does not do yet, because ``env purge`` and SPEC012's parity
-harness are still open.
+and GitHub Releases, and the documentation recommends it.
+
+**And it has been run from nothing.** Every claim in this table was made from
+unit tests until 2026-09-07; the notes below now distinguish what was built from
+what has been exercised against a live platform with no ``HMD_REPO_HOME``, no
+``$HMD_HOME`` and no deployment graph. Six more defects came out of doing that,
+recorded in `What implementation changed about the design`_ and
+`Verified from nothing`_.
 
 .. list-table::
    :header-rows: 1
@@ -63,8 +85,11 @@ harness are still open.
        to it, ``load-plugin`` withdrawn.
    * - 002
      - **amended**
-     - The lifecycle is implemented, ``env purge`` included. "Cold bootstrap
-       included" was wrong until 2026-09-07: five seeding steps had never run.
+     - The lifecycle is implemented, ``env purge`` included, and both have been
+       run from nothing. "Cold bootstrap included" was wrong until 2026-09-07:
+       five seeding steps had never run, and three more defects surfaced when
+       the six items of that day were verified. ``env purge`` itself was wrong
+       the first time it ran; see item 19.
    * - 003
      - implemented
      - Cross-checked against the literal JSON the Python CLI writes.
@@ -77,7 +102,13 @@ harness are still open.
    * - 006
      - implemented
      - The compose file, the runner sources and ten repo trees are embedded,
-       and version resolution prefers a bundled tree over a checkout.
+       and version resolution prefers a bundled tree over a checkout. **Run
+       from nothing:** a control plane and an environment deployed from the
+       bundled trees alone, with ``HMD_REPO_HOME`` pointed at an empty
+       directory. The eight classes that are not declared as
+       ``pre_build_artifacts`` still travel as committed trees -- whether they
+       publish a consumable artifact is *still* unverified, because resolving
+       one needs librarian credentials. See item 22.
    * - 007
      - implemented
      - EC2 is not used at all -- ``hmd-vpc`` deploys the network instead,
@@ -92,9 +123,13 @@ harness are still open.
        core Resources. See the SPEC.
    * - 010
      - **amended**
-     - The submit envelope is Argo's; its contents are not. Both submit paths
-       are wired: ``HMD_WORKFLOW_RUNNER_URL`` is set now, having been the thing
-       that made the service-submits path unreachable.
+     - The submit envelope is Argo's; its contents are not. The CLI-submits
+       path is what every deploy in this document took and it works. The
+       **service-submits path is wired and does not work** --
+       ``HMD_WORKFLOW_RUNNER_URL`` is set and reconciled in both directions, the
+       async self-invocation is reached, and it dies on a ``None``
+       ``Authorization`` header before submitting anything. Exact cause in the
+       SPEC; the fix is in ``hmd-ms-deployment``. It is opt-in and always was.
    * - 011
      - **amended**
      - Implemented. One clause of it is not implementable as written, and
@@ -102,16 +137,23 @@ harness are still open.
    * - 012
      - partly implemented
      - The harness exists for the core SPEC012 states -- ``env start``,
-       ``env stop``, ``status`` and the registry -- and for nothing else.
-       Every other verb is still checked by hand.
+       ``env stop``, ``status``, ``env purge`` and the registry -- and for
+       nothing else. Every other verb is still checked by hand. ``env purge``
+       was added deliberately and at a cost the SPEC now records: each direction
+       destroys and rebuilds the environment, so a run costs two cold starts.
    * - 013
      - **amended**
      - Implemented. Windows is dropped and the Docker image is built rather
        than published. See the SPEC.
    * - 014
      - **amended**
-     - The HIGH risk is retired; three gaps found in implementation are
-       recorded there.
+     - The HIGH risk is retired. Of its three gaps, one is **closed**:
+       ``BUCKET_NAME`` is derived here, and the cross-repo edit the SPEC
+       prescribed would have been wrong (item 16). The container-name collision
+       is still detected and not fixed, deliberately. Two new gaps join them --
+       the environment-name collision (item 17) and the unpublished backend
+       images (item 21) -- both fixable only elsewhere, both now named rather
+       than silently hit.
    * - 015
      - **amended**
      - Phase 3's content changed substantially once plugins were dropped.
@@ -119,8 +161,10 @@ harness are still open.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Fifteen things this proposal asserted turned out to be wrong, and are
-corrected in the SPECs rather than quietly worked around:
+Twenty-two things this proposal asserted turned out to be wrong, and are
+corrected in the SPECs rather than quietly worked around. The first fifteen came
+out of building it; items 16 to 22 came out of `Verified from nothing`_, and
+five of the seven were invisible until a genuinely cold platform ran them.
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
    published tag was checked. Kubernetes work execs into the k3s node instead,
@@ -208,6 +252,98 @@ corrected in the SPECs rather than quietly worked around:
     so -- "Omitting it left ext-secrets permanently drifted" -- which is the bug
     the new ext-secrets account injection would have reproduced.
 
+16. **A librarian's bucket is derived, not declared** (SPEC014). SPEC014
+    recorded ``hmd-ms-artifact-lib``'s ``BUCKET_NAME`` as a gap only another
+    repository could close, named the exact edit -- a literal under
+    ``deploy.default_configuration`` -- and said "nothing in this one can close
+    it". Both halves were wrong. The cloud never declares that name:
+    ``librarian_base.get_full_bucket_name`` composes it from the librarian's own
+    required ``lib-repo`` dependency on ``hmd-inf-s3bucket``, and
+    ``hmd-inf-s3bucket``'s own stack names the bucket ``make_standard_name`` of
+    the same six parts. A literal would have been a *second* source of truth for
+    a value that already has one, free to drift from the bucket that actually
+    gets created. ``floci.LibrarianBucketName`` derives it from the manifest, so
+    the gap closed here. The half SPEC014 got right survives: a librarian
+    declaring no bucket dependency still gets a warning and no guess.
+
+17. **Only an environment named** ``local`` **can deploy anything** (SPEC014).
+    ``ms-deployment`` passes an environment's own slug as
+    ``hmd deploy --environment``, because a local ``Environment`` entity is
+    typed by its slug -- deliberately, in *both* front ends, so identical
+    instance names stay safe across environments. ``hmd-lib-cdktf`` then reads
+    that same value as the AWS deployment *tier*:
+    ``use_path_style=True if self.environment == "local" else None``. Any other
+    name therefore gets virtual-host S3 addressing against a Floci that
+    publishes no per-bucket DNS, and the environment's first CDKTF node dies in
+    ``tofu init`` with ``no such host`` for the tfstate bucket. One name doing
+    two jobs. Not introduced by this port and not fixable from it -- the Python
+    seeds the identical ``Environment.type``. It had simply never been tried,
+    because every local environment anyone had deployed was called ``local``.
+
+18. **The kubeconfig has to be written between the two changesets** (SPEC009).
+    ``Start`` knows the cluster "may only now exist" and re-runs
+    ``startCluster`` for that case -- but after ``Apply`` returns, and the
+    cluster is created inside Apply's *first* phase and consumed by its second.
+    So Phase B's first Helm chart ran against a kubeconfig nothing had written,
+    Docker created the missing bind-mount source as a directory, and the deploy
+    died with ``IsADirectoryError: [Errno 21] Is a directory:
+    '/root/.kube/config'``. The fifth cold-start defect had taught
+    ``WriteKubeconfig`` to replace such a directory, which is the right repair
+    and did not help: nothing called ``WriteKubeconfig`` at all.
+
+19. **The purge was wrong the first time it ran** (SPEC002). ``env purge`` had
+    been unit-tested and never executed. Its first real run left seven
+    containers, three volumes and the platform network behind, and the three
+    failures were one failure with two consequences: ``floci-ecr-registry`` is
+    not one of the three Floci services the purge names, so it survived holding
+    both a volume and a network endpoint, and the volume sweep and network
+    removal failed behind it. ``RemoveVolumes`` then returned on the first
+    volume it could not remove -- a sweep whose stated purpose is "the volumes
+    an earlier purge could not reach", stopping at the first volume it could not
+    reach. And ``compose.Runner.Remove``, whose comment reads "Only a purge does
+    this", was never called: ``PurgeAll`` went through ``Stop``, leaving four
+    control-plane containers Exited. What item 13 got right is that the
+    *ordering* holds: no purge has ever warned ``Could not connect to the
+    endpoint URL``.
+
+20. **The deployment graph outlives an environment purge** (SPEC002, SPEC009).
+    The graph lives in the control plane's Postgres, so ``env purge <name>``
+    destroys an environment's resources and leaves every
+    ``RepoInstanceDeployment`` reading ``DEPLOYED``. Purge, ``env add``,
+    ``env start`` planned "3 unchanged" and never recreated the database -- two
+    lines below its own warning that no database existed. ``K3sMissing`` already
+    forced the cluster back into the plan for this exact reason; nothing did the
+    same for anything else. The manifest survives a purge too, in
+    ``$HMD_HOME/environments/``, and is silently re-adopted by a later
+    ``env add`` of the same name.
+
+21. **The service-submits path fails on a header, not on Floci** (SPEC010,
+    Phase 4). Phase 4's *Not done* named ``call_deploy_change_set_deployment``
+    as the expected obstacle and guessed the reason would be Floci's Lambda
+    emulation. It is not. ``apply_changeset`` self-invokes with a hand-built
+    event whose headers are ``{"Authorization": auth_token}``; locally there is
+    no auth, so the value is ``None``, and Mangum's API Gateway handler does
+    ``[[k.encode(), v.encode()] for k, v in headers.items()]`` --
+    ``AttributeError: 'NoneType' object has no attribute 'encode'``. Because it
+    is an ``Event`` invocation nothing surfaces: ``apply_changeset`` has already
+    returned 200 and the CLI waits out its full timeout for a workflow that was
+    never going to exist. A cloud caller passes a real token, so it is
+    local-only; the fix is one line in ``hmd-ms-deployment``.
+
+22. **"Only Docker" is also a claim about the image registries** (SPEC014).
+    The compose file pins
+    ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
+    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3`` under
+    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. Of those, only
+    the Postgres one resolves: the gremlin pin is not published under the
+    default registry and the k3s pin is published under *neither* registry at
+    ``0.2``, ``0.3`` or ``stable``, though it carries a RepoDigest and was
+    pulled two days before this was checked. So a machine that has never pulled
+    them cannot provision a cluster or a graph, however self-contained the
+    binary is. The guard that used to *refuse* on an uncached image made this
+    worse rather than surfacing it, and now pulls; the refusal survives for a
+    reference that genuinely resolves nowhere, which is what this is.
+
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -239,6 +375,142 @@ Three of these are ordering: the graph has a shape that must be built up in a
 particular sequence, and a warm graph already has it. The lesson for the rest of
 this port is that "verified against a running platform" and "verified from
 nothing" are different claims, and only the second one tests a bootstrap.
+
+Verified from nothing
+~~~~~~~~~~~~~~~~~~~~~
+
+`The cold start had never run`_ ends with the lesson that "verified against a
+running platform" and "verified from nothing" are different claims, and only the
+second tests a bootstrap. Six items landed on 2026-09-07 -- the runner URL,
+``env purge``, container-ownership detection, the bundled repo trees, the two
+SPEC014 gaps and the parity suite -- each unit-tested, none of them ever run.
+This section records making the second claim, and what making it cost.
+
+**The setup, because it is the whole of the claim.** ``HMD_REPO_HOME`` pointed
+at an empty directory, overridden in the process environment rather than merely
+unset, because ``$HMD_HOME/.config/hmd.env`` sets it. ``nsctl env purge`` with
+no name first, so the control plane, the environment and the deployment graph
+were all genuinely absent. Then ``control-plane start``, ``env add``,
+``env start``. Nothing borrowed from the platform that had been there.
+
+**What passed.**
+
+- The control plane bootstrapped from bundled trees alone: ``hmd-vpc``,
+  ``hmd-postgres-rds``, ``hmd-inf-neptune`` and the three foundation Lambdas,
+  with no checkout of any of them on the machine. This is the requirement's own
+  sentence and it had never been executed.
+- The environment's substrate followed: core instance, ``base-vpc``,
+  ``environment-db`` and ``eks-cluster``, again from bundled trees.
+- **External Secrets came from the code, not from a manifest.** The environment
+  was created by ``nsctl env add`` and had no manifest at all, so the two
+  ext-secrets entries could only have come from ``bom.ExtSecrets`` -- which is
+  exactly the declaration that commit added and exactly what an environment
+  whose manifest the Python CLI wrote would have hidden. Both
+  ``ClusterSecretStore``\ s reconciled to ``Valid``/``Ready``, not to the
+  ``InvalidProviderConfig`` that is this chart's silent local failure.
+- The operator authenticates as the environment's own account:
+  ``AWS_ACCESS_KEY_ID=000000000001`` in the deployed pod, against the control
+  plane's ``000000000000``.
+- ``HMD_WORKFLOW_RUNNER_URL`` is set on ``hmd-ms-deployment`` and on nothing
+  else, and ``syncRunnerSelection`` reconciles it in **both** directions across
+  warm starts -- toggled off, the variable goes and the service says it deploys
+  in-process again; toggled on, it returns.
+- ``compose.CheckOwnership`` produced no false refusal across a dozen starts.
+- SPEC014's ``BUCKET_NAME`` gap closed: the derived bucket
+  ``lib-repo-hmd-inf-s3bucket-cp-local-reg1-hmdtr1`` is created in Floci and set
+  on the deployed Lambda, and the warning no longer fires.
+
+**What failed, and is why this section exists.** Items 17 to 22 of
+`What implementation changed about the design`_. Two were invisible for the
+reason the earlier section names -- a warm graph and a warm ``$HMD_HOME``
+already had what a cold one has to create. Three were verbs that had only ever
+been unit-tested. One, the unpublished images, is not a defect in this
+repository at all and could not have been found any other way.
+
+**What could not be verified here, and why.**
+
+- **A second environment.** Item 17 makes any slug but ``local`` fail its first
+  CDKTF node, so the two-environment check that would compare two operators'
+  account keys side by side cannot be run until that is fixed elsewhere. The
+  single-environment half was verified instead, and is weaker: it shows the
+  injected key is the environment's own, not that two environments differ.
+- **The legacy-Traefik warning.** It fires only on a cluster predating the
+  baked-in ingress, carrying the Helm release the Python installed at runtime.
+  The purge destroyed the only such cluster on this machine. Planting an
+  ``owner=helm,name=traefik`` Secret would prove the grep works and nothing
+  else, so it was not done: the detection is unit-tested and unverified in
+  situ, and saying so is worth more than a synthetic pass.
+- **Artifact resolution for the eight unfetched bundled classes.** Probing them
+  with ``hmd build --prebuild-download-only`` returns ``Unauthorized``: the
+  librarian wants credentials. Pinning them blind is the thing that breaks
+  ``hmd build`` for everyone, so they stay as committed trees and this stays
+  open (item 22 in SPEC006's note).
+
+A real cold bootstrap, measured
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Phase 5's *Not done* said nothing in the port measured a real cold bootstrap's
+speedup, only a synthetic DAG of the same shape, and predicted the real gain
+would be smaller because the real one is dominated by container pulls and
+Terraform. It was not measurable until a cold start worked from nothing at all.
+
+Two complete runs, identical but for ``HMD_LOCAL_RUNNER_PARALLELISM``, each
+starting from ``nsctl env purge`` with no name -- no control plane, no
+environment, no deployment graph -- and ending with a reconciled environment.
+Same machine, same binary, same warm image cache.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22 22
+
+   * - Phase
+     - Parallelism 4
+     - Parallelism 1
+     - Difference
+   * - Control-plane bootstrap
+     - 132 s
+     - 145 s
+     - 13 s (noise)
+   * - Environment (4 substrate nodes + 2 declared)
+     - 223 s
+     - 237 s
+     - 14 s (6%)
+   * - Total
+     - 355 s
+     - 382 s
+     - 27 s (7%)
+
+**The prediction was right and the number is unflattering.** The environment
+phase -- the only one the scheduler touches -- saves **14 seconds out of 223, or
+six per cent**. Against the synthetic DAG's 8 s against 21 s, a 62% saving, that
+is a different claim entirely.
+
+Worse, and more usefully: the control-plane row is the same measurement with the
+scheduler taken out of the picture, and it moved by 13 seconds between two runs
+that differ only in a flag it does not read. So the run-to-run variance of a
+cold bootstrap on this machine is about the size of the gain. Six per cent is
+real -- it appears in the right direction, in the right phase, and a third run
+of the earlier binary at the default parallelism landed at 213 s -- but a single
+pair of runs cannot separate it from noise, and this document should say so
+rather than quote 6% as though it had been isolated.
+
+Two structural reasons, both of which the synthetic DAG could not have shown.
+The control-plane bootstrap does not use the scheduler at all -- it runs through
+``internal/runner`` in-process, because ms-deployment is its own last node --
+so nothing in that phase can overlap however the flag is set; it is included
+above only because a cold start pays for it and its variance is the honest
+noise floor for the row below. And the environment's substrate is four nodes of
+which three are chained: the core instance, then ``base-vpc``, then
+``eks-cluster`` and ``environment-db`` in parallel. One overlapping pair is the
+whole of the available concurrency, where the synthetic DAG had six independent
+nodes and could show 8 s against 21 s.
+
+The measurement stands as the correction to Phase 5's deliverable rather than as
+an argument against the scheduler. Concurrency that saves a few seconds on a
+four-node substrate is the same concurrency that will matter on a manifest of
+twenty-eight, which is what an environment with workloads in it actually is --
+but this document should not have been claiming a real speedup it had only ever
+measured synthetically.
 
 Motivation
 ----------
@@ -497,6 +769,50 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     This closes a genuine gap in the Python CLI, where the control plane has no
     independent lifecycle at all -- it is only ever stopped as a side effect of
     a bare ``hmd neuronsphere down``.
+
+    *``env purge`` was run for the first time on 2026-09-07 and was wrong.* It
+    had been unit-tested throughout; its first real execution left seven
+    containers, three volumes and the platform network behind, and the three
+    failures were one failure with two consequences.
+
+    ``floci-ecr-registry`` is not one of the three Floci services the purge names
+    by resource identifier -- eks, rds, neptune -- so it survived, holding both
+    its own volume and a live endpoint on the platform network. The
+    leftover-volume sweep and the network removal then failed *behind* it, and
+    two ``floci-rds-db-*`` volumes survived with it. Both sweeps are by label
+    now: ``io.floci.account`` scoped to the environment, and a cross-account
+    ``floci`` sweep between the control-plane teardown and the volume and
+    network removals. The ``floci`` label is on every container Floci spawns and
+    on nothing else -- the compose-created ``floci`` container does not carry it
+    -- so a service Floci grows next needs no change here.
+
+    ``RemoveVolumes`` returned on the first volume it could not remove. A sweep
+    whose stated purpose is "the volumes an earlier purge could not reach"
+    cannot stop at the first volume it cannot reach; that is exactly how
+    forty-nine of them accumulated.
+
+    ``compose.Runner.Remove`` was written for this -- its comment reads "Only a
+    purge does this" -- and nothing called it. ``PurgeAll`` went through
+    ``Stop``, which is ``compose stop``, so a full purge left ``hmd_proxy``,
+    ``floci``, ``hmd_deployment_gui`` and ``hmd_nsrunner`` as Exited containers
+    named after a platform whose network and every ``$HMD_HOME`` path they were
+    configured from had just been deleted.
+
+    What item 13 got right is the ordering, and it held: no purge has ever
+    warned ``Could not connect to the endpoint URL "http://localhost:4566/"``.
+
+    *Two things a purge deliberately does not destroy, and one it should have.*
+    The environment manifest lives in ``$HMD_HOME/environments/``, outside the
+    state directory a purge removes; it is the user's declaration, often
+    version-controlled, and rebuilding from it is a common reason to purge. But
+    a purge also unregisters the environment, so the file is orphaned and
+    silently re-adopted by a later ``env add`` of the same name -- a purge
+    announcing "none of it comes back" followed by a start trying to deploy 28
+    workload repos nobody had declared in that session. It is kept, and now
+    named. The deployment graph is the one that should have been handled: it
+    lives in the control plane's Postgres and outlives an environment purge, so
+    ``env purge``, ``env add``, ``env start`` planned "3 unchanged" and never
+    recreated the database. See item 20.
 
 .. spec:: The environment registry is read, never re-derived
     :id: HMD_CLI_NERD002_SPEC003
@@ -861,6 +1177,22 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     syntax divergence has no current blast radius and a migration note in the
     plugin development guide is sufficient.
 
+    *Verified from nothing on 2026-09-07.* A control plane and an environment
+    deployed entirely from the bundled trees, with ``HMD_REPO_HOME`` pointed at
+    an empty directory -- which is the claim this SPEC exists to support and had
+    never been executed. Nothing in the exclusion list turned out to have
+    dropped a file a deploy reads: the ten trees are packed as
+    ``meta-data/`` plus ``src/``, minus build outputs and
+    ``meta-data/resources_output/``, and every node deployed.
+
+    *Still open:* the eight classes that are not declared as
+    ``pre_build_artifacts`` travel as committed trees, and whether they publish
+    a consumable ``build`` artifact remains unverified. Probing them with
+    ``hmd build --prebuild-download-only`` returns ``Unauthorized``: resolving
+    one needs librarian credentials. Pinning an entry that does not resolve
+    breaks ``hmd build`` for everyone, which is why it was not done blind and is
+    still not done.
+
 .. spec:: AWS SDK -- aws-sdk-go-v2 against Floci
     :id: HMD_CLI_NERD002_SPEC007
     :links: HMD_CLI_NERD002
@@ -1124,6 +1456,30 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     test against snapshots written by the Python CLI, not a self-consistency
     test.
 
+    *Two more ordering defects, found on 2026-09-07 by the same means.* Both
+    are the shape this SPEC's amendment already describes -- a step that a warm
+    platform had always found already done.
+
+    **The kubeconfig has to exist between the two changesets.** The two-phase
+    apply above creates the k3s cluster in Phase A and deploys the first Helm
+    chart onto it in Phase B, and nothing wrote the cluster's kubeconfig in
+    between: ``startCluster`` is its only writer and a cold start skips it,
+    there being no container yet. ``Start``'s "the cluster may only now exist"
+    recovery runs *after* ``Apply`` returns, one phase too late. Docker then
+    created the missing bind-mount source as a directory and Phase B's first
+    node died with ``IsADirectoryError``. ``provisionNewCluster`` runs between
+    the phases now.
+
+    **A container that is aliased is a container that has been renumbered.**
+    Attaching the ``global-graph`` alias disconnects and reconnects the graph
+    container, which gives it a new IP; the Gremlin server binds the container's
+    specific address rather than ``0.0.0.0``, so it kept listening on the
+    address it had at startup. ``docker ps`` reported it healthy, its own log
+    showed a working server, and every client got connection refused -- the
+    artifact librarian answered 500 to every request. The graph is restarted
+    when, and only when, aliasing actually reconnected it; a warm start finds
+    the alias already attached and does nothing.
+
 .. spec:: The DAG-runner service replaces the in-process runner
     :id: HMD_CLI_NERD002_SPEC010
     :links: HMD_CLI_NERD002
@@ -1232,6 +1588,48 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     **Open:** the submit path's authentication (Argo's carries a bearer token
     from Secrets Manager) and what happens to an in-flight workflow when the
     control plane stops.
+
+    *The service-submits path was run on 2026-09-07 and does not work.* Both
+    paths are wired -- ``HMD_WORKFLOW_RUNNER_URL`` is set on
+    ``hmd-ms-deployment`` at bootstrap and reconciled in both directions on
+    every warm start -- and with ``HMD_LOCAL_SERVICE_SUBMIT=1`` the CLI reaches
+    ``waiting for the control plane to submit the workflow...`` and no workflow
+    ever comes.
+
+    The obstacle is not Floci's Lambda emulation, which Phase 4 assumed it would
+    be. ``apply_changeset`` applies the changeset, logs "Asynchronously
+    deploying ChangeSetDeployment" and self-invokes through
+    ``call_deploy_change_set_deployment``, which builds its own event::
+
+        payload = {
+            "path": f"/apiop/deploy_change_set_deployment/{identifier}",
+            "httpMethod": "POST",
+            "body": None,
+            "headers": {"Authorization": auth_token},
+            ...
+        }
+
+    Locally there is no auth, so ``auth_token`` is ``None``, and Mangum's API
+    Gateway handler does
+    ``[[k.encode(), v.encode()] for k, v in headers.items()]`` --
+    ``AttributeError: 'NoneType' object has no attribute 'encode'``. The
+    deploying invocation dies before it submits anything, and because it is an
+    ``Event`` invocation the failure reaches only that Lambda's own log:
+    ``apply_changeset`` has already returned 200, so the CLI waits out its full
+    timeout for a workflow that was never going to be created.
+
+    A cloud caller passes a real token, so this is local-only. The fix is one
+    line in ``hmd-ms-deployment`` -- omit the header when there is no token --
+    and cannot be made here. Until then ``HMD_LOCAL_SERVICE_SUBMIT`` stays
+    opt-in, which it always was, and the CLI-submits path is the one every
+    deploy in this document took.
+
+    ``nsctl``'s own message was wrong too and is fixed. It said "the control
+    plane may not be configured with ``HMD_WORKFLOW_RUNNER_URL``" -- the one
+    thing ``syncRunnerSelection`` guarantees, and which this code path cannot be
+    reached without, since the runner has to be answering for the CLI to be
+    waiting at all. ``NoWorkflowError`` names the cause and the string to grep
+    the Lambda log for.
 
 .. spec:: Parallel node execution respecting dependencies
     :id: HMD_CLI_NERD002_SPEC011
@@ -1397,11 +1795,22 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     *Built 2026-09-07, for the core and no more.* ``test/nsctl_parity.robot``
     performs each operation with one front end and verifies it with the other,
-    in both directions, for ``env start``, ``env stop``, ``status`` and the
-    registry. **That is the whole of it.** Full parity across every verb is a
-    much larger suite, and claiming this one covers it would repeat the mistake
-    Phase 4 made about the runner: recording a deliverable as met because part
-    of it was.
+    in both directions, for ``env start``, ``env stop``, ``status``,
+    ``env purge`` and the registry. **That is the whole of it.** Full parity
+    across every verb is a much larger suite, and claiming this one covers it
+    would repeat the mistake Phase 4 made about the runner: recording a
+    deliverable as met because part of it was.
+
+    *``env purge`` added after the verification pass, and the cost is recorded
+    rather than discovered.* It is the newest verb, the one where a leftover is
+    the entire failure mode, and the one whose first real run left seven
+    containers, three volumes and the platform network behind. Each direction
+    destroys the environment and rebuilds it, so covering it adds two cold
+    starts to every run of the suite -- and the rebuild is itself the
+    assertion, because a purge that left something behind surfaces as a
+    bootstrap failure rather than silently. The purge tests also ask Docker
+    directly, not just the two registries: what a purge leaves is not something
+    either CLI is in a position to report.
 
     It needs a real platform by definition, so it sits with the Docker-dependent
     suites and is not wired into ``make test-cli`` or CI. ``make test-parity``
@@ -1529,21 +1938,47 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     follow for any others: name the missing declaration, do not substitute for
     it.
 
-    **The change needed, so this is tracked rather than merely reported.** In
-    ``hmd-ms-artifact-lib``'s ``meta-data/manifest.json``, under
-    ``deploy.default_configuration``, alongside the ``service_config`` block
-    that is already read from there. ``floci.ServiceParameters`` reads that
-    section and merges what it finds into the Lambda's environment, so a
-    ``BUCKET_NAME`` declared there arrives without ``nsctl`` knowing anything
-    about librarians. The bucket itself is created the same way any other
-    RepoClass-declared bucket is.
+    **CLOSED 2026-09-07, and the fix above was wrong.** The paragraph that stood
+    here prescribed a literal ``BUCKET_NAME`` under
+    ``deploy.default_configuration`` in ``hmd-ms-artifact-lib``, and asserted
+    that "this is a change in another repository and nothing in this one can
+    close it". Both claims were false, and the second one is why this sat open.
 
-    Until that lands, ``nsctl`` warns at bootstrap that the service will not
-    serve, and the control plane is otherwise unaffected. **This is a change in
-    another repository and nothing in this one can close it**; recording the
-    exact edit here is the most this SPEC can do. Accepting it permanently would
-    mean accepting a foundation service that answers every request with an
-    error, which is not a state to design around.
+    The cloud does not declare that name anywhere.
+    ``hmd_lib_cdktf_factories.librarian_base.get_full_bucket_name`` *derives* it
+    from the librarian's own required ``lib-repo`` dependency on
+    ``hmd-inf-s3bucket``::
+
+        f"{lib-repo.instance_name}-{lib-repo.repo_name}-{lib-repo.deployment_id}-"
+        f"{environment}-{hmd_region}-{customer_code}"
+
+    and ``hmd-inf-s3bucket``'s own local stack names the bucket
+    ``self.base_name.replace("_", "-")``, which is ``make_standard_name`` of the
+    same six parts. So the RepoClass *does* name the bucket -- through a
+    dependency rather than a literal -- and the declaration this SPEC asked for
+    would have been a second source of truth for a value that already has one,
+    free to drift from the bucket that actually gets created.
+
+    ``floci.LibrarianBucketName`` reads the dependency out of the manifest and
+    derives through ``tools.ResourceIdentifier``, matching the repo that
+    *creates* the bucket rather than the one that reads it; the bootstrap then
+    creates it with the ``EnsureBucket`` the provisioner already uses for the
+    tfstate bucket, because ms-deployment is the last node of that bootstrap and
+    there is nothing yet to submit a BOM entry to. Verified on a cold bootstrap:
+    ``lib-repo-hmd-inf-s3bucket-cp-local-reg1-hmdtr1`` exists in Floci and is set
+    on the deployed Lambda.
+
+    The half this SPEC got right survives and is the general rule: a librarian
+    that declares no bucket dependency at all still gets the warning and no
+    guess. Naming a missing declaration beats substituting for it -- what was
+    wrong was believing there was no declaration to read.
+
+    Also worth recording, because it changes what the gap *was*: the Python CLI
+    does not set ``BUCKET_NAME`` in extend mode either. Its only assignment is
+    ``local_plugin_loader``'s, on the platform-mode path, from
+    ``nsplugin.json``'s bare bucket name. The local artifact librarian had been
+    equally unserved under both front ends for as long as extend mode has
+    existed.
 
     **GAP: the RepoClass declares cloud wiring, which must be resolved.** A
     service's declared engines name a Secrets Manager secret by dependency and
@@ -1587,6 +2022,47 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     This was chosen over the rename deliberately, not for cost: a refusal is
     correct on its own terms, while a half-completed rename would leave the same
     silent overwrite behind a name nobody recognises.
+
+    **GAP: only an environment named** ``local`` **can deploy.** ``ms-deployment``
+    passes an environment's own slug as ``hmd deploy --environment``, because a
+    local ``Environment`` entity is typed by its slug -- deliberately, in both
+    front ends. ``hmd-lib-cdktf`` reads that same value as the AWS deployment
+    *tier* and enables path-style S3 addressing only when it is literally
+    ``"local"``, so any other name addresses Floci virtual-host style and the
+    environment's first CDKTF node dies in ``tofu init``::
+
+        Failed to get existing workspaces: ... Get
+        "http://hmd.000000000001.reg1.tfstate.neuronsphere:4566/?list-type=2..."
+        dial tcp: lookup hmd.000000000001.reg1.tfstate.neuronsphere: no such host
+
+    The fix belongs in ``hmd-lib-cdktf``, three lines under its own comment that
+    "the endpoint itself comes from AWS_ENDPOINT_URL in the environment": the
+    predicate should be "the endpoint is a local Floci", not "the tier is spelled
+    local". Not introduced by this port, not fixable from it, and affecting the
+    Python identically -- it had simply never been tried. ``nsctl env add`` and
+    ``env start`` name it at both ends rather than letting it surface 955 lines
+    into Terraform output. Registering, starting, stopping and purging such an
+    environment all work; only deploys are affected.
+
+    **GAP: the images Floci spawns its backends from are not published.** The
+    compose file pins ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
+    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3`` under
+    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. Checked against
+    both registries on 2026-09-07, only the Postgres pin resolves: the gremlin
+    pin is absent from the default registry, and the k3s pin is absent from
+    *both* at ``0.2``, ``0.3`` and ``stable`` -- though the image carries a
+    RepoDigest and was pulled from ``ghcr.io/hmdlabs`` two days earlier, so the
+    tag existed and has gone.
+
+    This is the one gap that contradicts the requirement's own sentence
+    directly: a machine whose only prerequisite is Docker cannot provision a
+    cluster or a graph if the images cannot be fetched, however self-contained
+    the binary is. It is a publishing gap in the image repositories and nothing
+    here can close it. What ``nsctl`` changed is that an uncached image is now
+    *pulled* rather than refused -- the old guard turned "not cached" into a
+    hard stop, which on a genuinely fresh machine is every image -- and the
+    refusal that remains names ``HMD_LOCAL_NS_CONTAINER_REGISTRY`` as a likely
+    cause, which is what it actually was.
 
     **SUPERSEDED -- MEDIUM: installed-package plugin contributions.** Plugin
     discovery is withdrawn entirely (SPEC005), so neither half ports and the
@@ -1831,11 +2307,38 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     is no existing machine. ``syncRunnerSelection`` reconciles it on every start
     against the deployed function's own configuration, in both directions.
 
-    *Still unverified:* the end-to-end submit. Nothing has yet run
-    ``HMD_LOCAL_SERVICE_SUBMIT=1`` against a control plane with the runner on,
-    so ``call_deploy_change_set_deployment`` -- the async self-invoking Lambda
-    this *Not done* named -- remains as unproven under Floci as it was. What has
-    changed is that it is now reachable.
+    *Run at last (2026-09-07), and it does not work.*
+    ``HMD_LOCAL_SERVICE_SUBMIT=1`` against a control plane with the runner on
+    reaches ``waiting for the control plane to submit the workflow...``, and no
+    workflow ever comes. The obstacle this *Not done* named is real and the
+    reason it guessed is not: Floci's Lambda emulation is fine.
+    ``apply_changeset`` applies the changeset, logs "Asynchronously deploying
+    ChangeSetDeployment" and self-invokes with a hand-built event whose headers
+    are ``{"Authorization": auth_token}``. Locally there is no auth, so the
+    value is ``None``, and Mangum's API Gateway handler does
+    ``[[k.encode(), v.encode()] for k, v in headers.items()]``. The deploying
+    invocation dies with ``AttributeError: 'NoneType' object has no attribute
+    'encode'`` before submitting anything, and because it is an ``Event``
+    invocation nothing surfaces -- ``apply_changeset`` has already returned 200.
+
+    A cloud caller passes a real token, so this is local-only, and the fix is
+    one line in ``hmd-ms-deployment``: omit the header when there is no token.
+    Until then the flag stays opt-in and the CLI-submits path -- which every
+    deploy in this document took -- is the one that works.
+
+    ``nsctl``'s own message was also wrong and is fixed: it blamed
+    ``HMD_WORKFLOW_RUNNER_URL``, the one thing ``syncRunnerSelection``
+    guarantees and which this code path cannot be reached without.
+    ``NoWorkflowError`` now names the cause and the string to grep the Lambda
+    log for.
+
+    *Verified (2026-09-07):* ``syncRunnerSelection`` reconciles in both
+    directions on a warm start -- toggled off, ``HMD_WORKFLOW_RUNNER_URL``
+    disappears from the deployed function and the step says the service deploys
+    in-process again; toggled on, it returns. The "predates this commit" case it
+    was written for cannot be reproduced any more, no such control plane having
+    survived the purge, but the reconcile is the same function reached the same
+    way.
 
     *Superseded by Phase 6:* the image is not published and will not be. It is
     built on demand from sources embedded in the binary, so a Homebrew install
@@ -1859,9 +2362,12 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     cancellation, because cancelling the context nodes execute under kills
     them mid-deploy. See SPEC011.
 
-    *Not done:* nothing in the port measures a *real* cold bootstrap's
-    speedup, only a synthetic DAG of the same shape. The real one is dominated
-    by container pulls and Terraform, and its gain will be smaller.
+    *Not done, and now done:* nothing in the port measured a *real* cold
+    bootstrap's speedup, only a synthetic DAG of the same shape. The prediction
+    that "the real one is dominated by container pulls and Terraform, and its
+    gain will be smaller" is recorded below, measured, and correct -- see
+    `A real cold bootstrap, measured`_. It was not measurable until a cold start
+    worked from nothing at all.
 
     *Amended again (2026-09-07):* the first real DAG run showed in-degree
     scheduling is necessary and not sufficient. Nodes of one RepoClass share a
@@ -1899,6 +2405,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     that core, which is a smaller and more honest claim than "there is no
     harness".
 
+    *A third bullet added, from verification:* only an environment named
+    ``local`` can deploy (item 17). It is not a ``nsctl`` defect and affects the
+    Python identically, but a document recommending ``nsctl env add <name>`` to
+    new users has to say that ``<name>`` is not free.
+
     *Untested:* the Homebrew cask cannot be exercised without pushing to
     ``neuronsphere/homebrew-tap``. GoReleaser generates it and its shape was
     checked against ``hmd-cli-bartleby``'s, but no ``brew install`` has run.
@@ -1914,6 +2425,18 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Deliverable met:* ``nsctl env start`` brings up a control plane, an
     environment and a 28-instance manifest from a purged ``HMD_HOME`` with no
     Python CLI involved.
+
+    **Phase 8 -- Verification. [DONE]** Not planned either, and the same kind of
+    thing Phase 7 was. Six items had landed unit-tested and unrun; running them
+    from nothing -- no ``HMD_REPO_HOME``, no ``$HMD_HOME``, no deployment graph
+    -- produced items 16 to 22 of `What implementation changed about the
+    design`_ and closed one SPEC014 gap outright.
+
+    *Deliverable met:* the requirement's own sentence, executed. A machine with
+    no checkout of any repo deploys a control plane and an environment from the
+    trees inside the binary, with External Secrets reconciled and no manifest
+    involved. See `Verified from nothing`_ for what passed, what failed, and the
+    three things that could not be verified here and why.
 
 Dependency Map
 --------------

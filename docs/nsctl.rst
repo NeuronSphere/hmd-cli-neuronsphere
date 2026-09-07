@@ -88,10 +88,19 @@ nothing here is a one-way door -- reach for the Python CLI for any of it and
 carry on:
 
 - **The parity harness covers the core and no more.**
-  ``test/nsctl_parity.robot`` checks ``env start``, ``env stop``, ``status``
-  and the registry from both front ends, in both directions. Every other verb is
-  still checked by hand, so one that has not been exercised that way has not
-  been proven equivalent.
+  ``test/nsctl_parity.robot`` checks ``env start``, ``env stop``, ``status``,
+  ``env purge`` and the registry from both front ends, in both directions. Every
+  other verb is still checked by hand, so one that has not been exercised that
+  way has not been proven equivalent.
+
+- **Only an environment named** ``local`` **can deploy.** ``nsctl env add dev2``
+  registers, starts, stops and purges correctly, and its first CDKTF node fails
+  in ``tofu init``: ``hmd-ms-deployment`` passes the environment's slug as
+  ``hmd deploy --environment``, and ``hmd-lib-cdktf`` reads that value as the
+  AWS deployment tier and enables path-style S3 addressing only when it is
+  literally ``"local"``. Neither front end is affected differently -- the Python
+  seeds the same ``Environment.type`` -- and the fix is in ``hmd-lib-cdktf``.
+  ``nsctl`` warns at ``env add`` and again before the deploy.
 - **Plugin-contributed workloads are invisible until imported.** Anything an
   installed plugin package contributed to an environment brought up by ``hmd``
   needs ``nsctl repo import`` once. See `Using it alongside the Python CLI`_.

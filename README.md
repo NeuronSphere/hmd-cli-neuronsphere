@@ -44,8 +44,13 @@ Full guide: [`docs/nsctl.rst`](docs/nsctl.rst).
 Both front ends work against one `HMD_HOME`, so reaching for the Python CLI for
 any of these costs nothing:
 
-- **The parity harness covers `env start`, `env stop`, `status` and the
-  registry.** Every other verb's parity is still checked by hand.
+- **The parity harness covers `env start`, `env stop`, `status`, `env purge` and
+  the registry.** Every other verb's parity is still checked by hand.
+- **Only an environment named `local` can deploy.** Any other slug registers and
+  starts, and its first CDKTF node fails in `tofu init` -- `hmd-lib-cdktf` gates
+  path-style S3 addressing on the deployment tier being literally `"local"`,
+  while ms-deployment passes the environment's slug. `nsctl` warns; the fix is
+  in that repo, and the Python CLI is affected identically.
 - **Plugin-contributed workloads need `nsctl repo import` once** per
   environment that was brought up with `hmd`.
 - **The DAG runner is opt-in** and its first start builds a local image.
