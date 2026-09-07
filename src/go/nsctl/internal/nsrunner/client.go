@@ -203,9 +203,7 @@ func (c *Client) WaitForActive(ctx context.Context, namespace, environment, csdN
 			return wf, nil
 		}
 		if time.Now().After(deadline) {
-			return Workflow{}, fmt.Errorf(
-				"no workflow appeared for %s within %s; the control plane may not be configured with HMD_WORKFLOW_RUNNER_URL",
-				environment, timeout)
+			return Workflow{}, &NoWorkflowError{Environment: environment, Timeout: timeout}
 		}
 		select {
 		case <-ctx.Done():
@@ -213,4 +211,45 @@ func (c *Client) WaitForActive(ctx context.Context, namespace, environment, csdN
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// NoWorkflowError is the inverted submit path timing out: the changeset was
+// applied and no workflow followed.
+//
+// A distinct type because the message it replaced blamed the one thing nsctl
+// had already guaranteed. "The control plane may not be configured with
+// HMD_WORKFLOW_RUNNER_URL" sent the reader to check a variable that
+// controlplane.syncRunnerSelection reconciles onto the deployed Lambda on every
+// start, and that this code path cannot be reached without -- the runner has to
+// be answering for the CLI to be waiting at all.
+//
+// The real cause, found the first time this path ever ran:
+// hmd-ms-deployment's call_deploy_change_set_deployment builds a synthetic
+// Lambda event with `"headers": {"Authorization": auth_token}` and invokes
+// itself. Locally there is no auth, so auth_token is None, and Mangum's API
+// Gateway handler does `[[k.encode(), v.encode()] for k, v in headers.items()]`
+// -- AttributeError: 'NoneType' object has no attribute 'encode'. The
+// self-invocation dies before reaching any runner, and because it is an Event
+// invocation nothing surfaces to the caller: apply_changeset already returned
+// 200 and the CLI waits out its timeout against a workflow that was never going
+// to be created.
+//
+// A cloud caller passes a real token, so this is local-only, and it is a change
+// in that repository -- omitting the header when there is no token.
+type NoWorkflowError struct {
+	Environment string
+	Timeout     time.Duration
+}
+
+func (e *NoWorkflowError) Error() string {
+	return fmt.Sprintf(
+		"no workflow appeared for %s within %s. The changeset was applied and the control plane's "+
+			"asynchronous self-invocation did not reach the runner.\n"+
+			"  Known cause: hmd-ms-deployment's call_deploy_change_set_deployment sends "+
+			"`\"Authorization\": None` in the event it invokes itself with, and Mangum cannot encode a "+
+			"None header value -- so the deploying invocation dies before it submits anything, silently, "+
+			"because it is an Event invocation.\n"+
+			"  Check the ms-deployment Lambda's log for \"'NoneType' object has no attribute 'encode'\". "+
+			"Until that is fixed there, leave HMD_LOCAL_SERVICE_SUBMIT unset and the CLI submits directly.",
+		e.Environment, e.Timeout)
 }

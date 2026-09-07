@@ -2,6 +2,35 @@
 
 ## 2026-09-07
 
+- fix: Say why the inverted submit path times out, now that it has been run
+
+  Phase 4's *Not done* named `call_deploy_change_set_deployment` -- "an async
+  self-invoking Lambda whose behaviour under Floci is unverified" -- as the
+  expected obstacle, and ada33cc made it reachable without reaching it. It has
+  now been run.
+
+  It is reached, and it fails, for a reason nobody had guessed.
+  `apply_changeset` invokes the Lambda with a hand-built event whose headers are
+  `{"Authorization": auth_token}`; locally there is no auth, so `auth_token` is
+  `None`, and Mangum's API Gateway handler does
+
+      [[k.encode(), v.encode()] for k, v in headers.items()]
+
+  giving `AttributeError: 'NoneType' object has no attribute 'encode'`. The
+  deploying invocation dies before it submits anything. Nothing surfaces:
+  `apply_changeset` has already returned 200 and the self-invocation is an
+  `Event` call, so the CLI waits out its full two minutes for a workflow that
+  was never going to exist. A cloud caller passes a real token, so this is
+  local-only, and the fix -- omitting the header when there is no token -- is in
+  hmd-ms-deployment.
+
+  What nsctl can fix is the message, which blamed the one thing nsctl
+  guarantees: "the control plane may not be configured with
+  HMD_WORKFLOW_RUNNER_URL". `syncRunnerSelection` reconciles that variable onto
+  the deployed Lambda on every start, and this code path cannot be reached
+  unless the runner is already answering. `NoWorkflowError` now names the real
+  cause, the string to grep the Lambda log for, and what to do meanwhile.
+
 - feat: Derive a librarian's BUCKET_NAME the way the cloud derives it
 
   SPEC014 recorded this as a gap only another repository could close, named the

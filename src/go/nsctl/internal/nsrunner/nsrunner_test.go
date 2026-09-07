@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
@@ -617,4 +618,33 @@ func errorsAs(err error, target **SubmitError) bool {
 		*target = se
 	}
 	return ok
+}
+
+// The message this replaced blamed HMD_WORKFLOW_RUNNER_URL, which
+// syncRunnerSelection reconciles onto the deployed Lambda on every start and
+// which this path cannot be reached without. The first real run of the inverted
+// submit path spent its two minutes waiting and then pointed at the one thing
+// that was definitely fine.
+func TestNoWorkflowErrorNamesTheCauseRatherThanTheVariable(t *testing.T) {
+	t.Parallel()
+
+	err := &NoWorkflowError{Environment: "local", Timeout: 2 * time.Minute}
+	msg := err.Error()
+
+	if strings.Contains(msg, "may not be configured with HMD_WORKFLOW_RUNNER_URL") {
+		t.Error("the message still blames the variable nsctl guarantees")
+	}
+	// Enough to act on without reading this source: where it failed, what the
+	// symptom looks like in the Lambda log, and what to do meanwhile.
+	for _, want := range []string{
+		"local",
+		"2m0s",
+		"call_deploy_change_set_deployment",
+		"'NoneType' object has no attribute 'encode'",
+		"HMD_LOCAL_SERVICE_SUBMIT",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the message does not mention %q: %s", want, msg)
+		}
+	}
 }
