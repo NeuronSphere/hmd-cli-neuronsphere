@@ -51,11 +51,11 @@ func TestParseTheBundledControlPlaneFile(t *testing.T) {
 
 	p := parseControlPlane(t, controlPlaneEnv())
 
-	if len(p.Services) != 4 {
-		t.Fatalf("got %d services, want 4 (proxy, floci, deployment-gui, nsrunner): %v", len(p.Services), p.Services)
+	if len(p.Services) != 5 {
+		t.Fatalf("got %d services, want 5 (proxy, floci, deployment-gui, nsrunner, authd): %v", len(p.Services), p.Services)
 	}
 	// Sorted, so output and tests do not depend on map iteration order.
-	want := []string{"deployment-gui", "floci", "nsrunner", "proxy"}
+	want := []string{"authd", "deployment-gui", "floci", "nsrunner", "proxy"}
 	for i, w := range want {
 		if p.Services[i].Key != w {
 			t.Errorf("service %d = %q, want %q (services must be in a deterministic order)", i, p.Services[i].Key, w)
@@ -322,4 +322,56 @@ func TestParseFailsOnAnUnexpandableValue(t *testing.T) {
 
 func portKey(p Port) string {
 	return fmt.Sprintf("%d-%d:%d-%d", p.HostStart, p.HostEnd, p.ContainerStart, p.ContainerEnd)
+}
+
+// The identity provider is the runner's image with different arguments, not a
+// second program: the Dockerfile's ENTRYPOINT is /nsctl and its CMD is only a
+// default. If these ever diverge, enabling auth alone would try to pull an
+// image nothing builds.
+func TestAuthdIsTheRunnerImageWithDifferentArguments(t *testing.T) {
+	t.Parallel()
+
+	p := parseControlPlane(t, controlPlaneEnv())
+	authd := service(t, p, "authd")
+	runner := service(t, p, "nsrunner")
+
+	if authd.Image != runner.Image {
+		t.Errorf("authd runs %q and nsrunner runs %q; they are the same binary and must be the same image",
+			authd.Image, runner.Image)
+	}
+	if got := strings.Join(authd.Command, " "); got != "authd serve --addr :8080" {
+		t.Errorf("authd command = %q", got)
+	}
+	if len(runner.Command) != 0 {
+		t.Errorf("nsrunner sets a command (%v); serving is the image's own default", runner.Command)
+	}
+	if len(authd.Profiles) != 1 || authd.Profiles[0] != "authd" {
+		t.Errorf("profiles = %v, want the authd profile: it is off by default", authd.Profiles)
+	}
+	for _, port := range authd.Ports {
+		t.Errorf("authd publishes %v; only hmd_proxy may publish, which is what lets one issuer URL "+
+			"work from the host, a pod and a Floci container alike", port)
+	}
+}
+
+// The proxy answers for the issuer's hostname on the platform network, so a
+// Floci Lambda resolves the same name the browser and the cluster do. Three
+// resolvers, one string -- a consumer that fetched keys under one name and
+// reads `iss` as another rejects every token.
+func TestTheProxyAnswersForTheIssuerHostname(t *testing.T) {
+	t.Parallel()
+
+	s := service(t, parseControlPlane(t, controlPlaneEnv()), "proxy")
+	if len(s.Networks) != 1 {
+		t.Fatalf("proxy networks = %v", s.Networks)
+	}
+	var found bool
+	for _, alias := range s.Networks[0].Aliases {
+		if alias == "auth.local.neuronsphere.io" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("aliases = %v, want the identity provider's issuer hostname", s.Networks[0].Aliases)
+	}
 }

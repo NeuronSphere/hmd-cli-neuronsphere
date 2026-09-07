@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
@@ -49,6 +50,25 @@ const (
 	RunnerContainer = "hmd_nsrunner"
 	RunnerRoutePath = "nsrunner"
 	RunnerPort      = 8080
+)
+
+// AuthClientID is the trusted client id every web application's secret lists.
+//
+// A name rather than an opaque id because there is no registry to allocate one
+// from: locally a client's secret is its id, so the id may as well say what it
+// is when it turns up in a token or a log.
+const AuthClientID = "neuronsphere-local"
+
+// AuthProfile gates the mock identity provider container.
+const AuthProfile = "authd"
+
+// AuthContainer is the identity provider's container name and AuthPort the port
+// it listens on. Like the runner it publishes nothing to the host: it is
+// reached through hmd_proxy, by name, so that one URL works from the browser,
+// from a pod and from a Floci container alike.
+const (
+	AuthContainer = "hmd_authd"
+	AuthPort      = 8080
 )
 
 // DefaultGUIPort is slot 0's spare port.
@@ -266,7 +286,11 @@ func Start(ctx context.Context, opts *Options) error {
 	// Before compose: a profile is active for a container whose image does not
 	// exist yet, and compose would fail trying to pull it from a registry that
 	// does not have it.
-	if RunnerEnabled(opts) {
+	// One image, two services. The runner and the identity provider are the
+	// same binary with different arguments -- the Dockerfile's ENTRYPOINT is
+	// /nsctl and its CMD is only a default -- so enabling either needs the
+	// build, and enabling both needs it once.
+	if RunnerEnabled(opts) || AuthEnabled(opts) {
 		if err := EnsureRunnerImage(ctx, opts, docker); err != nil {
 			return err
 		}
@@ -393,6 +417,20 @@ func Start(ctx context.Context, opts *Options) error {
 		opts.warn("%v", err)
 	}
 
+	// The `okta` secret, whenever auth is on.
+	//
+	// On every start rather than in Bootstrap, for the same reason
+	// syncRunnerSelection runs on every start: the bootstrap happens once, and
+	// toggling the identity provider on afterwards has to take effect without
+	// purging the control plane to get a second bootstrap.
+	if AuthEnabled(opts) {
+		if err := seedAuthSecret(ctx, opts, target); err != nil {
+			opts.warn("%v", err)
+		} else {
+			opts.step("  identity provider issuing as %s", AuthIssuerBase(opts))
+		}
+	}
+
 	opts.step("Configuring control-plane routes...")
 	gateways, err := floci.NewGateways(ctx, target)
 	if err != nil {
@@ -420,7 +458,10 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := r.WriteControlPlaneStreams(target.Alias); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	if err := r.WriteControlPlaneVhosts(GUIEnabled(opts), GUIPort(opts)); err != nil {
+	if err := r.WriteControlPlaneVhosts(router.ControlPlaneVhosts{
+		GUIEnabled: GUIEnabled(opts), GUIPort: GUIPort(opts),
+		AuthHost: AuthHost(opts),
+	}); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	if err := r.Reload(ctx, docker.Exec); err != nil {
@@ -577,8 +618,15 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	// hmd-img-nsrunner:latest, which is only ever a hand build -- never
 	// decides which image the runner runs. EnsureRunnerImage has already made
 	// sure this tag exists.
-	if RunnerEnabled(opts) {
+	if RunnerEnabled(opts) || AuthEnabled(opts) {
 		overlay["HMD_NSRUNNER_IMAGE"] = RunnerImageRef(opts)
+	}
+	if AuthEnabled(opts) {
+		// The issuer reaches the container, because the server stamps it into
+		// every token's `iss` and has no other way to know the name it is
+		// reached by -- deriving it from the request's Host would produce a
+		// different issuer per caller and reject every token somewhere.
+		overlay[authd.IssuerEnv] = AuthIssuerBase(opts)
 	}
 	// The runner mounts HMD_REPO_HOME at its own absolute path, so the compose
 	// interpolation needs a real one. Defaulting it to HMD_HOME keeps the bind
@@ -607,6 +655,9 @@ func ActiveProfiles(opts *Options) map[string]bool {
 	if RunnerEnabled(opts) {
 		active[RunnerProfile] = true
 	}
+	if AuthEnabled(opts) {
+		active[AuthProfile] = true
+	}
 	return active
 }
 
@@ -625,6 +676,17 @@ func RunnerEnabled(opts *Options) bool {
 	}
 	return false
 }
+
+// AuthEnabled, AuthHost and AuthIssuerBase read the identity provider's
+// switches. The logic is in internal/authd because internal/environment needs
+// the hostname too and must not import this package.
+func AuthEnabled(opts *Options) bool { return authd.Enabled(opts.lookup) }
+
+// AuthHost is the hostname the identity provider is served at, or "".
+func AuthHost(opts *Options) string { return authd.Host(opts.lookup) }
+
+// AuthIssuerBase is the one URL it is reached at, from everywhere.
+func AuthIssuerBase(opts *Options) string { return authd.IssuerBase(opts.lookup) }
 
 // GUIEnabled matches bom_seeder.gui_enabled: true unless explicitly falsy.
 func GUIEnabled(opts *Options) bool {
@@ -718,4 +780,17 @@ func syncRunnerSelection(ctx context.Context, opts *Options, target floci.Target
 		opts.step("  %s deploys in-process again; the DAG runner is off", floci.MSDeploymentRepoClass)
 	}
 	return nil
+}
+
+// seedAuthSecret writes the `okta` secret pointing at the local provider.
+func seedAuthSecret(ctx context.Context, opts *Options, target floci.Target) error {
+	prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err)
+	if err != nil {
+		return fmt.Errorf("reaching Floci to write the okta secret: %w", err)
+	}
+	base := AuthIssuerBase(opts)
+	return prov.OktaSecret(ctx,
+		authd.IssuerFor(base, authd.ServerNS),
+		authd.IssuerFor(base, authd.ServerServices),
+		AuthClientID)
 }

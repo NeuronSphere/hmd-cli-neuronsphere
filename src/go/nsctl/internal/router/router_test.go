@@ -89,7 +89,7 @@ func TestControlPlaneVhostsMatchThePython(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	if err := r.WriteControlPlaneVhosts(true, 19003); err != nil {
+	if err := r.WriteControlPlaneVhosts(ControlPlaneVhosts{GUIEnabled: true, GUIPort: 19003}); err != nil {
 		t.Fatalf("WriteControlPlaneVhosts: %v", err)
 	}
 
@@ -108,10 +108,10 @@ func TestVhostFragmentIsTruncatedWhenTheGUIIsDisabled(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	if err := r.WriteControlPlaneVhosts(true, 19003); err != nil {
+	if err := r.WriteControlPlaneVhosts(ControlPlaneVhosts{GUIEnabled: true, GUIPort: 19003}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.WriteControlPlaneVhosts(false, 19003); err != nil {
+	if err := r.WriteControlPlaneVhosts(ControlPlaneVhosts{GUIPort: 19003}); err != nil {
 		t.Fatal(err)
 	}
 

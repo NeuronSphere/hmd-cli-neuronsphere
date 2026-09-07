@@ -26,7 +26,15 @@ services:
       # restart. See env_registry.env_port_range().
       - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}"
     networks:
-      - neuronsphere_default
+      neuronsphere_default:
+        aliases:
+          # So a container on this network resolves the identity provider's
+          # issuer hostname to the proxy, which is the only thing that answers
+          # for it. The issuer has to be one string from everywhere -- the
+          # browser resolves this through /etc/hosts and cluster pods through a
+          # CoreDNS record, and both land here too. Harmless when the provider
+          # is not enabled: the name resolves and nothing is listening for it.
+          - "${HMD_LOCAL_AUTH_HOST:-auth.local.neuronsphere.io}"
     volumes:
       - "${HMD_HOME}/.cache/nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
       # Directory bind so route fragments added/removed at runtime are visible
@@ -258,6 +266,38 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "${HMD_HOME}:${HMD_HOME}"
       - "${HMD_REPO_HOME:-${HMD_HOME}}:${HMD_REPO_HOME:-${HMD_HOME}}"
+    healthcheck:
+      test: ["CMD", "/nsctl", "version"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+    networks:
+      - neuronsphere_default
+
+  # The local mock identity provider: a stand-in for Okta, so authorization can
+  # be tested without one.
+  #
+  # The same image as nsrunner, because it is the same binary -- the Dockerfile's
+  # ENTRYPOINT is /nsctl and its CMD is only a default, so a `command:` here
+  # selects the other mode. Nothing extra is built or published for this.
+  authd:
+    container_name: hmd_authd
+    profiles: ["authd"]
+    image: ${HMD_NSRUNNER_IMAGE:-hmd-img-nsrunner:latest}
+    command: ["authd", "serve", "--addr", ":8080"]
+    restart: unless-stopped
+    # No host port. hmd_proxy answers for the issuer's hostname and forwards
+    # here, which is what lets one URL work from the browser, from a pod and
+    # from a Floci container.
+    environment:
+      HMD_HOME: ${HMD_HOME}
+      HMD_LOCAL_AUTH_ISSUER: ${HMD_LOCAL_AUTH_ISSUER:-http://auth.local.neuronsphere.io}
+    volumes:
+      # For the signing key alone. It is persisted so that a restart does not
+      # invalidate every token already issued, which would look like an
+      # authentication bug in a session that was working a moment earlier.
+      - "${HMD_HOME}:${HMD_HOME}"
     healthcheck:
       test: ["CMD", "/nsctl", "version"]
       interval: 30s

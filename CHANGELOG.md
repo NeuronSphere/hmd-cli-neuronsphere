@@ -2,6 +2,41 @@
 
 ## 2026-09-08
 
+- feat: Serve the mock identity provider from the control plane
+
+  `nsctl authd serve` runs as a fifth control-plane container, gated by
+  `HMD_LOCAL_NEURONSPHERE_ENABLE_AUTH=true` exactly as the DAG runner is gated
+  by its own flag. Off by default, and the default is load-bearing: turning it
+  on is what makes an application demand a login and a service reject an
+  unauthenticated call, so a default-on switch would break every local script,
+  curl and Robot suite that carries no token today.
+
+  It is the **same image** as the runner. The Dockerfile's ENTRYPOINT is
+  `/nsctl` and its CMD is only a default, so a `command:` selects the other
+  mode; nothing extra is built or published, and `EnsureRunnerImage` now runs
+  for either service.
+
+  **The issuer must be one string from three networks**, and that shapes the
+  rest. It is the base URL every consumer appends to -- `{issuer}/v1/keys`,
+  `{issuer}/v1/token` -- and it is stamped into every token's `iss`, so a
+  consumer that fetched keys under one name and reads `iss` as another rejects
+  every token, failing as a policy denial nowhere near the cause. So one
+  hostname is made to resolve to `hmd_proxy` three ways: a Host-routed nginx
+  vhost for the browser, a Docker network alias on `hmd_proxy` for Floci's
+  Lambda containers, and a CoreDNS record for cluster pods. All three verified
+  returning the same issuer.
+
+  The vhost defers its upstream through a resolver variable rather than naming
+  the container literally. nginx resolves a literal `proxy_pass` host once, at
+  config load, so an absent container would fail `nginx -t` and have the whole
+  reload rejected -- taking every other route down with it. An optional service
+  that is off must cost its own 502 and nothing else.
+
+  The `okta` secret is written to Floci on every start rather than at bootstrap,
+  for the reason `syncRunnerSelection` runs on every start: the bootstrap
+  happens once, and enabling the provider afterwards has to take effect without
+  purging the control plane to get a second one.
+
 - feat: A local mock identity provider, so Rego policies can be tested
 
   Nothing on the local platform has a token. Every app runs `AUTH_TYPE =

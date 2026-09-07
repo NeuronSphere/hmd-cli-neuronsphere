@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
@@ -413,6 +414,7 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 			Slug: env.Slug, DBContainer: env.DBContainer, GraphContainer: env.GraphContainer,
 			CoreInstanceName: env.CoreInstanceName,
 			K3sCluster:       env.K3sCluster, K3sContainer: cluster,
+			AuthHost: authd.Host(opts.lookup),
 		},
 		Network: network, IngressEnabled: ingressEnabled(opts), IngressClass: opts.lookup("HMD_LOCAL_INGRESS_CLASS"),
 		Out: opts.Out, Err: opts.Err,
@@ -646,6 +648,7 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 				Slug: env.Slug, DBContainer: env.DBContainer, GraphContainer: env.GraphContainer,
 				CoreInstanceName: env.CoreInstanceName,
 				K3sCluster:       env.K3sCluster, K3sContainer: cluster,
+				AuthHost: authd.Host(opts.lookup),
 			},
 			Network: reg.ControlPlane.Network, IngressEnabled: ingressEnabled(opts),
 			Out: opts.Out, Err: opts.Err,

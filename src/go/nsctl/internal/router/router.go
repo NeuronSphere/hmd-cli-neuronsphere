@@ -52,6 +52,9 @@ const FlociStreamPort = 4566
 // GUIUpstream is the Deployment GUI container and the port it listens on.
 const GUIUpstream = "hmd_deployment_gui:8000"
 
+// AuthUpstream is the mock identity provider container and its port.
+const AuthUpstream = "hmd_authd:8080"
+
 // DefaultResolver is Docker's embedded DNS.
 const DefaultResolver = "127.0.0.11"
 
@@ -311,21 +314,66 @@ func (r *Router) WriteControlPlaneStreams(flociHost string) error {
 	return r.writeFragment(filepath.Join(r.StreamDir(), ControlPlaneFragment), []string{block}, "control-plane streams")
 }
 
+// ControlPlaneVhosts is what the control plane wants served by name or by port.
+type ControlPlaneVhosts struct {
+	// GUIEnabled and GUIPort serve the Deployment GUI at the root path of a
+	// published host port rather than behind the wildcard
+	// *.<slug>.neuronsphere.io vhost, so reaching it costs no /etc/hosts entry.
+	GUIEnabled bool
+	GUIPort    int
+	// AuthHost is the hostname the mock identity provider is reached at, or ""
+	// when it is not enabled.
+	//
+	// By name, not by port, and that is forced. The issuer is the base URL
+	// every consumer appends to -- `{issuer}/v1/keys`, `{issuer}/v1/token` --
+	// and it must be one string whether reached from the browser, from a pod
+	// through CoreDNS, or from a Floci container through a Docker alias. A
+	// hostname can be pointed at hmd_proxy in all three places; a port on
+	// localhost cannot.
+	AuthHost string
+}
+
 // WriteControlPlaneVhosts writes vhost.d/00-control-plane.conf.
 //
-// Just the Deployment GUI. It is served at the root path of a published host
-// port rather than behind the wildcard *.<slug>.neuronsphere.io vhost, so
-// reaching it costs no /etc/hosts entry. The port is already inside the band
-// hmd_proxy publishes, so adding this listener needs a reload, not a restart.
-//
-// Always written: when the GUI is disabled the file is truncated to its header,
-// which removes a listener a previous run may have added.
-func (r *Router) WriteControlPlaneVhosts(guiEnabled bool, guiPort int) error {
+// Always written in full: a service that is no longer enabled loses its block
+// by being absent, which is what removes a listener a previous run added.
+func (r *Router) WriteControlPlaneVhosts(v ControlPlaneVhosts) error {
 	var blocks []string
-	if guiEnabled {
-		blocks = append(blocks, wrap("deployment-gui", r.containerVhostServer(guiPort, GUIUpstream, "ns_gui")))
+	if v.GUIEnabled {
+		blocks = append(blocks, wrap("deployment-gui", r.containerVhostServer(v.GUIPort, GUIUpstream, "ns_gui")))
+	}
+	if v.AuthHost != "" {
+		blocks = append(blocks, wrap("authd", r.namedVhostServer(v.AuthHost, AuthUpstream, "ns_authd")))
 	}
 	return r.writeFragment(filepath.Join(r.VhostDir(), ControlPlaneFragment), blocks, "control-plane vhosts")
+}
+
+// namedVhostServer serves one container on port 80 for a single Host.
+//
+// The upstream is deferred through a resolver variable for the same reason
+// containerVhostServer does it, and here it matters more: a literal proxy_pass
+// host is resolved once at config load, so a name that does not resolve makes
+// `nginx -t` fail and the reload is rejected *whole* -- taking every other
+// route down with it. The identity provider is optional and off by default, so
+// its container is routinely absent, and an absent optional service must cost
+// its own 502 and nothing else.
+func (r *Router) namedVhostServer(serverName, upstream, varName string) string {
+	return fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+    %s
+    set $%s "%s";
+    location / {
+        proxy_pass http://$%s;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+}`, serverName, r.resolver(), varName, upstream, varName)
 }
 
 // containerVhostServer is a port-listening server block proxying to a container

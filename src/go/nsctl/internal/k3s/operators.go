@@ -63,6 +63,9 @@ type Environment struct {
 	GraphContainer string
 	// CoreInstanceName is what workload charts pin their nodeAffinity to.
 	CoreInstanceName string
+	// AuthHost is the mock identity provider's issuer hostname, or "" when it
+	// is not enabled.
+	AuthHost string
 	// K3sCluster is the cluster name; K3sContainer is the Floci-spawned
 	// container that holds its manifests.
 	K3sCluster   string
@@ -247,6 +250,18 @@ func (o *Operators) CoreDNSRecords(ctx context.Context, dbContainer, graphContai
 		CoreDNSRecord{Host: ControlHost, IP: flociIP},
 	)
 	add(ProxyContainer, ProxyContainer)
+
+	// The identity provider's issuer hostname, resolved to the proxy that
+	// answers for it.
+	//
+	// A pod is the third of the three places the issuer has to resolve, and the
+	// hardest to notice when it does not: the browser and the Floci Lambdas get
+	// there through /etc/hosts and a Docker network alias respectively, and a
+	// cluster that cannot resolve the name fails only inside whichever
+	// application is trying to complete a login. Empty when auth is off.
+	if o.Env.AuthHost != "" {
+		add(o.Env.AuthHost, ProxyContainer)
+	}
 
 	// The database under *both* names it is addressed by. hmd_db is what
 	// unmodified cloud charts use; hmd_db-<slug> is what the connection secrets

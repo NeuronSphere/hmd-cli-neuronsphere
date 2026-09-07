@@ -193,6 +193,30 @@ func (p *Provisioner) AdminDBSecret(ctx context.Context, names Names, dbHost str
 	return nil
 }
 
+// OktaSecret writes the `okta` secret the local identity provider stands behind.
+//
+// One secret, read by everything: hmd_lib_auth.verify_token resolves
+// `services_issuer` and `ns_issuer` from it to pick which authorization server
+// a token should have come from, and the Superset and Airflow charts render
+// OKTA_NS_ISSUER from it. Writing it here rather than letting each consumer
+// guess keeps the issuer a single string -- which is the property the whole
+// arrangement depends on, since a consumer that fetched keys under one name and
+// reads `iss` as another rejects every token.
+//
+// `ns_client_id` is the trusted client every web application's secret lists;
+// there is no registry locally, so it is a name rather than an opaque id.
+func (p *Provisioner) OktaSecret(ctx context.Context, nsIssuer, servicesIssuer, nsClientID string) error {
+	value, err := json.Marshal(map[string]any{
+		"ns_issuer":       nsIssuer,
+		"services_issuer": servicesIssuer,
+		"ns_client_id":    nsClientID,
+	})
+	if err != nil {
+		return fmt.Errorf("encoding the okta secret: %w", err)
+	}
+	return p.putSecret(ctx, "okta", string(value))
+}
+
 // putSecret creates the secret, or overwrites it when it already exists.
 func (p *Provisioner) putSecret(ctx context.Context, name, value string) error {
 	_, err := p.Secrets.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
