@@ -421,10 +421,10 @@ func Stop(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	// The GUI image does not matter for a stop, but the service must still be
-	// parsed and profile-enabled or its container is left running -- the same
-	// reason export_control_plane_compose_env runs before every compose call,
-	// not only before `up`.
+	// The GUI image does not matter for a stop; the project is parsed for its
+	// service list alone. No profile set is passed either -- Stop is
+	// deliberately profile-blind, because a container started while a profile
+	// was active must still be stopped by a run without it.
 	project, err := Project(opts, reg, "")
 	if err != nil {
 		return err
@@ -435,7 +435,7 @@ func Stop(ctx context.Context, opts *Options) error {
 	}
 
 	opts.step("Stopping control-plane containers...")
-	if err := runner.Stop(ctx, project, ActiveProfiles(opts)); err != nil {
+	if err := runner.Stop(ctx, project); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	// The network is deliberately left in place so stopped containers can

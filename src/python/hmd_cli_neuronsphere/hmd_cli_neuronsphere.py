@@ -1872,9 +1872,11 @@ def stop_neuronsphere_extend(
 
     local_loader = LocalPluginLoader()
     compose_files = control_plane_compose_files(local_loader)
-    # Sets COMPOSE_PROFILES, without which `stop` does not see the Deployment GUI
-    # service and would leave its container running.
-    export_control_plane_compose_env()
+    # Sets COMPOSE_PROFILES to *every* profile, without which `stop` does not
+    # see the profile-gated services and leaves their containers running. All
+    # of them, not the ones this CLI would have started: nsctl starts the DAG
+    # runner under a profile the Python never activates.
+    export_control_plane_compose_env(all_profiles=True)
 
     print_step("Stopping control-plane containers...")
     quiet = not verbose

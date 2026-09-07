@@ -440,7 +440,7 @@ func TestStopDoesNotRemove(t *testing.T) {
 		ContainerJSONBase: &types.ContainerJSONBase{ID: "cid"}, Config: &container.Config{},
 	}
 
-	if err := newRunner(f).Stop(context.Background(), p, nil); err != nil {
+	if err := newRunner(f).Stop(context.Background(), p); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if len(f.removed) != 0 {
@@ -454,7 +454,7 @@ func TestStopDoesNotRemove(t *testing.T) {
 func TestStopToleratesAMissingContainer(t *testing.T) {
 	t.Parallel()
 
-	if err := newRunner(newFakeAPI()).Stop(context.Background(), testProject(), nil); err != nil {
+	if err := newRunner(newFakeAPI()).Stop(context.Background(), testProject()); err != nil {
 		t.Errorf("Stop on an absent container: %v", err)
 	}
 }

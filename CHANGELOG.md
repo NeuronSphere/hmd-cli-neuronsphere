@@ -2,6 +2,27 @@
 
 ## 2026-09-07
 
+- fix: Stop the DAG runner on `down`, which left its container running
+
+  `hmd neuronsphere down --purge` set `COMPOSE_PROFILES` to the Deployment GUI
+  profile alone, so `docker compose down` never saw the `nsrunner` service and
+  `hmd_nsrunner` survived a full purge. Verified against the compose file: with
+  `deployment-gui` active, `config --services` lists proxy, floci and the GUI;
+  the runner appears only once its own profile is named.
+
+  A teardown now activates *every* profile the compose file defines rather than
+  the ones this CLI would have started. The two sets are not the same -- nsctl
+  starts the runner under a profile the Python never activates -- and the same
+  asymmetry bites within one front end: start with the GUI on, unset the
+  variable, stop, and its container survives. `up` is unchanged and still
+  activates only what is enabled, because the runner image may not exist yet
+  and starting it is nsctl's decision.
+
+  On the Go side `compose.Runner.Stop` took an `active map[string]bool` it
+  never read. It stopped every service already, so nsctl had no bug -- but a
+  parameter that looks like a profile filter and is not is how this returns.
+  Removed, with the reasoning recorded where the next reader will need it.
+
 - feat: Ship nsctl through Homebrew, an install script and GitHub Releases
 
   `.goreleaser.yaml` and a tag-triggered `release` workflow build

@@ -210,7 +210,15 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 // Stop stops the project's containers without removing them, so the next start
 // restarts them in place. Matches `docker compose stop`, which is what
 // `hmd neuronsphere down` runs: a stop, not a teardown.
-func (r *Runner) Stop(ctx context.Context, p *Project, active map[string]bool) error {
+//
+// It takes no profile set, deliberately. What has to be stopped is whatever is
+// *running*, which is not the same as whatever is currently configured: a
+// container started while a profile was active survives a stop run without it,
+// which is how `hmd_nsrunner` outlived `hmd neuronsphere down --purge` on the
+// Python side (its COMPOSE_PROFILES named only the GUI). Every service in the
+// project is stopped, profile-gated or not, and a service with no container is
+// not an error.
+func (r *Runner) Stop(ctx context.Context, p *Project) error {
 	var failed []string
 	for _, s := range p.Services {
 		name := s.Name(p.Name)
