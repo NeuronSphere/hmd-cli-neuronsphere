@@ -2,6 +2,17 @@
 
 ## 2026-09-07
 
+- fix: Replace the directory Docker leaves where the kubeconfig belongs
+
+  Docker creates a missing bind-mount source as a directory. A deploy that
+  mounts the environment's kubeconfig before the cluster has written it
+  therefore leaves a directory in its place, after which every write fails
+  (`is a directory`) and every later deploy mounts the directory instead of a
+  config. projectbuilder then dies with `IsADirectoryError: [Errno 21] Is a
+  directory: '/root/.kube/config'` -- naming the container's path and nothing
+  that leads back to the host file. A directory is never a valid kubeconfig, so
+  WriteKubeconfig now removes one before writing.
+
 - fix: Never deploy two instances of one repo class at once
 
   They share a working tree, and so share its `cdktf.out`. Three

@@ -363,6 +363,19 @@ func WriteKubeconfig(ctx context.Context, d K3sExecer, name, path string, hostPo
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
 	}
+	// A *directory* here is Docker's doing, not a user's. A deploy that mounts
+	// this path before the cluster has written it makes the daemon create the
+	// missing source as a directory, after which every write fails ("is a
+	// directory") and every later deploy mounts the directory instead of a
+	// config -- projectbuilder then dies with `IsADirectoryError: [Errno 21]
+	// Is a directory: '/root/.kube/config'`, naming the container's path and
+	// nothing that leads back here. A directory is never a valid kubeconfig,
+	// so removing it is unambiguous.
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("removing the directory Docker created at %s: %w", path, err)
+		}
+	}
 	if err := os.WriteFile(path, rewritten, 0o600); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}

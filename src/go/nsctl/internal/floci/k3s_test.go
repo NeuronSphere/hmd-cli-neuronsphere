@@ -3,6 +3,8 @@ package floci
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -492,4 +494,45 @@ func TestK3sContainerNamePrefersTheQualifiedName(t *testing.T) {
 	if got := K3sContainerName("c", "000000000001", existing); got != K3sContainerPrefix+"c" {
 		t.Errorf("legacy = %q, want the name that actually exists", got)
 	}
+}
+
+// Docker creates a missing bind-mount source as a directory. A deploy that
+// mounts the kubeconfig before the cluster has written it therefore leaves a
+// directory in its place, and every subsequent write and mount fails -- the
+// deploy reporting only `IsADirectoryError: '/root/.kube/config'`, which names
+// the container's path and nothing that leads back to this file.
+func TestWriteKubeconfigReplacesADirectoryDockerCreated(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "k3s", "kubeconfig")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	d := &kubeconfigExecer{out: []byte("apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n  name: default\n")}
+	if err := WriteKubeconfig(context.Background(), d, "k3s", path, 19072); err != nil {
+		t.Fatalf("WriteKubeconfig: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.IsDir() {
+		t.Fatal("the kubeconfig is still a directory")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "19072") {
+		t.Errorf("kubeconfig does not point at the host port:\n%s", data)
+	}
+}
+
+// kubeconfigExecer answers `cat /etc/rancher/k3s/k3s.yaml` with a fixed config.
+type kubeconfigExecer struct{ out []byte }
+
+func (k *kubeconfigExecer) Exec(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return k.out, nil
 }
