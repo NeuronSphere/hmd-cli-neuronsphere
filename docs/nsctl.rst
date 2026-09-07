@@ -87,8 +87,6 @@ What it does not do yet
 nothing here is a one-way door -- reach for the Python CLI for any of it and
 carry on:
 
-- **``nsctl env purge`` does not exist.** To delete an environment's containers,
-  volumes and state, use ``hmd neuronsphere down --purge``.
 - **There is no automated parity harness.** SPEC012 proposed a test suite
   parameterised on the front end under test; it was never built. Parity is
   checked by performing an operation with one front end and verifying it with
@@ -145,6 +143,9 @@ Commands
      - What is registered, and what is running.
    * - ``nsctl env delete <name>``
      - Unregister it. Refuses while its containers are running.
+   * - ``nsctl env purge [name]``
+     - Destroy it: cluster, database, graph, containers, volumes, routes and
+       state. With no name, every environment and the control plane.
    * - ``nsctl repo add <class>[@<version>]``
      - Declare a repo instance in the environment's manifest.
    * - ``nsctl repo remove <instance>``

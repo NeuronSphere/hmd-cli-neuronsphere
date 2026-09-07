@@ -2,6 +2,39 @@
 
 ## 2026-09-07
 
+- feat: Purge an environment, deleting Floci's resources before Floci
+
+  `nsctl env purge [name]` is the last verb SPEC001 named and the only teardown
+  either front end has. `env delete` is a registry edit and says so; until now
+  `hmd neuronsphere down --purge` was the only way to actually destroy an
+  environment.
+
+  It is not a transliteration of the Python's, because the Python's has the one
+  bug a purge cannot afford. `stop_neuronsphere_extend` removes the `floci`
+  container and only then asks Floci to delete the control plane's RDS instance
+  and graph, so both calls fail:
+
+      Could not delete the control-plane RDS instance: Could not connect to the
+      endpoint URL "http://localhost:4566/"
+
+  and their containers and volumes stay. Forty-nine stale `floci-*` volumes had
+  accumulated that way. Here everything Floci spawned is deleted through Floci
+  while Floci is still running, the control plane stops afterwards, and a name
+  sweep then clears whatever earlier purges left behind.
+
+  Three other things a purge has to reach and nothing did. A projectbuilder from
+  an interrupted deploy holds the network open and cannot be found -- it exits
+  with a Docker-generated name and no label -- so the runner now labels every
+  container it starts with the environment it is deploying. The historical
+  shared kubeconfig at `$HMD_HOME/.cache/k3s/kubeconfig` was cleaned up by
+  neither implementation. And the registry entry goes last, because an
+  unregistered environment whose containers still run is exactly the state
+  `env delete` refuses to create.
+
+  A `legacy_layout` environment is refused rather than half-purged: it shares
+  the control plane's database and graph, so these rules would destroy state
+  that is not its own.
+
 - fix: Give the control plane somewhere to submit deployment workflows
 
   `hmd-ms-deployment` resolves its workflow runner from

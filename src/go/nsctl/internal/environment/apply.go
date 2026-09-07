@@ -203,6 +203,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			LocalProxy:           "http://hmd_proxy/" + env.Slug,
 			K3sCluster:           env.K3sCluster,
 			Kubeconfig:           env.Kubeconfig,
+			Environment:          env.Slug,
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
 			RepoPaths:            repoPaths,
 			DeploymentID:         env.DeploymentID,

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/controlplane"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/status"
@@ -59,6 +61,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		newEnvAttachCommand(opts),
 		newEnvAddCommand(opts),
 		newEnvDeleteCommand(opts),
+		newEnvPurgeCommand(opts),
 	)
 	return env
 }
@@ -462,4 +465,93 @@ func runningContainers(ctx context.Context, env *registry.Environment) []string 
 	}
 	sort.Strings(running)
 	return running
+}
+
+// newEnvPurgeCommand is the teardown `env delete` refuses to be.
+//
+// SPEC001 made purge a verb rather than a flag on purpose: destroying an
+// environment's cluster, database, graph and state deserves its own word, and
+// `hmd neuronsphere down --purge` reads as a variation on `down` when it is
+// nothing of the sort.
+func newEnvPurgeCommand(opts *Options) *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "purge [name]",
+		Short: "Destroy an environment: its cluster, database, graph and state",
+		Long: `Tears an environment down and unregisters it. This is not a stop -- the k3s
+cluster, the Postgres instance, the graph, their containers and volumes, the
+nginx routes and the state directory all go, and none of it comes back.
+
+With no name it purges every environment and the control plane with them,
+leaving an HMD_HOME a fresh bootstrap can start from.
+
+Resources Floci spawned are deleted through Floci before the control plane
+stops, because a delete asked of a stopped Floci is a delete that did not
+happen -- and its containers and volumes are then left behind with nothing
+naming them.`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			envOpts := &environment.Options{
+				Home: home, Lookup: opts.Lookup,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}
+
+			if len(args) == 1 {
+				if !yes {
+					return nserr.New(nserr.Usage,
+						"this permanently destroys %q -- its cluster, database, graph and state. Pass --yes to confirm.", args[0])
+				}
+				return environment.Purge(cmd.Context(), envOpts, args[0])
+			}
+
+			if !yes && !confirmFullPurge(cmd, opts) {
+				return nserr.New(nserr.Usage, "purge cancelled")
+			}
+			cpOpts := &controlplane.Options{
+				Home: home, Lookup: opts.Lookup,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}
+			names := floci.NamesFrom(opts.Lookup, "", "local")
+			return environment.PurgeAll(cmd.Context(), envOpts, environment.ControlPlaneTeardown{
+				// The control plane's graph, not an environment's: a different
+				// instance under a different deployment id, and asking the
+				// wrong helper finds nothing and reports no error.
+				GraphIdentifier: controlplane.CPGraphIdentifier(names),
+				Stop: func(ctx context.Context) error {
+					return controlplane.Stop(ctx, cpOpts)
+				},
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation")
+	return cmd
+}
+
+// confirmFullPurge reproduces _confirm_full_purge: it names what is about to go
+// before asking, because "are you sure" without a list is not informed consent.
+func confirmFullPurge(cmd *cobra.Command, opts *Options) bool {
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "\n  `nsctl env purge` with no name will permanently delete:")
+	fmt.Fprintln(out, "    - the control plane's Floci, PostgreSQL and graph state")
+	fmt.Fprintln(out, "    - ms-deployment's deployment graph for ALL environments")
+	if reg, _, err := loadRegistry(opts); err == nil {
+		if slugs := reg.Names(); len(slugs) > 0 {
+			fmt.Fprintf(out, "    - all state for environment(s): %s\n", strings.Join(slugs, ", "))
+		}
+	}
+	fmt.Fprintln(out, "\n  To purge a single environment instead, name it.")
+	fmt.Fprint(out, "  Type 'yes' to continue: ")
+
+	reader := bufio.NewReader(cmd.InOrStdin())
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(line), "yes")
 }

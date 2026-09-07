@@ -81,6 +81,10 @@ type fakeRDS struct {
 	deleted       []string
 	groupExists   bool
 	deletedGroups []string
+
+	// deletedClusters records the graph deletes a purge issues. Floci serves
+	// Neptune's control plane on the RDS API, which is why they land here.
+	deletedClusters []string
 }
 
 func (f *fakeRDS) DescribeDBSubnetGroups(_ context.Context, in *rds.DescribeDBSubnetGroupsInput, _ ...func(*rds.Options)) (*rds.DescribeDBSubnetGroupsOutput, error) {
@@ -96,6 +100,11 @@ func (f *fakeRDS) DeleteDBSubnetGroup(_ context.Context, in *rds.DeleteDBSubnetG
 	f.deletedGroups = append(f.deletedGroups, aws.ToString(in.DBSubnetGroupName))
 	f.groupExists = false
 	return &rds.DeleteDBSubnetGroupOutput{}, nil
+}
+
+func (f *fakeRDS) DeleteDBCluster(_ context.Context, in *rds.DeleteDBClusterInput, _ ...func(*rds.Options)) (*rds.DeleteDBClusterOutput, error) {
+	f.deletedClusters = append(f.deletedClusters, aws.ToString(in.DBClusterIdentifier))
+	return &rds.DeleteDBClusterOutput{}, nil
 }
 
 func (f *fakeRDS) DeleteDBInstance(_ context.Context, in *rds.DeleteDBInstanceInput, _ ...func(*rds.Options)) (*rds.DeleteDBInstanceOutput, error) {

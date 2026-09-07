@@ -43,7 +43,6 @@ Full guide: [`docs/nsctl.rst`](docs/nsctl.rst).
 Both front ends work against one `HMD_HOME`, so reaching for the Python CLI for
 any of these costs nothing:
 
-- **No `nsctl env purge`.** Use `hmd neuronsphere down --purge`.
 - **No automated parity harness.** Parity between the two front ends is
   verified by performing an operation with one and checking it with the other,
   not by a test suite.

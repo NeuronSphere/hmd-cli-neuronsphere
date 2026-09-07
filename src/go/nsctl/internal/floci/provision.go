@@ -94,6 +94,7 @@ type rdsAPI interface {
 	DeleteDBInstance(ctx context.Context, in *rds.DeleteDBInstanceInput, opts ...func(*rds.Options)) (*rds.DeleteDBInstanceOutput, error)
 	DescribeDBSubnetGroups(ctx context.Context, in *rds.DescribeDBSubnetGroupsInput, opts ...func(*rds.Options)) (*rds.DescribeDBSubnetGroupsOutput, error)
 	DeleteDBSubnetGroup(ctx context.Context, in *rds.DeleteDBSubnetGroupInput, opts ...func(*rds.Options)) (*rds.DeleteDBSubnetGroupOutput, error)
+	DeleteDBCluster(ctx context.Context, in *rds.DeleteDBClusterInput, opts ...func(*rds.Options)) (*rds.DeleteDBClusterOutput, error)
 }
 
 type s3API interface {
@@ -301,6 +302,27 @@ func (p *Provisioner) DeleteDBSubnetGroup(ctx context.Context, name string) erro
 	})
 	if err != nil && !isAPIErrorCode(err, "DBSubnetGroupNotFoundFault") {
 		return err
+	}
+	return nil
+}
+
+// DeleteDBCluster removes a DB cluster record -- in practice the graph, since
+// Floci serves Neptune's control plane on the RDS API.
+//
+// The Python reaches this through boto3's `neptune` client, which is the same
+// operation signed the same way: Neptune's endpoint prefix and signing name are
+// both `rds`. So this needs no second SDK client, only the one call.
+//
+// Unlike DeleteDBInstance, this is data loss and not a repair. Floci mounts no
+// volume for a graph -- it lives in the container's writable layer -- so
+// removing the container is the deletion, and only a purge should ask.
+func (p *Provisioner) DeleteDBCluster(ctx context.Context, identifier string) error {
+	_, err := p.RDS.DeleteDBCluster(ctx, &rds.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(identifier),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
+	if err != nil && !isAPIErrorCode(err, "DBClusterNotFoundFault", "ResourceNotFoundException") {
+		return fmt.Errorf("deleting the cluster %s: %w", identifier, err)
 	}
 	return nil
 }

@@ -59,12 +59,12 @@ harness are still open.
      - Note
    * - 001
      - implemented
-     - ``env purge`` is the one verb still missing; the ``repo`` verbs and
-       ``env apply`` were added to the surface, ``load-plugin`` withdrawn.
+     - The surface is complete. The ``repo`` verbs and ``env apply`` were added
+       to it, ``load-plugin`` withdrawn.
    * - 002
      - **amended**
-     - The lifecycle is implemented. "Cold bootstrap included" was wrong until
-       2026-09-07: five seeding steps had never run. ``env purge`` outstanding.
+     - The lifecycle is implemented, ``env purge`` included. "Cold bootstrap
+       included" was wrong until 2026-09-07: five seeding steps had never run.
    * - 003
      - implemented
      - Cross-checked against the literal JSON the Python CLI writes.
@@ -119,8 +119,8 @@ harness are still open.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Twelve things this proposal asserted turned out to be wrong, and are corrected
-in the SPECs rather than quietly worked around:
+Thirteen things this proposal asserted turned out to be wrong, and are
+corrected in the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
    published tag was checked. Kubernetes work execs into the k3s node instead,
@@ -179,6 +179,16 @@ in the SPECs rather than quietly worked around:
     it as a met deliverable. *Wired since:* ``floci.ServiceEnv`` sets it for
     that one service, gated on the runner being enabled, and a warm start
     reconciles it onto an already-deployed Lambda.
+
+13. **The Python's purge deletes Floci's resources after stopping Floci**
+    (SPEC001, SPEC002). ``stop_neuronsphere_extend`` removes the ``floci``
+    container and *then* asks Floci to delete the control plane's RDS instance
+    and graph, so both calls fail against a dead endpoint -- every purge warns
+    ``Could not connect to the endpoint URL "http://localhost:4566/"`` and
+    leaves their containers and volumes behind. Forty-nine stale ``floci-*``
+    volumes had accumulated on one machine. ``nsctl env purge`` deletes first
+    and stops afterwards, which is the whole shape of the verb; a name sweep
+    afterwards clears what earlier purges left.
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -355,7 +365,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Command surface
     :id: HMD_CLI_NERD002_SPEC001
     :links: HMD_CLI_NERD002
-    :status: implemented (except env purge)
+    :status: implemented
 
     ``nsctl`` is organised as ``nsctl <noun> <verb>`` after ``kubectl``, not as
     a transliteration of the Cement controller tree.
@@ -428,7 +438,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Control-plane lifecycle is explicit and separate
     :id: HMD_CLI_NERD002_SPEC002
     :links: HMD_CLI_NERD002
-    :status: implemented (except env purge)
+    :status: implemented
 
     A local NeuronSphere is **one shared control plane per ``HMD_HOME``**
     (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-artifact-lib``, the
@@ -1573,10 +1583,13 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Deliverable:* ``nsctl`` brings up a control plane and an environment's
     infrastructure; the Python CLI can then complete the deploy.
 
-    *Corrected:* ``env purge`` is listed above and did not land, here or since.
-    The Implementation Status table (001, 002) and Phase 3's *Not done* are the
-    entries that are right; ``hmd neuronsphere down --purge`` is still the only
-    way to purge an environment.
+    *Corrected:* ``env purge`` is listed above and did not land here. It landed
+    on 2026-09-07, four phases later, and until then
+    ``hmd neuronsphere down --purge`` was the only way to purge an environment.
+
+    It is not a transliteration of the Python's, because the Python's is wrong
+    in the one way a purge cannot afford to be -- see item 13 of `What
+    implementation changed about the design`_.
 
     **Phase 3 -- BOM, manifests and the cold bootstrap. [LANDED]** Rewritten:
     the plugin half of this phase is withdrawn (SPEC005), and the cold
@@ -1715,6 +1728,9 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     do yet" section naming both, and say what to use instead. Recommending the
     binary without that would have been a claim the repository could not
     support.
+
+    *Half closed (2026-09-07):* ``env purge`` exists, and its bullet is gone
+    from both documents. The parity bullet stands.
 
     *Untested:* the Homebrew cask cannot be exercised without pushing to
     ``neuronsphere/homebrew-tap``. GoReleaser generates it and its shape was

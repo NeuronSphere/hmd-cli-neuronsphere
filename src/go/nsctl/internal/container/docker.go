@@ -500,3 +500,68 @@ func (d *Docker) RemoveVolumes(ctx context.Context, names ...string) error {
 	}
 	return nil
 }
+
+// RemoveNetwork removes a Docker network. One that is not there, or one still
+// holding endpoints, is not an error: a purge reports what it could not remove
+// rather than stopping on it.
+func (d *Docker) RemoveNetwork(ctx context.Context, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, err := d.capture(ctx, "network", "rm", name); err != nil {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "No such network") {
+			return nil
+		}
+		return fmt.Errorf("removing the network %s: %w", name, err)
+	}
+	return nil
+}
+
+// VolumesMatching lists volumes whose name contains prefix.
+//
+// Name matching, because Floci's spawned volumes carry no labels tying them to
+// an account -- which is why the Python sweeps `floci-rds-` by name too. An
+// unreadable answer is an empty list, never a partial one presented as
+// complete.
+func (d *Docker) VolumesMatching(ctx context.Context, prefix string) []string {
+	if prefix == "" {
+		return nil
+	}
+	out, err := d.capture(ctx, "volume", "ls", "--filter", "name="+prefix, "--format", "{{.Name}}")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Fields(out) {
+		if line != "" {
+			names = append(names, line)
+		}
+	}
+	return names
+}
+
+// ContainersWithLabel lists every container, running or not, carrying a label.
+//
+// This is how a purge finds an interrupted projectbuilder: it exits with a
+// Docker-generated name and nothing else ties it to the environment whose
+// deploy started it, so the label the runner sets is the only handle.
+func (d *Docker) ContainersWithLabel(ctx context.Context, key, value string) []string {
+	if key == "" {
+		return nil
+	}
+	filter := key
+	if value != "" {
+		filter = key + "=" + value
+	}
+	out, err := d.capture(ctx, "ps", "-a", "--filter", "label="+filter, "--format", "{{.Names}}")
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, line := range strings.Fields(out) {
+		if line != "" {
+			names = append(names, line)
+		}
+	}
+	return names
+}

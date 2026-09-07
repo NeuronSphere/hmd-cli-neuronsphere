@@ -45,6 +45,13 @@ type Docker interface {
 	Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error)
 }
 
+// EnvironmentLabel and InstanceLabel are set on every projectbuilder container,
+// so a purge can find one an interrupted deploy left running.
+const (
+	EnvironmentLabel = "io.neuronsphere.nsctl.environment"
+	InstanceLabel    = "io.neuronsphere.nsctl.instance"
+)
+
 // Config is everything a node's container needs to know.
 type Config struct {
 	// Network is the Docker network the container joins.
@@ -80,6 +87,14 @@ type Config struct {
 	// environment manifest declares with an explicit source path -- which by
 	// definition is not under RepoHome.
 	RepoPaths map[string]string
+	// Environment is the slug this deploy belongs to, or the control plane's
+	// deployment id when it is the bootstrap.
+	//
+	// It exists to be a label. A projectbuilder container is started with
+	// --rm and a Docker-generated name, so one left behind by an interrupted
+	// deploy has nothing tying it to the environment whose purge should sweep
+	// it -- and it holds the network open until someone finds it by hand.
+	Environment string
 	// DeploymentID, Region, CustomerCode name what the deploy produces.
 	DeploymentID string
 	Region       string
@@ -266,6 +281,12 @@ func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath 
 		// under bash rather than being parsed as an `hmd` subcommand.
 		"--entrypoint", "bash",
 		"--network", r.Config.Network,
+		// The only handle a purge has on a container an interrupted deploy left
+		// behind: --rm means these exist only when a run did not finish, and
+		// the name Docker gave it says nothing about which environment it
+		// belongs to.
+		"--label", EnvironmentLabel + "=" + r.Config.Environment,
+		"--label", InstanceLabel + "=" + node.InstanceName,
 	}
 	for _, key := range sortedKeys(env) {
 		args = append(args, "-e", key+"="+env[key])
