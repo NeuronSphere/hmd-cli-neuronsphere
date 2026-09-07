@@ -1540,8 +1540,8 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     *Deliverable met:* ``brew install neuronsphere/tap/nsctl``, a
     checksum-verifying ``install.sh``, and tag-triggered GitHub Releases for
-    four platforms -- 34.4 MB (linux/arm64) to 39.0 MB (darwin/amd64), against
-    SPEC013's 50 MB target.
+    four platforms -- 33.5 MB (linux/arm64), 34.6 MB (darwin/arm64), 38.0 MB
+    (linux/amd64) and 38.9 MB (darwin/amd64), against SPEC013's 50 MB target.
 
     *Amended:* ``windows/amd64`` is dropped, and the Docker image is built on
     demand rather than published. Both are recorded in SPEC013.

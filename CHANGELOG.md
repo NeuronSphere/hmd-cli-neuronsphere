@@ -5,8 +5,9 @@
 - feat: Ship nsctl through Homebrew, an install script and GitHub Releases
 
   `.goreleaser.yaml` and a tag-triggered `release` workflow build
-  darwin/{amd64,arm64} and linux/{amd64,arm64} -- 34.4 MB to 39.0 MB against
-  SPEC013's 50 MB target -- and push a cask to `neuronsphere/homebrew-tap`, so
+  darwin/{amd64,arm64} and linux/{amd64,arm64} -- 33.5 MB (linux/arm64) to
+  38.9 MB (darwin/amd64), against SPEC013's 50 MB target -- and push a cask to
+  `neuronsphere/homebrew-tap`, so
   `brew install neuronsphere/tap/nsctl` works. `install.sh` is the
   platform-detecting curl-pipe-sh for everyone else; it verifies the download
   against the release's `checksums.txt` and refuses to install on a mismatch.
