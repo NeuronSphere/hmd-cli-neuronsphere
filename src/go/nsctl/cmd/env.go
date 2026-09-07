@@ -56,6 +56,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		newEnvStartCommand(opts),
 		newEnvStopCommand(opts),
 		newEnvApplyCommand(opts),
+		newEnvAttachCommand(opts),
 		newEnvAddCommand(opts),
 		newEnvDeleteCommand(opts),
 	)
@@ -140,6 +141,40 @@ need a restart. An environment with no manifest gets the substrate alone.`,
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
 	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
 		"Deploy everything declared, ignoring what the graph says is already deployed")
+	return cmd
+}
+
+func newEnvAttachCommand(opts *Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "attach [name]",
+		Short: "Watch a deployment already in flight",
+		Long: `Streams a running deployment to the end, from the beginning.
+
+A deployment submitted to the control plane's DAG runner is not owned by the
+terminal that started it, so it can be watched from another one, or picked back
+up after the first was closed. Exits 4 if the deployment fails, exactly as the
+command that submitted it would have.
+
+Requires the runner. Without it deployments run inside the CLI process and
+there is nothing to attach to.`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			return environment.Attach(cmd.Context(), &environment.Options{
+				Home: home, Lookup: opts.Lookup,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			}, name)
+		},
+	}
 	return cmd
 }
 

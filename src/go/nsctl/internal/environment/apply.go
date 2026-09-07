@@ -205,8 +205,9 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	}
 
 	opts.step("Running the deployment...")
-	err = run.Run(ctx, csdNid, nodes)
-	if err != nil && subnetGroupCollision(run.LastFailure) {
+	deployer := newDeployer(opts, run, env.Slug)
+	err = deployer.deploy(ctx, csdNid, nodes)
+	if err != nil && subnetGroupCollision(deployer.lastFailure()) {
 		// A one-time migration for an environment provisioned before hmd-vpc
 		// owned the network. The CLI created the DB subnet group imperatively,
 		// so Terraform has no state for it and its create fails with
@@ -233,7 +234,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				if err != nil {
 					return nserr.Wrap(nserr.Fail, err)
 				}
-				err = run.Run(ctx, csdNid, nodes)
+				err = deployer.deploy(ctx, csdNid, nodes)
 			}
 		}
 	}
@@ -244,13 +245,14 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// Only what is known good goes in: what this run settled, plus what the
 	// plan already found deployed and current. A digest recorded for an entry
 	// that failed would make the next run read it as up to date.
-	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, run.Succeeded), nil); writeErr != nil {
+	succeeded := deployer.succeeded()
+	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil); writeErr != nil {
 		opts.warn("%v", writeErr)
 	}
 	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
-	opts.step("  deployed %d instance(s)", len(run.Succeeded))
+	opts.step("  deployed %d instance(s)", len(succeeded))
 	return nil
 }
 

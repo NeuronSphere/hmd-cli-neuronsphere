@@ -363,13 +363,25 @@ func labels(p *Project, s Service, hash string) map[string]string {
 	return out
 }
 
+// binds renders the mounts, dropping exact duplicates.
+//
+// Two entries can interpolate to the same pair -- the runner mounts HMD_HOME
+// and HMD_REPO_HOME at their own paths, and those are the same directory
+// whenever repos live under the home. Docker rejects a duplicate mount point
+// outright, so a container that is merely over-specified would fail to be
+// created at all.
 func binds(mounts []Mount) []string {
 	out := make([]string, 0, len(mounts))
+	seen := make(map[string]bool, len(mounts))
 	for _, m := range mounts {
 		bind := m.Source + ":" + m.Target
 		if m.ReadOnly {
 			bind += ":ro"
 		}
+		if seen[bind] {
+			continue
+		}
+		seen[bind] = true
 		out = append(out, bind)
 	}
 	return out

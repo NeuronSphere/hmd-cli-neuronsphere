@@ -3,6 +3,7 @@ package nsrunner
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
@@ -425,4 +427,179 @@ func TestABusySubmissionIsA409(t *testing.T) {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
 	}
 	close(block)
+}
+
+// The client and the service are two halves of one protocol, so the round trip
+// is what is worth asserting: submit, stream, then read the outcome.
+func TestTheClientRoundTripsASubmissionAndItsLog(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, &fakeDocker{})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL)
+
+	ctx := context.Background()
+	if !c.Reachable(ctx) {
+		t.Fatal("Reachable said no to a running server")
+	}
+
+	name, err := c.Submit(ctx, "local", Manifest{
+		CSDNid: "csd-1", Environment: "local",
+		Nodes: decodeNodes(t, node("thing", "hmd-inf-thing")),
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	var log strings.Builder
+	if err := c.Stream(ctx, "local", name, &log); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if !strings.Contains(log.String(), "thing") {
+		t.Errorf("the streamed log never mentions the node:\n%s", log.String())
+	}
+
+	wf, err := c.Get(ctx, "local", name)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if wf.Phase != PhaseSucceeded {
+		t.Errorf("phase = %q, want Succeeded (%s)", wf.Phase, wf.Message)
+	}
+	if len(wf.Succeeded) != 1 {
+		t.Errorf("Succeeded = %v, want one instance", wf.Succeeded)
+	}
+}
+
+// A failed deploy has to reach the CLI as a failure with the detail attached,
+// or the caller cannot say which node stopped it.
+func TestTheClientSeesAFailureAndItsDetail(t *testing.T) {
+	t.Parallel()
+	s := testServer(t, &fakeDocker{fail: map[int]bool{1: true}})
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL)
+	ctx := context.Background()
+
+	name, err := c.Submit(ctx, "local", Manifest{
+		CSDNid: "csd-1", Environment: "local",
+		Nodes: decodeNodes(t, node("thing", "hmd-inf-thing")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Stream(ctx, "local", name, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := c.Get(ctx, "local", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wf.Phase != PhaseFailed {
+		t.Fatalf("phase = %q, want Failed", wf.Phase)
+	}
+	if wf.Failure == nil || wf.Failure.InstanceName != "thing" {
+		t.Fatalf("Failure = %+v, want the failed node named", wf.Failure)
+	}
+	// The subnet-group migration reads stderr off this, so it has to survive.
+	if !strings.Contains(wf.Failure.Stderr, "boom") {
+		t.Errorf("stderr = %q, want the node's stderr", wf.Failure.Stderr)
+	}
+}
+
+// Active is how `env attach` finds a deployment it did not start.
+func TestActiveFindsAnInFlightDeploymentAndNothingAfterwards(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	d := &blockingDocker{gate: block, started: make(chan struct{}, 1)}
+	s := testServer(t, d)
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL)
+	ctx := context.Background()
+
+	name, err := c.Submit(ctx, "local", Manifest{
+		CSDNid: "csd-1", Environment: "local",
+		Nodes: decodeNodes(t, node("thing", "hmd-inf-thing")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-d.started
+
+	wf, active, err := c.Active(ctx, "local", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !active || wf.Name != name {
+		t.Fatalf("Active = (%q, %v), want the in-flight %q", wf.Name, active, name)
+	}
+
+	close(block)
+	waitTerminal(t, s, name)
+
+	if _, active, err = c.Active(ctx, "local", "local"); err != nil || active {
+		t.Errorf("Active still reports a deployment after it finished (err=%v)", err)
+	}
+}
+
+// A busy submission must be distinguishable, because the CLI turns it into a
+// different exit code than a real failure.
+func TestTheClientReportsBusyDistinctly(t *testing.T) {
+	t.Parallel()
+	block := make(chan struct{})
+	d := &blockingDocker{gate: block, started: make(chan struct{}, 1)}
+	s := testServer(t, d)
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL)
+	ctx := context.Background()
+
+	if _, err := c.Submit(ctx, "local", Manifest{
+		CSDNid: "csd-1", Environment: "local",
+		Nodes: decodeNodes(t, node("thing", "hmd-inf-thing")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-d.started
+
+	_, err := c.Submit(ctx, "local", Manifest{CSDNid: "csd-2", Environment: "local"})
+	var se *SubmitError
+	if !errorsAs(err, &se) {
+		t.Fatalf("err = %v, want a SubmitError", err)
+	}
+	if !se.Busy() {
+		t.Errorf("status = %d, want it to report busy", se.Status)
+	}
+	close(block)
+}
+
+func TestReachableIsFalseWithNoRunner(t *testing.T) {
+	t.Parallel()
+	// A closed port, not a hung one: the CLI must decide quickly that there is
+	// no runner and fall back, not stall every deploy waiting for one.
+	if NewClient("http://127.0.0.1:1").Reachable(context.Background()) {
+		t.Error("Reachable said yes with nothing listening")
+	}
+}
+
+func decodeNodes(t *testing.T, raw ...map[string]any) []msdeploy.DeploymentNode {
+	t.Helper()
+	data, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nodes []msdeploy.DeploymentNode
+	if err := json.Unmarshal(data, &nodes); err != nil {
+		t.Fatal(err)
+	}
+	return nodes
+}
+
+func errorsAs(err error, target **SubmitError) bool {
+	se, ok := err.(*SubmitError)
+	if ok {
+		*target = se
+	}
+	return ok
 }

@@ -51,11 +51,11 @@ func TestParseTheBundledControlPlaneFile(t *testing.T) {
 
 	p := parseControlPlane(t, controlPlaneEnv())
 
-	if len(p.Services) != 3 {
-		t.Fatalf("got %d services, want 3 (proxy, floci, deployment-gui): %v", len(p.Services), p.Services)
+	if len(p.Services) != 4 {
+		t.Fatalf("got %d services, want 4 (proxy, floci, deployment-gui, nsrunner): %v", len(p.Services), p.Services)
 	}
 	// Sorted, so output and tests do not depend on map iteration order.
-	want := []string{"deployment-gui", "floci", "proxy"}
+	want := []string{"deployment-gui", "floci", "nsrunner", "proxy"}
 	for i, w := range want {
 		if p.Services[i].Key != w {
 			t.Errorf("service %d = %q, want %q (services must be in a deterministic order)", i, p.Services[i].Key, w)

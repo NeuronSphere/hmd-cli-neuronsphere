@@ -573,3 +573,35 @@ func TestConfigHashCoversTheLabelInputs(t *testing.T) {
 		t.Error("the path labels do not affect the hash, so a container would keep stale ones")
 	}
 }
+
+// Docker rejects a duplicate mount point outright, so a container that is
+// merely over-specified fails to be created at all. The runner mounts HMD_HOME
+// and HMD_REPO_HOME at their own paths, and those are the same directory
+// whenever repos live under the home.
+func TestIdenticalBindsAreCollapsed(t *testing.T) {
+	t.Parallel()
+	got := binds([]Mount{
+		{Source: "/home/hmd", Target: "/home/hmd"},
+		{Source: "/home/hmd", Target: "/home/hmd"},
+		{Source: "/var/run/docker.sock", Target: "/var/run/docker.sock"},
+	})
+	want := []string{"/home/hmd:/home/hmd", "/var/run/docker.sock:/var/run/docker.sock"}
+	if len(got) != len(want) {
+		t.Fatalf("binds = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("binds[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// A read-only variant of the same path is a different mount, not a
+	// duplicate, and must survive.
+	both := binds([]Mount{
+		{Source: "/a", Target: "/a"},
+		{Source: "/a", Target: "/a", ReadOnly: true},
+	})
+	if len(both) != 2 {
+		t.Errorf("binds = %v, want the ro variant kept", both)
+	}
+}
