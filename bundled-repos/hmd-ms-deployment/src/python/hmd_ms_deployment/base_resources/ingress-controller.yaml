@@ -1,0 +1,22 @@
+# Base ResourceDefinition (NERD0004): an abstract ingress controller. A subtype of
+# kubernetes.neuronsphere.io/operator -- it is an operator that reconciles Ingress
+# resources into load balancers. Concrete controllers (e.g. the AWS Load Balancer
+# Controller) `parent` this type and declare `produces: true`.
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: ingress-controller
+version: 0.1.0
+description: >-
+  An operator that watches Ingress (and related) resources and provisions load
+  balancers to route external traffic to in-cluster services.
+parent:
+  resource_namespace: kubernetes.neuronsphere.io
+  resource_definition_name: operator
+  version: 0.1.0
+output_schema:
+  type: object
+  required:
+    - ingress_class
+  properties:
+    ingress_class:
+      type: string
+      description: The IngressClass the controller handles (e.g. alb, nginx).

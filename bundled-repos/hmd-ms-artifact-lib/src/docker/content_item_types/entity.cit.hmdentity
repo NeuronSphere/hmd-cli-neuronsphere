@@ -1,0 +1,6 @@
+{
+  "short_name": "entity",
+  "description": "HMD entity instance files",
+  "match_regex": ".*\\.zip",
+  "mime_type": "application/zip"
+}

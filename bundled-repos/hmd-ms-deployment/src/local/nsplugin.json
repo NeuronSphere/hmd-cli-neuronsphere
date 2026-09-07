@@ -1,0 +1,106 @@
+{
+  "plugin_name": "deployment",
+  "compose_file": "docker-compose.deployment.yml",
+  "resources": {
+    "services": [
+      {"name": "ms-deployment", "url": "http://hmd_gateway/hmd_ms_deployment/"}
+    ],
+    "databases": [
+      {"username": "hmd_ms_deployment", "password": "hmd_ms_deployment", "database": "hmd_ms_deployment"}
+    ],
+    "endpoints": [],
+    "buckets": []
+  },
+  "required_dirs": [],
+  "config_mappings": [],
+  "templates": [],
+  "postgres_scripts": ["scripts/postgres/hmd_ms_deployment.sh"],
+  "minio_scripts": [],
+  "dynamodb_scripts": [],
+  "dependencies": {
+    "requires_plugins": [],
+    "requires_services": ["db"]
+  },
+  "config": {
+    "SERVICE_CONFIG": {
+      "default": {
+        "loader_config": {
+          "deployment": ["hmd-lang-deployment", "hmd-lang-timestamp-record"],
+          "artifact": ["hmd-lang-librarian"]
+        },
+        "service_loader": "deployment",
+        "operations_modules": [
+          "hmd_ms_base.crud_operations",
+          "hmd_ms_deployment.deployment_ops"
+        ],
+        "hmd_db_engines": {
+          "postgres": {
+            "engine_type": "postgres",
+            "engine_config": {
+              "host": "hmd_db",
+              "user": "hmd_ms_deployment",
+              "password": "hmd_ms_deployment",
+              "db_name": "hmd_ms_deployment"
+            }
+          }
+        },
+        "hmd_entity_config": {
+          "__default__": {
+            "persistence": ["postgres"]
+          }
+        }
+      },
+      "env_var": "SERVICE_CONFIG",
+      "type": "json"
+    }
+  },
+  "env_var_override": "HMD_LOCAL_NEURONSPHERE_ENABLE_DEPLOYMENT",
+  "telemetry_profiles": [
+    {
+      "service_name": "deployment",
+      "repo_class_name": "hmd-ms-deployment",
+      "description": "Deployment orchestration service",
+      "otel_service_names": ["ms-deployment"],
+      "metric_definitions": [
+        {
+          "metric_name": "deployment_error_rate",
+          "metric_type": "rate",
+          "source": "traces",
+          "query_template": "SELECT countIf(StatusCode = 'STATUS_CODE_ERROR') / count() * 100 AS error_rate FROM otel_traces WHERE ServiceName = '{service_name}' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+          "unit": "percent",
+          "warning_threshold": 5,
+          "critical_threshold": 15,
+          "comparison": "gt",
+          "description": "Percentage of deployment operations resulting in errors"
+        },
+        {
+          "metric_name": "deployment_latency_p95",
+          "metric_type": "percentile",
+          "source": "traces",
+          "query_template": "SELECT quantile(0.95)(Duration) / 1000000 AS p95_ms FROM otel_traces WHERE ServiceName = '{service_name}' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+          "unit": "ms",
+          "warning_threshold": 5000,
+          "critical_threshold": 15000,
+          "comparison": "gt",
+          "description": "95th percentile latency of deployment operations"
+        },
+        {
+          "metric_name": "deployment_db_size",
+          "metric_type": "gauge",
+          "source": "metrics",
+          "query_template": "SELECT TimeUnix, Value FROM otel_metrics_gauge WHERE MetricName = 'db_size_bytes' AND ServiceName = '{service_name}' AND TimeUnix >= '{time_start}' AND TimeUnix <= '{time_end}' ORDER BY TimeUnix DESC LIMIT 1",
+          "unit": "bytes",
+          "description": "Database size for the deployment service"
+        },
+        {
+          "metric_name": "deployment_memory_usage",
+          "metric_type": "gauge",
+          "source": "metrics",
+          "query_template": "SELECT TimeUnix, Value FROM otel_metrics_gauge WHERE MetricName = 'memory_usage_bytes' AND ServiceName = '{service_name}' AND TimeUnix >= '{time_start}' AND TimeUnix <= '{time_end}' ORDER BY TimeUnix DESC LIMIT 1",
+          "unit": "bytes",
+          "description": "Memory usage of the deployment service"
+        }
+      ]
+    }
+  ]
+}

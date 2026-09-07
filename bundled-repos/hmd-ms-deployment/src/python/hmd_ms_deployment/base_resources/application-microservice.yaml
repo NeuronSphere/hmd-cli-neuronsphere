@@ -1,0 +1,17 @@
+# Base ResourceDefinition (NERD0004): a NeuronSphere microservice. A subtype of
+# application.neuronsphere.io/application.
+resource_namespace: application.neuronsphere.io
+resource_definition_name: microservice
+version: 0.1.0
+description: >-
+  A NeuronSphere microservice exposing an HTTP API.
+parent:
+  resource_namespace: application.neuronsphere.io
+  resource_definition_name: application
+  version: 0.1.0
+output_schema:
+  type: object
+  properties:
+    api_base_url:
+      type: string
+      description: The base URL of the microservice's HTTP API.

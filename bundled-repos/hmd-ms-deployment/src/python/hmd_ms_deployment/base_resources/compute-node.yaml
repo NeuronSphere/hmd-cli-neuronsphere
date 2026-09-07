@@ -1,0 +1,20 @@
+# Base ResourceDefinition (NERD0004): an abstract pool of compute capacity
+# (a node group, autoscaler, or set of worker nodes).
+resource_namespace: compute.neuronsphere.io
+resource_definition_name: compute-node
+version: 0.1.0
+description: >-
+  A pool of compute nodes that provides capacity for scheduling workloads.
+output_schema:
+  type: object
+  properties:
+    node_group_name:
+      type: string
+      description: The name of the node pool.
+    instance_types:
+      type: array
+      items:
+        type: string
+    capacity_type:
+      type: string
+      description: The provisioning model (e.g. on-demand or spot).

@@ -46,6 +46,8 @@ func (s *Server) resolveConfig(envName string, override *ConfigOverride) (runner
 		K3sCluster:           env.K3sCluster,
 		Kubeconfig:           env.Kubeconfig,
 		RepoHome:             s.Lookup("HMD_REPO_HOME"),
+		Home:                 s.Home,
+		Lookup:               s.Lookup,
 		Environment:          env.Slug,
 		DeploymentID:         env.DeploymentID,
 		Region:               names.Region,

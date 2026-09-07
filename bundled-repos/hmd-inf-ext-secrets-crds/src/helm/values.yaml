@@ -1,0 +1,8 @@
+env:
+  HMD_ENVIRONMENT: place_holder
+  HMD_DID: place_holder
+  HMD_REGION: place_holder
+  HMD_CUSTOMER_CODE: place_holder
+  HMD_REPO_NAME: place_holder
+  HMD_REPO_VERSION: place_holder
+  HMD_INSTANCE_NAME: place_holder

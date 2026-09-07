@@ -1,0 +1,32 @@
+# Produced ResourceDefinition (NERD0004): the Aurora PostgreSQL cluster deployed by this
+# repo. A concrete subtype of the base database.neuronsphere.io/postgres (which isa
+# database, inheriting host/port). `produces: true` records that this RepoClass emits a
+# Resource of this type when deployed. The schema is extended with cluster-level fields
+# (identifier, ARN, reader endpoint) that the generic single-database `postgres` type
+# doesn't cover, since this repo provisions a multi-instance Aurora cluster.
+resource_namespace: aws.neuronsphere.io
+resource_definition_name: aurora-postgres
+version: 0.1.0
+description: >-
+  An Amazon Aurora PostgreSQL-compatible cluster, including its writer endpoint,
+  reader endpoint, and connection secret.
+resource_metadata:
+  provider: aws
+parent:
+  resource_namespace: database.neuronsphere.io
+  resource_definition_name: postgres
+  version: 0.1.0
+produces: true
+role: database
+output_schema:
+  type: object
+  properties:
+    cluster_identifier:
+      type: string
+      description: The RDS cluster identifier.
+    cluster_arn:
+      type: string
+      description: The ARN of the RDS Aurora cluster.
+    reader_endpoint:
+      type: string
+      description: The cluster's read-replica endpoint.

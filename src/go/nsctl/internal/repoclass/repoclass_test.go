@@ -38,6 +38,13 @@ func TestVersionEnvVar(t *testing.T) {
 	}
 }
 
+// The tiers are bom_seeder.resolve_repo_version's.
+//
+// This test asserted the wrong order until 2026-09-07: a working tree beat a
+// declared version unconditionally, where the Python only prefers a tree when
+// the developer explicitly asks. The old third case even named itself "then the
+// declared version" while asserting the tree won -- a duplicate of the case
+// above it, which is how the divergence survived being written down.
 func TestResolveVersionPrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -51,8 +58,10 @@ func TestResolveVersionPrecedence(t *testing.T) {
 		wantSource Source
 	}{
 		{"a pin wins over everything", map[string]string{"HMD_LOCAL_VERSION_HMD_INF_THING": "9.9"}, "1.0", "9.9", SourcePin},
-		{"the working tree next", nil, "1.0", "0.7", SourceWorkingTree},
-		{"then the declared version", nil, "1.0", "0.7", SourceWorkingTree},
+		{"a tree the user asked for beats a declared version",
+			map[string]string{"HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS": "true"}, "1.0", "0.7", SourceWorkingTree},
+		{"otherwise the declared version, not a tree that merely exists", nil, "1.0", "1.0", SourceDeclared},
+		{"a tree is still better than the sentinel", nil, "", "0.7", SourceWorkingTree},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

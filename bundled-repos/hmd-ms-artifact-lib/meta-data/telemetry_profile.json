@@ -1,0 +1,52 @@
+{
+  "service_name": "artifact",
+  "repo_class_name": "hmd-ms-artifact-lib",
+  "description": "Artifact Librarian service for managing build artifacts and content items",
+  "otel_service_names": ["artifact-hmd-ms-artifact-lib"],
+  "metric_definitions": [
+    {
+      "metric_name": "artifact_error_rate",
+      "metric_type": "rate",
+      "source": "traces",
+      "query_template": "SELECT countIf(StatusCode = 'STATUS_CODE_ERROR') / count() * 100 AS error_rate FROM otel_traces WHERE ServiceName = '{service_name}' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+      "unit": "percent",
+      "warning_threshold": 5,
+      "critical_threshold": 15,
+      "comparison": "gt",
+      "description": "Percentage of artifact operations resulting in errors"
+    },
+    {
+      "metric_name": "artifact_latency_p95",
+      "metric_type": "percentile",
+      "source": "traces",
+      "query_template": "SELECT quantile(0.95)(Duration) / 1000000 AS p95_ms FROM otel_traces WHERE ServiceName = '{service_name}' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+      "unit": "ms",
+      "warning_threshold": 3000,
+      "critical_threshold": 10000,
+      "comparison": "gt",
+      "description": "95th percentile latency of artifact operations"
+    },
+    {
+      "metric_name": "artifact_upload_error_rate",
+      "metric_type": "rate",
+      "source": "traces",
+      "query_template": "SELECT countIf(StatusCode = 'STATUS_CODE_ERROR') / count() * 100 AS error_rate FROM otel_traces WHERE ServiceName = '{service_name}' AND SpanName = 'put' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+      "unit": "percent",
+      "warning_threshold": 3,
+      "critical_threshold": 10,
+      "comparison": "gt",
+      "description": "Error rate for artifact upload (put) operations"
+    },
+    {
+      "metric_name": "artifact_graph_query_latency_p95",
+      "metric_type": "percentile",
+      "source": "traces",
+      "query_template": "SELECT quantile(0.95)(Duration) / 1000000 AS p95_ms FROM otel_traces WHERE ServiceName = '{service_name}' AND SpanName LIKE '%graph%' AND Timestamp >= '{time_start}' AND Timestamp <= '{time_end}'",
+      "unit": "ms",
+      "warning_threshold": 2000,
+      "critical_threshold": 8000,
+      "comparison": "gt",
+      "description": "95th percentile latency of graph query operations"
+    }
+  ]
+}

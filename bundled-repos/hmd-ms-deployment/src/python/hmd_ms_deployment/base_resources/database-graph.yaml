@@ -1,0 +1,23 @@
+# Base ResourceDefinition (NERD0004): a graph database. A subtype of
+# database.neuronsphere.io/database.
+resource_namespace: database.neuronsphere.io
+resource_definition_name: graph-database
+version: 0.1.0
+description: >-
+  A graph database exposing property-graph and/or RDF query endpoints.
+parent:
+  resource_namespace: database.neuronsphere.io
+  resource_definition_name: database
+  version: 0.1.0
+output_schema:
+  type: object
+  properties:
+    endpoint:
+      type: string
+      description: The Gremlin protocol endpoint (e.g. local JanusGraph substituting for Neptune).
+    gremlin_endpoint:
+      type: string
+      description: The Gremlin (property-graph) query endpoint.
+    sparql_endpoint:
+      type: string
+      description: The SPARQL (RDF) query endpoint.

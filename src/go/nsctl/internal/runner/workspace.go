@@ -38,10 +38,23 @@ var overlayIgnore = map[string]bool{
 // The first two copy the repo to a temp directory first. The workspace is
 // mounted read-write and these deploys write meta-data/resources_output/ --
 // into the developer's own checkout, if it were mounted directly.
-func (r *Runner) prepareWorkspace(repoPath, script string) (workspace, prepared string, cleanup func(), err error) {
+//
+// isolate forces the copy for the third shape too. A bundled tree is shared by
+// every environment on this HMD_HOME and is vouched for by the digest in its
+// directory name, so a deploy writing its outputs into it would leave a cache
+// that no longer matches what the binary carries -- and hand the next
+// environment the last one's resources_output.
+func (r *Runner) prepareWorkspace(repoPath, script string, isolate bool) (workspace, prepared string, cleanup func(), err error) {
 	noop := func() {}
 	overlay := filepath.Join(repoPath, "src", "local")
 	if info, statErr := os.Stat(overlay); statErr != nil || !info.IsDir() {
+		if isolate {
+			tmp, err := r.overlayWorkspace(repoPath, "")
+			if err != nil {
+				return "", "", noop, err
+			}
+			return tmp, Localize(script), func() { os.RemoveAll(filepath.Dir(tmp)) }, nil
+		}
 		return repoPath, Localize(script), noop, nil
 	}
 
@@ -55,7 +68,7 @@ func (r *Runner) prepareWorkspace(repoPath, script string) (workspace, prepared 
 		return tmp, "bash src/local/deploy_local.sh", func() { os.RemoveAll(filepath.Dir(tmp)) }, nil
 	}
 
-	if overlayHasToolFiles(overlay) {
+	if overlayHasToolFiles(overlay) || isolate {
 		tmp, err := r.overlayWorkspace(repoPath, overlay)
 		if err != nil {
 			return "", "", noop, err
@@ -91,6 +104,13 @@ func (r *Runner) overlayWorkspace(repoPath, overlay string) (string, error) {
 	if err := copyTree(repoPath, workspace); err != nil {
 		os.RemoveAll(root)
 		return "", fmt.Errorf("copying %s: %w", repoPath, err)
+	}
+
+	// An empty overlay is a plain isolated copy: the caller wanted the tree
+	// somewhere writable, not an overlay. Falling through would stat "cdktf"
+	// and "helm" as relative paths against the process's own directory.
+	if overlay == "" {
+		return workspace, nil
 	}
 
 	var applied []string

@@ -1,0 +1,2412 @@
+{
+  "nouns": {
+    "hmd_lang_deployment.repo_class": [
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1656342536410",
+        "repo_class_name": "hmd-img-jupyter-server"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4220821506562",
+        "repo_class_name": "hmd-img-local-gateway"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "repo_class_name": "hmd-vpc"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3953405953256",
+        "repo_class_name": "hmd-inf-wafv2"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1941977094128",
+        "repo_class_name": "hmd-inf-acm"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "repo_class_name": "hmd-inf-api-gateway"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3991894024459",
+        "repo_class_name": "hmd-inf-s3bucket"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-174639108655",
+        "repo_class_name": "hmd-inf-datadog"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "repo_class_name": "hmd-inf-datadog-lambdas"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-275535876869",
+        "repo_class_name": "hmd-inf-neptune"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-951191554210",
+        "repo_class_name": "hmd-inf-eks"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1067978752183",
+        "repo_class_name": "hmd-app-datadog"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3605321728173",
+        "repo_class_name": "hmd-inf-efs-csi"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "repo_class_name": "hmd-inf-eks-alb"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3040507906403",
+        "repo_class_name": "hmd-app-argo"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1853251586744",
+        "repo_class_name": "hmd-ms-librarian"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-374501384570",
+        "repo_class_name": "hmd-postgres-rds"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3523428357251",
+        "repo_class_name": "hmd-ms-dbaccount"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "repo_class_name": "hmd-database-account"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4273084415452",
+        "repo_class_name": "hmd-inf-trino-store-access"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3199236095104",
+        "repo_class_name": "hmd-inf-hive-metastore"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3953209343268",
+        "repo_class_name": "hmd-inf-trino"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3573993479178",
+        "repo_class_name": "hmd-inf-superset"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3088267270092",
+        "repo_class_name": "hmd-ms-deployment"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2899355655716",
+        "repo_class_name": "hmd-ms-naming"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2790170628327",
+        "repo_class_name": "hmd-ms-projects"
+      }
+    ],
+    "hmd_lang_deployment.repo_class_version": [
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1682454527965",
+        "version": "0.1.19",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4245141503485",
+        "version": "0.1.15",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-110551049652",
+        "version": "0.1.17",
+        "default_configuration": {
+          "cidr": "10.100.0.0/16",
+          "azs": [
+            "us-west-2a",
+            "us-west-2b"
+          ],
+          "public_subnets": [
+            "10.100.100.0/24",
+            "10.100.101.0/24"
+          ],
+          "private_subnets": [
+            "10.100.0.0/20",
+            "10.100.16.0/20",
+            "10.100.32.0/20",
+            "10.100.48.0/20"
+          ],
+          "database_subnets": [
+            "10.100.64.0/20",
+            "10.100.80.0/20"
+          ],
+          "expose_db": "true"
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3985149961986",
+        "version": "0.1.5",
+        "default_configuration": {
+          "hmd_ips": [
+            "24.252.102.45/32",
+            "185.199.102.88/32",
+            "173.27.46.203/32",
+            "8.6.144.253/32"
+          ]
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1964761088271",
+        "version": "0.1.3",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1526542339999",
+        "version": "0.1.6",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4035414018056",
+        "version": "0.1.7",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-202031112378",
+        "version": "0.1.10",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2082734085047",
+        "version": "0.1.5",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-304719874874",
+        "version": "0.1.6",
+        "default_configuration": {
+          "engine": "neptune",
+          "engine_version": "1.0.4.1",
+          "instance_count": 1,
+          "instance_size": "db.t3.medium"
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-995991558461",
+        "version": "0.1.42",
+        "default_configuration": {
+          "node_groups": {
+            "group1": {
+              "desired_capacity": 1,
+              "max_capacity": 10,
+              "min_capacity": 1,
+              "instance_types": [
+                "t2.large"
+              ],
+              "capacity_type": "ON_DEMAND",
+              "disk_size": 400
+            }
+          },
+          "worker_groups": {
+            "linux": {},
+            "windows": {}
+          }
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1099978754137",
+        "version": "2.22.7",
+        "default_configuration": {
+          "nameOverride": null,
+          "fullnameOverride": null,
+          "targetSystem": "linux",
+          "registry": "gcr.io/datadoghq",
+          "datadog": {
+            "apiKey": "<DATADOG_API_KEY>",
+            "apiKeyExistingSecret": "datadog-external-secrets",
+            "appKey": null,
+            "appKeyExistingSecret": "datadog-external-secrets",
+            "securityContext": {},
+            "hostVolumeMountPropagation": "None",
+            "clusterName": null,
+            "site": null,
+            "dd_url": null,
+            "logLevel": "INFO",
+            "kubeStateMetricsEnabled": false,
+            "kubeStateMetricsNetworkPolicy": {
+              "create": false
+            },
+            "kubeStateMetricsCore": {
+              "enabled": false,
+              "ignoreLegacyKSMCheck": true
+            },
+            "clusterChecks": {
+              "enabled": true
+            },
+            "nodeLabelsAsTags": {},
+            "podLabelsAsTags": {},
+            "podAnnotationsAsTags": {},
+            "tags": [],
+            "checksCardinality": null,
+            "kubelet": {
+              "host": {
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "status.hostIP"
+                  }
+                }
+              },
+              "tlsVerify": null,
+              "hostCAPath": null,
+              "agentCAPath": null
+            },
+            "dogstatsd": {
+              "port": 8125,
+              "originDetection": false,
+              "tags": [],
+              "tagCardinality": "low",
+              "useSocketVolume": true,
+              "socketPath": "/var/run/datadog/dsd.socket",
+              "hostSocketPath": "/var/run/datadog/",
+              "useHostPort": false,
+              "useHostPID": false,
+              "nonLocalTraffic": true
+            },
+            "collectEvents": true,
+            "leaderElection": true,
+            "leaderLeaseDuration": null,
+            "logs": {
+              "enabled": true,
+              "containerCollectAll": true,
+              "containerCollectUsingFiles": true
+            },
+            "apm": {
+              "socketEnabled": true,
+              "portEnabled": true,
+              "enabled": false,
+              "port": 8126,
+              "useSocketVolume": false,
+              "socketPath": "/var/run/datadog/apm.socket",
+              "hostSocketPath": "/var/run/datadog/"
+            },
+            "envFrom": [],
+            "env": [],
+            "confd": {},
+            "checksd": {},
+            "dockerSocketPath": null,
+            "criSocketPath": null,
+            "serviceTopology": {
+              "enabled": false,
+              "serviceName": "datadog-agent"
+            },
+            "processAgent": {
+              "enabled": true,
+              "processCollection": true
+            },
+            "systemProbe": {
+              "debugPort": 0,
+              "enableConntrack": true,
+              "seccomp": "localhost/system-probe",
+              "seccompRoot": "/var/lib/kubelet/seccomp",
+              "bpfDebug": false,
+              "apparmor": "unconfined",
+              "enableTCPQueueLength": false,
+              "enableOOMKill": false,
+              "collectDNSStats": true,
+              "maxTrackedConnections": 131072,
+              "conntrackMaxStateSize": 131072
+            },
+            "orchestratorExplorer": {
+              "enabled": true,
+              "container_scrubbing": {
+                "enabled": true
+              }
+            },
+            "networkMonitoring": {
+              "enabled": false
+            },
+            "securityAgent": {
+              "compliance": {
+                "enabled": false,
+                "configMap": null,
+                "checkInterval": "20m"
+              },
+              "runtime": {
+                "enabled": false,
+                "policies": {
+                  "configMap": null
+                },
+                "syscallMonitor": {
+                  "enabled": false
+                }
+              }
+            },
+            "networkPolicy": {
+              "create": false,
+              "flavor": "kubernetes",
+              "cilium": {
+                "dnsSelector": {
+                  "toEndpoints": [
+                    {
+                      "matchLabels": {
+                        "k8s:io.kubernetes.pod.namespace": "kube-system",
+                        "k8s:k8s-app": "kube-dns"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "prometheusScrape": {
+              "enabled": false,
+              "serviceEndpoints": false,
+              "additionalConfigs": []
+            },
+            "ignoreAutoConfig": [],
+            "containerExclude": null,
+            "containerInclude": null,
+            "containerExcludeLogs": null,
+            "containerIncludeLogs": null,
+            "containerExcludeMetrics": null,
+            "containerIncludeMetrics": null,
+            "excludePauseContainer": true
+          },
+          "clusterAgent": {
+            "enabled": true,
+            "image": {
+              "name": "cluster-agent",
+              "tag": "1.15.0",
+              "repository": null,
+              "pullPolicy": "IfNotPresent",
+              "pullSecrets": []
+            },
+            "securityContext": {},
+            "containers": {
+              "clusterAgent": {
+                "securityContext": {}
+              }
+            },
+            "command": [],
+            "token": "",
+            "tokenExistingSecret": "",
+            "replicas": 1,
+            "rbac": {
+              "create": true,
+              "serviceAccountName": "default",
+              "serviceAccountAnnotations": {}
+            },
+            "podSecurity": {
+              "podSecurityPolicy": {
+                "create": false
+              },
+              "securityContextConstraints": {
+                "create": false
+              }
+            },
+            "metricsProvider": {
+              "enabled": false,
+              "wpaController": false,
+              "useDatadogMetrics": false,
+              "createReaderRbac": true,
+              "aggregator": "avg",
+              "service": {
+                "type": "ClusterIP",
+                "port": 8443
+              },
+              "endpoint": null
+            },
+            "env": [],
+            "admissionController": {
+              "enabled": false,
+              "mutateUnlabelled": false
+            },
+            "confd": {},
+            "advancedConfd": {},
+            "resources": {},
+            "priorityClassName": null,
+            "nodeSelector": {},
+            "affinity": {},
+            "healthPort": 5556,
+            "livenessProbe": {
+              "initialDelaySeconds": 15,
+              "periodSeconds": 15,
+              "timeoutSeconds": 5,
+              "successThreshold": 1,
+              "failureThreshold": 6
+            },
+            "readinessProbe": {
+              "initialDelaySeconds": 15,
+              "periodSeconds": 15,
+              "timeoutSeconds": 5,
+              "successThreshold": 1,
+              "failureThreshold": 6
+            },
+            "strategy": {
+              "type": "RollingUpdate",
+              "rollingUpdate": {
+                "maxSurge": 1,
+                "maxUnavailable": 0
+              }
+            },
+            "podAnnotations": {},
+            "useHostNetwork": false,
+            "dnsConfig": {},
+            "volumes": [],
+            "volumeMounts": [],
+            "datadog_cluster_yaml": {},
+            "createPodDisruptionBudget": false,
+            "networkPolicy": {
+              "create": false
+            },
+            "additionalLabels": {}
+          },
+          "existingClusterAgent": {
+            "join": false,
+            "tokenSecretName": null,
+            "serviceName": null,
+            "clusterchecksEnabled": true
+          },
+          "agents": {
+            "enabled": true,
+            "image": {
+              "name": "agent",
+              "tag": "7.31.0",
+              "tagSuffix": "",
+              "repository": null,
+              "doNotCheckTag": null,
+              "pullPolicy": "IfNotPresent",
+              "pullSecrets": []
+            },
+            "rbac": {
+              "create": true,
+              "serviceAccountName": "default",
+              "serviceAccountAnnotations": {}
+            },
+            "podSecurity": {
+              "podSecurityPolicy": {
+                "create": false
+              },
+              "securityContextConstraints": {
+                "create": false
+              },
+              "seLinuxContext": {
+                "rule": "MustRunAs",
+                "seLinuxOptions": {
+                  "user": "system_u",
+                  "role": "system_r",
+                  "type": "spc_t",
+                  "level": "s0"
+                }
+              },
+              "privileged": false,
+              "capabilities": [
+                "SYS_ADMIN",
+                "SYS_RESOURCE",
+                "SYS_PTRACE",
+                "NET_ADMIN",
+                "NET_BROADCAST",
+                "NET_RAW",
+                "IPC_LOCK",
+                "AUDIT_CONTROL",
+                "AUDIT_READ"
+              ],
+              "volumes": [
+                "configMap",
+                "downwardAPI",
+                "emptyDir",
+                "hostPath",
+                "secret"
+              ],
+              "seccompProfiles": [
+                "runtime/default",
+                "localhost/system-probe"
+              ],
+              "apparmorProfiles": [
+                "runtime/default",
+                "unconfined"
+              ],
+              "apparmor": {
+                "enabled": true
+              }
+            },
+            "containers": {
+              "agent": {
+                "env": [],
+                "logLevel": null,
+                "resources": {},
+                "healthPort": 5555,
+                "livenessProbe": {
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 5,
+                  "successThreshold": 1,
+                  "failureThreshold": 6
+                },
+                "readinessProbe": {
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 5,
+                  "successThreshold": 1,
+                  "failureThreshold": 6
+                },
+                "securityContext": {},
+                "ports": []
+              },
+              "processAgent": {
+                "env": [],
+                "logLevel": null,
+                "resources": {},
+                "securityContext": {},
+                "ports": []
+              },
+              "traceAgent": {
+                "env": null,
+                "logLevel": null,
+                "resources": {},
+                "livenessProbe": {
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 5
+                },
+                "securityContext": {},
+                "ports": []
+              },
+              "systemProbe": {
+                "env": [],
+                "logLevel": null,
+                "resources": {},
+                "securityContext": {
+                  "privileged": false,
+                  "capabilities": {
+                    "add": [
+                      "SYS_ADMIN",
+                      "SYS_RESOURCE",
+                      "SYS_PTRACE",
+                      "NET_ADMIN",
+                      "NET_BROADCAST",
+                      "NET_RAW",
+                      "IPC_LOCK"
+                    ]
+                  }
+                },
+                "ports": []
+              },
+              "securityAgent": {
+                "env": null,
+                "logLevel": null,
+                "resources": {},
+                "ports": []
+              },
+              "initContainers": {
+                "resources": {}
+              }
+            },
+            "volumes": [],
+            "volumeMounts": [],
+            "useHostNetwork": false,
+            "dnsConfig": {},
+            "podAnnotations": {},
+            "tolerations": [],
+            "nodeSelector": {},
+            "affinity": {},
+            "updateStrategy": {
+              "type": "RollingUpdate",
+              "rollingUpdate": {
+                "maxUnavailable": "10%"
+              }
+            },
+            "priorityClassName": null,
+            "podLabels": {},
+            "additionalLabels": {},
+            "useConfigMap": null,
+            "customAgentConfig": {},
+            "networkPolicy": {
+              "create": false
+            }
+          },
+          "clusterChecksRunner": {
+            "enabled": false,
+            "image": {
+              "name": "agent",
+              "tag": "7.31.0",
+              "tagSuffix": "",
+              "repository": null,
+              "pullPolicy": "IfNotPresent",
+              "pullSecrets": []
+            },
+            "createPodDisruptionBudget": false,
+            "rbac": {
+              "create": true,
+              "dedicated": false,
+              "serviceAccountAnnotations": {},
+              "serviceAccountName": "default"
+            },
+            "replicas": 2,
+            "resources": {},
+            "affinity": {},
+            "strategy": {
+              "type": "RollingUpdate",
+              "rollingUpdate": {
+                "maxSurge": 1,
+                "maxUnavailable": 0
+              }
+            },
+            "dnsConfig": {},
+            "priorityClassName": null,
+            "nodeSelector": {},
+            "tolerations": [],
+            "healthPort": 5557,
+            "livenessProbe": {
+              "initialDelaySeconds": 15,
+              "periodSeconds": 15,
+              "timeoutSeconds": 5,
+              "successThreshold": 1,
+              "failureThreshold": 6
+            },
+            "readinessProbe": {
+              "initialDelaySeconds": 15,
+              "periodSeconds": 15,
+              "timeoutSeconds": 5,
+              "successThreshold": 1,
+              "failureThreshold": 6
+            },
+            "podAnnotations": {},
+            "env": [],
+            "volumes": [],
+            "volumeMounts": [],
+            "networkPolicy": {
+              "create": false
+            },
+            "additionalLabels": {},
+            "securityContext": {},
+            "ports": []
+          },
+          "datadog-crds": {
+            "crds": {
+              "datadogMetrics": true
+            }
+          },
+          "kube-state-metrics": {
+            "rbac": {
+              "create": true
+            },
+            "serviceAccount": {
+              "create": true,
+              "name": null
+            },
+            "resources": {},
+            "nodeSelector": {
+              "kubernetes.io/os": "linux"
+            }
+          },
+          "providers": {
+            "gke": {
+              "autopilot": false
+            }
+          }
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3632969727942",
+        "version": "0.1.2",
+        "default_configuration": {
+          "roleName": "efs-csi-role",
+          "nameOverride": "",
+          "fullnameOverride": "",
+          "replicaCount": 1,
+          "image": {
+            "repository": "amazon/aws-efs-csi-driver",
+            "tag": "v1.3.4",
+            "pullPolicy": "IfNotPresent"
+          },
+          "sidecars": {
+            "livenessProbe": {
+              "image": {
+                "repository": "public.ecr.aws/eks-distro/kubernetes-csi/livenessprobe",
+                "tag": "v2.2.0-eks-1-18-2",
+                "pullPolicy": "IfNotPresent"
+              }
+            },
+            "nodeDriverRegistrar": {
+              "image": {
+                "repository": "public.ecr.aws/eks-distro/kubernetes-csi/node-driver-registrar",
+                "tag": "v2.1.0-eks-1-18-2",
+                "pullPolicy": "IfNotPresent"
+              }
+            },
+            "csiProvisioner": {
+              "image": {
+                "repository": "public.ecr.aws/eks-distro/kubernetes-csi/external-provisioner",
+                "tag": "v2.1.1-eks-1-18-2",
+                "pullPolicy": "IfNotPresent"
+              }
+            }
+          },
+          "controller": {
+            "serviceAccountName": "efs-csi-ctrl-sa",
+            "logLevel": 2,
+            "tags": {},
+            "deleteAccessPointRootDir": false,
+            "healthPort": 9909
+          },
+          "node": {
+            "serviceAccountName": "efs-csi-node-sa",
+            "logLevel": 2,
+            "dnsPolicy": "ClusterFirst",
+            "dnsConfig": {},
+            "podAnnotations": {},
+            "tolerations": [
+              {
+                "operator": "Exists"
+              }
+            ],
+            "healthPort": 9809
+          }
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1046964223665",
+        "version": "0.1.10",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3093243909410",
+        "version": "3.05.12",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1916227590924",
+        "version": "0.1.114",
+        "default_configuration": {
+          "content_item_type_configs": [
+            "hmd-config-device-cit@0.1.3"
+          ],
+          "content_path_configs": {
+            "devrun": [
+              "/hmd_lang_librarian.ns_day@iso_date:local/hmd_lang_device.device@serial_number:local/hmd_lang_librarian.content_category@category_name:local",
+              "/hmd_lang_librarian.ns_day@iso_date:local/hmd_lang_device.device@serial_number:local"
+            ],
+            "output": [
+              "/hmd_lang_librarian.ns_day@iso_date:local/hmd_lang_device.device@serial_number:local/hmd_lang_librarian.content_category@category_name:local",
+              "/hmd_lang_librarian.ns_day@iso_date:local/hmd_lang_device.device@serial_number:local"
+            ]
+          },
+          "operations_module": "hmd_ms_librarian.hmd_ms_librarian",
+          "relationship_namespace": "hmd_lang_device_librarian",
+          "schema_uri": [
+            "/schemas"
+          ]
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-415205379528",
+        "version": "0.2.33",
+        "default_configuration": {
+          "engine_mode": "serverless",
+          "publicly_accessible": true
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3582564351524",
+        "version": "0.1.15",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4160172040047",
+        "version": "0.1.3",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-37765120872",
+        "version": "0.1.8",
+        "default_configuration": {}
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3250436100661",
+        "version": "0.1.18",
+        "default_configuration": {
+          "image": {
+            "pullPolicy": "IfNotPresent"
+          },
+          "resources": {},
+          "conf": {}
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4015161349344",
+        "version": "0.1.21",
+        "default_configuration": {
+          "image": {
+            "repository": "trinodb/trino",
+            "tag": 361,
+            "pullPolicy": "IfNotPresent",
+            "securityContext": {
+              "runAsUser": 1000,
+              "runAsGroup": 1000
+            }
+          },
+          "ingress": {
+            "enabled": false,
+            "annotations": {},
+            "host": "",
+            "tls": {
+              "secretName": ""
+            }
+          },
+          "server": {
+            "workers": 3,
+            "node": {
+              "environment": "production",
+              "dataDir": "/data/trino",
+              "pluginDir": "/usr/lib/trino/plugin"
+            },
+            "log": {
+              "trino": {
+                "level": "INFO"
+              }
+            },
+            "config": {
+              "path": "/etc/trino",
+              "http": {
+                "port": 8080
+              },
+              "processForwarded": true,
+              "query": {
+                "maxMemory": "3GB",
+                "maxMemoryPerNode": "1GB",
+                "maxTotalMemory": "6GB",
+                "maxTotalMemoryPerNode": "2GB"
+              },
+              "prestoCompatibleHeader": false
+            },
+            "jvm": {
+              "maxHeapSize": "7G",
+              "gcMethod": {
+                "type": "UseG1GC",
+                "g1": {
+                  "heapRegionSize": "32M"
+                }
+              }
+            }
+          },
+          "initContainers": {},
+          "auth": {},
+          "accessControl": {},
+          "connectors": {
+            "hive.properties": "connector.name=hive\nhive.metastore.uri=thrift://{{ .Values.dependencies.metastore.instance_name }}-{{ .Values.dependencies.metastore.deployment_id }}-{{ .Values.dependencies.metastore.repo_name }}.{{ .Values.dependencies.metastore.instance_name }}-{{ .Values.dependencies.metastore.deployment_id }}.svc.cluster.local:9083\nhive.security=allow-all\nhive.recursive-directories=true\nhive.non-managed-table-writes-enabled=true"
+          },
+          "schemas": {},
+          "service": {
+            "type": "ClusterIP"
+          },
+          "resources": {},
+          "nodeSelector": {},
+          "tolerations": [],
+          "affinity": {}
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3615977477648",
+        "version": "0.1.19",
+        "default_configuration": {
+          "replicaCount": 1,
+          "additionalRequirements": [
+            "psycopg2==2.8.5",
+            "redis==3.2.1",
+            "sqlalchemy-trino"
+          ],
+          "configFromSecret": "{{ template \"superset.fullname\" . }}-config",
+          "envFromSecret": "{{ template \"superset.fullname\" . }}-env",
+          "extraEnv": {
+            "DB_NAME": "{{ index .Values \"dependencies\" \"db-credentials\" \"db_name\" }}"
+          },
+          "configMountPath": "/app/pythonpath",
+          "image": {
+            "repository": "apache/superset",
+            "tag": "1.3.0",
+            "pullPolicy": "IfNotPresent"
+          },
+          "service": {
+            "type": "ClusterIP",
+            "port": 8088
+          },
+          "resources": {},
+          "supersetNode": {
+            "command": [
+              "/bin/sh",
+              "-c",
+              ". {{ .Values.configMountPath }}/superset_bootstrap.sh; /usr/bin/docker-entrypoint.sh"
+            ],
+            "connections": {
+              "redis_host": "{{ .Values.namespace_name }}-redis-master",
+              "redis_port": "6379"
+            },
+            "forceReload": false
+          },
+          "supersetWorker": {
+            "command": [
+              "/bin/sh",
+              "-c",
+              ". {{ .Values.configMountPath }}/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"
+            ],
+            "forceReload": false
+          },
+          "init": {
+            "command": [
+              "/bin/sh",
+              "-c",
+              ". {{ .Values.configMountPath }}/superset_bootstrap.sh; . {{ .Values.configMountPath }}/superset_init.sh"
+            ],
+            "enabled": true,
+            "loadExamples": false,
+            "initscript": "#!/bin/sh\necho \"Upgrading DB schema...\"\nsuperset db upgrade\necho \"Initializing roles...\"\nsuperset init\necho \"Creating admin user...\"\nsuperset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin || true\n{{ if .Values.init.loadExamples }}\necho \"Loading examples...\"\nsuperset load_examples\n{{- end }}"
+          },
+          "redis": {
+            "enabled": true,
+            "usePassword": false,
+            "existingSecret": null,
+            "existingSecretKey": "redis-password",
+            "password": "superset",
+            "master": {
+              "persistence": {
+                "enabled": false,
+                "accessModes": [
+                  "ReadWriteOnce"
+                ]
+              }
+            },
+            "cluster": {
+              "enabled": false
+            }
+          },
+          "nodeSelector": {
+            "kubernetes.io/os": "linux"
+          },
+          "tolerations": [],
+          "affinity": {}
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3186315272079",
+        "version": "0.1.264",
+        "default_configuration": {
+          "hmd_app_image": "ghcr.io/hmdlabs/hmd-cli-app:0.2.254",
+          "schema_uri": [
+            "/schemas"
+          ],
+          "hmd_db_engines": {
+            "postgres": {
+              "engine_type": "postgres",
+              "engine_config": {
+                "db_secret_name": "dependency:db-credentials",
+                "db_name": "deployment"
+              }
+            }
+          },
+          "hmd_entity_config": {
+            "__default__": {
+              "persistence": [
+                "postgres"
+              ]
+            }
+          },
+          "operations_module": "hmd_ms_deployment.deployment_ops"
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2962331650023",
+        "version": "0.1.30",
+        "default_configuration": {
+          "schema_uri": [
+            "/schemas/hmd-lang-naming"
+          ],
+          "hmd_db_engines": {
+            "postgres": {
+              "engine_type": "postgres",
+              "engine_config": {
+                "db_secret_name": "dependency:db-credentials",
+                "db_name": "naming"
+              }
+            }
+          },
+          "hmd_entity_config": {
+            "__default__": {
+              "persistence": [
+                "postgres"
+              ]
+            }
+          },
+          "operations_module": "hmd_ms_naming.hmd_ms_naming",
+          "deployment_schema_uri": [
+            "/schemas/hmd-lang-deployment"
+          ]
+        }
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2865178628902",
+        "version": "0.1.37",
+        "default_configuration": {
+          "schema_uri": [
+            "s3://hmd-lang-projects@0.1.4"
+          ],
+          "hmd_db_engines": {
+            "postgres": {
+              "engine_type": "postgres",
+              "engine_config": {
+                "db_secret_name": "dependency:db-credentials",
+                "db_name": "projects"
+              }
+            }
+          },
+          "hmd_entity_config": {
+            "__default__": {
+              "persistence": [
+                "postgres"
+              ]
+            }
+          },
+          "operations_module": "hmd_ms_projects.hmd_ms_projects"
+        }
+      }
+    ],
+    "hmd_lang_deployment.environment": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1238943744088",
+        "type": "admin",
+        "account_number": "428221216563",
+        "hmd_region": "reg1"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1304479746548",
+        "name": "core-acm"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1437087749697",
+        "name": "api-gateway"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1583775748634",
+        "name": "base-datadog"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1710239752478",
+        "name": "datadog-lambda"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1851807746787",
+        "name": "base-vpc"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1977247753464",
+        "name": "core-rds"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2134175753137",
+        "name": "ms-dbaccount"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2306975745810",
+        "name": "dbaccount-naming"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2466719746555",
+        "name": "ms-naming"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2629791746631",
+        "name": "dbaccount-projects"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2792351745431",
+        "name": "ms-projects"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2982815749264",
+        "name": "eks-base"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3207327747401",
+        "name": "efs-csi"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3370143751282",
+        "name": "eks-datadog"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3525791752682",
+        "name": "wafv2"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3684511747955",
+        "name": "eks-alb"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3883679743028",
+        "name": "argo"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4041119744307",
+        "name": "dbaccount-deployment"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4213407746721",
+        "name": "ms-deployment"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_deployment": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1366943748446",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1506719753515",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1642399746979",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1775775746937",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1909919744149",
+        "deployment_id": "aaa",
+        "instance_configuration": {
+          "azs": [
+            "us-west-2a",
+            "us-west-2b"
+          ]
+        },
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2049951749044",
+        "deployment_id": "aaa",
+        "instance_configuration": {
+          "engine_mode": "provisioned"
+        },
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2214559744277",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2382239748515",
+        "deployment_id": "aaa",
+        "instance_configuration": {
+          "db_name": "naming"
+        },
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2554783743748",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2709151747967",
+        "deployment_id": "aaa",
+        "instance_configuration": {
+          "db_name": "projects"
+        },
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2883487745712",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3093407752853",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3287967748685",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3446943747376",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3602847747965",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3795103748860",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3962783745012",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4126879748655",
+        "deployment_id": "aaa",
+        "instance_configuration": {
+          "db_name": "deployment"
+        },
+        "status": "DEPLOYED"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-22632449647",
+        "deployment_id": "aaa",
+        "instance_configuration": {},
+        "status": "DEPLOYED"
+      }
+    ]
+  },
+  "relationships": {
+    "hmd_lang_deployment.repo_class_has_repo_class_version": [
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1694742535847",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1682454527965",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1656342536410"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4256405504319",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4245141503485",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4220821506562"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-120023049747",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-110551049652",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-88791041279"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3994877958522",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3985149961986",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3953405953256"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1974489094506",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1964761088271",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1941977094128"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1536782344449",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1526542339999",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1494030345865"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4047446020872",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4035414018056",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3991894024459"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-213039107527",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-202031112378",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-174639108655"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2091182086376",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2082734085047",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2051502082509"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-313167873375",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-304719874874",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-275535876869"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1007511558962",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-995991558461",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-951191554210"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1108426758516",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1099978754137",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1067978752183"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3639881734239",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3632969727942",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3605321728173"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1056692233014",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1046964223665",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1002164228577"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3105275905608",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3093243909410",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3040507906403"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1926211583133",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1916227590924",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1853251586744"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-423397379526",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-415205379528",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-374501384570"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3594596356825",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3582564351524",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3523428357251"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4171436034671",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4160172040047",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4103084036330"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-47749122298",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-37765120872",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4273084415452"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3258884103230",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3250436100661",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3199236095104"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4025657351328",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4015161349344",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3953209343268"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3623401479139",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3615977477648",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3573993479178"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3199883273766",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3186315272079",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3088267270092"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2970779648394",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2962331650023",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2899355655716"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2875162623456",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2865178628902",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2790170628327"
+      }
+    ],
+    "hmd_lang_deployment.repo_class_version_req_repo_class": [
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4008189952755",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3985149961986"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1551118335199",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "acm",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1941977094128",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1526542339999"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4062806023515",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "replication",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3991894024459",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4035414018056"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2102958079014",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-174639108655",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2082734085047"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-324175878858",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-304719874874"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1021079551088",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-995991558461"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1033111556869",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-995991558461"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1119946752465",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-cluster",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-951191554210",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1099978754137"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3649353728343",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-cluster",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-951191554210",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3632969727942"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1069748225910",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-cluster",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-951191554210",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1046964223665"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1081524226927",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "wafv2",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3953405953256",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1046964223665"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3119355912300",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-alb",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3093243909410"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1939523586479",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "logging",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1916227590924"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1953347593518",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1916227590924"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1964355589368",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1916227590924"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-1974851592308",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "lib-repo",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3991894024459",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-1916227590924"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-434149384003",
+        "required": "true",
+        "version_spec": "~= 0.0",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-415205379528"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-443877379151",
+        "required": "true",
+        "version_spec": "~= 0.0",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-415205379528"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3608164357651",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "logging",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3582564351524"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3620196358802",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3582564351524"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3631204354119",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3582564351524"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4186540036180",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "database-instance",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-374501384570",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4160172040047"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4200876037245",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "create-service",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3523428357251",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4160172040047"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-60805127229",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "write-buckets",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3991894024459",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-37765120872"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-72581127529",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "read-buckets",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3991894024459",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-37765120872"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-83077122674",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "read-librarians",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1853251586744",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-37765120872"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3269892095648",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "bucket-access",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4273084415452",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3250436100661"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3279620095567",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "db-credentials",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3250436100661"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3289860100227",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-alb",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3250436100661"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4038969353961",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-alb",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4015161349344"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4050489350651",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "bucket-access",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4273084415452",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4015161349344"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-4061241352189",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "role": "metastore",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3199236095104",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-4015161349344"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3633129472266",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "eks-alb",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3615977477648"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3641321481637",
+        "required": "true",
+        "version_spec": "~= 0.1.3",
+        "role": "db-credentials",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3615977477648"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3217547273137",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "logging",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3186315272079"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3232139273541",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3186315272079"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3243915269745",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3186315272079"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3251083271831",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "db-credentials",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3186315272079"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3257995266604",
+        "required": "true",
+        "version_spec": "~= 3.05",
+        "role": "argo",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3040507906403",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-3186315272079"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2981275656058",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "logging",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2962331650023"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2991003654553",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2962331650023"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3000219647347",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2962331650023"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-3008923649081",
+        "required": "true",
+        "version_spec": "~= 0.1.3",
+        "role": "db-credentials",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2962331650023"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2887962631685",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "logging",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2865178628902"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2899738626687",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2865178628902"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2910490625022",
+        "required": "true",
+        "version_spec": "~= 0.1",
+        "role": "base-vpc",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2865178628902"
+      },
+      {
+        "identifier": "deployment-jim-majure-reg1-hmdd2-2920986633651",
+        "required": "true",
+        "version_spec": "~= 0.1.3",
+        "role": "db-credentials",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-jim-majure-reg1-hmdd2-2865178628902"
+      }
+    ],
+    "hmd_lang_deployment.environment_has_repo_instance": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1312415744929",
+        "ref_to": "deployment-admin-reg1-hmdp1-1304479746548",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1444767748815",
+        "ref_to": "deployment-admin-reg1-hmdp1-1437087749697",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1590687748744",
+        "ref_to": "deployment-admin-reg1-hmdp1-1583775748634",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1716895748286",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1858463749686",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1983903753427",
+        "ref_to": "deployment-admin-reg1-hmdp1-1977247753464",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2140831747195",
+        "ref_to": "deployment-admin-reg1-hmdp1-2134175753137",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2313887747198",
+        "ref_to": "deployment-admin-reg1-hmdp1-2306975745810",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2473631747166",
+        "ref_to": "deployment-admin-reg1-hmdp1-2466719746555",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2636447749438",
+        "ref_to": "deployment-admin-reg1-hmdp1-2629791746631",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2799263749267",
+        "ref_to": "deployment-admin-reg1-hmdp1-2792351745431",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2991007748501",
+        "ref_to": "deployment-admin-reg1-hmdp1-2982815749264",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3216287750179",
+        "ref_to": "deployment-admin-reg1-hmdp1-3207327747401",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3377055745034",
+        "ref_to": "deployment-admin-reg1-hmdp1-3370143751282",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3532703746681",
+        "ref_to": "deployment-admin-reg1-hmdp1-3525791752682",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3691679751066",
+        "ref_to": "deployment-admin-reg1-hmdp1-3684511747955",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3890847744906",
+        "ref_to": "deployment-admin-reg1-hmdp1-3883679743028",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4047775748586",
+        "ref_to": "deployment-admin-reg1-hmdp1-4041119744307",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4220319749955",
+        "ref_to": "deployment-admin-reg1-hmdp1-4213407746721",
+        "ref_from": "deployment-admin-reg1-hmdp1-1238943744088"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_isa_repo_class": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1319583751734",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1941977094128",
+        "ref_from": "deployment-admin-reg1-hmdp1-1304479746548"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1451679744234",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1494030345865",
+        "ref_from": "deployment-admin-reg1-hmdp1-1437087749697"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1597087748034",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-174639108655",
+        "ref_from": "deployment-admin-reg1-hmdp1-1583775748634"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1723295743330",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2051502082509",
+        "ref_from": "deployment-admin-reg1-hmdp1-1710239752478"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1864863749798",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-88791041279",
+        "ref_from": "deployment-admin-reg1-hmdp1-1851807746787"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1990047743258",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-374501384570",
+        "ref_from": "deployment-admin-reg1-hmdp1-1977247753464"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2147231747706",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3523428357251",
+        "ref_from": "deployment-admin-reg1-hmdp1-2134175753137"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2320287744640",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-admin-reg1-hmdp1-2306975745810"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2479775750296",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2899355655716",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2642591747642",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-admin-reg1-hmdp1-2629791746631"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2805663746664",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2790170628327",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2998687749159",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-951191554210",
+        "ref_from": "deployment-admin-reg1-hmdp1-2982815749264"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3223455743344",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3605321728173",
+        "ref_from": "deployment-admin-reg1-hmdp1-3207327747401"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3383455748924",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1067978752183",
+        "ref_from": "deployment-admin-reg1-hmdp1-3370143751282"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3538847753914",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3953405953256",
+        "ref_from": "deployment-admin-reg1-hmdp1-3525791752682"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3698079748508",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1002164228577",
+        "ref_from": "deployment-admin-reg1-hmdp1-3684511747955"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3897247753231",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3040507906403",
+        "ref_from": "deployment-admin-reg1-hmdp1-3883679743028"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4054175745913",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4103084036330",
+        "ref_from": "deployment-admin-reg1-hmdp1-4041119744307"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4226463745114",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3088267270092",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_req_repo_instance": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1529503746440",
+        "role": "acm",
+        "ref_to": "deployment-admin-reg1-hmdp1-1304479746548",
+        "ref_from": "deployment-admin-reg1-hmdp1-1437087749697"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1797535747429",
+        "role": "datadog",
+        "ref_to": "deployment-admin-reg1-hmdp1-1583775748634",
+        "ref_from": "deployment-admin-reg1-hmdp1-1710239752478"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2071711749751",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-1977247753464"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2079135753443",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-1977247753464"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2236063752935",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-2134175753137"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2243231743207",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-2134175753137"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2250655752485",
+        "role": "logging",
+        "ref_to": "deployment-admin-reg1-hmdp1-1437087749697",
+        "ref_from": "deployment-admin-reg1-hmdp1-2134175753137"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2403743751135",
+        "role": "database-instance",
+        "ref_to": "deployment-admin-reg1-hmdp1-1977247753464",
+        "ref_from": "deployment-admin-reg1-hmdp1-2306975745810"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2411423744456",
+        "role": "create-service",
+        "ref_to": "deployment-admin-reg1-hmdp1-2134175753137",
+        "ref_from": "deployment-admin-reg1-hmdp1-2306975745810"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2576031743014",
+        "role": "db-credentials",
+        "ref_to": "deployment-admin-reg1-hmdp1-2306975745810",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2583455751458",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2590879746922",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2597791750831",
+        "role": "logging",
+        "ref_to": "deployment-admin-reg1-hmdp1-1437087749697",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2730143747892",
+        "role": "database-instance",
+        "ref_to": "deployment-admin-reg1-hmdp1-1977247753464",
+        "ref_from": "deployment-admin-reg1-hmdp1-2629791746631"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2737311745841",
+        "role": "create-service",
+        "ref_to": "deployment-admin-reg1-hmdp1-2134175753137",
+        "ref_from": "deployment-admin-reg1-hmdp1-2629791746631"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2905247752507",
+        "role": "db-credentials",
+        "ref_to": "deployment-admin-reg1-hmdp1-2629791746631",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2912671750559",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2919839746019",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2927007747718",
+        "role": "logging",
+        "ref_to": "deployment-admin-reg1-hmdp1-1437087749697",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3119775747366",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-2982815749264"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3134879748027",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-2982815749264"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3311263747902",
+        "role": "eks-cluster",
+        "ref_to": "deployment-admin-reg1-hmdp1-2982815749264",
+        "ref_from": "deployment-admin-reg1-hmdp1-3207327747401"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3469215748771",
+        "role": "eks-cluster",
+        "ref_to": "deployment-admin-reg1-hmdp1-2982815749264",
+        "ref_from": "deployment-admin-reg1-hmdp1-3370143751282"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3624863745233",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-3525791752682"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3818399749865",
+        "role": "eks-cluster",
+        "ref_to": "deployment-admin-reg1-hmdp1-2982815749264",
+        "ref_from": "deployment-admin-reg1-hmdp1-3684511747955"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3825823750790",
+        "role": "wafv2",
+        "ref_to": "deployment-admin-reg1-hmdp1-3525791752682",
+        "ref_from": "deployment-admin-reg1-hmdp1-3684511747955"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3984287743979",
+        "role": "eks-alb",
+        "ref_to": "deployment-admin-reg1-hmdp1-3684511747955",
+        "ref_from": "deployment-admin-reg1-hmdp1-3883679743028"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4148639747980",
+        "role": "database-instance",
+        "ref_to": "deployment-admin-reg1-hmdp1-1977247753464",
+        "ref_from": "deployment-admin-reg1-hmdp1-4041119744307"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4155807752946",
+        "role": "create-service",
+        "ref_to": "deployment-admin-reg1-hmdp1-2134175753137",
+        "ref_from": "deployment-admin-reg1-hmdp1-4041119744307"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-43880457871",
+        "role": "db-credentials",
+        "ref_to": "deployment-admin-reg1-hmdp1-4041119744307",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-51304448457",
+        "role": "datadog-lambda",
+        "ref_to": "deployment-admin-reg1-hmdp1-1710239752478",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-58472455786",
+        "role": "base-vpc",
+        "ref_to": "deployment-admin-reg1-hmdp1-1851807746787",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-65640456370",
+        "role": "logging",
+        "ref_to": "deployment-admin-reg1-hmdp1-1437087749697",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-72808456213",
+        "role": "argo",
+        "ref_to": "deployment-admin-reg1-hmdp1-3883679743028",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_has_repo_instance_deployment": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1375391745189",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-1366943748446",
+        "ref_from": "deployment-admin-reg1-hmdp1-1304479746548"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1514655745495",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-1506719753515",
+        "ref_from": "deployment-admin-reg1-hmdp1-1437087749697"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1649823744262",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-1642399746979",
+        "ref_from": "deployment-admin-reg1-hmdp1-1583775748634"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1783455750927",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-1775775746937",
+        "ref_from": "deployment-admin-reg1-hmdp1-1710239752478"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1917343747177",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-1909919744149",
+        "ref_from": "deployment-admin-reg1-hmdp1-1851807746787"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2057631749972",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2049951749044",
+        "ref_from": "deployment-admin-reg1-hmdp1-1977247753464"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2222239747550",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2214559744277",
+        "ref_from": "deployment-admin-reg1-hmdp1-2134175753137"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2389919746017",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2382239748515",
+        "ref_from": "deployment-admin-reg1-hmdp1-2306975745810"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2562207746094",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2554783743748",
+        "ref_from": "deployment-admin-reg1-hmdp1-2466719746555"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2716575749448",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2709151747967",
+        "ref_from": "deployment-admin-reg1-hmdp1-2629791746631"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2891167748423",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-2883487745712",
+        "ref_from": "deployment-admin-reg1-hmdp1-2792351745431"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3103903746076",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3093407752853",
+        "ref_from": "deployment-admin-reg1-hmdp1-2982815749264"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3296415745314",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3287967748685",
+        "ref_from": "deployment-admin-reg1-hmdp1-3207327747401"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3454879745335",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3446943747376",
+        "ref_from": "deployment-admin-reg1-hmdp1-3370143751282"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3610783743506",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3602847747965",
+        "ref_from": "deployment-admin-reg1-hmdp1-3525791752682"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3803807747884",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3795103748860",
+        "ref_from": "deployment-admin-reg1-hmdp1-3684511747955"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3970207751377",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-3962783745012",
+        "ref_from": "deployment-admin-reg1-hmdp1-3883679743028"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4134303749789",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-4126879748655",
+        "ref_from": "deployment-admin-reg1-hmdp1-4041119744307"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-30056456374",
+        "current": "true",
+        "ref_to": "deployment-admin-reg1-hmdp1-22632449647",
+        "ref_from": "deployment-admin-reg1-hmdp1-4213407746721"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_deployment_has_repo_class_version": [
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1382303753772",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1964761088271",
+        "ref_from": "deployment-admin-reg1-hmdp1-1366943748446"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1521055747353",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1526542339999",
+        "ref_from": "deployment-admin-reg1-hmdp1-1506719753515"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1655967746644",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-202031112378",
+        "ref_from": "deployment-admin-reg1-hmdp1-1642399746979"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1789855751989",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2082734085047",
+        "ref_from": "deployment-admin-reg1-hmdp1-1775775746937"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-1923487748687",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-110551049652",
+        "ref_from": "deployment-admin-reg1-hmdp1-1909919744149"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2063775750300",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-415205379528",
+        "ref_from": "deployment-admin-reg1-hmdp1-2049951749044"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2228383747896",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3582564351524",
+        "ref_from": "deployment-admin-reg1-hmdp1-2214559744277"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2396319746962",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4160172040047",
+        "ref_from": "deployment-admin-reg1-hmdp1-2382239748515"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2568607748362",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2962331650023",
+        "ref_from": "deployment-admin-reg1-hmdp1-2554783743748"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2722719749736",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4160172040047",
+        "ref_from": "deployment-admin-reg1-hmdp1-2709151747967"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-2897567751295",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-2865178628902",
+        "ref_from": "deployment-admin-reg1-hmdp1-2883487745712"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3111327744722",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-995991558461",
+        "ref_from": "deployment-admin-reg1-hmdp1-3093407752853"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3303071743546",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3632969727942",
+        "ref_from": "deployment-admin-reg1-hmdp1-3287967748685"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3461279743357",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1099978754137",
+        "ref_from": "deployment-admin-reg1-hmdp1-3446943747376"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3617183752759",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3985149961986",
+        "ref_from": "deployment-admin-reg1-hmdp1-3602847747965"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3810463747255",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-1046964223665",
+        "ref_from": "deployment-admin-reg1-hmdp1-3795103748860"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-3976607749687",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3093243909410",
+        "ref_from": "deployment-admin-reg1-hmdp1-3962783745012"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-4140703749097",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-4160172040047",
+        "ref_from": "deployment-admin-reg1-hmdp1-4126879748655"
+      },
+      {
+        "identifier": "deployment-admin-reg1-hmdp1-36456451018",
+        "ref_to": "deployment-jim-majure-reg1-hmdd2-3186315272079",
+        "ref_from": "deployment-admin-reg1-hmdp1-22632449647"
+      }
+    ]
+  }
+}

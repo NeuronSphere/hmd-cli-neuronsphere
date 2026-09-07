@@ -1,0 +1,19 @@
+# Base ResourceDefinition (NERD0004): an abstract in-memory cache / key-value store.
+resource_namespace: cache.neuronsphere.io
+resource_definition_name: cache
+version: 0.1.0
+description: >-
+  An in-memory cache or key-value store (e.g. Redis) that services use for caching
+  and ephemeral state.
+output_schema:
+  type: object
+  properties:
+    host:
+      type: string
+      description: The network host the cache is reachable at.
+    port:
+      type: integer
+      description: The port the cache listens on.
+    secret_name:
+      type: string
+      description: The name of the secret holding the cache credentials, if any.

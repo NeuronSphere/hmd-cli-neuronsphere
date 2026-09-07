@@ -1,0 +1,29 @@
+{{/*
+NERD0006: declare the produced Resource (external-secrets-crds) as a benign ConfigMap.
+
+This ConfigMap is rendered by `hmd-cli-helm` after deploy (via `helm template
+--show-only`) and its `data` is submitted to the Deployment Service. It is an ordinary,
+data-only ConfigMap that no controller acts on, so it is also harmless if applied as
+part of the chart by an older `hmd-cli-helm` that is unaware of the export step.
+*/}}
+{{- $resource := dict
+  "resource_name" "external-secrets-crds"
+  "resource_definition" (dict
+    "resource_namespace" "external-secrets.neuronsphere.io"
+    "resource_definition_name" "external-secrets-crds"
+    "version" "0.1.0")
+  "output" (dict
+    "api_group" "external-secrets.io"
+    "kinds" (list "ExternalSecret" "SecretStore" "ClusterSecretStore" "ClusterExternalSecret" "PushSecret" "ClusterPushSecret")
+    "scope" "Cluster"
+    "served_versions" (list "v1beta1" "v1"))
+  "tags" (list) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-resource-outputs
+  namespace: {{ .Values.namespace_name | default .Release.Namespace }}
+  labels:
+    neuronsphere.io/resource-outputs: "true"
+data:
+  external-secrets-crds: {{ $resource | toJson | quote }}

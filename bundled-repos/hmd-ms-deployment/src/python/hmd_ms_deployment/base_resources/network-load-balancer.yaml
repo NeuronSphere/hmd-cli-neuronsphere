@@ -1,0 +1,20 @@
+# Base ResourceDefinition (NERD0004): an abstract network entry point / load
+# balancer (ALB, API gateway, ingress).
+resource_namespace: network.neuronsphere.io
+resource_definition_name: load-balancer
+version: 0.1.0
+description: >-
+  A load balancer or ingress that fronts one or more services and routes external
+  traffic to them.
+output_schema:
+  type: object
+  properties:
+    dns_name:
+      type: string
+      description: The DNS name clients use to reach the load balancer.
+    arn:
+      type: string
+      description: The provider identifier of the load balancer.
+    scheme:
+      type: string
+      description: Whether the load balancer is internet-facing or internal.

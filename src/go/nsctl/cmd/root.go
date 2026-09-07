@@ -95,8 +95,9 @@ func NewRootCommand(version string, process hmdenv.Lookup) *cobra.Command {
 environment substrate your deployments sit on. Docker is the only host
 prerequisite.
 
-It ships the control plane and the substrate -- a cluster and a database with
-nothing on them. Everything above that is a RepoClass you add.`,
+It ships the control plane and the substrate -- a cluster, a database, and the
+External Secrets operator a cloud chart's secrets resolve through. Everything
+above that is a RepoClass you add.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          noArgs,

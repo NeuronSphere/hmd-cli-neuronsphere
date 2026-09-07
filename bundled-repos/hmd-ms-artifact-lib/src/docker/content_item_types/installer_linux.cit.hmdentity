@@ -1,0 +1,6 @@
+{
+  "short_name": "installer_linux",
+  "description": "an HMD installer artifact for linux",
+  "match_regex": ".*\\.zip",
+  "mime_type": "application/zip"
+}

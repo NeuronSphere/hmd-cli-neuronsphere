@@ -1,0 +1,20 @@
+{
+  "plugin_name": "dbaccount",
+  "hmdms_service": {
+    "lambda_name": "hmd_ms_dbaccount",
+    "repo_class_name": "hmd-ms-dbaccount",
+    "buckets": []
+  },
+  "resources": {
+    "services": [
+      {"name": "ms-dbaccount", "url": "http://hmd_proxy/ms-dbaccount/"}
+    ],
+    "databases": []
+  },
+  "dependencies": {
+    "requires_plugins": [],
+    "requires_services": ["db"]
+  },
+  "env_var_override": "HMD_LOCAL_NEURONSPHERE_ENABLE_DBACCOUNT",
+  "enabled_by_default": true
+}

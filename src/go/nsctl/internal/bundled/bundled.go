@@ -19,9 +19,11 @@ package bundled
 import (
 	"embed"
 	"io/fs"
+	"sort"
+	"strings"
 )
 
-//go:embed services/*.yml runner/*.tar.gz
+//go:embed services/*.yml runner/*.tar.gz repos/*.tar.gz
 var files embed.FS
 
 // ControlPlaneComposeFile is the compose file describing the control plane:
@@ -36,6 +38,39 @@ const ControlPlaneComposeFile = "services/docker-compose.control-plane.yml"
 // binary running as the runner therefore cannot build a further runner image,
 // which is the right answer rather than a missing feature.
 const RunnerSourceArchive = "runner/source.tar.gz"
+
+// RepoArchive is the packed working tree for a repo class, or false when this
+// binary carries none.
+//
+// A deploy node bind-mounts a repo's tree into a sibling projectbuilder, so a
+// machine with no $HMD_REPO_HOME could not deploy anything at all: the
+// substrate's first node failed with "no working tree for hmd-vpc". These are
+// what nsctl unpacks to stand in, which is what makes "a single binary whose
+// only prerequisite is Docker" true of more than `control-plane start`.
+func RepoArchive(repoClass string) ([]byte, bool) {
+	if repoClass == "" {
+		return nil, false
+	}
+	data, err := files.ReadFile("repos/" + repoClass + ".tar.gz")
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// RepoClasses lists every repo class this binary carries a tree for.
+func RepoClasses() []string {
+	entries, err := fs.ReadDir(files, "repos")
+	if err != nil {
+		return nil
+	}
+	classes := make([]string, 0, len(entries))
+	for _, e := range entries {
+		classes = append(classes, strings.TrimSuffix(e.Name(), ".tar.gz"))
+	}
+	sort.Strings(classes)
+	return classes
+}
 
 // Read returns one bundled file.
 func Read(name string) ([]byte, error) { return files.ReadFile(name) }

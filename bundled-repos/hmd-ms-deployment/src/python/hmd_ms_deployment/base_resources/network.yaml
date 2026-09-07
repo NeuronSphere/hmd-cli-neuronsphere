@@ -1,0 +1,17 @@
+# Base ResourceDefinition (NERD0004): the abstract root for all networks. A
+# consumer that only needs "a network to attach to" depends on this type, and any
+# concrete network — a cloud VPC or the local Docker network — satisfies it via
+# inheritance.
+resource_namespace: network.neuronsphere.io
+resource_definition_name: network
+version: 0.1.0
+description: >-
+  An abstract network providing an isolated address space that resources attach
+  to. Concrete networks such as a cloud VPC or the local Docker network inherit
+  from this type.
+output_schema:
+  type: object
+  properties:
+    network_id:
+      type: string
+      description: The provider/runtime identifier of the network.

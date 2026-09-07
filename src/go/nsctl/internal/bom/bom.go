@@ -80,7 +80,12 @@ type Environment struct {
 	Slug         string
 	DeploymentID string
 	AccountID    string
-	Region       string
+	// AccessKeyID is what a request signs with, and therefore which emulated
+	// account Floci resolves it in. It defaults to AccountID and is carried
+	// separately because they are different ideas: signing with the wrong key
+	// does not fail, it succeeds against the wrong account.
+	AccessKeyID string
+	Region      string
 	// DBContainer is the DNS alias the environment's Postgres answers on.
 	DBContainer string
 	// K3sCluster and K3sContainer name the cluster and the container Floci

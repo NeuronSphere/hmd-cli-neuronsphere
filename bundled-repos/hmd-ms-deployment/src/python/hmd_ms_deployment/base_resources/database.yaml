@@ -1,0 +1,18 @@
+# Base ResourceDefinition (NERD0004): the abstract root for all databases.
+# Concrete engines (postgres, graph) `parent` this type; the effective output
+# schema of a subtype is this schema merged with the subtype's own.
+resource_namespace: database.neuronsphere.io
+resource_definition_name: database
+version: 0.1.0
+description: >-
+  An abstract database that other resources can connect to. Concrete engines such
+  as postgres and graph inherit from this type.
+output_schema:
+  type: object
+  properties:
+    host:
+      type: string
+      description: The network host the database is reachable at.
+    port:
+      type: integer
+      description: The port the database listens on.

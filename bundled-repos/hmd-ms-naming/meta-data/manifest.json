@@ -1,0 +1,87 @@
+{
+  "identifier": "some-project-repo-identifier",
+  "name": "hmd-ms-naming",
+  "description": "an example project",
+  "project_type": {
+    "identifier": "some-project-type-identifier",
+    "name": "microservice"
+  },
+  "docker": {"build": {"install_local": true}},
+  "build": {
+    "pre_build_artifacts": [],
+    "commands": [["python"], ["docker"], ["cdktf"]]
+  },
+  "deploy": {
+    "commands": [["docker"], ["cdktf"]],
+    "dependencies": {
+      "logging": {
+        "repo_class_name": "hmd-inf-api-gateway",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "datadog-lambda": {
+        "repo_class_name": "hmd-inf-datadog-lambdas",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "required": "true",
+        "version_spec": "~= 0.1.19"
+      },
+      "db-credentials": {
+        "repo_class_name": "hmd-database-account",
+        "required": "true",
+        "version_spec": "~= 0.1.3"
+      },
+      "authorizer": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-opa-authorizer",
+        "version_spec": "~= 0.1.7"
+      },
+      "otel-collector": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-otel-collector",
+        "version_spec": "~= 0.1.7"
+      },
+      "pgbouncer": {
+        "repo_class_name": "hmd-inf-pgbouncer",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "resource": {
+          "resource_namespace": "pgbouncer.neuronsphere.io",
+          "resource_definition_name": "pgbouncer-proxy",
+          "version": "0.1.0",
+          "version_spec": "~= 0.1"
+        }
+      }
+    },
+    "default_configuration": {
+      "create_okta_identity": true,
+      "use_api_key": false,
+      "service_config": {
+        "loader_config": {
+          "naming": ["hmd-lang-naming"],
+          "deployment": ["hmd-lang-deployment"]
+        },
+        "hmd_db_engines": {
+          "postgres": {
+            "engine_type": "postgres",
+            "engine_config": {
+              "db_secret_name": "dependency:db-credentials",
+              "db_name": "naming",
+              "proxy_host": "dependency:pgbouncer",
+              "proxy_port": 6432
+            }
+          }
+        },
+        "hmd_entity_config": {
+          "__default__": {
+            "persistence": ["postgres"]
+          }
+        },
+        "operations_modules": ["hmd_ms_naming.hmd_ms_naming"]
+      }
+    }
+  }
+}

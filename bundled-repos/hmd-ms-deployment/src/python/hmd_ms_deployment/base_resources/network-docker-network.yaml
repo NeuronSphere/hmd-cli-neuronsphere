@@ -1,0 +1,24 @@
+# Base ResourceDefinition (NERD0004): the local Docker network. A subtype of
+# network.neuronsphere.io/network — the local-platform counterpart to a cloud vpc.
+# This lets the local NeuronSphere substitute a Docker network wherever a RepoClass
+# depends on the generic `network` type, so RepoClasses can be exercised locally
+# without a real VPC.
+resource_namespace: network.neuronsphere.io
+resource_definition_name: docker-network
+version: 0.1.0
+description: >-
+  A local Docker network. The local-platform equivalent of a cloud VPC; satisfies a
+  generic network dependency when running under Docker Compose.
+parent:
+  resource_namespace: network.neuronsphere.io
+  resource_definition_name: network
+  version: 0.1.0
+output_schema:
+  type: object
+  properties:
+    network_name:
+      type: string
+      description: The name of the Docker network.
+    driver:
+      type: string
+      description: The Docker network driver (e.g. bridge).

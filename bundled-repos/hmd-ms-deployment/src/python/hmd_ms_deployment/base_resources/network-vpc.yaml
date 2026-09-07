@@ -1,0 +1,37 @@
+# Base ResourceDefinition (NERD0004): a cloud virtual private network. A subtype of
+# network.neuronsphere.io/network. Provider repos ship a concrete subtype (e.g.
+# aws.neuronsphere.io/vpc) that `parent`s this type and declares `produces: true`.
+resource_namespace: network.neuronsphere.io
+resource_definition_name: vpc
+version: 0.1.0
+description: >-
+  A virtual private network providing an isolated address space and subnets that
+  other resources are deployed into.
+parent:
+  resource_namespace: network.neuronsphere.io
+  resource_definition_name: network
+  version: 0.1.0
+output_schema:
+  type: object
+  properties:
+    vpc_id:
+      type: string
+      description: The provider identifier of the network.
+    cidr_block:
+      type: string
+      description: The primary CIDR block of the network.
+    region:
+      type: string
+      description: The cloud region the network resides in.
+    availability_zones:
+      type: array
+      items:
+        type: string
+    private_subnet_ids:
+      type: array
+      items:
+        type: string
+    public_subnet_ids:
+      type: array
+      items:
+        type: string

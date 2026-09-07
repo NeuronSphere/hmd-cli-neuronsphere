@@ -7,3 +7,7 @@
 
 # Packed by `make generate` from this module's own sources.
 /internal/bundled/runner/
+
+# Packed by `make generate` from bundled-repos/ and the pre_build_artifacts
+# destination. Not committed: both sources are.
+/internal/bundled/repos/

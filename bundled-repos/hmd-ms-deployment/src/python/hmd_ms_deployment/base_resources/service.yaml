@@ -1,0 +1,37 @@
+# Base ResourceDefinition (NERD0004): an abstract Kubernetes Service that exposes a
+# workload in-cluster. Its `internal_dns` output is the primitive consumers use to
+# reference cluster-internal URLs (`name.namespace.svc.cluster.local`).
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: service
+version: 0.1.0
+description: >-
+  A Kubernetes Service exposing a workload to other workloads in the cluster,
+  reachable at a stable in-cluster DNS name.
+output_schema:
+  type: object
+  required:
+    - name
+    - namespace
+  properties:
+    name:
+      type: string
+      description: The name of the Service.
+    namespace:
+      type: string
+      description: The Kubernetes namespace the Service resides in.
+    type:
+      type: string
+      description: The Service type (ClusterIP, NodePort, LoadBalancer, ExternalName).
+    cluster_ip:
+      type: string
+      description: The in-cluster virtual IP assigned to the Service.
+    ports:
+      type: array
+      items:
+        type: integer
+      description: The ports the Service exposes.
+    internal_dns:
+      type: string
+      description: >-
+        The in-cluster DNS name other workloads use to reach the Service
+        (name.namespace.svc.cluster.local).

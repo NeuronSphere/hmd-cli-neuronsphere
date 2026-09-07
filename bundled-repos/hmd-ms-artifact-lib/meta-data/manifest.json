@@ -1,0 +1,129 @@
+{
+  "name": "hmd-ms-artifact-lib",
+  "description": "Artifact Librarian",
+  "build": {
+    "commands": [["docker"], ["cdktf"]]
+  },
+  "deploy": {
+    "register_service": {
+      "http": true,
+      "lambda": true
+    },
+    "commands": [["docker"], ["cdktf"]],
+    "dependencies": {
+      "authorizer": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-opa-authorizer",
+        "version_spec": "~= 0.1.7"
+      },
+      "logging": {
+        "repo_class_name": "hmd-inf-api-gateway",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "datadog-lambda": {
+        "repo_class_name": "hmd-inf-datadog-lambdas",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "lib-repo": {
+        "repo_class_name": "hmd-inf-s3bucket",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "neptune-db": {
+        "instance_name": "global-graph",
+        "repo_class_name": "hmd-inf-neptune",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "otel-collector": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-otel-collector",
+        "version_spec": "~= 0.1.7"
+      }
+    },
+    "default_configuration": {
+      "use_api_key": false,
+      "create_okta_identity": true,
+      "service_config": {
+        "loader_config": {
+          "local": ["hmd-lang-librarian", "hmd-lang-artifact-librarian",
+            "hmd-lang-identity",
+            "hmd-lang-librarian-identity"]
+        },
+        "service_loader": "local",
+        "operations_modules": [
+          "hmd_ms_base.crud_operations",
+          "hmd_ms_librarian.hmd_ms_librarian"
+        ],
+        "hmd_db_engines": {
+          "dynamo": {
+            "engine_type": "dynamo",
+            "engine_config": {
+              "point_in_time_recovery": "enabled"
+            }
+          },
+          "graph": {
+            "engine_type": "gremlin",
+            "engine_config": {
+              "db_host": "dependency:neptune-db"
+            }
+          }
+        },
+        "hmd_entity_config": {
+          "__default__": {
+            "persistence": ["dynamo", "graph"]
+          }
+        }
+      },
+      "graph_queries": {
+        "new_deployables": {
+          "query_template": "g.V().has('hmd_lang_librarian.content_item', 'created_ts', between('{since_timestamp}', '{until_timestamp}')).has('status', 'closed_with_file').hasNot('is_deleted').as('a').out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name','build').select('a').id().dedup()"
+        },
+        "new_auto_deploys": {
+          "query_template": "g.V().hasLabel('hmd_lang_librarian.content_item').has('status', 'closed_with_file').hasNot('is_deleted').as('a').out('hmd_lang_librarian.content_item_has_tag').has('_updated', between('{since_timestamp}', '{until_timestamp}')).where({tag_filter}).select('a').out('hmd_lang_librarian.content_item_has_content_item_type').where({content_item_type_filter}).select('a').id().dedup()"
+        },
+        "new_tagged": {
+          "query_template": "g.V().hasLabel('hmd_lang_librarian.content_item').hasNot('is_deleted').as('a').out('hmd_lang_librarian.content_item_has_tag').has('_updated', between('{since_timestamp}', '{until_timestamp}')).where(and({tag_filter})).select('a').out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name','{content_item_type}').select('a').id().dedup()"
+        },
+        "by_content_item_type_tag": {
+          "query_template": "g.V().hasLabel('hmd_lang_librarian.content_item').hasNot('is_deleted').as('a').out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name','{item_type}').select('a').out('hmd_lang_librarian.content_item_has_tag').has('tag_name', '{tag_name}').has('tag_value', '{tag_value}').select('a').id().dedup()"
+        }
+      },
+      "content_path_configs": {
+        "repository": [
+          {
+            "path": "/hmd_lang_artifact_librarian.repo@repo_name:local/hmd_lang_artifact_librarian.repo_version@repo_version:local",
+            "relationships": [
+              "hmd_lang_artifact_librarian.content_item_has_repo:local",
+              "hmd_lang_artifact_librarian.content_item_has_repo_version:local"
+            ]
+          },
+          {
+            "path": "/hmd_lang_artifact_librarian.repo@repo_name:local/hmd_lang_artifact_librarian.repo_version@repo_version:local/hmd_lang_artifact_librarian.artifact_tool@tool_name:local",
+            "relationships": [
+              "hmd_lang_artifact_librarian.content_item_has_repo:local",
+              "hmd_lang_artifact_librarian.content_item_has_repo_version:local",
+              "hmd_lang_artifact_librarian.content_item_has_artifact_tool:local"
+            ]
+          }
+        ],
+        "deploy": [
+          {
+            "path": "/hmd_lang_artifact_librarian.deployment_set@name:local/hmd_lang_librarian.ns_day@iso_date:local",
+            "relationships": [
+              "hmd_lang_artifact_librarian.content_item_has_deployment_set:local",
+              "hmd_lang_librarian.content_item_has_ns_day:local"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

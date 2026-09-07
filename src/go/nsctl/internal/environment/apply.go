@@ -68,9 +68,14 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	existing := d.ContainerNames(ctx)
 	k3sContainer := floci.K3sContainerName(env.K3sCluster, env.AccountID, existing)
 
+	target := floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout)
 	bomEnv := bom.Environment{
 		Slug: env.Slug, DeploymentID: env.DeploymentID, AccountID: env.AccountID,
-		Region: names.Region, DBContainer: env.DBContainer,
+		// The access key is what Floci reads the account off, and it is carried
+		// separately from AccountID because signing with the wrong one does not
+		// fail -- it succeeds against the wrong account.
+		AccessKeyID: target.AccessKeyID,
+		Region:      names.Region, DBContainer: env.DBContainer,
 		K3sCluster: env.K3sCluster, K3sContainer: k3sContainer,
 	}
 
@@ -80,7 +85,8 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	// Everything above the substrate is what the manifest declares. An
 	// environment with none is not an error -- that is the empty environment,
-	// and it gets a cluster and a database with nothing on them.
+	// and it gets a cluster, a database, and the operator that lets a cloud
+	// chart's secrets resolve.
 	declared, err := manifest.Load(opts.Home, env.Slug, opts.Lookup)
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
@@ -103,6 +109,32 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	}
 	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
 
+	// The External Secrets operator, unless opted out. It reaches nsctl through
+	// the environment manifest today, which on a developer machine the Python
+	// CLI wrote -- so an environment created by `nsctl env add` alone got a
+	// cluster with no operator on it, and the first cloud chart rendering an
+	// ExternalSecret failed on the missing CRD. Bundling the repo (SPEC006) is
+	// what lets it deploy; declaring it here is what makes it deploy at all.
+	//
+	// Not in Substrate's own list: substrateInstances decides which of the two
+	// changesets an entry lands in, and these belong in the second. The first
+	// is applied before the concrete core Resources are submitted, and a
+	// dependency carrying a tag_selector cannot resolve against a type nothing
+	// has produced yet.
+	if extSecretsEnabled(opts) && k3sEnabled(opts) {
+		entries = append(entries, bom.ExtSecrets(bomEnv)...)
+	}
+
+	// Before the plan is computed, not only inside Seed.
+	//
+	// Seed injects the per-environment endpoints on the way past, but the
+	// reconcile snapshot hashes the desired state built here. Injecting only in
+	// Seed means the digest covers a pre-injection entry that never matches
+	// what was seeded, and ext-secrets reads as drifted on every single apply.
+	// change_set_builder does the same thing in both places for the same
+	// reason, and says so: "Omitting it left ext-secrets permanently drifted."
+	bom.InjectExtSecretsAccount(entries, bomEnv.AccessKeyID)
+
 	// Floci spawns its database backend from an image reference pinned into its
 	// own configuration, and a reference that resolves nowhere fails the
 	// instance while the deploy polls indefinitely. Catch it in seconds here.
@@ -110,7 +142,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.New(nserr.Usage, "%s", problem)
 	}
 
-	if prov, err := floci.NewProvisioner(ctx, floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout), opts.Out, opts.Err); err == nil {
+	if prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err); err == nil {
 		// Clear a database record Floci cannot serve, so the deploy below
 		// creates it rather than refreshing to "no changes" against a dead
 		// instance.
@@ -123,7 +155,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	}
 
-	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
+	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	for class, path := range repoPaths {
 		resolver.Paths[class] = path
 	}
@@ -205,6 +237,8 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			Kubeconfig:           env.Kubeconfig,
 			Environment:          env.Slug,
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
+			Home:                 opts.Home,
+			Lookup:               opts.Lookup,
 			RepoPaths:            repoPaths,
 			DeploymentID:         env.DeploymentID,
 			Region:               names.Region,
@@ -236,7 +270,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		// Floci lets an in-use group be deleted, and DescribeDBInstances fails
 		// for the instance referencing it until one exists again, so the retry
 		// follows immediately.
-		prov, provErr := floci.NewProvisioner(ctx, floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout), opts.Out, opts.Err)
+		prov, provErr := floci.NewProvisioner(ctx, target, opts.Out, opts.Err)
 		if provErr == nil {
 			released, relErr := floci.ReleaseUnmanagedSubnetGroup(ctx, prov, floci.LocalDBSubnetGroup)
 			if relErr != nil {
@@ -307,6 +341,19 @@ func subnetGroupCollision(res *runner.Result) bool {
 	}
 	return strings.Contains(string(res.Stderr), "DBSubnetGroupAlreadyExists") ||
 		strings.Contains(string(res.Stdout), "DBSubnetGroupAlreadyExists")
+}
+
+// extSecretsEnabled matches bom_seeder's opt-out: on unless explicitly falsy.
+//
+// Gated in this package rather than inside internal/bom, so the BOM
+// constructors stay pure functions of their arguments -- the same division
+// k3sEnabled and Substrate's withCluster parameter already draw.
+func extSecretsEnabled(opts *Options) bool {
+	switch strings.ToLower(strings.TrimSpace(opts.lookup(bom.ExtSecretsEnabledEnv))) {
+	case "false", "0", "no":
+		return false
+	}
+	return true
 }
 
 func k3sEnabled(opts *Options) bool {

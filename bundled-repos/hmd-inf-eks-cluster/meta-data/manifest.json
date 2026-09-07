@@ -1,0 +1,39 @@
+{
+  "name": "hmd-inf-eks-cluster",
+  "build": {
+    "commands": [["cdktf"]]
+  },
+  "deploy": {
+    "commands": [["cdktf"]],
+    "dependencies": {
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "version_spec": "~= 0.1.19",
+        "required": "true"
+      },
+      "datadog-lambda": {
+        "repo_class_name": "hmd-inf-datadog-lambdas",
+        "version_spec": "~= 0.1.7",
+        "required": "true"
+      },
+      "neptune-db": {
+        "repo_class_name": "hmd-inf-neptune",
+        "required": "false",
+        "version_spec": "~= 0.1.7"
+      }
+    },
+    "default_configuration": {
+      "cluster_version": "1.34",
+      "addon_versions": {},
+      "enable_irsa": true,
+      "enable_auto_mode": false,
+      "cluster_log_types": [
+        "controllerManager",
+        "scheduler"
+      ],
+      "enable_private_access": true,
+      "enable_public_access": true,
+      "log_retention": 7
+    }
+  }
+}

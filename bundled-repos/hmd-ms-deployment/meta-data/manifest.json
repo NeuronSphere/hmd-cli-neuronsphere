@@ -1,0 +1,292 @@
+{
+  "identifier": "some-project-repo-identifier",
+  "name": "hmd-ms-deployment",
+  "description": "Deployment orchestration microservice \u2014 resolves resource-based cross-repo dependencies and drives Argo-based deployment across environments.",
+  "project_type": {
+    "identifier": "some-project-type-identifier",
+    "name": "microservice"
+  },
+  "build": {
+    "pre_build_artifacts": [
+      [
+        "hmd-lang-deployment@0.1.87:schema",
+        [
+          "src/python/schemas/local"
+        ]
+      ],
+      [
+        "hmd-lang-librarian@0.1.33:schema",
+        [
+          "src/python/schemas/artifact"
+        ]
+      ]
+    ],
+    "commands": [
+      [
+        "python"
+      ],
+      [
+        "docker"
+      ],
+      [
+        "cdktf"
+      ]
+    ],
+    "auto_deploy": "dev-test"
+  },
+  "docker": {
+    "build": {
+      "install_local": true,
+      "context_dir": "./"
+    }
+  },
+  "deploy": {
+    "register_service": {
+      "http": true,
+      "lambda": true
+    },
+    "commands": [
+      [
+        "docker"
+      ],
+      [
+        "cdktf"
+      ]
+    ],
+    "dependencies": {
+      "logging": {
+        "repo_class_name": "hmd-inf-api-gateway",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "datadog-lambda": {
+        "repo_class_name": "hmd-inf-datadog-lambdas",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "required": "true",
+        "version_spec": "~= 0.1.19"
+      },
+      "db-credentials": {
+        "repo_class_name": "hmd-database-account",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      "argo": {
+        "repo_class_name": "hmd-app-argo",
+        "required": "true",
+        "version_spec": "~= 3.05"
+      },
+      "authorizer": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-opa-authorizer",
+        "version_spec": "~= 0.1.7"
+      },
+      "artifact": {
+        "required": "false",
+        "repo_class_name": "hmd-ms-artifact-lib",
+        "version_spec": "~= 0.1.1"
+      },
+      "otel-collector": {
+        "repo_class_name": "hmd-inf-otel-collector",
+        "required": "true",
+        "version_spec": "~= 0.1.51"
+      },
+      "ext-secrets": {
+        "repo_class_name": "hmd-inf-ext-secrets",
+        "version_spec": "~= 0.2",
+        "required": "false"
+      },
+      "workers": {
+        "repo_class_name": "hmd-inf-eks-node-group",
+        "required": "true",
+        "version_spec": "~= 0.2"
+      },
+      "ecr-cache": {
+        "repo_class_name": "hmd-inf-ecr-cache",
+        "required": "false",
+        "version_spec": "~= 0.1"
+      },
+      "redis": {
+        "repo_class_name": "hmd-inf-redis",
+        "required": "false",
+        "version_spec": "~= 0.1"
+      },
+      "pgbouncer": {
+        "repo_class_name": "hmd-inf-pgbouncer",
+        "required": "false",
+        "version_spec": "~= 0.1",
+        "resource": {
+          "resource_namespace": "pgbouncer.neuronsphere.io",
+          "resource_definition_name": "pgbouncer-proxy",
+          "version": "0.1.0",
+          "version_spec": "~= 0.1"
+        }
+      }
+    },
+    "default_configuration": {
+      "hmd_app_image": "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.4.326",
+      "hmd_app_image_map": {},
+      "terraform_binary_name": "tofu",
+      "hmd_log_level": {
+        "HMD": "INFO"
+      },
+      "use_api_key": false,
+      "create_okta_identity": true,
+      "hmd_env_cache_enabled": false,
+      "otel_flush_timeout_ms": 3000,
+      "otel_http_timeout_s": 1,
+      "service_config": {
+        "loader_config": {
+          "deployment": [
+            "hmd-lang-deployment",
+            "hmd-lang-timestamp-record"
+          ],
+          "artifact": [
+            "hmd-lang-librarian"
+          ]
+        },
+        "service_loader": "deployment",
+        "operations_modules": [
+          "hmd_ms_base.crud_operations",
+          "hmd_ms_deployment.deployment_ops"
+        ],
+        "hmd_db_engines": {
+          "postgres": {
+            "engine_type": "postgres",
+            "engine_config": {
+              "db_secret_name": "dependency:db-credentials",
+              "db_name": "deployment",
+              "proxy_host": "dependency:pgbouncer",
+              "proxy_port": 6432
+            }
+          }
+        },
+        "hmd_entity_config": {
+          "__default__": {
+            "persistence": [
+              "postgres"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "discovery": {
+    "summary": "Deployment orchestration microservice for the NeuronSphere platform. Owns the metadata graph of RepoClasses, RepoClassVersions, and RepoInstances, and drives the Argo-based deployment DAG that applies ChangeSets across Environments (dev/test/prod). Maintains the namespaced, versioned Resource Definition catalog (NERD0004): repos declare what they produce/consume as typed resources instead of pinning a specific dependency repo, resolution supports type inheritance and tag-selector matching, and a definition-driven dev-config resolver generates local hmd deploy --local configs for repos that aren't yet persisted RepoInstances.",
+    "entry_points": [
+      {
+        "path": "src/python/hmd_ms_deployment/deployment_ops.py",
+        "description": "Registered service operations \u2014 the microservice's public REST API surface (40+ /apiop/* endpoints)."
+      },
+      {
+        "path": "src/python/hmd_ms_deployment/deploy_logic.py",
+        "description": "Deployment DAG construction and dependency-satisfaction logic."
+      },
+      {
+        "path": "src/python/hmd_ms_deployment/resource_information.py",
+        "description": "Resource Definition catalog and resource-based dependency resolution (NERD0004)."
+      },
+      {
+        "path": "docs/user_guide.rst",
+        "description": "Start here for how to use the deployment service end to end."
+      }
+    ],
+    "capabilities": [
+      {
+        "name": "POST /apiop/apply_changeset",
+        "kind": "endpoint",
+        "description": "Applies a ChangeSet to a DeploymentSet, creating ChangeSetDeployment/ChangeSetEnvDeployment records and triggering the Argo workflow.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:962"
+      },
+      {
+        "name": "POST /apiop/deploy_change_set_deployment/<args_id>",
+        "kind": "endpoint",
+        "description": "Executes the deployment workflow for a ChangeSetDeployment via Argo.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:1250"
+      },
+      {
+        "name": "POST /apiop/destroy_deploymentset",
+        "kind": "endpoint",
+        "description": "Destroys instances in a deployment set, in reverse dependency order.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:1329"
+      },
+      {
+        "name": "GET /apiop/get_deployment_bom/<args_type>",
+        "kind": "endpoint",
+        "description": "Returns the deployment Bill of Materials for an environment.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:812"
+      },
+      {
+        "name": "POST /apiop/resync_repo_class_version_dependencies",
+        "kind": "endpoint",
+        "description": "Repairs an existing RepoClassVersion's dependency edges from its current manifest, without registering a new version \u2014 prevents silent truncation of dependency roles.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:325"
+      },
+      {
+        "name": "POST /apiop/seed_base_resource_definitions",
+        "kind": "endpoint",
+        "description": "Idempotently seeds the standard base ResourceDefinition catalog (NERD0004) on service startup.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:423"
+      },
+      {
+        "name": "GET /apiop/suggest_resource_dependencies/<args_type>",
+        "kind": "endpoint",
+        "description": "Suggests RepoInstances that could satisfy a resource-type dependency in an environment (NERD0004 SPEC0008).",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:683"
+      },
+      {
+        "name": "POST /apiop/generate_dev_deployment_config",
+        "kind": "endpoint",
+        "description": "Resolves a local dev --config-file from a repo's manifest deploy block, definition-driven (NERD0004 SPEC0008), for repos not yet a persisted RepoInstance.",
+        "location": "src/python/hmd_ms_deployment/deployment_ops.py:918"
+      },
+      {
+        "name": "validate_dependencies_satisfied",
+        "kind": "function",
+        "description": "Checks whether a RepoInstance's declared dependencies (name- or resource-based) are satisfied before allowing deployment.",
+        "location": "src/python/hmd_ms_deployment/deploy_logic.py:60"
+      },
+      {
+        "name": "build_deployment_dag",
+        "kind": "function",
+        "description": "Constructs the topologically-sorted deployment DAG for a ChangeSet.",
+        "location": "src/python/hmd_ms_deployment/deploy_logic.py:163"
+      },
+      {
+        "name": "ResourceInformation",
+        "kind": "class",
+        "description": "Resource/ResourceDefinition query and matching logic, including inheritance- and tag-aware dependency satisfaction.",
+        "location": "src/python/hmd_ms_deployment/resource_information.py:148"
+      }
+    ],
+    "related_docs": [
+      {
+        "title": "User Guide",
+        "path": "docs/user_guide.rst"
+      },
+      {
+        "title": "Deployment",
+        "path": "docs/deployment.rst"
+      },
+      {
+        "title": "Resource Definitions and Resources",
+        "path": "docs/resources.rst"
+      },
+      {
+        "title": "Troubleshooting",
+        "path": "docs/troubleshooting.rst"
+      },
+      {
+        "title": "NERD0004: Resource Definitions and Resource-Based Dependencies",
+        "path": "docs/proposals/NERD0004_ResourceDefinitions.rst"
+      },
+      {
+        "title": "NERD0006: Consuming Deployed Resource Outputs in Deploy Commands",
+        "path": "docs/proposals/NERD0006_ResourceOutputConsumption.rst"
+      }
+    ]
+  }
+}

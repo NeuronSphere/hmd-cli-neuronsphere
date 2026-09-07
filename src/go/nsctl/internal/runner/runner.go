@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repotree"
 )
 
 // CoreRepoClass is deployed by nothing: apply_changeset creates the core
@@ -83,6 +84,13 @@ type Config struct {
 	Kubeconfig string
 	// RepoHome is where working trees are found.
 	RepoHome string
+	// Home is $HMD_HOME, where a tree the binary carries is materialised. It
+	// has to be a host path the sibling projectbuilder resolves identically,
+	// which is exactly what HMD_HOME already is.
+	Home string
+	// Lookup reads the environment, for the two variables that ask for a
+	// checkout in preference to a bundled tree.
+	Lookup func(string) string
 	// RepoPaths overrides where a repo class's tree lives, for an instance an
 	// environment manifest declares with an explicit source path -- which by
 	// definition is not under RepoHome.
@@ -189,17 +197,17 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		return Result{Node: node, Failed: true, Err: fmt.Errorf("the node carries no deploy script")}
 	}
 
-	repoPath := r.repoPath(node.RepoClassName)
+	repoPath, bundled := r.repoPath(node.RepoClassName)
 	if repoPath == "" {
-		// There is no bundled-in-image fallback for a repo's own deploy source,
-		// unlike the best-effort sibling mounts elsewhere, so this is fatal and
-		// says what to do about it.
 		return Result{Node: node, Failed: true, Err: fmt.Errorf(
-			"no working tree for %s under %s; clone it there, or declare an explicit source path in the environment manifest",
+			"no tree for %s: the binary carries none, and there is none under %s. "+
+				"Clone it there, or declare an explicit source path in the environment manifest",
 			node.RepoClassName, r.Config.RepoHome)}
 	}
 
-	workspace, script, cleanup, err := r.prepareWorkspace(repoPath, node.Script)
+	// A bundled tree is shared and digest-addressed, so it is never the thing a
+	// deploy writes into.
+	workspace, script, cleanup, err := r.prepareWorkspace(repoPath, node.Script, bundled)
 	if err != nil {
 		return Result{Node: node, Failed: true, Err: err}
 	}
@@ -355,24 +363,62 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-func (r *Runner) repoPath(repoClass string) string {
+// repoPath is the host directory to mount for a repo class, and whether it came
+// from the binary rather than from disk.
+//
+// The precedence is repoclass.ResolveVersion's, for the reason its comment
+// gives: reading a version from one tree and deploying another describes a
+// build that never existed. An explicitly declared source path wins, then a
+// checkout the developer asked for, then the tree the binary carries, then
+// whatever checkout is under $HMD_REPO_HOME.
+//
+// It must be a host path either way. projectbuilder is launched as a sibling
+// through the Docker socket, so the daemon resolves every bind mount on the
+// host: a tree that exists only inside this binary is not mountable, which is
+// why a bundled one is materialised under $HMD_HOME first.
+func (r *Runner) repoPath(repoClass string) (path string, bundled bool) {
 	if repoClass == "" {
-		return ""
+		return "", false
 	}
 	if override := r.Config.RepoPaths[repoClass]; override != "" {
 		if info, err := os.Stat(override); err == nil && info.IsDir() {
-			return override
+			return override, false
 		}
-		return ""
+		return "", false
 	}
-	if r.Config.RepoHome == "" {
-		return ""
+
+	tree := ""
+	if r.Config.RepoHome != "" {
+		candidate := filepath.Join(r.Config.RepoHome, repoClass)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			tree = candidate
+		}
 	}
-	dir := filepath.Join(r.Config.RepoHome, repoClass)
-	if info, err := os.Stat(dir); err == nil && info.IsDir() {
-		return dir
+	if tree != "" && r.preferLocal(repoClass) {
+		return tree, false
 	}
-	return ""
+	if dir := repotree.Dir(r.Config.Home, repoClass); dir != "" {
+		return dir, true
+	}
+	return tree, false
+}
+
+// preferLocal mirrors repoclass's: the developer asking for their own checkout,
+// per repo class or across the board.
+func (r *Runner) preferLocal(repoClass string) bool {
+	if r.Config.Lookup == nil {
+		return false
+	}
+	pin := strings.TrimSpace(r.Config.Lookup("HMD_LOCAL_VERSION_" +
+		strings.ToUpper(strings.ReplaceAll(repoClass, "-", "_"))))
+	if strings.EqualFold(pin, "local") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(r.Config.Lookup("HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 // printFailure puts the failed node's output under the node that failed.

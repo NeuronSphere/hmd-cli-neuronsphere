@@ -1,0 +1,30 @@
+# Base ResourceDefinition (NERD0004): an abstract long-running Kubernetes workload
+# (a Deployment/StatefulSet/DaemonSet). Concrete workloads (e.g. an operator) `parent`
+# this type and declare `produces: true`.
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: deployment
+version: 0.1.0
+description: >-
+  A long-running workload scheduled onto a Kubernetes cluster (Deployment,
+  StatefulSet, or DaemonSet) that runs one or more replicas of a container image.
+output_schema:
+  type: object
+  required:
+    - name
+    - namespace
+  properties:
+    name:
+      type: string
+      description: The name of the workload.
+    namespace:
+      type: string
+      description: The Kubernetes namespace the workload runs in.
+    replicas:
+      type: integer
+      description: The number of desired replicas.
+    image:
+      type: string
+      description: The primary container image the workload runs.
+    service_account:
+      type: string
+      description: The Kubernetes service account the workload runs as.

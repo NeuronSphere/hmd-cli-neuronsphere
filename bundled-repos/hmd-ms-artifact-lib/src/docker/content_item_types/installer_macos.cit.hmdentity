@@ -1,0 +1,6 @@
+{
+  "short_name": "installer_macos",
+  "description": "an HMD installer artifact for macos",
+  "match_regex": ".*\\.zip",
+  "mime_type": "application/zip"
+}

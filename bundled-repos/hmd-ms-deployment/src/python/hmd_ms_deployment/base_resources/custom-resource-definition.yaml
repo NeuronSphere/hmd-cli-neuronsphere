@@ -1,0 +1,30 @@
+# Base ResourceDefinition (NERD0004): an abstract bundle of Kubernetes
+# CustomResourceDefinitions installed into a cluster. Concrete CRD bundles (e.g. the
+# external-secrets CRDs) `parent` this type and declare `produces: true`.
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: custom-resource-definition
+version: 0.1.0
+description: >-
+  A set of Kubernetes CustomResourceDefinitions installed into a cluster, extending
+  the API with new kinds under a shared API group.
+output_schema:
+  type: object
+  required:
+    - api_group
+  properties:
+    api_group:
+      type: string
+      description: The API group the installed CRDs belong to.
+    kinds:
+      type: array
+      items:
+        type: string
+      description: The custom resource kinds the bundle installs.
+    scope:
+      type: string
+      description: The scope of the CRDs (Namespaced or Cluster).
+    served_versions:
+      type: array
+      items:
+        type: string
+      description: The API versions the CRDs serve.

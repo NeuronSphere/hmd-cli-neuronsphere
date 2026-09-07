@@ -1,0 +1,16 @@
+# Base ResourceDefinition (NERD0004): an abstract shared/network filesystem.
+resource_namespace: storage.neuronsphere.io
+resource_definition_name: filesystem
+version: 0.1.0
+description: >-
+  A shared, network-attached filesystem (e.g. EFS) that can be mounted by multiple
+  workloads.
+output_schema:
+  type: object
+  properties:
+    filesystem_id:
+      type: string
+      description: The provider identifier of the filesystem.
+    mount_target_dns:
+      type: string
+      description: The DNS name used to mount the filesystem.

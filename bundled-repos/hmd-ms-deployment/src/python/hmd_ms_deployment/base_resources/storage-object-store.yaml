@@ -1,0 +1,20 @@
+# Base ResourceDefinition (NERD0004): an abstract object store / bucket.
+resource_namespace: storage.neuronsphere.io
+resource_definition_name: object-store
+version: 0.1.0
+description: >-
+  An object store (bucket) for durable blob storage.
+output_schema:
+  type: object
+  required:
+    - bucket_name
+  properties:
+    bucket_name:
+      type: string
+      description: The name of the bucket.
+    arn:
+      type: string
+      description: The provider identifier of the bucket.
+    region:
+      type: string
+      description: The region the bucket resides in.

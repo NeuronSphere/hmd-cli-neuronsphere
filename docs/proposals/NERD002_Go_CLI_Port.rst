@@ -75,9 +75,9 @@ harness are still open.
      - **withdrawn**
      - Plugin discovery is not implemented in any form. See the SPEC.
    * - 006
-     - partly implemented
-     - The compose file is embedded; pre-build artifacts are not, so version
-       resolution has no artifact tier to prefer over a working tree.
+     - implemented
+     - The compose file, the runner sources and ten repo trees are embedded,
+       and version resolution prefers a bundled tree over a checkout.
    * - 007
      - implemented
      - EC2 is not used at all -- ``hmd-vpc`` deploys the network instead,
@@ -119,7 +119,7 @@ harness are still open.
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Thirteen things this proposal asserted turned out to be wrong, and are
+Fifteen things this proposal asserted turned out to be wrong, and are
 corrected in the SPECs rather than quietly worked around:
 
 1. **``hmd-img-projectbuilder`` ships no ``kubectl``** (SPEC008). Every
@@ -189,6 +189,24 @@ corrected in the SPECs rather than quietly worked around:
     volumes had accumulated on one machine. ``nsctl env purge`` deletes first
     and stops afterwards, which is the whole shape of the verb; a name sweep
     afterwards clears what earlier purges left.
+
+14. **Version resolution had the working tree in the wrong tier** (SPEC006).
+    ``ResolveVersion`` put a checkout above the version a BOM entry declared,
+    unconditionally, where ``bom_seeder.resolve_repo_version`` only prefers a
+    tree when the developer explicitly asks -- by a ``=local`` pin or
+    ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS``. Its own test encoded the
+    divergence: the third case was named "then the declared version" and
+    asserted the tree won. Corrected with the bundled tier, where it matters,
+    because a bundled tree that a stray checkout silently shadowed would be
+    worse than no bundled tree at all.
+15. **Injecting per-environment values only inside ``Seed`` makes them read as
+    drift** (SPEC009). ``InjectEndpoints`` runs inside ``Seed``, while the
+    reconcile snapshot hashes the desired state composed before it. Anything
+    injected in one place and not the other is hashed pre-injection and never
+    matches what was seeded. ``change_set_builder`` calls
+    ``_inject_floci_account`` in *both* places for exactly this reason and says
+    so -- "Omitting it left ext-secrets permanently drifted" -- which is the bug
+    the new ext-secrets account injection would have reproduced.
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -406,9 +424,17 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     **What nsctl ships.** The control plane, one per ``$HMD_HOME``, and the
     environment *substrate* -- the core instance, the environment's Postgres,
-    its k3s cluster and ``hmd-ms-dbaccount``. ``nsctl env add`` yields an
-    environment that is empty but usable: a cluster and a database with nothing
-    deployed on them.
+    its k3s cluster, ``hmd-ms-dbaccount``, and the External Secrets operator
+    with its CRDs. ``nsctl env add`` yields an environment that is empty but
+    usable: a cluster, a database, and the operator a cloud chart's secrets
+    resolve through.
+
+    *Widened 2026-09-07.* This said "a cluster and a database with nothing
+    deployed on them", which was a nicer sentence and not true of an environment
+    anyone could deploy into: the first cloud chart rendering an
+    ``ExternalSecret`` fails on the missing CRD. It read as true only because
+    every environment anyone had tried had the entries written into its manifest
+    by the Python CLI.
 
     Everything above that is a RepoClass the user adds. Airflow, Argo,
     transform, Trino, Superset and the rest are **not** built into the binary;
@@ -745,7 +771,64 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Bundled artifacts and go:embed
     :id: HMD_CLI_NERD002_SPEC006
     :links: HMD_CLI_NERD002
-    :status: partly implemented
+    :status: amended
+
+    .. warning::
+
+       **Implemented, and it was not optional.** Until 2026-09-07 a
+       Homebrew-installed ``nsctl`` could not deploy an environment at all: the
+       substrate's first node failed with ``no working tree for hmd-vpc under
+       <HMD_REPO_HOME>``, so "a single binary whose only prerequisite is Docker"
+       -- the requirement at the top of this NERD -- was untrue of everything
+       past ``control-plane start``, and the whole of Phase 6's distribution
+       work shipped something that stopped there.
+
+       **Ten trees, not the six the manifest declares.** Four of the
+       ``pre_build_artifacts`` entries -- superset, hyperdx, telemetry-debug and
+       s3bucket -- are workloads or plugin content and are not wanted. The other
+       two are, but not for the reason the manifest declares them: they were
+       pre-build artifacts so ``k3s_operators.py`` could ``helm upgrade
+       --install`` them directly, and that path is dead now that ext-secrets is
+       a default BOM entry. They deploy as ordinary DAG nodes, which is why they
+       hit the same failure as everything else. Eight more had to be added: the
+       control plane's own instances (``hmd-vpc``, ``hmd-postgres-rds``,
+       ``hmd-inf-neptune``), the substrate's cluster
+       (``hmd-inf-eks-cluster``) and the four foundation services.
+
+       **382 KB gzipped in total**, measured over ``meta-data/`` and ``src/``
+       with build outputs excluded, dominated by ``hmd-ms-deployment`` (165 KB)
+       and the ext-secrets CRDs (136 KB). The binary went from 34.4 MB to
+       34.8 MB against SPEC013's 50 MB target: the size question this was
+       previously framed around does not exist.
+
+       **The build was the hard part, and it is a fetch with a committed
+       fallback.** ``make generate`` runs from GoReleaser's ``before.hooks`` on
+       a clean CI checkout with no network and no credentials, which is what
+       lets ``goreleaser build --snapshot --clean`` work from a fresh clone.
+       Each class is taken from the ``pre_build_artifacts`` destination when
+       ``hmd build`` has populated it, and from the trees committed under
+       ``bundled-repos/`` otherwise. That is not a fetch-shaped fallback for a
+       fetch that works: **only the two ext-secrets classes are declared as
+       pre_build_artifacts at all.** No repo in the monorepo pins any of the
+       other eight, so whether they publish a consumable ``build`` artifact is
+       unverified, and adding eight untested pins would break ``hmd build`` for
+       everyone. They travel as committed trees until that is established, and
+       ``make refresh-bundled-repos`` is what a person runs to update them.
+
+       **A tree has to be materialised on disk, not merely embedded.**
+       projectbuilder is launched as a *sibling* through the Docker socket, so
+       the host daemon resolves every bind mount: a tree inside the binary is
+       not mountable. ``internal/repotree`` unpacks to
+       ``$HMD_HOME/.cache/neuronsphere/repos/<class>@<digest>``, the same shape
+       ``EnsureRunnerImage`` already uses for the runner's own sources, and for
+       the same reason -- ``$HMD_HOME`` is bound into the runner container at
+       its own absolute path, so the two path spaces coincide.
+
+       One consequence worth stating: a bundled tree is **always** copied before
+       a deploy runs in it. The workspace is mounted read-write and deploys
+       write ``meta-data/resources_output/``, so a shared digest-addressed cache
+       would stop matching what the binary carries and would hand the next
+       environment the last one's outputs.
 
     The BACON ``build.pre_build_artifacts`` mechanism unpacks other repos'
     build outputs into ``src/python/hmd_cli_neuronsphere/external/<name>/`` at

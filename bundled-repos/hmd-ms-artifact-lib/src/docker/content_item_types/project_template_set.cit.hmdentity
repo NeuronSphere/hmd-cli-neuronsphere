@@ -1,0 +1,6 @@
+{
+  "short_name": "project_template_set",
+  "description": "HMD Project Template files",
+  "match_regex": ".*\\.zip",
+  "mime_type": "application/zip"
+}

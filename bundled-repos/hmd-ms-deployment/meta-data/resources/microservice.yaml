@@ -1,0 +1,12 @@
+# Produced ResourceDefinition (NERD0004): hmd-ms-deployment's own REST API. Declares
+# produces: true directly against the shared application.neuronsphere.io/microservice
+# base type (the generic HTTP-API microservice type hmd-ms-* repos produce, per
+# docs/resources.rst's Base ResourceDefinitions table) rather than a new subtype --
+# there's no deployment-service-specific output beyond api_base_url. description and
+# output_schema are intentionally omitted: ingestion only overwrites those fields when
+# present, and this type is shared globally across every hmd-ms-* producer.
+resource_namespace: application.neuronsphere.io
+resource_definition_name: microservice
+version: 0.1.0
+produces: true
+role: deployment-service

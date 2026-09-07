@@ -32,9 +32,10 @@ nsctl env add dev
 nsctl env start dev
 ```
 
-A new environment is **empty but usable** — a k3s cluster and a Postgres with
-nothing on them. Airflow, Argo, Trino, Superset, transform and your own
-services are RepoClasses you add, not things that arrive by default.
+A new environment is **empty but usable** — a k3s cluster, a Postgres, and the
+External Secrets operator a cloud chart's secrets resolve through. Airflow,
+Argo, Trino, Superset, transform and your own services are RepoClasses you add,
+not things that arrive by default.
 
 Full guide: [`docs/nsctl.rst`](docs/nsctl.rst).
 

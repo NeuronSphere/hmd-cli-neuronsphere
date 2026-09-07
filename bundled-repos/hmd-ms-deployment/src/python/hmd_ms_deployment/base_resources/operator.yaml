@@ -1,0 +1,27 @@
+# Base ResourceDefinition (NERD0004): an abstract Kubernetes operator/controller. A
+# subtype of kubernetes.neuronsphere.io/deployment -- every operator is a workload.
+# Concrete operators (e.g. the external-secrets operator) `parent` this type and
+# declare `produces: true`.
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: operator
+version: 0.1.0
+description: >-
+  A controller/operator running in a cluster that reconciles custom resources. It
+  is a workload, and additionally watches one or more API groups.
+parent:
+  resource_namespace: kubernetes.neuronsphere.io
+  resource_definition_name: deployment
+  version: 0.1.0
+output_schema:
+  type: object
+  properties:
+    watched_api_groups:
+      type: array
+      items:
+        type: string
+      description: The Kubernetes API groups the operator reconciles.
+    irsa_role_arn:
+      type: string
+      description: >-
+        The ARN of the IAM role the operator assumes via workload identity (IRSA),
+        when it integrates with a cloud provider.

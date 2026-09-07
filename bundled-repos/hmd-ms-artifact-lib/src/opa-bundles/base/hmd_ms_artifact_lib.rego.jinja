@@ -1,0 +1,803 @@
+# The code in this file is generated automatically.
+# DO NOT EDIT!
+
+package base.{{ data.standard_name }}.main
+import data.base.{{ data.standard_name }}.groups
+
+__rego__metadoc__ := {
+    "id": "TEST",
+    "title": "Policy Doc Test",
+    "description": "this is testing bartleby Policy Doc generation",
+    "custom": {
+        "severity": "High"
+    }
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.content_item_event
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_event"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.content_item_event"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_event"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_event"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_event"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.content_item_tag
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_tag"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.content_item_tag"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_tag"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_tag"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_tag"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.timestamp_record
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.timestamp_record"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.timestamp_record"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.timestamp_record"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.timestamp_record"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.timestamp_record"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.content_item_type
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_type"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.content_item_type"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_type"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_type"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_type"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.content_category
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_category"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.content_category"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_category"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_category"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_category"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.content_item
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.content_item"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_librarian.ns_day
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.ns_day"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_librarian.ns_day"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.ns_day"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.ns_day"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.ns_day"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+# Relationships...
+
+
+#*****************************************************
+# Relationship: hmd_lang_librarian.content_item_has_ns_day
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_ns_day"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_ns_day"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_ns_day"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_librarian.content_item_has_tag
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_tag"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_tag"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_tag"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_librarian.content_item_has_event
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_event"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_event"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_event"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_librarian.content_item_has_content_category
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_category"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_category"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_category"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_librarian.content_item_has_content_item_type
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_item_type"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_item_type"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_librarian.content_item_has_content_item_type"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+#*****************************************************
+# Noun: hmd_lang_artifact_librarian.deployment_set
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.deployment_set"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_artifact_librarian.deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.deployment_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.deployment_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_artifact_librarian.repo_version
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_version"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_artifact_librarian.repo_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_artifact_librarian.artifact_tool
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.artifact_tool"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_artifact_librarian.artifact_tool"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.artifact_tool"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.artifact_tool"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.artifact_tool"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_artifact_librarian.repo
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_artifact_librarian.repo"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+# Relationships...
+
+
+#*****************************************************
+# Relationship: hmd_lang_artifact_librarian.content_item_has_repo_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_artifact_librarian.content_item_has_repo
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_repo"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_artifact_librarian.content_item_has_artifact_tool
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_artifact_tool"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_artifact_tool"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_artifact_tool"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_artifact_librarian.repo_has_repo_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_has_repo_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_has_repo_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.repo_has_repo_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_artifact_librarian.content_item_has_deployment_set
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_deployment_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_artifact_librarian.content_item_has_deployment_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+
+#*******************************************
+# custom ops
+
+# put
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "put"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# close
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "close"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# search
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "search"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_by_nid
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_by_nid"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_by_graph_query
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_by_graph_query"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# search_by_graph_query
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "search_by_graph_query"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# search_librarian
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "search_librarian"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_queryable_schemas
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_queryable_schemas"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# add_tags
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "add_tags"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# check_for_new_content_items
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "check_for_new_content_items"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# scan_bucket
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "scan_bucket"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# index_bucket
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "index_bucket"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+token = {"payload": payload} {
+  [header, payload, signature] := io.jwt.decode(input.token)
+}
+
+token_is_valid(token) {
+  auds := ["api://neuronsphere", "api://neuronsphere-services"]
+  token.payload.aud == auds[_]
+}
+
+
+user_is("service") {
+  some scope
+  token.payload.scp[scope] == "service"
+}

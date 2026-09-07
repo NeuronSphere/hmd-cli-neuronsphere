@@ -1,0 +1,12 @@
+hmd-lang-deployment~=0.1.88
+hmd-lang-librarian~=0.1.26
+hmd-lang-timestamp-record==0.1.4
+hmd-graphql-client~=0.1.171
+hmd-cli-tools~=1.2.244
+hmd-lib-naming~=0.2.57
+hmd-lib-manifest~=0.1
+hmd-lib-librarian-monitor==0.1.5
+hmd-meta-types~=0.2.91
+hmd-lib-librarian-client~=0.1.111
+redis~=6.4
+semver==2.13.0

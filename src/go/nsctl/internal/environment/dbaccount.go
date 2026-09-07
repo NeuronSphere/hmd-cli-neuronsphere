@@ -27,7 +27,7 @@ func EnsureDBAccount(ctx context.Context, opts *Options, reg *registry.Registry,
 	env *registry.Environment, d *container.Docker, r *router.Router,
 	routerEnv router.Env, target floci.Target, names floci.Names) error {
 
-	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
+	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	version := resolver.ResolveVersion(DBAccountRepoClass, "").Version
 
 	image, err := floci.ServiceImage(ctx, d, DBAccountRepoClass, version, opts.Lookup)

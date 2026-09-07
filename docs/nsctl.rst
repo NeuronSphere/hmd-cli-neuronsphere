@@ -110,9 +110,12 @@ above them**:
 - **The environment substrate**, per environment: the core instance, its
   Postgres, its k3s cluster and ``hmd-ms-dbaccount``.
 
-A new environment is therefore *empty but usable* -- a cluster and a database
-with nothing deployed on them. Everything else -- Airflow, Argo, Trino,
-Superset, transform, and your own services -- is a RepoClass you add.
+A new environment is therefore *empty but usable* -- a cluster, a database, and
+the External Secrets operator, with nothing else deployed on them. The operator
+is there because a cloud chart that renders an ``ExternalSecret`` fails without
+it, so an environment lacking one is not usable in the way this sentence
+claims. Everything else -- Airflow, Argo, Trino, Superset, transform, and your
+own services -- is a RepoClass you add.
 
 This is the main difference from ``hmd neuronsphere up``, which resolves its
 workloads from whichever plugin packages happen to be pip-installed.
@@ -195,7 +198,7 @@ A typical session
 .. code-block:: shell
 
    nsctl env add scratch
-   nsctl env start scratch              # substrate only: a cluster and a database
+   nsctl env start scratch              # substrate only: cluster, database, ext-secrets
 
    nsctl repo add hmd-ms-myapi \
        --env scratch \

@@ -2,6 +2,63 @@
 
 ## 2026-09-07
 
+- feat: Bundle the repo trees a deploy needs, and declare External Secrets
+
+  A Homebrew-installed nsctl could not deploy an environment. The substrate's
+  first node failed with
+
+      no working tree for hmd-vpc under <HMD_REPO_HOME>; clone it there, or
+      declare an explicit source path in the environment manifest
+
+  so "a single binary whose only prerequisite is Docker" was untrue of
+  everything past `control-plane start`, and Phase 6's whole distribution effort
+  shipped something that stopped there.
+
+  Ten repo trees now travel in the binary: the control plane's own instances,
+  the substrate's cluster, the four foundation services, and the External
+  Secrets operator with its CRDs. 382 KB gzipped in total, which took the binary
+  from 34.4 MB to 34.8 MB against a 50 MB target -- the size trade-off this was
+  framed around does not exist. `make generate` prefers the pre_build_artifacts
+  destination `hmd build` populates and falls back to trees committed under
+  `bundled-repos/`, because it runs from GoReleaser's before.hooks on a clean CI
+  checkout with no network and no credentials.
+
+  A tree is materialised to `$HMD_HOME/.cache/neuronsphere/repos/<class>@<digest>`
+  before use: projectbuilder is a sibling container, so the host daemon resolves
+  its bind mounts and a tree inside the binary is not mountable. It is always
+  copied before a deploy runs in it -- the workspace is read-write and deploys
+  write `meta-data/resources_output/`.
+
+  Version resolution gains the tier its own comment promised, and loses one it
+  had wrong: a checkout used to beat a declared version unconditionally, where
+  bom_seeder only prefers a tree when asked by a `=local` pin or
+  HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS. Without that correction a stray
+  checkout would silently shadow a bundled tree.
+
+  Bundling alone would not have been enough. The two ext-secrets entries reached
+  nsctl only through the environment manifest, which on a developer machine the
+  Python CLI wrote -- so an environment created by `nsctl env add` alone got a
+  cluster with no operator, and the first cloud chart rendering an
+  ExternalSecret failed on the missing CRD. They are declared now, mirroring
+  bom_seeder's values including the three that are not guessable: the local
+  store overrides that replace IRSA, `dockerRepoSecret` targeting
+  aws-parameter-store because create_secret() always writes to SSM, and no
+  aws_region because hmd-cli-helm sets it with --set.
+
+  The account is the trap. `localAccessKeyId` selects which emulated AWS account
+  the operator's lookups resolve in, and one Floci serves them all, reading the
+  account off the 12-digit key. Two environments sharing a key both read the
+  same account's secrets and nothing fails, because the names are identical
+  across environments. It is injected per environment, and injected before the
+  reconcile plan is hashed as well as inside Seed -- change_set_builder does the
+  same in both places and records why: "Omitting it left ext-secrets permanently
+  drifted."
+
+  This widens what "substrate" means. An environment is now a cluster, a
+  database, and the operator that lets a cloud chart's secrets resolve; SPEC001,
+  docs/nsctl.rst and the README said "a cluster and a database with nothing on
+  them", which was a nicer sentence and not true of anything deployable.
+
 - fix: Refuse to recreate another HMD_HOME's control-plane containers
 
   `hmd_proxy`, `floci`, `hmd_deployment_gui` and `hmd_nsrunner` are fixed

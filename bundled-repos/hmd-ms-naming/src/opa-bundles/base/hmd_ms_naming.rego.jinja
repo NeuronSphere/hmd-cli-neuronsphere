@@ -1,0 +1,143 @@
+# The code in this file is generated automatically.
+# DO NOT EDIT!
+
+package base.{{ data.standard_name }}.main
+import data.base.{{ data.standard_name }}.groups
+
+__rego__metadoc__ := {
+    "id": "TEST",
+    "title": "Policy Doc Test",
+    "description": "this is testing bartleby Policy Doc generation",
+    "custom": {
+        "severity": "High"
+    }
+}
+
+
+#*****************************************************
+# Noun: hmd_lang_naming.service
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_naming.service"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+# Relationships...
+
+
+#*****************************************************
+# Relationship: hmd_lang_naming.service_is_in_environment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_is_in_environment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_is_in_environment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_is_in_environment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_naming.service_consists_of_repo_instance_deployment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_consists_of_repo_instance_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_consists_of_repo_instance_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_naming.service_consists_of_repo_instance_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+#**********************
+# custom ops
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "service"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "resolve"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "list_services"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+
+token = {"payload": payload} {
+  [header, payload, signature] := io.jwt.decode(input.token)
+}
+
+token_is_valid(token) {
+  auds := ["api://neuronsphere", "api://neuronsphere-services"]
+  token.payload.aud == auds[_]
+}
+
+
+user_is("service") {
+  some scope
+  token.payload.scp[scope] == "service"
+}

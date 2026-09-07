@@ -1,0 +1,14 @@
+{
+  "_org": "hmd",
+  "_repo_type": "inf-",
+  "short_name": "ext-secrets-crds",
+  "project_name": "hmd-inf-ext-secrets-crds",
+  "repo_name": "hmd-inf-ext-secrets-crds",
+  "description": "CRDs for ExternalSecrets",
+  "_author": "Alexander Burgoon",
+  "_author_email": "alex.burgoon@hmdlabs.io",
+  "_template": "/var/folders/zh/bvmlv2g97kg5sfpx1fp_nhx00000gn/T/tmpy1ced5oa/hmd_cli_repo",
+  "_output_dir": "/Users/aburg/hmdtr1/projects",
+  "_repo_dir": "/var/folders/zh/bvmlv2g97kg5sfpx1fp_nhx00000gn/T/tmpy1ced5oa/hmd_cli_repo",
+  "_checkout": null
+}

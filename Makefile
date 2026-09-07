@@ -35,6 +35,27 @@ EMBED_DIR    := $(GO_DIR)/internal/bundled/services
 # the image on every start.
 RUNNER_EMBED_DIR := $(GO_DIR)/internal/bundled/runner
 
+# The repo trees a deploy needs. A projectbuilder node bind-mounts the repo's
+# working tree, so without these a Homebrew-installed nsctl cannot deploy an
+# environment at all -- the substrate's first node fails looking for a tree
+# under $HMD_REPO_HOME that a distributed binary has no reason to have.
+#
+# Sources, in order: the pre_build_artifacts destination `hmd build` populates,
+# then the trees committed under bundled-repos/. The fallback is what lets
+# `make generate` run on a clean CI checkout with no network and no
+# credentials, which is where GoReleaser runs it.
+REPOS_EMBED_DIR := $(GO_DIR)/internal/bundled/repos
+ARTIFACTS_DIR   := src/python/hmd_cli_neuronsphere/external
+BUNDLED_REPOS_DIR := bundled-repos
+
+# The control plane's own instances, the environment substrate, the foundation
+# services, and the two operators every cloud chart's ExternalSecrets need.
+# Not the workloads: superset, hyperdx, telemetry-debug and s3bucket are
+# plugin content and are deliberately absent.
+BUNDLED_REPOS := hmd-vpc hmd-postgres-rds hmd-inf-neptune hmd-inf-eks-cluster \
+                 hmd-ms-naming hmd-ms-artifact-lib hmd-ms-deployment hmd-ms-dbaccount \
+                 hmd-inf-ext-secrets-crds hmd-inf-ext-secrets
+
 # Where `make install` puts the binary. ~/.local/bin is on PATH for a normal
 # macOS or Linux login shell and needs no sudo; override for anywhere else.
 PREFIX    ?= $(HOME)/.local/bin
@@ -43,7 +64,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSRUNNER_IMAGE ?= hmd-img-nsrunner:$(VERSION)
 
-.PHONY: all build generate image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+.PHONY: all build generate generate-verbose refresh-bundled-repos image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
@@ -53,6 +74,46 @@ generate:
 	@cp $(SERVICES_SRC)/docker-compose.control-plane.yml $(EMBED_DIR)/
 	@mkdir -p $(RUNNER_EMBED_DIR)
 	@cd $(GO_DIR) && $(GO) run ./tools/runnersrc . >/dev/null
+	@mkdir -p $(REPOS_EMBED_DIR)
+	@cd $(GO_DIR) && $(GO) run ./tools/repopack \
+	  -out internal/bundled/repos \
+	  -artifacts ../../../$(ARTIFACTS_DIR) \
+	  -fallback ../../../$(BUNDLED_REPOS_DIR) \
+	  $(BUNDLED_REPOS) >/dev/null
+
+## generate-verbose: the same, printing what each bundled repo tree costs
+generate-verbose:
+	@$(MAKE) generate
+	@cd $(GO_DIR) && $(GO) run ./tools/repopack \
+	  -out internal/bundled/repos \
+	  -artifacts ../../../$(ARTIFACTS_DIR) \
+	  -fallback ../../../$(BUNDLED_REPOS_DIR) \
+	  $(BUNDLED_REPOS)
+
+## refresh-bundled-repos: re-copy the committed repo trees from $HMD_REPO_HOME
+#
+# Run by a person, and its output is committed. Deliberately not part of
+# `generate`: a release build must not depend on ten checkouts being present,
+# and a tree that silently changed under a build would make two binaries of the
+# same version deploy different code.
+refresh-bundled-repos:
+	@test -n "$(HMD_REPO_HOME)" || { echo "set HMD_REPO_HOME to where the repos are checked out"; exit 2; }
+	@for repo in $(BUNDLED_REPOS); do \
+	  src="$(HMD_REPO_HOME)/$$repo"; \
+	  test -d "$$src" || { echo "missing $$src"; exit 1; }; \
+	  rm -rf "$(BUNDLED_REPOS_DIR)/$$repo"; \
+	  mkdir -p "$(BUNDLED_REPOS_DIR)/$$repo"; \
+	  for top in meta-data src; do \
+	    test -d "$$src/$$top" || continue; \
+	    rsync -a --delete \
+	      --exclude '.git' --exclude 'build' --exclude 'target' --exclude 'dist' \
+	      --exclude 'node_modules' --exclude '__pycache__' --exclude '*.egg-info' \
+	      --exclude '.terraform' --exclude 'cdktf.out' --exclude '.pytest_cache' \
+	      --exclude 'resources_output' \
+	      "$$src/$$top" "$(BUNDLED_REPOS_DIR)/$$repo/"; \
+	  done; \
+	  echo "  refreshed $$repo"; \
+	done
 
 ## build: compile the binary to src/go/nsctl/build/nsctl
 build: generate
@@ -117,7 +178,7 @@ tidy:
 
 ## clean: remove build artifacts and staged files
 clean:
-	rm -rf $(BUILD_DIR) $(EMBED_DIR) $(RUNNER_EMBED_DIR)
+	rm -rf $(BUILD_DIR) $(EMBED_DIR) $(RUNNER_EMBED_DIR) $(REPOS_EMBED_DIR)
 
 ## run: build and print help (quick smoke test)
 run: build

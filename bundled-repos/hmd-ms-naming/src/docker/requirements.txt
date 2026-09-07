@@ -1,0 +1,8 @@
+hmd-graphql-client
+hmd-lang-deployment
+hmd-lang-naming
+hmd-ms-naming
+hmd-lang-mdm
+datadog-lambda
+boto3
+hmd-cli-tools

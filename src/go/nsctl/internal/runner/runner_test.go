@@ -213,7 +213,7 @@ func TestOverlayWorkspaceLeavesTheCheckoutAlone(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "meta-data", "VERSION"), "0.1")
 
 	r := testRunner(t, &fakeDocker{}, "")
-	workspace, script, cleanup, err := r.prepareWorkspace(repo, "hmd deploy")
+	workspace, script, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestDeployLocalOverrideReplacesTheCommand(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "src", "local", "deploy_local.sh"), "echo hi")
 
 	r := testRunner(t, &fakeDocker{}, "")
-	workspace, script, cleanup, err := r.prepareWorkspace(repo, "hmd deploy")
+	workspace, script, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestOverlayDoesNotCarryPriorResourceOutputsForward(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "meta-data", "resources_output", "old.json"), "{}")
 
 	r := testRunner(t, &fakeDocker{}, "")
-	workspace, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy")
+	workspace, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestNoOverlayMountsTheRepoDirectly(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "meta-data", "VERSION"), "0.1")
 
 	r := testRunner(t, &fakeDocker{}, "")
-	workspace, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy")
+	workspace, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestRepoPathOverrideIsMounted(t *testing.T) {
 		RepoPaths: map[string]string{"hmd-ms-a": elsewhere},
 	}}
 
-	if got := r.repoPath("hmd-ms-a"); got != elsewhere {
+	if got, _ := r.repoPath("hmd-ms-a"); got != elsewhere {
 		t.Errorf("repoPath = %q, want the declared tree %q", got, elsewhere)
 	}
 }
@@ -350,7 +350,7 @@ func TestRepoPathOverrideDoesNotFallBack(t *testing.T) {
 		RepoPaths: map[string]string{"hmd-ms-a": "/definitely/not/here"},
 	}}
 
-	if got := r.repoPath("hmd-ms-a"); got != "" {
+	if got, _ := r.repoPath("hmd-ms-a"); got != "" {
 		t.Errorf("repoPath = %q, want the missing override to resolve to nothing", got)
 	}
 }

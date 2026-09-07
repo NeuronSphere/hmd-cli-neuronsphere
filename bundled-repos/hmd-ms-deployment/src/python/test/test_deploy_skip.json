@@ -1,0 +1,183 @@
+{
+  "nouns": {
+    "hmd_lang_deployment.environment": [
+      {
+        "tmp_id": "1",
+        "type": "dev",
+        "account_number": "976316072609",
+        "hmd_region": "reg3"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_deployment": [
+      {
+        "tmp_id": "1",
+        "deployment_id": "aaa1",
+        "status": "DEPLOY_NEXT"
+      },
+      {
+        "tmp_id": "2",
+        "deployment_id": "aaa2",
+        "status": "DEPLOYED"
+      },
+      {
+        "tmp_id": "3",
+        "deployment_id": "aaa3",
+        "status": "DEPLOY_NEXT"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance": [
+      {
+        "tmp_id": "1",
+        "name": "ri1"
+      },
+      {
+        "tmp_id": "2",
+        "name": "ri2"
+      },
+      {
+        "tmp_id": "3",
+        "name": "ri3"
+      }
+    ],
+    "hmd_lang_deployment.repo_class": [
+      {
+        "tmp_id": "1",
+        "repo_class_name": "rc1",
+        "deploy_commands": [
+          "cdktf"
+        ]
+      },
+      {
+        "tmp_id": "2",
+        "repo_class_name": "rc2",
+        "deploy_commands": [
+          "cdktf"
+        ]
+      },
+      {
+        "tmp_id": "3",
+        "repo_class_name": "rc3",
+        "deploy_commands": [
+          "cdktf"
+        ]
+      }
+    ],
+    "hmd_lang_deployment.repo_class_version": [
+      {
+        "tmp_id": "1",
+        "version": "0.1.1"
+      },
+      {
+        "tmp_id": "2",
+        "version": "0.1.1"
+      },
+      {
+        "tmp_id": "3",
+        "version": "0.1.1"
+      }
+    ]
+  },
+  "relationships": {
+    "hmd_lang_deployment.repo_class_has_repo_class_version": [
+      {
+        "ref_from": "1",
+        "ref_to": "1"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "2"
+      },
+      {
+        "ref_from": "3",
+        "ref_to": "3"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_isa_repo_class": [
+      {
+        "ref_from": "1",
+        "ref_to": "1"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "2"
+      },
+      {
+        "ref_from": "3",
+        "ref_to": "3"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_has_repo_instance_deployment": [
+      {
+        "ref_from": "1",
+        "ref_to": "1",
+        "current": "false"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "2",
+        "current": "true"
+      },
+      {
+        "ref_from": "3",
+        "ref_to": "3",
+        "current": "false"
+      }
+    ],
+    "hmd_lang_deployment.environment_has_repo_instance": [
+      {
+        "ref_from": "1",
+        "ref_to": "1"
+      },
+      {
+        "ref_from": "1",
+        "ref_to": "2"
+      },
+      {
+        "ref_from": "1",
+        "ref_to": "3"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_deployment_has_repo_class_version": [
+      {
+        "ref_from": "1",
+        "ref_to": "1"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "2"
+      },
+      {
+        "ref_from": "3",
+        "ref_to": "3"
+      }
+    ],
+    "hmd_lang_deployment.repo_class_version_req_repo_class": [
+      {
+        "ref_from": "1",
+        "ref_to": "2",
+        "role": "rc1-rc2",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "3",
+        "role": "rc2-rc3",
+        "required": "true",
+        "version_spec": "~= 0.1"
+      }
+    ],
+    "hmd_lang_deployment.repo_instance_req_repo_instance": [
+      {
+        "ref_from": "1",
+        "ref_to": "2",
+        "role": "rc1-rc2"
+      },
+      {
+        "ref_from": "2",
+        "ref_to": "3",
+        "role": "rc2-rc3"
+      }
+    ]
+  }
+}

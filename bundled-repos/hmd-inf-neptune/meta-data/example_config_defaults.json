@@ -1,0 +1,33 @@
+{
+  "engine": "neptune",
+  "engine_version": "1.2.0.2",
+  "instance_count": 2,
+  "instance_size": "db.t3.medium",
+  "backup_retention_period": 7,
+  "preferred_backup_window": "07:00-09:00",
+  "preferred_maintenance_window": "sun:09:00-sun:11:00",
+  "enable_cloudwatch_logs_exports": ["audit", "slowquery"],
+  "iam_database_authentication_enabled": false,
+  "db_parameter_group": {
+    "family": "neptune1.2"
+  },
+  "cluster_parameter_group": {
+    "family": "neptune1.2",
+    "parameter_values": [
+      {
+        "name": "neptune_dfe_query_engine",
+        "value": "enabled"
+      },
+      {
+        "name": "neptune_query_timeout",
+        "value": "120000"
+      }
+    ]
+  },
+  "dependencies": {
+    "base-vpc": {
+      "instance_name": "base-vpc",
+      "repo_name": "hmd-vpc"
+    }
+  }
+}

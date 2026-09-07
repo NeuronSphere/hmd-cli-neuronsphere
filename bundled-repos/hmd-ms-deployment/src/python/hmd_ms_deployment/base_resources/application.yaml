@@ -1,0 +1,17 @@
+# Base ResourceDefinition (NERD0004): the abstract root for deployed applications
+# and services. Microservices `parent` this type.
+resource_namespace: application.neuronsphere.io
+resource_definition_name: application
+version: 0.1.0
+description: >-
+  An abstract deployed application or service exposing an endpoint. More specific
+  application kinds (e.g. microservice) inherit from this type.
+output_schema:
+  type: object
+  properties:
+    name:
+      type: string
+      description: The name of the application.
+    endpoint:
+      type: string
+      description: The primary URL/endpoint the application is reachable at.

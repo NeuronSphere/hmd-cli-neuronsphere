@@ -1,0 +1,53 @@
+{
+  "identifier": "some-project-repo-identifier",
+  "name": "hmd-ms-dbaccount",
+  "description": "an example project",
+  "project_type": {
+    "identifier": "some-project-type-identifier",
+    "name": "microservice"
+  },
+  "build": {
+    "commands": [
+      [
+        "docker"
+      ],
+      [
+        "cdktf"
+      ]
+    ]
+  },
+  "deploy": {
+    "commands": [
+      [
+        "docker"
+      ],
+      [
+        "cdktf"
+      ]
+    ],
+    "dependencies": {
+      "logging": {
+        "repo_class_name": "hmd-inf-api-gateway",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "datadog-lambda": {
+        "repo_class_name": "hmd-inf-datadog-lambdas",
+        "required": "true",
+        "version_spec": "~= 0.1.7"
+      },
+      "base-vpc": {
+        "repo_class_name": "hmd-vpc",
+        "required": "true",
+        "version_spec": "~= 0.1.21"
+      },
+      "otel-collector": {
+        "required": "false",
+        "repo_class_name": "hmd-inf-otel-collector",
+        "version_spec": "~= 0.1.7"
+      }
+    },
+    "default_configuration": {
+    }
+  }
+}

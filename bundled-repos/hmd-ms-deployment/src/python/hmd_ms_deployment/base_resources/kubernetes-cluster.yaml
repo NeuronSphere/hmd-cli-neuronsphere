@@ -1,0 +1,26 @@
+# Base ResourceDefinition (NERD0004): an abstract, vendor-neutral Kubernetes
+# cluster. Provider repos ship a concrete subtype (e.g.
+# aws.neuronsphere.io/eks-cluster) that `parent`s this type and declares
+# `produces: true`.
+resource_namespace: kubernetes.neuronsphere.io
+resource_definition_name: kubernetes-cluster
+version: 0.1.0
+description: >-
+  A Kubernetes cluster that applications and compute nodes are scheduled onto.
+output_schema:
+  type: object
+  required:
+    - cluster_name
+  properties:
+    cluster_name:
+      type: string
+      description: The name of the cluster.
+    endpoint:
+      type: string
+      description: The Kubernetes API server endpoint.
+    ca_certificate:
+      type: string
+      description: The base64-encoded cluster certificate authority data.
+    oidc_provider_arn:
+      type: string
+      description: The OIDC provider identifier used for workload identity (IRSA).

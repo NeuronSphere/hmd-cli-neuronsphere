@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "eks-cluster": {
+      "instance_name": "eks-base",
+      "repo_name": "hmd-inf-eks-cluster"
+    }
+  }
+}

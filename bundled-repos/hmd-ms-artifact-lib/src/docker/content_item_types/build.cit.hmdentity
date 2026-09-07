@@ -1,0 +1,6 @@
+{
+  "short_name": "build",
+  "description": "an HMD build artifact",
+  "match_regex": ".*\\.zip",
+  "mime_type": "application/zip"
+}

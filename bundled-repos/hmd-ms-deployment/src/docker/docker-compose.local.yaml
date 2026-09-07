@@ -1,0 +1,13 @@
+version: "3.2"
+services:
+  hmd_ms_deployment:
+    environment:
+      HMD_LOG_LEVEL: '{"HMD": "DEBUG"}'
+      HMD_ENTITY_CONFIG: '{"__default__": {"persistence": ["postgres"]}}'
+      HMD_DB_ENGINES: '{"postgres": {"engine_type": "postgres", "engine_config": {"user": "hmd_ms_deployment", "password": "hmd_ms_deployment", "host": "db", "db_name": "hmd_ms_deployment"}}}'
+      SERVICE_CONFIG: '{"loader_config": {"deployment": ["hmd-lang-deployment", "hmd-lang-timestamp-record"],"artifact": ["hmd-lang-librarian"]},"service_loader": "deployment","operations_modules": ["hmd_ms_base.crud_operations","hmd_ms_deployment.deployment_ops"],"hmd_db_engines": {"postgres": {"engine_type": "postgres", "engine_config": {"user": "hmd_ms_deployment", "password": "hmd_ms_deployment", "host": "db", "db_name": "hmd_ms_deployment"}}},"hmd_entity_config": {"__default__": {"persistence": ["postgres"]}}}'
+      HMD_APP_IMAGE: 'blah'
+      SCHEMA_URI: /schemas
+      OPERATIONS_MODULE: hmd_ms_deployment.deployment_ops
+      ARGO_INSTANCE_NAME: "argo"
+      ARGO_DEPLOYMENT_ID: "aaa"

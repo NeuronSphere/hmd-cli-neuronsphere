@@ -96,7 +96,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 	opts.step("Bootstrapping the control plane...")
 	opts.step("  hmd-ms-deployment does not exist yet, so these nodes are not recorded anywhere")
 
-	resolver := repoclass.New(opts.lookup("HMD_REPO_HOME"), opts.Lookup)
+	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	deployer := &runner.Runner{
 		Docker: docker,
 		// No client: the service these would report to is the last node. A
@@ -111,6 +111,8 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 			DeploymentServiceURL: MSDeploymentURL,
 			LocalProxy:           "http://hmd_proxy",
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
+			Home:                 opts.Home,
+			Lookup:               opts.Lookup,
 			Environment:          CPDeploymentID,
 			DeploymentID:         CPDeploymentID,
 			Region:               names.Region,

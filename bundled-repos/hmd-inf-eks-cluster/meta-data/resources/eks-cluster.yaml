@@ -1,0 +1,48 @@
+# Produced ResourceDefinition (NERD0004): the EKS cluster deployed by this repo. A
+# concrete subtype of the base kubernetes.neuronsphere.io/kubernetes-cluster (which
+# provides cluster_name/endpoint/ca_certificate/oidc_provider_arn). `produces: true`
+# records that this RepoClass emits a Resource of this type when deployed, so a
+# manifest's `resource`-typed dependency on kubernetes.neuronsphere.io/kubernetes-cluster
+# resolves against this repo in the cloud the same way it already resolves against the
+# local k3s producer (hmd-cli-neuronsphere's `local-neuronsphere` instance). The schema
+# is extended with EKS-specific fields the base type doesn't cover.
+resource_namespace: aws.neuronsphere.io
+resource_definition_name: eks-cluster
+version: 0.1.0
+description: >-
+  An Amazon EKS cluster, including its API server endpoint, OIDC provider (for
+  IRSA), and cluster ARN.
+resource_metadata:
+  provider: aws
+parent:
+  resource_namespace: kubernetes.neuronsphere.io
+  resource_definition_name: kubernetes-cluster
+  version: 0.1.0
+produces: true
+role: kubernetes-cluster
+output_schema:
+  type: object
+  required:
+    - cluster_name
+  properties:
+    cluster_name:
+      type: string
+      description: The name of the cluster.
+    endpoint:
+      type: string
+      description: The Kubernetes API server endpoint.
+    ca_certificate:
+      type: string
+      description: The base64-encoded cluster certificate authority data.
+    oidc_provider_arn:
+      type: string
+      description: The OIDC provider identifier used for workload identity (IRSA).
+    cluster_arn:
+      type: string
+      description: The ARN of the EKS cluster.
+    oidc_issuer_url:
+      type: string
+      description: The OIDC issuer URL for the cluster.
+    platform_version:
+      type: string
+      description: The EKS platform version.

@@ -1,0 +1,39 @@
+services:
+  ms-deployment:
+    image: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-ms-deployment:${HMD_IMG_DEPLOYMENT_VERSION:-stable}
+    container_name: ms-deployment
+    networks:
+      neuronsphere_default:
+        aliases:
+          - hmd_ms_deployment
+    environment:
+      # HMD context
+      HMD_INSTANCE_NAME: ms-deployment
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE}
+      HMD_DID: ${HMD_DID:-aaa}
+      HMD_ENVIRONMENT: ${HMD_ENVIRONMENT:-local}
+      HMD_REGION: ${HMD_REGION:-us-west-2}
+
+      # Database configuration
+      HMD_DB_HOST: db
+      HMD_DB_PORT: 5432
+      HMD_DB_NAME: hmd_ms_deployment
+      HMD_DB_USER: hmd_ms_deployment
+      HMD_DB_PASSWORD: hmd_ms_deployment
+
+      # Service configuration
+      SERVICE_CONFIG: ${SERVICE_CONFIG:-'{}'}
+
+      # Logging
+      HMD_LOG_LEVEL: ${HMD_LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ms-deployment.rule=PathPrefix(`/hmd_ms_deployment`)"
+      - "traefik.http.services.ms-deployment.loadbalancer.server.port=8080"
+
+networks:
+  neuronsphere_default:
+    external: true

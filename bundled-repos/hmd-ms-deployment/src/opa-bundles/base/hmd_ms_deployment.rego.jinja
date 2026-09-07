@@ -1,0 +1,1054 @@
+# The code in this file is generated automatically.
+# DO NOT EDIT!
+
+package base.{{ data.standard_name }}.main
+import data.base.{{ data.standard_name }}.groups
+
+__rego__metadoc__ := {
+    "id": "TEST",
+    "title": "Policy Doc Test",
+    "description": "this is testing bartleby Policy Doc generation",
+    "custom": {
+        "severity": "High"
+    }
+}
+
+
+#*****************************************************
+# Noun: hmd_lang_deployment.deployment_set
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.deployment_set"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.deployment_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.deployment_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.timestamp_record
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.timestamp_record"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.timestamp_record"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.timestamp_record"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.timestamp_record"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.timestamp_record"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.repo_instance_deployment
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.repo_instance_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.repo_instance
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.repo_instance"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.repo_class_version
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.repo_class_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.environment_action_execution
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.environment_action_execution"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.change_set_deployment
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.change_set_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.change_set_env_deployment
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.change_set_env_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.environment_action_version
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_version"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.environment_action_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.repo_class
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.repo_class"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.environment_action
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.environment_action"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.change_set
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.change_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Noun: hmd_lang_deployment.environment
+
+# search_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_entities
+invoke_operation {
+  array.slice(input.path, 0, 3) == ["api", "instances", "hmd_lang_deployment.environment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# get_entity
+# get_relationships_from_to
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+# Relationships...
+
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_deployment_has_deployment_set
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_deployment_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_deployment_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_deployment_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_env_deployment_has_environment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_instance_deployment_has_repo_class_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment_has_repo_class_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment_has_repo_class_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_deployment_has_repo_class_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_deployment_has_change_set_env_deployment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set_env_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set_env_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set_env_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_instance_has_repo_instance_deployment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_has_repo_instance_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_has_repo_instance_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_has_repo_instance_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.environment_has_repo_instance
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_has_repo_instance"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_has_repo_instance"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_has_repo_instance"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_env_deployment_has_repo_instance_deployment
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_repo_instance_deployment"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_repo_instance_deployment"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_repo_instance_deployment"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_env_deployment_has_environment_action_execution
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment_action_execution"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment_action_execution"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_env_deployment_has_environment_action_execution"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_class_version_req_repo_class
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version_req_repo_class"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version_req_repo_class"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_version_req_repo_class"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_instance_isa_repo_class
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_isa_repo_class"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_isa_repo_class"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_isa_repo_class"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.change_set_deployment_has_change_set
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.change_set_deployment_has_change_set"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.environment_action_execution_has_environment_action_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution_has_environment_action_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution_has_environment_action_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_execution_has_environment_action_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_instance_req_repo_instance
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_req_repo_instance"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_req_repo_instance"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_instance_req_repo_instance"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.repo_class_has_repo_class_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_has_repo_class_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_has_repo_class_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.repo_class_has_repo_class_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+#*****************************************************
+# Relationship: hmd_lang_deployment.environment_action_has_environment_action_version
+
+# get_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_has_environment_action_version"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# put_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_has_environment_action_version"]
+  input.method == "PUT"
+  token_is_valid(token)
+}
+
+# delete_entity
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["api", "hmd_lang_deployment.environment_action_has_environment_action_version"]
+  input.method == "DELETE"
+  token_is_valid(token)
+}
+
+
+#*******************************************
+# custom ops
+
+# set_deployment_status
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "set_deployment_status"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# set_change_set_deployment_status
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "set_change_set_deployment_status"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# set_change_set_env_deployment_status
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "set_change_set_env_deployment_status"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# add_repo_class_version
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "add_repo_class_version"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# get_deployment_info
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_info"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# get_deployment_bom
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_bom"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# get_deployment_history
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_history"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# get_deployment_config
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_config"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+
+# apply_changeset
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "apply_changeset"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# validate_changeset
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "validate_changeset"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# deploy_change_set_deployment
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "deploy_change_set_deployment"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# destroy_deploymentset
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "destroy_deploymentset"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# check_for_new_deployables
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "check_for_new_deployables"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# check_for_auto_deployments
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "check_for_auto_deployments"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# compare_environments
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "compare_environments"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+# find_repo_class_versions
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "find_repo_class_versions"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# list_repo_classes
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "list_repo_classes"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# list_change_set_deployments
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "list_change_set_deployments"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+# list_change_set_deployments
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_logs"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+# list_change_set_deployments
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "get_deployment_timeline"]
+  input.method == "GET"
+  token_is_valid(token)
+}
+
+# resync_repo_class_version_dependencies
+invoke_operation {
+  array.slice(input.path, 0, 2) == ["apiop", "resync_repo_class_version_dependencies"]
+  input.method == "POST"
+  token_is_valid(token)
+}
+
+
+
+
+token = {"payload": payload} {
+  [header, payload, signature] := io.jwt.decode(input.token)
+}
+
+token_is_valid(token) {
+  auds := ["api://neuronsphere", "api://neuronsphere-services"]
+  token.payload.aud == auds[_]
+}
+
+
+user_is("service") {
+  some scope
+  token.payload.scp[scope] == "service"
+}

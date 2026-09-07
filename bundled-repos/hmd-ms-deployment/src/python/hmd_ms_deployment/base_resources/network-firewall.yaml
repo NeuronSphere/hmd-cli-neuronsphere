@@ -1,0 +1,16 @@
+# Base ResourceDefinition (NERD0004): an abstract network firewall / web ACL.
+resource_namespace: network.neuronsphere.io
+resource_definition_name: firewall
+version: 0.1.0
+description: >-
+  A network firewall or web application firewall (WAF) that filters traffic to
+  protected resources.
+output_schema:
+  type: object
+  properties:
+    web_acl_arn:
+      type: string
+      description: The provider identifier of the firewall / web ACL.
+    web_acl_id:
+      type: string
+      description: The short identifier of the firewall / web ACL.
