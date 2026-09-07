@@ -421,7 +421,9 @@ were all genuinely absent. Then ``control-plane start``, ``env add``,
   on the deployed Lambda, and the warning no longer fires.
 
 **What failed, and is why this section exists.** Items 17 to 22 of
-`What implementation changed about the design`_. Two were invisible for the
+`What implementation changed about the design`_, plus four failures in the
+parity suite's first complete run, three of which were defects in the suite
+itself (SPEC012). Two were invisible for the
 reason the earlier section names -- a warm graph and a warm ``$HMD_HOME``
 already had what a cold one has to create. Three were verbs that had only ever
 been unit-tested. One, the unpublished images, is not a defect in this
@@ -1800,6 +1802,38 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     across every verb is a much larger suite, and claiming this one covers it
     would repeat the mistake Phase 4 made about the runner: recording a
     deliverable as met because part of it was.
+
+    *The suite had never finished a run, and finishing one found four failures
+    -- three of them in the suite.* This is the same shape as everything else
+    that landed on 2026-09-07: written, unit-reasoned, unrun.
+
+    - **A test asserted the opposite of its own documentation.** "Both Front
+      Ends Report The Same Environment Status" opens "Not a string comparison --
+      the two render differently on purpose", and then asserted the environment's
+      name appears in *both* outputs. The Python's extend-mode status renders
+      ``Mode: extend`` and the registered HMDMS services, and does not print the
+      environment name at all. nsctl's rendering is still checked for the name;
+      the Python is checked for its verdict, which is the only thing the two are
+      claimed to agree about.
+
+    - **A purge assertion matched prose.** ``Registry Should Not List`` used a
+      substring search, and the Python's empty-state message is "No **local**
+      environments yet" -- so the default environment reads as still listed
+      precisely *because* the listing is empty. Line-anchored now: a listing row
+      starts with the slug, prose about it does not.
+
+    - **That failure took the next test with it.** The rebuild lived in the test
+      body, so a mid-test failure skipped it and left the environment purged;
+      the following test's ``down --purge --env local`` then correctly refused an
+      environment that no longer existed. The rebuild is a ``[Teardown]`` now, so
+      a destructive test restores the platform whether it passes or not.
+
+    - **The one that was not the suite's fault:** Robot SIGKILLed
+      ``hmd neuronsphere up`` at twenty minutes, reporting rc ``-9``, which reads
+      as a parity failure and is a stopwatch. A cold ``up`` from the Python front
+      end deploys its own ``LOCAL_BOM`` through projectbuilder and is the slowest
+      thing either CLI does. The timeout is 45 minutes and is a named variable
+      rather than a literal repeated in two keywords.
 
     *``env purge`` added after the verification pass, and the cost is recorded
     rather than discovered.* It is the newest verb, the one where a leftover is

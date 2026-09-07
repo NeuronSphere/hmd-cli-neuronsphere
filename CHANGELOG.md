@@ -2,6 +2,34 @@
 
 ## 2026-09-07
 
+- test: Fix the three things the parity suite's first complete run found in itself
+
+  The suite had never finished a run. Finishing one produced four failures, and
+  three were the suite's own.
+
+  **A test asserted the opposite of its documentation.** "Both Front Ends Report
+  The Same Environment Status" opens "Not a string comparison -- the two render
+  differently on purpose", then asserted the environment's name appears in both
+  outputs. The Python's extend-mode status renders `Mode: extend` and the
+  registered HMDMS services, and never prints the environment name. nsctl's
+  rendering is still checked for the name; the Python is checked for its verdict.
+
+  **A purge assertion matched prose.** `Registry Should Not List` used a
+  substring search, and the Python's empty-state message is "No **local**
+  environments yet" -- so the default environment reads as still listed exactly
+  when the listing is empty. Line-anchored now.
+
+  **That failure took the next test with it.** The rebuild lived in the test
+  body, so a mid-test failure skipped it and left the environment purged; the
+  next test's `down --purge --env local` then correctly refused an environment
+  that no longer existed. It is a `[Teardown]` now, so a destructive test
+  restores the platform whether it passes or not.
+
+  The fourth was not the suite's fault: Robot SIGKILLed `hmd neuronsphere up` at
+  twenty minutes and reported rc -9, which reads as a parity failure and is a
+  stopwatch. The timeout is 45 minutes and is a named variable rather than a
+  literal repeated in two keywords.
+
 - test: Cover `env purge` in the parity suite, in both directions
 
   SPEC012 stayed `partly implemented` and the core it covered was four verbs.

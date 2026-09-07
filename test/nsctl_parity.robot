@@ -38,6 +38,12 @@ Suite Setup       Check Both Front Ends Are Present
 ${BINARY}         ${EMPTY}
 ${HMD}            hmd
 ${ENV}            ${EMPTY}
+# 20 minutes was not enough, and the first complete run of this suite found out
+# by having Robot SIGKILL `hmd neuronsphere up` at rc -9 mid-deploy -- which
+# reads as a parity failure and is a stopwatch. A cold `up` from the Python
+# front end deploys its own LOCAL_BOM through projectbuilder and is the slowest
+# thing either CLI does.
+${CLI TIMEOUT}    45 min
 
 *** Keywords ***
 Check Both Front Ends Are Present
@@ -53,13 +59,13 @@ Check Both Front Ends Are Present
 
 Run nsctl
     [Arguments]    @{args}
-    ${result}=    Run Process    ${BINARY}    @{args}    stderr=STDOUT    timeout=20 min
+    ${result}=    Run Process    ${BINARY}    @{args}    stderr=STDOUT    timeout=${CLI TIMEOUT}
     Log    ${result.stdout}
     RETURN    ${result}
 
 Run hmd neuronsphere
     [Arguments]    @{args}
-    ${result}=    Run Process    ${HMD}    neuronsphere    @{args}    stderr=STDOUT    timeout=20 min
+    ${result}=    Run Process    ${HMD}    neuronsphere    @{args}    stderr=STDOUT    timeout=${CLI TIMEOUT}
     Log    ${result.stdout}
     RETURN    ${result}
 
@@ -78,11 +84,22 @@ Registry Should Not List
     ...                end purged must be gone to both -- a purge that only one
     ...                of them can see is a purge that leaves the other able to
     ...                address containers nothing owns.
+    ...
+    ...                Line-anchored, not a substring search. The Python's
+    ...                empty-state message is "No local environments yet", so a
+    ...                plain `Should Not Contain ... local` reports the default
+    ...                environment as still listed *because* the listing is
+    ...                empty. That is how the first complete run of this suite
+    ...                failed, and it took the failure with it: the rebuild in
+    ...                the test body never ran, so the next test's `down --purge`
+    ...                correctly refused an environment that no longer existed.
+    ...                A listing row starts with the slug; prose about it does
+    ...                not.
     [Arguments]    ${slug}
     ${ours}=      Run nsctl               env    list
     ${theirs}=    Run hmd neuronsphere    env    list
-    Should Not Contain    ${ours.stdout}      ${slug}
-    Should Not Contain    ${theirs.stdout}    ${slug}
+    Should Not Match Regexp    ${ours.stdout}      (?im)^\\s*[*-]?\\s*${slug}\\b
+    Should Not Match Regexp    ${theirs.stdout}    (?im)^\\s*[*-]?\\s*${slug}\\b
 
 Nothing Docker Holds Should Mention
     [Documentation]    A purge's failure mode is what it leaves, so this asks
@@ -136,13 +153,29 @@ Both Front Ends Report The Same Environment Status
     [Documentation]    Not a string comparison -- the two render differently on
     ...                purpose. What must agree is the verdict: an environment
     ...                one calls running is not one the other calls stopped.
+    ...
+    ...                This test said exactly that and then did the opposite. It
+    ...                asserted the environment's name appeared in *both*
+    ...                outputs, which is a rendering detail the paragraph above
+    ...                disclaims -- and the Python's extend-mode status does not
+    ...                print it, rendering `Mode: extend` and the registered
+    ...                HMDMS services instead. The first complete run of this
+    ...                suite failed here, on the assertion rather than on the
+    ...                platform. Written and never run, like the six items whose
+    ...                verification produced this suite.
+    ...
+    ...                So: nsctl's rendering is still checked for the name,
+    ...                because nsctl does print it and a status that names the
+    ...                wrong environment is a real failure. The Python is
+    ...                checked for its verdict, which is the only thing both are
+    ...                claimed to agree about.
     [Tags]    parity    docker
     ${ours}=      Run nsctl               env    status    ${ENV}
     ${theirs}=    Run hmd neuronsphere    status    --env    ${ENV}
     Should Be Equal As Integers    ${ours.rc}      0
     Should Be Equal As Integers    ${theirs.rc}    0
-    Should Contain    ${ours.stdout}    ${ENV}
-    Should Contain    ${theirs.stdout}    ${ENV}
+    Should Contain        ${ours.stdout}      ${ENV}
+    Should Not Contain    ${theirs.stdout}    not running
 
 An Environment nsctl Stopped Is Stopped To hmd
     [Documentation]    The other direction of the same claim, and the one that
@@ -188,9 +221,9 @@ An Environment nsctl Purged Is Gone To hmd
     # ordering is right in the unit tests and wrong in the wiring.
     Should Not Contain    ${purged.stdout}    Could not connect to the endpoint URL
 
-    Registry Should Not List           ${ENV}
+    Registry Should Not List               ${ENV}
     Nothing Docker Holds Should Mention    ${ENV}
-    Rebuild The Environment            ${ENV}
+    [Teardown]    Rebuild The Environment    ${ENV}
 
 An Environment hmd Purged Is Gone To nsctl
     [Documentation]    The reverse. `hmd neuronsphere down --purge --env` is the
@@ -206,4 +239,4 @@ An Environment hmd Purged Is Gone To nsctl
     Should Be Equal As Integers    ${purged.rc}    0
 
     Registry Should Not List    ${ENV}
-    Rebuild The Environment     ${ENV}
+    [Teardown]    Rebuild The Environment    ${ENV}
