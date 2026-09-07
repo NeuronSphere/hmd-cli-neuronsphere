@@ -1442,12 +1442,37 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     the RepoClass rather than a second source of truth.
 
     **GAP: a control plane's containers are not namespaced by ``HMD_HOME``.**
-    ``hmd_proxy``, ``floci`` and ``hmd_deployment_gui`` are fixed container
-    names, so two ``HMD_HOME``\ s cannot run control planes concurrently even
-    though their networks, compose projects and Floci data directories are all
-    distinct. Starting one recreates the other's containers pointed at the new
-    home. Not introduced by this port -- the names come from the compose file
-    -- but ``nsctl`` makes it easier to hit, and nothing currently detects it.
+    ``hmd_proxy``, ``floci``, ``hmd_deployment_gui`` and ``hmd_nsrunner`` are
+    fixed container names, so two ``HMD_HOME``\ s cannot run control planes
+    concurrently even though their networks, compose projects and Floci data
+    directories are all distinct. Starting one recreates the other's containers
+    pointed at the new home. Not introduced by this port -- the names come from
+    the compose file -- but ``nsctl`` makes it easier to hit, and nothing
+    currently detects it.
+
+    *Detected since 2026-09-07, and still not fixed.* ``compose.CheckOwnership``
+    compares each container's ``com.docker.compose.project`` label against this
+    project before anything is created, and ``control-plane start`` refuses
+    (exit 3) naming both container and both ``HMD_HOME``\ s. ``upService``
+    inspected by name and consulted only its config hash, so the ownership label
+    was being written on every create and read back nowhere.
+
+    **Say plainly what this does not do: the collision remains.** Two
+    ``HMD_HOME``\ s still cannot run control planes at the same time. They now
+    fail loudly instead of eating each other, which is what "detected and named,
+    not silently mishandled" asks for and is not the same as being fixed.
+
+    Namespacing the names is the fix and is a breaking change with no obvious
+    seam: the compose file's own service aliases, the nginx fragments, the Robot
+    suites, the ``/etc/hosts`` guidance and the Python CLI all address these
+    containers by name, and they would have to move together. Floci's network
+    *alias* (``neuronsphere``) cannot move at all -- it is baked into the
+    presigned URLs Floci hands out -- so a rename would have to distinguish the
+    container name from the alias, which today are deliberately close.
+
+    This was chosen over the rename deliberately, not for cost: a refusal is
+    correct on its own terms, while a half-completed rename would leave the same
+    silent overwrite behind a name nobody recognises.
 
     **SUPERSEDED -- MEDIUM: installed-package plugin contributions.** Plugin
     discovery is withdrawn entirely (SPEC005), so neither half ports and the

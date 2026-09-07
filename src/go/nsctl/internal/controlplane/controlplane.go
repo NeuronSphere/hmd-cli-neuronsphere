@@ -230,6 +230,26 @@ func Start(ctx context.Context, opts *Options) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
+	// Before anything is created, and before the ports check, because this is
+	// the failure that eats someone else's platform rather than merely failing
+	// this one.
+	//
+	// The four control-plane services pin container_name, so their names are
+	// global while every other identifier -- network, compose project, Floci
+	// data dir -- is namespaced by an HMD_HOME hash. Starting here would
+	// force-remove and recreate another HMD_HOME's containers pointed at this
+	// home, and interrupting that start leaves the other with no proxy at all.
+	// It has happened.
+	if owners := compose.CheckOwnership(ctx, runner.API, project, active); len(owners) > 0 {
+		return nserr.New(nserr.InUse,
+			"another HMD_HOME's control plane already owns these containers:\n  %s\n"+
+				"This HMD_HOME is %s (project %s). The control-plane container names are fixed by "+
+				"the compose file and are not namespaced, so starting here would recreate them "+
+				"pointed at this home and leave the other one without them. Stop that control "+
+				"plane first, with `nsctl control-plane stop --home <its HMD_HOME>`.",
+			compose.JoinOwners(owners), opts.Home, reg.ControlPlane.ComposeProject)
+	}
+
 	opts.step("Validating ports...")
 	if conflicts := compose.CheckExclusivePublisher(project, active); len(conflicts) > 0 {
 		return nserr.New(nserr.Usage,

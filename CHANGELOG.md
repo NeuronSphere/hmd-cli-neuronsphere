@@ -2,6 +2,31 @@
 
 ## 2026-09-07
 
+- fix: Refuse to recreate another HMD_HOME's control-plane containers
+
+  `hmd_proxy`, `floci`, `hmd_deployment_gui` and `hmd_nsrunner` are fixed
+  `container_name:` values, while the network, the compose project and the Floci
+  data directory are all namespaced by an HMD_HOME hash. So two HMD_HOMEs get
+  distinct everything except the containers -- and `upService` inspects by name
+  and compares only its own config hash, which cannot match across homes because
+  the bind paths differ. A control plane started in a second HMD_HOME therefore
+  force-removed and recreated the first one's containers, pointed at the new
+  home, and interrupting that start left the first with no proxy at all. It
+  destroyed a running platform during this work.
+
+  `CheckOwnership` reads back the `com.docker.compose.project` label nsctl has
+  been writing on every container it creates and never once consulted, and
+  `control-plane start` refuses (exit 3) before creating anything, naming both
+  containers and both HMD_HOMEs. A container that cannot be inspected, or that
+  carries no project label, is unknown rather than a conflict: this decides
+  whether to refuse, so a daemon hiccup must not invent an owner.
+
+  This detects the collision; it does not fix it. Two HMD_HOMEs still cannot run
+  control planes concurrently. See SPEC014 for why the rename that would fix it
+  is a breaking change across the compose aliases, the nginx fragments, the
+  Robot suites and the Python CLI -- and why Floci's `neuronsphere` alias cannot
+  move regardless.
+
 - feat: Purge an environment, deleting Floci's resources before Floci
 
   `nsctl env purge [name]` is the last verb SPEC001 named and the only teardown
