@@ -187,7 +187,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 
 	// 6. Routes, so the services just deployed are reachable at the paths
 	// everything else expects.
-	if err := r.WriteControlPlaneRoutes(gateways, floci.DefaultStage, "", nil); err != nil {
+	if err := r.WriteControlPlaneRoutes(gateways, floci.DefaultStage, "", RunnerRoute(opts)); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 

@@ -32,7 +32,11 @@ EMBED_DIR    := $(GO_DIR)/internal/bundled/services
 # macOS or Linux login shell and needs no sudo; override for anywhere else.
 PREFIX    ?= $(HOME)/.local/bin
 
-.PHONY: all build generate install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+# The DAG-runner image. Local by default: nothing publishes it yet, and a
+# control plane pointed at an unpublished tag would fail to start.
+NSRUNNER_IMAGE ?= hmd-img-nsrunner:$(VERSION)
+
+.PHONY: all build generate image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
 
 all: build
 
@@ -45,6 +49,11 @@ generate:
 build: generate
 	@mkdir -p $(BUILD_DIR)
 	cd $(GO_DIR) && CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o build/$(BINARY) .
+
+## image: build the nsrunner container image (the same binary, serving)
+image: generate
+	cd $(GO_DIR) && docker build --build-arg VERSION=$(VERSION) -t $(NSRUNNER_IMAGE) .
+	@echo "built $(NSRUNNER_IMAGE)"
 
 ## install: build and copy the binary to $(PREFIX)
 install: build

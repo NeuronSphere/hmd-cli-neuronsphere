@@ -221,6 +221,48 @@ services:
     networks:
       - neuronsphere_default
 
+  # The DAG-runner service: it executes a changeset's deploy nodes, which the
+  # CLI used to do in its own process.
+  #
+  # `profiles` gates it exactly as the GUI is gated, so a control plane can run
+  # without it and the CLI falls back to executing nodes itself.
+  nsrunner:
+    container_name: hmd_nsrunner
+    profiles: ["nsrunner"]
+    image: ${HMD_NSRUNNER_IMAGE:-ghcr.io/neuronsphere/hmd-img-nsrunner:stable}
+    restart: unless-stopped
+    # No host port. Only the proxy publishes; nsctl reaches this at
+    # http://localhost/nsrunner/ through an hmd_proxy passthrough location.
+    environment:
+      HMD_HOME: ${HMD_HOME}
+      HMD_REPO_HOME: ${HMD_REPO_HOME:-${HMD_HOME}}
+      # Container-side addresses. localhost here is this container, not the
+      # host's nginx.
+      HMD_LOCAL_MS_DEPLOYMENT_URL: ${HMD_LOCAL_MS_DEPLOYMENT_URL:-http://hmd_proxy/hmd_ms_deployment}
+      HMD_LOCAL_NS_CONTAINER_REGISTRY: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-}
+      HMD_PROJECTBUILDER_VERSION: ${HMD_PROJECTBUILDER_VERSION:-}
+      HMD_CUSTOMER_CODE: ${HMD_CUSTOMER_CODE:-none}
+      HMD_REGION: ${HMD_REGION:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      # The runner launches projectbuilder as a *sibling*, so every bind mount
+      # it composes is resolved by the host daemon rather than inside this
+      # filesystem. Mounting these at their own absolute paths makes host and
+      # container paths identical, which is what lets the workspace code build
+      # mounts with no translation at all.
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${HMD_HOME}:${HMD_HOME}"
+      - "${HMD_REPO_HOME:-${HMD_HOME}}:${HMD_REPO_HOME:-${HMD_HOME}}"
+    healthcheck:
+      test: ["CMD", "/nsctl", "version"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+    networks:
+      - neuronsphere_default
+
 networks:
   neuronsphere_default:
     external: true

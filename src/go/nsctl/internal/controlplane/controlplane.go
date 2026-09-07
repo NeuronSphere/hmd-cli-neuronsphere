@@ -38,6 +38,16 @@ var HostsEntries = []string{"neuronsphere", "neuronsphere-workload"}
 // GUIProfile gates the Deployment GUI container.
 const GUIProfile = "deployment-gui"
 
+// RunnerProfile gates the DAG-runner container.
+const RunnerProfile = "nsrunner"
+
+// RunnerContainer is the DAG-runner's container name, and RunnerRoutePath the
+// proxy location it is served at.
+const (
+	RunnerContainer = "hmd_nsrunner"
+	RunnerRoutePath = "nsrunner"
+)
+
 // DefaultGUIPort is slot 0's spare port.
 const DefaultGUIPort = 19003
 
@@ -364,7 +374,7 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := r.WriteBaseConfig(); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	if err := r.WriteControlPlaneRoutes(services, floci.DefaultStage, "", nil); err != nil {
+	if err := r.WriteControlPlaneRoutes(services, floci.DefaultStage, "", RunnerRoute(opts)); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	if err := r.WriteControlPlaneStreams(target.Alias); err != nil {
@@ -488,6 +498,16 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	if guiImage != "" {
 		overlay["HMD_DEPLOYMENT_GUI_IMAGE"] = guiImage
 	}
+	// The runner mounts HMD_REPO_HOME at its own absolute path, so the compose
+	// interpolation needs a real one. Defaulting it to HMD_HOME keeps the bind
+	// valid when the variable is unset; the runner then reports a missing
+	// working tree per repo, which names the actual problem, rather than
+	// compose failing to create the container at all.
+	repoHome := opts.lookup("HMD_REPO_HOME")
+	if repoHome == "" {
+		repoHome = opts.Home
+	}
+	overlay["HMD_REPO_HOME"] = repoHome
 	return func(key string) string {
 		if v := opts.lookup(key); v != "" {
 			return v
@@ -502,7 +522,24 @@ func ActiveProfiles(opts *Options) map[string]bool {
 	if GUIEnabled(opts) {
 		active[GUIProfile] = true
 	}
+	if RunnerEnabled(opts) {
+		active[RunnerProfile] = true
+	}
 	return active
+}
+
+// RunnerEnabled reports whether the DAG-runner container should run.
+//
+// Off by default, for now. Its image is not published yet, and a control plane
+// that fails to start because it cannot pull one would be a worse default than
+// the in-process execution that already works. Turning it on is
+// HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER=true plus `make image`.
+func RunnerEnabled(opts *Options) bool {
+	switch strings.ToLower(strings.TrimSpace(opts.lookup("HMD_LOCAL_NEURONSPHERE_ENABLE_RUNNER"))) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
 }
 
 // GUIEnabled matches bom_seeder.gui_enabled: true unless explicitly falsy.
@@ -512,6 +549,16 @@ func GUIEnabled(opts *Options) bool {
 		return false
 	}
 	return true
+}
+
+// RunnerRoute is the proxy passthrough that makes the runner reachable from
+// the host. The container publishes no port of its own -- only the proxy may --
+// so this location is the whole of nsctl's access to it.
+func RunnerRoute(opts *Options) map[string]string {
+	if !RunnerEnabled(opts) {
+		return nil
+	}
+	return map[string]string{RunnerRoutePath: "http://" + RunnerContainer + ":8080"}
 }
 
 // GUIPort is the host port hmd_proxy serves the GUI at.
