@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
@@ -42,6 +43,9 @@ type deployer struct {
 	run    *runner.Runner
 	env    string
 	client *nsrunner.Client
+	// serviceSubmits means the control plane built and submitted the workflow
+	// itself, so there is nothing here to run -- only something to watch.
+	serviceSubmits bool
 
 	// submitted records what the remote run settled, so the reconcile snapshot
 	// reads the same field whichever path executed.
@@ -50,7 +54,7 @@ type deployer struct {
 }
 
 func newDeployer(opts *Options, run *runner.Runner, envSlug string) *deployer {
-	d := &deployer{opts: opts, run: run, env: envSlug}
+	d := &deployer{opts: opts, run: run, env: envSlug, serviceSubmits: ServiceSubmits(opts.lookup)}
 	c := nsrunner.NewClient(RunnerURL(opts.lookup))
 	if c.Reachable(context.Background()) {
 		d.client = c
@@ -58,11 +62,58 @@ func newDeployer(opts *Options, run *runner.Runner, envSlug string) *deployer {
 	return d
 }
 
+// ServiceSubmits reports whether the control plane, rather than the CLI, builds
+// and submits the deployment workflow.
+//
+// Opt-in, not the default. The inverted path routes through
+// call_deploy_change_set_deployment, an async self-invoking Lambda, whose
+// behaviour under Floci is unverified -- so the path that is known to work
+// stays the one taken unless asked otherwise.
+func ServiceSubmits(lookup func(string) string) bool {
+	if lookup == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(lookup("HMD_LOCAL_SERVICE_SUBMIT"))) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
 func (d *deployer) deploy(ctx context.Context, csdNid string, nodes []msdeploy.DeploymentNode) error {
+	if d.serviceSubmits {
+		return d.watch(ctx, csdNid)
+	}
 	if d.client == nil {
 		return d.run.Run(ctx, csdNid, nodes)
 	}
 	return d.submit(ctx, csdNid, nodes)
+}
+
+// watch follows a workflow the control plane submitted.
+//
+// The CLI has a changeset id and no node list: apply_changeset returned as soon
+// as the changeset was recorded and invoked the deploying Lambda in the
+// background, so the workflow it will create does not exist yet.
+func (d *deployer) watch(ctx context.Context, csdNid string) error {
+	if d.client == nil {
+		return nserr.New(nserr.Usage,
+			"HMD_LOCAL_SERVICE_SUBMIT is set but no runner is answering at %s", RunnerURL(d.opts.lookup))
+	}
+	d.opts.step("  waiting for the control plane to submit the workflow...")
+	wf, err := d.client.WaitForActive(ctx, d.env, d.env, csdNid, 2*time.Minute)
+	if err != nil {
+		return err
+	}
+	d.opts.step("  submitted as %s", wf.Name)
+	if err := d.client.Stream(ctx, d.env, wf.Name, d.opts.Out); err != nil {
+		d.opts.warn("lost the log stream: %v", err)
+	}
+	final, err := d.client.Get(ctx, d.env, wf.Name)
+	if err != nil {
+		return fmt.Errorf("reading the outcome of %s: %w", wf.Name, err)
+	}
+	return d.record(final)
 }
 
 // submit hands the nodes to the runner and streams the result back.
@@ -142,15 +193,19 @@ func (d *deployer) record(wf nsrunner.Workflow) error {
 	}
 }
 
+// ranLocally reports whether this process executed the nodes, which is the
+// only case where the runner object holds the outcome.
+func (d *deployer) ranLocally() bool { return d.client == nil && !d.serviceSubmits }
+
 func (d *deployer) succeeded() []string {
-	if d.client == nil {
+	if d.ranLocally() {
 		return d.run.Succeeded
 	}
 	return d.remoteSucceeded
 }
 
 func (d *deployer) lastFailure() *runner.Result {
-	if d.client == nil {
+	if d.ranLocally() {
 		return d.run.LastFailure
 	}
 	return d.remoteFailure

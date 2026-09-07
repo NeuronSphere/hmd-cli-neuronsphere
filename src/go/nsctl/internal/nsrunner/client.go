@@ -187,3 +187,30 @@ func (e *SubmitError) Error() string {
 
 // Busy reports the refusal to start a second deployment on one environment.
 func (e *SubmitError) Busy() bool { return e.Status == http.StatusConflict }
+
+// WaitForActive polls until a workflow appears for an environment.
+//
+// It exists because the fully inverted path is asynchronous end to end:
+// apply_changeset returns as soon as the changeset is recorded and invokes the
+// deploying Lambda in the background, so the workflow does not exist yet when
+// the call returns. The CLI has a changeset id and needs the workflow the
+// service is about to create for it.
+func (c *Client) WaitForActive(ctx context.Context, namespace, environment, csdNid string, timeout time.Duration) (Workflow, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		wf, active, err := c.Active(ctx, namespace, environment)
+		if err == nil && active && (csdNid == "" || wf.CSDNid == csdNid) {
+			return wf, nil
+		}
+		if time.Now().After(deadline) {
+			return Workflow{}, fmt.Errorf(
+				"no workflow appeared for %s within %s; the control plane may not be configured with HMD_WORKFLOW_RUNNER_URL",
+				environment, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return Workflow{}, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}

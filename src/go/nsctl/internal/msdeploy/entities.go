@@ -110,15 +110,20 @@ type DeploymentNode struct {
 
 // ApplyChangeSet applies a changeset and returns its ChangeSetDeployment id.
 //
-// skip_async stops ms-deployment doing what it does in the cloud -- building an
-// Argo Workflow and posting it to the Argo server -- because the CLI drives
-// execution itself. It is the local marker, and it retires when the runner
-// service lands.
-func (c *Client) ApplyChangeSet(ctx context.Context, changeSetName, deploymentSetName string) (string, error) {
+// skipAsync stops ms-deployment doing what it does in the cloud -- building an
+// Argo Workflow and posting it to the Argo server -- so that the caller drives
+// execution instead. It was the local marker, and it is no longer the only
+// option: a control plane configured with HMD_WORKFLOW_RUNNER_URL submits to
+// the DAG runner itself, which is the inversion this whole path exists for.
+//
+// It stays selectable rather than being deleted. The service-submits path
+// routes through an async self-invoking Lambda, and until that is proven under
+// Floci the working path has to remain reachable.
+func (c *Client) ApplyChangeSet(ctx context.Context, changeSetName, deploymentSetName string, skipAsync bool) (string, error) {
 	result, err := c.APIOp(ctx, "apply_changeset", map[string]any{
 		"change_set_name":     changeSetName,
 		"deployment_set_name": deploymentSetName,
-		"skip_async":          true,
+		"skip_async":          skipAsync,
 	})
 	if err != nil {
 		return "", err

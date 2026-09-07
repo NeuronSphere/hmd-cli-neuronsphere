@@ -230,6 +230,11 @@ type VersionResolver interface {
 type Seeder struct {
 	Client   *msdeploy.Client
 	Versions VersionResolver
+	// ServiceSubmits inverts who runs the deployment. When false the CLI takes
+	// the node list and drives execution -- itself, or by submitting to the
+	// runner. When true the control plane submits the workflow, and Seed
+	// returns no nodes because there is nothing here left to run.
+	ServiceSubmits bool
 }
 
 // Seed registers the repo classes, applies a changeset and returns the
@@ -360,9 +365,15 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) (st
 	}
 
 	// 5 and 6. Apply, then ask for the ordered nodes.
-	csdNid, err := s.Client.ApplyChangeSet(ctx, changeSetName, env.Slug)
+	csdNid, err := s.Client.ApplyChangeSet(ctx, changeSetName, env.Slug, !s.ServiceSubmits)
 	if err != nil {
 		return "", nil, err
+	}
+	if s.ServiceSubmits {
+		// The control plane built and submitted the workflow inside
+		// apply_changeset. Asking for the node list here would hand back work
+		// that is already running.
+		return csdNid, nil, nil
 	}
 	nodes, err := s.Client.GenerateLocalDeployment(ctx, csdNid)
 	if err != nil {

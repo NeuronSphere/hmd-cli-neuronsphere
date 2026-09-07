@@ -168,16 +168,20 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		entries = plan.Deploy()
 	}
 
-	seeder := &bom.Seeder{Client: client, Versions: resolver}
+	seeder := &bom.Seeder{Client: client, Versions: resolver, ServiceSubmits: ServiceSubmits(opts.lookup)}
 
 	opts.step("Seeding the substrate changeset...")
 	csdNid, nodes, err := seeder.Seed(ctx, bomEnv, entries)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	opts.step("  %d deployment node(s)", len(nodes))
-	if len(nodes) == 0 {
-		return nil
+	// No nodes means nothing to do -- unless the control plane submitted the
+	// workflow itself, in which case the work exists and is simply not here.
+	if !ServiceSubmits(opts.lookup) {
+		opts.step("  %d deployment node(s)", len(nodes))
+		if len(nodes) == 0 {
+			return nil
+		}
 	}
 
 	run := &runner.Runner{
