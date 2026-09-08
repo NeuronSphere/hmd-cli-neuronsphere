@@ -6,9 +6,13 @@ Documentation     SPEC012's parity harness: the acceptance test the SPEC states,
 ...               Parity was checked by hand through Phases 1-7. This makes the
 ...               checks repeatable for the five things both front ends are
 ...               expected to agree about -- `env start`, `env stop`, `status`,
-...               `env purge` and the registry -- and no more than that. Full
-...               parity across every verb is a much larger suite, and SPEC012
-...               records that only this core was built.
+...               `env purge` and the registry -- plus `env add`/`env delete`
+...               and the slug rules, which cost a registry write and no
+...               provisioning. Still uncovered, and named rather than rounded
+...               up: `env apply`, `env attach`, the four `repo` verbs,
+...               `control-plane start|stop|status`, and `authd`. Full parity
+...               across every verb is a much larger suite, and SPEC012 records
+...               that only this much was built.
 ...
 ...               `env purge` costs the most of the five and is here anyway: it
 ...               is the newest verb, it is the one where a leftover is the
@@ -46,6 +50,18 @@ ${ENV}            ${EMPTY}
 ${CLI TIMEOUT}    45 min
 # The Python's full-BOM `up` is opt-in; see its test for the measurement.
 ${DEEP}           ${False}
+# A slug the registry tests may create and destroy freely. Deliberately not
+# ${ENV}: a test that can unregister the environment the rest of the suite
+# starts and stops is a test that can take the suite with it, which is how the
+# first complete run failed.
+${SCRATCH}        parity-tmp
+# Two rule violations in one string -- an uppercase character and an
+# underscore -- so a front end enforcing only half of SPEC003's pattern still
+# refuses it. Deliberately no leading hyphen: argparse would take one for an
+# option and fail before the slug was ever validated, which is a nonzero exit
+# for the wrong reason and exactly the kind of pass this suite has been caught
+# on before.
+${BAD SLUG}       Parity_Bad
 
 *** Keywords ***
 Check Both Front Ends Are Present
@@ -270,3 +286,63 @@ An Environment hmd Purged Is Gone To nsctl
     Nothing Docker Holds Should Mention    ${ENV}
     Registry Should List                   ${ENV}
     [Teardown]    Run nsctl    env    start    ${ENV}
+
+An Environment nsctl Registered Is An Environment hmd Reads
+    [Documentation]    `env add` and `env delete` were outside the five states
+    ...                this suite covered, and they are the cheapest parity
+    ...                claim there is: `nsctl env add` says of itself that it
+    ...                "only writes the registry", so both directions cost a
+    ...                registry write and no provisioning at all.
+    ...
+    ...                That is what makes this worth having. The registry is
+    ...                SPEC003's whole subject -- every derived value written
+    ...                once at create time and never recomputed -- so a slug one
+    ...                front end registers and the other cannot see is the
+    ...                failure SPEC003 exists to prevent, and until now nothing
+    ...                asked.
+    ...
+    ...                A scratch slug, not ${ENV}: this test must not be able to
+    ...                unregister the environment the rest of the suite starts
+    ...                and stops.
+    ...
+    ...                `env delete` takes `--yes`. It refuses without one (exit
+    ...                2, naming the account and port slot it would free), which
+    ...                is the right default for a verb that frees a slot another
+    ...                environment will later be given -- and is the first thing
+    ...                running this test found, by leaving ${SCRATCH} registered
+    ...                when the teardown omitted the flag too.
+    [Tags]    parity    registry
+    [Teardown]    Run Keyword And Ignore Error    Run nsctl    env    delete    ${SCRATCH}    --yes
+    ${added}=    Run nsctl    env    add    ${SCRATCH}
+    Should Be Equal As Integers    ${added.rc}    0
+
+    Registry Should List    ${SCRATCH}
+
+    ${refused}=    Run nsctl    env    delete    ${SCRATCH}
+    Should Not Be Equal As Integers    ${refused.rc}    0
+    Registry Should List    ${SCRATCH}
+
+    ${deleted}=    Run nsctl    env    delete    ${SCRATCH}    --yes
+    Should Be Equal As Integers    ${deleted.rc}    0
+
+    Registry Should Not List    ${SCRATCH}
+
+Both Front Ends Refuse The Same Bad Slug
+    [Documentation]    SPEC003 fixes the slug rules -- `^[a-z0-9][a-z0-9-]{0,15}$`
+    ...                plus a reserved set -- and says nsctl must preserve them
+    ...                exactly, because the registry's names are derived from the
+    ...                slug once and never recomputed. A slug one front end
+    ...                accepts and the other rejects is how two front ends stop
+    ...                agreeing about what exists.
+    ...
+    ...                Both must refuse; neither is asked to phrase it the same
+    ...                way. A nonzero exit and no registration is the whole
+    ...                claim.
+    [Tags]    parity    registry
+    ${ours}=    Run nsctl    env    add    ${BAD SLUG}
+    Should Not Be Equal As Integers    ${ours.rc}    0
+
+    ${theirs}=    Run hmd neuronsphere    env    create    ${BAD SLUG}    --no-deploy
+    Should Not Be Equal As Integers    ${theirs.rc}    0
+
+    Registry Should Not List    ${BAD SLUG}

@@ -2,6 +2,38 @@
 
 ## 2026-09-08
 
+- test: cover `env add`, `env delete` and the slug rules, and fail when a
+  ConfigOverride field is added without being wired
+
+  Two parity cases, and the point of them is that they were **run**. The first
+  run failed: `nsctl env delete` requires `--yes`, refusing with exit 2 and
+  naming the account and port slot it would free, so the delete was refused --
+  and the teardown omitted the flag too and left the scratch environment
+  registered. The right default for a verb that frees a slot another
+  environment will later be given, and invisible to anyone who only reads the
+  code. The case now asserts both halves, the refusal and the deletion.
+
+  They are the cheapest parity claim in the suite. `nsctl env add` says of
+  itself that it "only writes the registry", so both directions cost a registry
+  write and no provisioning -- which makes them worth having rather than merely
+  cheap, because the registry is SPEC003's whole subject and a slug one front
+  end registers and the other cannot see is the failure SPEC003 exists to
+  prevent. Nothing had asked.
+
+  A scratch slug throughout, never the suite's `${ENV}`: a registry test able to
+  unregister the environment the rest of the suite starts and stops is one that
+  can take the suite with it, which is how its first complete run failed. The
+  malformed-slug fixture carries an uppercase character and an underscore and
+  deliberately no leading hyphen -- argparse would take one for an option and
+  fail before the slug was validated at all, which is a nonzero exit for the
+  wrong reason.
+
+  `internal/nsrunner`'s new test is reflective over `ConfigOverride` on purpose.
+  A test listing the fields by hand passes forever after someone adds the
+  fifteenth, which is the entire failure mode: the CLI pins a value, the runner
+  drops it, and the deploy runs against the wrong network or account with
+  nothing to say so. Mutation-checked -- removing one `set()` fails it.
+
 - fix: say what a differently-named environment now needs, rather than that it cannot work
 
   `hmd-lib-cdktf` gained `is_local_environment()` on 2026-09-08, so an
