@@ -54,7 +54,9 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 Implementation Status
 ---------------------
 
-All six phases have landed on ``feat/nsctl-go-cli``. ``nsctl`` bootstraps a
+All six planned phases have landed on ``feat/nsctl-go-cli``, and three
+unplanned ones with them -- the cold start, the verification pass, and the local
+identity provider. ``nsctl`` bootstraps a
 control plane and an environment from an empty ``HMD_HOME`` and an empty
 deployment graph -- which it could not do until the graph was genuinely empty
 for the first time; see `The cold start had never run`_ -- starts and stops
@@ -100,7 +102,7 @@ recorded in `What implementation changed about the design`_ and
      - **withdrawn**
      - Plugin discovery is not implemented in any form. See the SPEC.
    * - 006
-     - implemented
+     - **amended**
      - The compose file, the runner sources and ten repo trees are embedded,
        and version resolution prefers a bundled tree over a checkout. **Run
        from nothing:** a control plane and an environment deployed from the
@@ -129,7 +131,9 @@ recorded in `What implementation changed about the design`_ and
        ``HMD_WORKFLOW_RUNNER_URL`` is set and reconciled in both directions, the
        async self-invocation is reached, and it dies on a ``None``
        ``Authorization`` header before submitting anything. Exact cause in the
-       SPEC; the fix is in ``hmd-ms-deployment``. It is opt-in and always was.
+       SPEC; the fix is in ``hmd-ms-deployment``, is written and unit-tested as
+       of 2026-09-08 at the three sites that share the literal, and has not been
+       run end to end. It is opt-in and always was.
    * - 011
      - **amended**
      - Implemented. One clause of it is not implementable as written, and
@@ -137,8 +141,10 @@ recorded in `What implementation changed about the design`_ and
    * - 012
      - partly implemented
      - The harness exists for the core SPEC012 states -- ``env start``,
-       ``env stop``, ``status``, ``env purge`` and the registry -- and for
-       nothing else. Every other verb is still checked by hand. ``env purge``
+       ``env stop``, ``status``, ``env purge`` and the registry -- plus
+       ``env add``/``env delete`` and the slug rules, added and run on
+       2026-09-08. ``env apply``, ``env attach``, the ``repo`` verbs,
+       ``control-plane`` and ``authd`` are still checked by hand. ``env purge``
        was added deliberately and at a cost the SPEC now records: each direction
        destroys and rebuilds the environment, so a run costs two cold starts.
    * - 013
@@ -157,6 +163,12 @@ recorded in `What implementation changed about the design`_ and
    * - 015
      - **amended**
      - Phase 3's content changed substantially once plugins were dropped.
+   * - 016
+     - implemented
+     - Added after the fact: the local identity provider was built, shipped and
+       documented in ``docs/nsctl.rst`` before this proposal recorded it at all.
+       Its one gap -- ``hmd-lib-auth.verify_token`` demanding an ``https://``
+       issuer -- is named in the SPEC.
 
 What implementation changed about the design
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -341,7 +353,9 @@ five of the seven were invisible until a genuinely cold platform ran them.
     is an ``Event`` invocation nothing surfaces: ``apply_changeset`` has already
     returned 200 and the CLI waits out its full timeout for a workflow that was
     never going to exist. A cloud caller passes a real token, so it is
-    local-only; the fix is one line in ``hmd-ms-deployment``.
+    local-only, and the fix belongs in ``hmd-ms-deployment``. It is **three**
+    lines, not the one this said: the same literal builds the destroy path's
+    event and the ``callback_url`` POST. See SPEC010.
 
 22. **"Only Docker" is also a claim about the image registries** (SPEC014).
     The compose file pins
@@ -762,7 +776,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 .. spec:: Control-plane lifecycle is explicit and separate
     :id: HMD_CLI_NERD002_SPEC002
     :links: HMD_CLI_NERD002
-    :status: implemented
+    :status: amended
 
     A local NeuronSphere is **one shared control plane per ``HMD_HOME``**
     (``hmd-ms-deployment``, ``hmd-ms-naming``, ``hmd-ms-artifact-lib``, the
@@ -1211,6 +1225,16 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     ``meta-data/`` plus ``src/``, minus build outputs and
     ``meta-data/resources_output/``, and every node deployed.
 
+    **A repo must resolve to a working tree; there is no artifact source.**
+    ``manifest.validateSource`` accepts ``type: local`` and refuses
+    ``type: artifact`` with *"source type "artifact" is not supported yet; use
+    'type: local' to deploy from a local working tree"*. The name is reserved so
+    that declaring one fails with that sentence rather than "unknown source
+    type", but nothing resolves it: every declared repo is a checkout or a
+    bundled tree. This is the constraint the item below rests on -- a class with
+    neither is not deployable at all, which is why the eight travel as committed
+    trees rather than as pins nobody can resolve.
+
     *Still open:* the eight classes that are not declared as
     ``pre_build_artifacts`` travel as committed trees, and whether they publish
     a consumable ``build`` artifact remains unverified. Probing them with
@@ -1611,9 +1635,10 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     than owning it; and a second ``nsctl env start`` against the same
     environment can be refused by the runner rather than racing.
 
-    **Open:** the submit path's authentication (Argo's carries a bearer token
-    from Secrets Manager) and what happens to an in-flight workflow when the
-    control plane stops.
+    *Both of this SPEC's original open questions -- the submit path's
+    authentication, and what becomes of an in-flight workflow when the control
+    plane stops -- are answered in the warning above, and the paragraph that
+    asked them here has been removed rather than left to contradict it.*
 
     *The service-submits path was run on 2026-09-07 and does not work.* Both
     paths are wired -- ``HMD_WORKFLOW_RUNNER_URL`` is set on
@@ -1644,11 +1669,35 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     ``apply_changeset`` has already returned 200, so the CLI waits out its full
     timeout for a workflow that was never going to be created.
 
-    A cloud caller passes a real token, so this is local-only. The fix is one
-    line in ``hmd-ms-deployment`` -- omit the header when there is no token --
-    and cannot be made here. Until then ``HMD_LOCAL_SERVICE_SUBMIT`` stays
-    opt-in, which it always was, and the CLI-submits path is the one every
-    deploy in this document took.
+    A cloud caller passes a real token, so this is local-only. The fix belongs
+    in ``hmd-ms-deployment`` -- omit the header when there is no token -- and
+    cannot be made here.
+
+    **It is not one line, which this document asserted three times before
+    anyone counted.** The same ``{"Authorization": auth_token}`` literal
+    appears at three sites in ``deployment_manager.py``:
+    ``call_deploy_change_set_deployment``, the one named above;
+    ``call_deploy_destroy_changeset_deployment``, which builds the identical
+    event for the destroy path and dies the identical death; and the
+    ``callback_url`` POST in ``update_change_set_deployment_status``, where it
+    is ``requests`` rather than Mangum that refuses a ``None`` header value,
+    and the ``try``/``except`` around it turns the refusal into a warning
+    nobody reads. Fixing only the first would have left the destroy path
+    failing the same way and looking unrelated.
+
+    *Written 2026-09-08, and not yet run.* A ``_auth_headers`` helper returning
+    ``{}`` when there is no token replaces all three, and the two signatures
+    that declared ``auth_token: str`` while every caller passed
+    ``Optional[str]`` now say ``Optional[str]``. Seven unit tests cover it,
+    including two that reproduce Mangum's ``v.encode()`` over the event the
+    self-invocation actually builds -- the assertion being that the header is
+    *absent*, not that it is empty, since an empty string encodes fine and
+    would have hidden the bug. **The end-to-end run is still owed**: it needs a
+    control plane whose ms-deployment is answering, and the machine this was
+    written on has its control-plane Postgres in Floci state ``failed``. Until
+    that run happens ``HMD_LOCAL_SERVICE_SUBMIT`` stays opt-in, which it always
+    was, and the CLI-submits path is the one every deploy in this document
+    took.
 
     ``nsctl``'s own message was wrong too and is fixed. It said "the control
     plane may not be configured with ``HMD_WORKFLOW_RUNNER_URL``" -- the one
@@ -1900,6 +1949,34 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     bootstrap failure rather than silently. The purge tests also ask Docker
     directly, not just the two registries: what a purge leaves is not something
     either CLI is in a position to report.
+
+    *Two registry cases added 2026-09-08, and run.* ``env add`` and
+    ``env delete`` were outside the five states and are the cheapest parity
+    claim in the suite -- ``nsctl env add`` says of itself that it "only writes
+    the registry", so both directions cost a registry write and no provisioning
+    at all. That makes them worth having rather than merely cheap: the registry
+    is SPEC003's entire subject, and a slug one front end registers and the
+    other cannot see is the failure SPEC003 exists to prevent. Nothing had
+    asked. A second case asserts both front ends refuse the same malformed
+    slug, since the slug is what every derived name is computed from once and
+    never recomputed.
+
+    They were run rather than reasoned about, and the first run failed --
+    which is the point. ``nsctl env delete`` requires ``--yes``, refusing with
+    exit 2 and naming the account and port slot it would free; the test passed
+    no flag, so the delete was refused, and the teardown omitted it too and
+    left the scratch environment registered. The right default for a verb that
+    frees a slot another environment will later be given, and invisible to
+    anyone who only reads the code. The case now asserts *both* halves -- the
+    refusal without the flag and the deletion with it. A scratch slug is used
+    throughout, never ``${ENV}``: a registry test able to unregister the
+    environment the rest of the suite starts and stops is one that can take the
+    suite with it, which is how the first complete run failed.
+
+    That leaves the uncovered set smaller and still real: ``env apply``,
+    ``env attach``, the four ``repo`` verbs, ``control-plane
+    start|stop|status``, and ``authd``. SPEC012 stays **partly implemented**
+    and names them rather than rounding up.
 
     It needs a real platform by definition, so it sits with the Docker-dependent
     suites and is not wired into ``make test-cli`` or CI. ``make test-parity``
@@ -2289,11 +2366,14 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     and 2 are verifiable against a platform brought up by the Python CLI, which
     means the port is exercised long before it can break anything.
 
-    **All six phases have landed.** Phase 3's content changed substantially
-    once plugin discovery was withdrawn; its entry below is rewritten to
-    describe what was built rather than what was planned. Phases 0, 2, 4 and 6
-    carry corrections where the entry as written turned out not to match what
-    shipped.
+    **All six planned phases have landed, and three unplanned ones after
+    them.** Phase 3's content changed substantially once plugin discovery was
+    withdrawn; its entry below is rewritten to describe what was built rather
+    than what was planned. Phases 0, 2, 4 and 6 carry corrections where the
+    entry as written turned out not to match what shipped. Phases 7, 8 and 9
+    were not planned at all: the first two came out of running what had only
+    been reasoned about, and the third out of a capability local parity had
+    never had.
 
     **Phase 0 -- Foundation. [LANDED]** Scaffold ``src/go/nsctl/`` from the
     ``go_cli_repo`` cookiecutter; root ``Makefile``; cobra root with
@@ -2419,10 +2499,12 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     'encode'`` before submitting anything, and because it is an ``Event``
     invocation nothing surfaces -- ``apply_changeset`` has already returned 200.
 
-    A cloud caller passes a real token, so this is local-only, and the fix is
-    one line in ``hmd-ms-deployment``: omit the header when there is no token.
-    Until then the flag stays opt-in and the CLI-submits path -- which every
-    deploy in this document took -- is the one that works.
+    A cloud caller passes a real token, so this is local-only, and the fix
+    belongs in ``hmd-ms-deployment``: omit the header when there is no token.
+    Written on 2026-09-08 across the three sites that share the literal, with
+    unit tests, and **not yet run end to end** -- see SPEC010. Until it is, the
+    flag stays opt-in and the CLI-submits path -- which every deploy in this
+    document took -- is the one that works.
 
     ``nsctl``'s own message was also wrong and is fixed: it blamed
     ``HMD_WORKFLOW_RUNNER_URL``, the one thing ``syncRunnerSelection``
@@ -2535,6 +2617,102 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     trees inside the binary, with External Secrets reconciled and no manifest
     involved. See `Verified from nothing`_ for what passed, what failed, and
     what could not be verified here and why.
+
+    **Phase 9 -- The local identity provider. [DONE]** Not planned either.
+    Nothing on the local platform has a token, so the Rego policies every
+    service authorizes against were only ever exercised in the cloud.
+    ``nsctl authd`` is the token source that makes them testable here, and it
+    ships as a fifth control-plane container running the same image as the DAG
+    runner. See SPEC016.
+
+    *Deliverable met:* ``nsctl authd token`` mints a JWT whose signature, issuer
+    and audience PyJWT verifies against the published JWKS, and the real
+    ``system/shared.rego`` from ``hmd-inf-openpolicyagent`` -- in the OPA version
+    and v0 mode that chart pins -- allows ``token_is_valid`` for the right
+    audience and leaves it undefined for the wrong one.
+
+    *Not done:* the OPA authorizer end to end. ``hmd-lib-auth.verify_token``
+    calls ``okta_jwt_verifier``, which rejects any issuer that is not
+    ``https://`` and offers no way to turn that off, so the authorizer Lambda
+    needs a certificate nothing here issues. Policy *evaluation* does not --
+    every Rego bundle decodes with ``io.jwt.decode`` rather than verifying --
+    which is why realistic claims were the thing worth building.
+
+.. spec:: The local identity provider
+    :id: HMD_CLI_NERD002_SPEC016
+    :links: HMD_CLI_NERD002
+    :status: implemented
+
+    **Nothing on the local platform has a token.** Applications run with
+    database authentication, microservices run unauthenticated, and the
+    consequence is that the Rego policies every service authorizes against are
+    exercised only in the cloud -- the one part of the stack local parity did
+    not reach. ``nsctl authd`` is a stand-in for Okta that makes them testable
+    here. It was not in the original scope and is recorded now rather than left
+    to live only in ``docs/nsctl.rst``.
+
+    **Okta-shaped, because the consumers are.** Superset and Airflow build
+    their endpoints as ``OKTA_BASE_URL + "v1/token"``, and ``hmd-lib-auth``
+    hands an issuer to ``AccessTokenVerifier``, which fetches
+    ``{issuer}/v1/keys``. None of that is configurable, so the paths are
+    Okta's: ``/oauth2/{ns,services}/v1/...``, with both discovery documents
+    served because Superset and Airflow ask for ``oauth-authorization-server``
+    while Trino asks for ``openid-configuration``.
+
+    **Two authorization servers, not one.**
+    ``lambda_helper._get_issuer_and_audience`` picks ``services_issuer`` with
+    ``api://neuronsphere-services`` for a service account and ``ns_issuer``
+    with ``api://neuronsphere`` otherwise, and every Rego bundle's
+    ``token_is_valid`` admits exactly those two. One server issuing both
+    audiences would have made the distinction untestable, which is most of what
+    there is to test.
+
+    **One issuer, three resolvers.** The issuer is the base URL every consumer
+    appends to and is stamped into every token's ``iss``, so it has to be one
+    string wherever it is read: a consumer that fetched the keys under one name
+    and reads ``iss`` as another rejects every token, and the failure surfaces
+    as a policy denial nowhere near the cause. ``auth.local.neuronsphere.io``
+    is therefore made to resolve to ``hmd_proxy`` three ways -- an nginx vhost
+    for the browser, a Docker network alias for Floci's Lambda containers, and
+    a CoreDNS record for cluster pods -- all derived from
+    ``HMD_LOCAL_AUTH_ISSUER`` so they cannot drift apart.
+
+    The vhost defers its upstream through a resolver variable rather than
+    naming the container literally. nginx resolves a literal ``proxy_pass``
+    host once, at config load, so an absent container would fail ``nginx -t``
+    and have the whole reload rejected -- taking every other route down with
+    it. An optional service that is off must cost its own 502 and nothing else.
+
+    **Off by default, and the default is load-bearing.**
+    ``HMD_LOCAL_NEURONSPHERE_ENABLE_AUTH=true`` adds it, exactly as the DAG
+    runner is gated by its own flag. Turning it on is what makes an application
+    demand a login and a service reject an unauthenticated call, so a
+    default-on switch would break every local script, ``curl`` and Robot suite
+    that carries no token today. It is the **same image** as the runner --
+    the Dockerfile's ``ENTRYPOINT`` is ``/nsctl`` and its ``CMD`` only a
+    default, so a ``command:`` selects the other mode and nothing extra is
+    built or published.
+
+    The ``okta`` secret is written to Floci on every start rather than at
+    bootstrap, for the same reason ``syncRunnerSelection`` runs on every start:
+    the bootstrap happens once, and enabling the provider afterwards has to
+    take effect without purging the control plane to get a second one.
+
+    **GAP: it does not satisfy** ``hmd-lib-auth.verify_token``. That function is
+    what the OPA authorizer Lambda calls before it consults a policy, and it
+    goes through ``okta_jwt_verifier``, which rejects any issuer that is not
+    ``https://`` and offers no way to turn that off. So the authorizer end to
+    end still needs a certificate nothing here issues. Policy evaluation itself
+    does not: every Rego bundle decodes the token with ``io.jwt.decode`` rather
+    than verifying it, so realistic *claims* are all a policy needs -- which is
+    the capability this exists for, and the reason the gap is named rather than
+    worked around.
+
+    **Say plainly what this is not.** It signs with a key it generated, mints a
+    token with any claims asked of it, and registers no clients -- a client's
+    secret is its id, the convention local Postgres users already follow. It is
+    not an authorization server anyone should trust, and it is not reachable
+    from outside this machine.
 
 Dependency Map
 --------------
