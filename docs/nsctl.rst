@@ -152,6 +152,11 @@ Commands
    * - ``nsctl control-plane start|stop|status``
      - The shared control plane. ``stop`` refuses while an environment is
        running unless ``--force``.
+   * - ``nsctl control-plane apply``
+     - Converge the running control plane to its extension manifest, without
+       the rest of a start. ``start`` applies too.
+   * - ``nsctl control-plane repo add|remove|list``
+     - Declare what the control plane runs alongside itself. See ``NERD004``.
    * - ``nsctl env add <name>``
      - Register an environment, allocating its account and port slot.
    * - ``nsctl env start [name]``
@@ -181,6 +186,35 @@ Commands
 ``--home`` overrides ``HMD_HOME`` on any command. Exit codes are ``0`` success,
 ``1`` error, ``2`` invalid usage or refused precondition, ``3`` refused because
 something is in use, ``4`` a deploy node failed.
+
+The control-plane manifest
+--------------------------
+
+``$HMD_HOME/.config/control-plane.yaml`` declares RepoClasses that run beside
+the control plane rather than inside an environment: they outlive every
+``env purge``, are up whenever the control plane is, and there is one of each
+per ``HMD_HOME``. Absent the file nothing extra runs.
+
+.. code-block:: yaml
+
+    version: 1
+    name: control-plane
+    repos:
+      - instance_name: package-registry
+        repo_class_name: hmd-inf-local-registry
+        version: "0.1"
+        instance_configuration:
+          url: http://registry.local.neuronsphere.io
+          upstream: server:3141
+          pypi: {enabled: true}
+
+The RepoClass contributes ``src/local/docker-compose.extension.yml``, whose
+services join the control plane's own compose project. It may not pin
+``container_name``, publish a host port or use a named volume;
+``instance_configuration`` reaches it as ``${NS_CONFIG_*}`` variables and as
+compose profiles. An extension that fails is reported and skipped -- nothing
+else is affected, and ``start`` still succeeds. ``NERD004`` is the
+specification.
 
 The environment manifest
 ------------------------
@@ -252,6 +286,113 @@ running**. Removing a line from a manifest is not an instruction to destroy
 what it deployed; tear it down yourself if that is what you meant.
 
 ``--force-full-redeploy`` skips the comparison entirely.
+
+Extending the control plane
+---------------------------
+
+An environment manifest deploys into one environment's cluster. Some things
+should not: a package registry has to outlive ``env purge``, be reachable when
+no environment is running, and exist once per machine rather than once per
+environment slot.
+
+Those are declared instead at ``$HMD_HOME/.config/control-plane.yaml``, in the
+same schema:
+
+.. code-block:: yaml
+
+   version: 1
+   name: control-plane
+   repos:
+     - instance_name: package-registry
+       repo_class_name: hmd-inf-local-registry
+       version: "0.1.4"
+       source: {type: artifact}
+       instance_configuration:
+         pypi: {enabled: true}
+
+``.config/`` rather than ``environments/`` because this is authored
+configuration alongside ``hmd.env`` and ``uv.toml``, and because it is not
+``.cache`` -- ``env purge`` never touches it. A missing file is not an error:
+the control plane starts exactly as it does today and deploys nothing extra,
+which is the point.
+
+``nsctl control-plane repo add|remove|list`` edit the file and
+``control-plane apply`` deploys the result, mirroring the environment verbs.
+Editing by hand and applying is the same operation.
+
+An extension is reached by name, not by port -- ``hmd_proxy`` is the only
+container permitted to publish a host port. ``control-plane start`` prints the
+``/etc/hosts`` line to add, exactly as the identity provider needs one.
+
+An extension may also contribute environment variables *back*, so nothing has
+to be told about it twice:
+
+.. code-block:: yaml
+
+   instance_configuration:
+     url: http://registry.local.neuronsphere.io
+     handback:
+       - name: PYTHON_REGISTRIES
+         merge: json-map
+         key: neuronsphere
+         value:
+           url: "${NS_CONFIG_URL}/hmd/local/+simple/"
+           publish: true
+
+These land in a delimited block at the end of ``$HMD_HOME/.config/hmd.env``,
+rewritten whole on every start and every apply -- so a variable belonging to an
+extension you no longer declare goes away by itself. Everything outside the
+block is left untouched, comments and all.
+
+**A value you set yourself wins, and what that means depends on the shape.**
+For a plain value nsctl writes nothing at all and leaves yours as the only
+assignment. For a JSON map like ``PYTHON_REGISTRIES`` it merges its entry in
+beside yours and yields to a key of the same name, because replacing the value
+would delete the JFrog index you configured. For a delimited list like
+``GOPROXY`` your entries stay first and it appends, once.
+
+``control-plane status`` shows what the block carries and what it yielded to,
+and a handback never carries a credential -- ``NERD004`` SPEC010.
+
+Artifacts
+---------
+
+A RepoClass normally resolves to a working tree under ``$HMD_REPO_HOME``. It
+can instead resolve to a versioned artifact held by the control plane's
+Artifact Librarian, which is how an extension is distributed to someone who
+wants to run it rather than develop it::
+
+   source: {type: artifact}
+
+The version is required -- an artifact is addressed by version, so there is
+nothing to infer one from.
+
+.. code-block:: bash
+
+   # from a cloud librarian into this machine's control plane
+   nsctl artifact pull hmd-inf-local-registry@0.1.4
+
+   # or from a local `hmd build`, run in the repo
+   nsctl artifact register
+
+Both write into the local librarian at
+``http://localhost/hmd_ms_artifact_lib/``, which the control plane already
+runs. Resolution unpacks to
+``$HMD_HOME/.cache/neuronsphere/artifacts/<class>@<version>/`` and reuses it
+thereafter, so an apply of an already-pulled version needs no network.
+
+Resolution never reaches for the cloud on its own. A version that has not been
+pulled fails naming every place it looked and the command that would fetch it,
+rather than an apply behaving differently on an aeroplane.
+
+A working tree still wins when you ask for it -- an explicit ``source.path``,
+``=local``, or ``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS`` -- and
+``nsctl`` says so when it happens. It does **not** win by accident: an
+artifact-sourced instance ignores an unrelated checkout that happens to be
+sitting in ``$HMD_REPO_HOME``, because deploying that would report a version
+it did not use. ``nsctl status`` reports the version and where it came from.
+
+See ``NERD005``.
 
 The local identity provider
 ---------------------------
@@ -346,6 +487,57 @@ so the authorizer end to end still needs a certificate that nothing here
 issues. Policy evaluation itself does not -- every Rego bundle decodes the
 token with ``io.jwt.decode`` rather than verifying it, so realistic *claims*
 are all a policy needs.
+
+The local package registry
+--------------------------
+
+Not part of the control plane, and not carried by this binary. It is a
+RepoClass -- ``hmd-inf-local-registry`` -- added the way any other control-plane
+extension is, and it is the worked example of the two sections above:
+
+.. code-block:: bash
+
+   nsctl artifact pull hmd-inf-local-registry@0.1.4
+   # declare it in $HMD_HOME/.config/control-plane.yaml, then
+   nsctl control-plane start
+
+It hosts internal packages, caches upstream, and becomes the index the platform
+resolves through. Python is on by default; Docker/OCI, Go and npm are each
+behind their own switch and off.
+
+One hostname per format, each served at its root::
+
+   http://registry.local.neuronsphere.io/hmd/local/+simple/   pip / uv
+
+An extension declares one ``url`` and one ``upstream``, and the router emits a
+server block with a single ``location /`` for it. There is no per-format path
+prefix: adding route lists to ``cpext`` on behalf of one extension is the
+coupling ``NERD004`` exists to avoid, so the formats that follow take sibling
+hostnames rather than sibling paths. It also removes rather than solves devpi's
+absolute-link rewriting.
+
+Reaching it costs an ``/etc/hosts`` entry, as the identity provider does::
+
+   127.0.0.1 registry.local.neuronsphere.io
+
+Docker additionally needs it in ``insecure-registries``. The hostname has a
+dot, so Docker treats it as a registry rather than a Docker Hub namespace, but
+it will not speak plain HTTP to it unless told. Nothing here warrants TLS, for
+the same reason the identity provider runs without it.
+
+Nothing else to configure: ``control-plane start`` and ``control-plane apply``
+write ``PYTHON_REGISTRIES``, ``TYPESCRIPT_REGISTRIES``,
+``HMD_LOCAL_IMAGE_PULL_REGISTRIES`` and ``GOPROXY`` into
+``$HMD_HOME/.config/hmd.env``, from which the existing tooling carries them into
+``uv.toml``, ``.pypirc``, ``.npmrc``, deploy nodes and Docker builds. A value
+you set yourself always wins -- see the handback below for what that means for
+a variable holding a map or a list.
+
+Credentials for private upstreams -- JFrog, ghcr, GitHub npm -- stay in the
+host keychain. The manifest names where each lives; it never carries one, and
+nothing writes one under ``$HMD_HOME``.
+
+See ``NERD006``.
 
 The DAG runner
 --------------

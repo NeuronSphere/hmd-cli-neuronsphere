@@ -182,17 +182,55 @@ func TestControlPlaneRoutesIncludeExtraPassthroughs(t *testing.T) {
 func TestAPILocationInjectsTheAccountOnlyWhenGiven(t *testing.T) {
 	t.Parallel()
 
-	without := apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "")
-	if strings.Contains(without, "ns_account") {
-		t.Errorf("the control-plane location set an account:\n%s", without)
+	r := New(t.TempDir(), fakeEnv(nil))
+
+	without := r.apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "")
+	if strings.Contains(without, "Authorization") {
+		t.Errorf("the control-plane location touched Authorization:\n%s", without)
+	}
+	if strings.Contains(without, AltAuthHeader) {
+		t.Errorf("the control-plane location relocated the caller's token:\n%s", without)
 	}
 
-	with := apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "000000000001")
-	if !strings.Contains(with, `set $ns_account "000000000001";`) {
-		t.Errorf("the account was not set:\n%s", with)
+	with := r.apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "000000000001")
+	if !strings.Contains(with, `proxy_set_header Authorization "AWS4-HMAC-SHA256 Credential=000000000001/`) {
+		t.Errorf("the account's credential scope was not set:\n%s", with)
 	}
-	if !strings.Contains(with, "proxy_set_header Authorization $ns_auth;") {
-		t.Errorf("the auth header was not injected:\n%s", with)
+	if !strings.Contains(with, "proxy_set_header "+AltAuthHeader+" $http_authorization;") {
+		t.Errorf("the caller's token was not relocated:\n%s", with)
+	}
+}
+
+// The credential scope must be unconditional. Filling only an empty
+// Authorization made the account selector and the caller's JWT mutually
+// exclusive: a request carrying a token kept it, left Floci nothing to resolve
+// the account from, and 404d -- so only the environment whose account happens
+// to be Floci's default could serve an authenticated request.
+func TestAPILocationDoesNotYieldAuthorizationToTheCaller(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	got := r.apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "000000000002")
+
+	// $http_authorization may appear only as the *value* relocated into the
+	// side header, never as Authorization's own value.
+	if strings.Contains(got, "proxy_set_header Authorization $http_authorization;") {
+		t.Errorf("Authorization still defers to the caller:\n%s", got)
+	}
+	if strings.Contains(got, "$ns_auth") || strings.Contains(got, "$ns_account") {
+		t.Errorf("the location still depends on the removed map:\n%s", got)
+	}
+}
+
+// The region rides in the credential scope, and Floci ignores it -- but a
+// mismatch with AWS_DEFAULT_REGION would make the rendered config churn.
+func TestAPILocationUsesTheConfiguredRegion(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(map[string]string{"AWS_DEFAULT_REGION": "eu-west-1"}))
+	got := r.apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "000000000001")
+	if !strings.Contains(got, "/eu-west-1/execute-api/aws4_request") {
+		t.Errorf("the credential scope ignored AWS_DEFAULT_REGION:\n%s", got)
 	}
 }
 
@@ -202,7 +240,7 @@ func TestAPILocationInjectsTheAccountOnlyWhenGiven(t *testing.T) {
 func TestAPILocationStripsThePrefix(t *testing.T) {
 	t.Parallel()
 
-	got := apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "")
+	got := New(t.TempDir(), fakeEnv(nil)).apiLocation("svc", "http://neuronsphere:4566", "gw", "local", "")
 	if !strings.Contains(got, "location /svc/ {") {
 		t.Errorf("location has no trailing slash:\n%s", got)
 	}
@@ -312,19 +350,16 @@ func TestWriteBootstrapConfigWritesWhenNothingExists(t *testing.T) {
 	}
 }
 
-func TestResolverAndRegionOverrides(t *testing.T) {
+// The region now rides in each location's credential scope rather than a
+// shell-level map, so only the resolver is a base-config concern --
+// TestAPILocationUsesTheConfiguredRegion covers the other half.
+func TestResolverOverride(t *testing.T) {
 	t.Parallel()
 
-	r := New(t.TempDir(), fakeEnv(map[string]string{
-		"HMD_LOCAL_NGINX_RESOLVER": "10.0.0.53",
-		"AWS_DEFAULT_REGION":       "eu-west-1",
-	}))
+	r := New(t.TempDir(), fakeEnv(map[string]string{"HMD_LOCAL_NGINX_RESOLVER": "10.0.0.53"}))
 	cfg := r.BaseConfig()
 	if !strings.Contains(cfg, "resolver 10.0.0.53 valid=10s ipv6=off;") {
 		t.Errorf("the resolver override was ignored:\n%s", cfg)
-	}
-	if !strings.Contains(cfg, "/eu-west-1/execute-api/") {
-		t.Errorf("the region override was ignored:\n%s", cfg)
 	}
 }
 

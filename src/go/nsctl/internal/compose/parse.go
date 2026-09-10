@@ -41,8 +41,23 @@ type Service struct {
 	Environment   map[string]string
 	Ports         []Port
 	Volumes       []Mount
-	Networks      []NetworkAttachment
-	Healthcheck   *Healthcheck
+	// Tmpfs are in-memory mounts. NERD004 SPEC009 delivers a resolved
+	// credential into one of these: it is written after the container starts
+	// and never touches the host filesystem, so nothing appears under
+	// $HMD_HOME and nothing appears in `docker inspect`.
+	Tmpfs       []string
+	Networks    []NetworkAttachment
+	Healthcheck *Healthcheck
+}
+
+// MountsTmpfs reports whether this service declares a tmpfs at path.
+func (s Service) MountsTmpfs(path string) bool {
+	for _, t := range s.Tmpfs {
+		if t == path {
+			return true
+		}
+	}
+	return false
 }
 
 // Name is the container name to create, falling back to the compose default
@@ -134,6 +149,7 @@ type serviceSpec struct {
 	Environment   yaml.Node        `yaml:"environment"`
 	Ports         []string         `yaml:"ports"`
 	Volumes       []string         `yaml:"volumes"`
+	Tmpfs         yaml.Node        `yaml:"tmpfs"`
 	Networks      yaml.Node        `yaml:"networks"`
 	Healthcheck   *healthcheckSpec `yaml:"healthcheck"`
 }
@@ -215,6 +231,9 @@ func buildService(key string, spec serviceSpec, lookup Lookup) (Service, error) 
 	}
 	if s.Volumes, err = parseVolumes(spec.Volumes, lookup); err != nil {
 		return s, err
+	}
+	if s.Tmpfs, err = parseTmpfs(&spec.Tmpfs, lookup); err != nil {
+		return s, fmt.Errorf("tmpfs: %w", err)
 	}
 	if s.Networks, err = parseNetworks(&spec.Networks, lookup); err != nil {
 		return s, fmt.Errorf("networks: %w", err)
@@ -380,6 +399,29 @@ func parseHealthcheck(spec *healthcheckSpec, lookup Lookup) (*Healthcheck, error
 }
 
 // parseVolumes handles the short bind syntax: source:target[:ro].
+// parseTmpfs reads a service's tmpfs mounts, accepting compose's scalar and
+// sequence spellings.
+//
+// Mount options -- the "/run/x:size=1m" form -- are refused rather than
+// silently dropped. Nothing bundled or declared needs one, and a size limit
+// that was written down and then ignored is the kind of thing discovered when
+// a write fails.
+func parseTmpfs(n *yaml.Node, lookup Lookup) ([]string, error) {
+	paths, err := stringList(n, lookup)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range paths {
+		if strings.Contains(path, ":") {
+			return nil, fmt.Errorf("tmpfs mount options are not supported: %q", path)
+		}
+		if !strings.HasPrefix(path, "/") {
+			return nil, fmt.Errorf("tmpfs mount %q is not an absolute path", path)
+		}
+	}
+	return paths, nil
+}
+
 func parseVolumes(raw []string, lookup Lookup) ([]Mount, error) {
 	out := make([]Mount, 0, len(raw))
 	for _, entry := range raw {

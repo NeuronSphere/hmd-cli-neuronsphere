@@ -97,6 +97,36 @@ containers that run deploy nodes, and the External Secrets operator's chart
 values. Signing with the wrong key does not fail — it quietly reads and writes
 another account.
 
+A browser or a Robot suite reaching a service through ``hmd_proxy`` never signs
+anything, so nginx supplies the credential scope itself: every environment route
+sets ``Authorization`` to ``AWS4-HMAC-SHA256 Credential=<account>/…`` before
+proxying to Floci. Floci does not verify the signature, so the scope alone is
+enough — but it *is* required, because ``proxy_pass`` issues an unsigned request
+and an unsigned API Gateway invocation resolves in Floci's default account,
+where the environment's REST API does not exist. The 404 that follows is
+indistinguishable from a route that was never wired.
+
+That leaves the caller's own bearer token nowhere to go, so **environment routes
+relocate it to ``X-NS-Authorization``**. ``hmd-lib-auth``'s ``auth_token()``
+reads that header back whenever ``Authorization`` holds a credential scope, and
+``hmd-base-service`` binds it as a route parameter so
+``OperationEvent.access_token`` gets the token rather than the scope. Nothing
+changes in the cloud: the header does not exist there and ``Authorization`` is
+never a credential scope, so neither fallback can fire.
+
+Control-plane routes are the exception, and deliberately untouched — the control
+plane *is* Floci's default account (``000000000000``), so an unsigned call
+already resolves there and a bearer token reaches the service in
+``Authorization`` unchanged.
+
+The account selector has to occupy ``Authorization`` because Floci offers no
+other way to name it for an API Gateway **v1** REST API, which is what
+``hmd-lib-cdktf-factories`` deploys. Floci's ``AccountContextFilter`` reads the
+account from that header alone, and its one credential-free alternative — the
+``{apiId}.execute-api.{region}`` virtual host, which pins the account from the
+API's owner — covers v2 HTTP APIs only. If Floci grows the same owner lookup for
+v1, the relocation can be deleted and the token can stay where it belongs.
+
 Because every environment has its own Postgres, **database and user names are
 identical across environments** (``hmd_ms_transform`` and friends). Nothing is
 renamed; a repo's BOM entry reads the same in every environment.

@@ -1,62 +1,169 @@
-.. Plugin Development
+.. Extension Development
 
-Plugin Development
+Extension Development
 ==========================================
 
-.. req:: Local NeuronSphere Plugins
-    :id: HMD_CLI_NEURONSPHERE_NERD001
+The local NeuronSphere is extended by **adding RepoClasses to a manifest**.
+There is no plugin discovery: nothing is scanned, enumerated or
+auto-registered, and an extension runs because a manifest names it and for no
+other reason.
 
-    The local NeuronSphere should be extendable via the standard Python entrypoints specification.
-    Plugin authors can register Python modules to know entrypoints in the ``hmd-cli-neuronsphere`` package.
-    These plugins will be given a name and should contain functions describing what services they add to the local NeuronSphere.
+A RepoClass already declares what it is and what it needs, in its BACON
+``meta-data/manifest.json`` and its NERD0004 ``meta-data/resources/*.yaml``.
+``nsctl`` reads exactly those, because a second place to say the same thing is
+the one that goes stale.
 
-Python has a powerful built-in mechanism for developing plugins called ``entrypoints``.
-It allows a Python package to register a module to a named ``entrypoint`` in another package.
-When that package is run, it can iterate through the installed and registered packages to run some known function.
-The ``hmd-cli-neuronsphere`` package can use this functionality to provide extension points for other developers to run more Docker containers in the NeuronSphere network.
-It should provide the following entrypoints, each registering a function.
+Two scopes
+----------
 
-* ``hmd_cli_neuronsphere.enabled``: this should be a function that returns a boolean of whether the plugin is enabled or not
-* ``hmd_cli_neuronsphere.get_resources``: this should be a function returning a dictionary of services and buckets that will be created
-* ``hmd_cli_neuronsphere.prepare_hmd_home``: this should be a function that creates any necessary directories and files in HMD_HOME needed by the plugin's services
-* ``hmd_cli_neuronsphere.render_compose_yaml``: this should return a dictionary representing docker-compose.yaml file to run
+Where an extension is declared decides its lifetime, not just its location.
 
-.. spec:: Enabling plugin via environment variables
-    :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC001
-    :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+.. list-table::
+   :header-rows: 1
+   :widths: 22 39 39
 
-    Plugins should enabled/disabled via a environment variable.
-    The ``hmd-cli-neuronsphere`` package will first loop through all registered plugins and call the ``enabled`` function.
-    If it returns ``True``, the other functions will be called during the startup process.
+   * -
+     - Environment
+     - Control plane
+   * - Manifest
+     - ``$HMD_HOME/environments/<slug>.yaml``
+     - ``$HMD_HOME/.config/control-plane.yaml``
+   * - Deployed into
+     - that environment's k3s cluster
+     - alongside the control plane's containers
+   * - Deployed by
+     - a ChangeSet through ``hmd-ms-deployment``
+     - merging ``src/local/docker-compose.extension.yml``
+   * - Lifetime
+     - removed by ``nsctl env purge``
+     - survives every environment
+   * - Cardinality
+     - one per environment
+     - one per ``HMD_HOME``
+   * - Available when
+     - that environment is running
+     - the control plane is running
+   * - Verbs
+     - ``nsctl repo …`` / ``nsctl env apply``
+     - ``nsctl control-plane repo …`` / ``control-plane apply``
+   * - Specified by
+     - ``docs/nsctl.rst``
+     - ``NERD004``
 
-.. spec:: Declaring resources to run
-    :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC002
-    :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+Most things are workloads and belong to an environment. Choose the control
+plane when a thing must outlive an environment, must be reachable when none is
+running, or should exist once per machine rather than once per environment
+slot -- a package registry is all three, which is why ``NERD006`` is the
+worked example.
 
-    Plugins should declare in the ``get_resources`` function a dictionary of what will be run.
-    This will be passed to later functions of all plugins to allow for dynamic configuration of certain services.
-    The dictionary can contain any top level keys that must be a list of strings, being the names of the resources.
-    The resulting dictionary will be deep-merged into previous dictionaries.
+Adding one
+----------
 
-By default, ``hmd-cli-neuronsphere`` core plugins and services will only look for ``services`` and ``buckets`` in the dictionary.
-The ``services`` will be names of NeuronSphere microservice containers to be run, and ``buckets`` will be object buckets created in Minio.
+.. code-block:: bash
 
-.. spec:: Prepare files in HMD_HOME
-    :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC003
-    :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+    # to an environment
+    nsctl repo add hmd-ms-myapi --env dev2 --name my-api \
+        --depends eks-cluster=eks-cluster \
+        --depends database-instance=environment-db
+    nsctl env apply --env dev2
 
-    Plugins are responsible for updating any necessary directories and files in ``HMD_HOME`` that it needs to run
+.. code-block:: bash
 
-Before any Docker Compose files are rendered, the plugins will be called to create any directories or files in ``HMD_HOME`` that might be mounted into running containers.
+    # to the control plane
+    nsctl control-plane repo add hmd-inf-local-registry --name package-registry \
+        --config url=http://registry.local.neuronsphere.io \
+        --config upstream=server:8080
+    nsctl control-plane apply
 
-.. spec:: Render Docker Compose YAML file
-    :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC004
-    :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+Editing the manifest by hand and running ``apply`` is the same operation. The
+imperative verbs are wrappers, not a second way to say the same thing.
 
-    Plugins are responsible for rendering a single Docker Compose YAML file in ``$HMD_HOME/.cache/local_services/plugins/`` directory.
+.. code-block:: yaml
 
-Once each plugin has rendered the YAML file, the ``docker compose up`` command will be called with each file present in the directory.
+    # $HMD_HOME/environments/dev2.yaml
+    version: 1
+    name: dev2
+    repos:
+      - instance_name: my-api
+        repo_class_name: hmd-ms-myapi
+        version: "0.3"
+        instance_configuration: {replicas: 2}
+        dependencies:
+          eks-cluster: eks-cluster
+          database-instance: environment-db
+
+Nothing is auto-wired: a declaration's dependencies are what the manifest says
+and no more.
+
+Where the code comes from
+-------------------------
+
+By default a RepoClass resolves to a working tree at
+``$HMD_REPO_HOME/<repo_class_name>``, or to an explicit ``source.path``. That
+is the development path and it stays the development path.
+
+For distribution, ``NERD005`` adds a versioned artifact held by the control
+plane's Artifact Librarian:
+
+.. code-block:: yaml
+
+    - instance_name: package-registry
+      repo_class_name: hmd-inf-local-registry
+      version: "0.1.4"
+      source: {type: artifact}
+
+.. code-block:: bash
+
+    nsctl artifact pull hmd-inf-local-registry@0.1.4    # from a cloud librarian
+    nsctl artifact register                             # or from a local hmd build
+
+A consumer then needs a version number rather than a git checkout. A working
+tree still wins when you ask for it -- via ``source.path``, ``=local``, or
+``HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS`` -- so both paths coexist on
+one machine, and ``nsctl status`` reports which one is live.
+
+Superseded: the Python entrypoint plugin model
+-----------------------------------------------
+
+.. req:: Local NeuronSphere plugins via Python entrypoints
+    :id: HMD_CLI_NEURONSPHERE_PLUGINS_ENTRYPOINTS
+    :status: withdrawn
+
+    The local NeuronSphere was to be extendable through the standard Python
+    entrypoints specification. A plugin package registered functions against
+    four entrypoints in ``hmd-cli-neuronsphere`` -- ``enabled``,
+    ``get_resources``, ``prepare_hmd_home`` and ``render_compose_yaml`` --
+    which the CLI discovered by iterating installed packages and called during
+    startup, each plugin rendering one Docker Compose file into
+    ``$HMD_HOME/.cache/local_services/plugins/``.
+
+    **Withdrawn.** ``nsctl`` implements none of it. What was wrong with it
+    was never Docker Compose -- a control-plane extension is a compose file
+    again, in the same ``src/local`` directory (``NERD004`` SPEC004). It was
+    the two things wrapped around it: *discovery*, iterating installed
+    packages to find out what should run, where an extension now runs because
+    a manifest names it and for no other reason; and ``nsplugin.json``, which
+    asked a plugin to declare its resources a second time, in a per-plugin
+    inventory parallel to the BACON manifest and the resource declarations
+    the RepoClass already carries.
+
+    A workload, meanwhile, is not a container at all any more: it is a
+    RepoClass deployed into an environment's k3s through the same DAG the
+    cloud uses. Compose survives only where the control plane's own services
+    already live.
+
+    ``manifest.Manifest`` still parses the ``plugins`` and ``plugin_config``
+    keys, preserves them verbatim when it writes a manifest back, and reports
+    them through ``Unsupported()`` -- so a manifest carrying them is not
+    silently mangled, and a user is told plainly that they had no effect. It
+    obeys neither.
+
+    Superseded by ``NERD004`` (the extension surface), ``NERD005`` (how an
+    extension is distributed) and ``NERD006`` (the worked example).
+
+.. note::
+
+    This requirement previously carried the id ``HMD_CLI_NEURONSPHERE_NERD001``,
+    which duplicated the requirement in
+    ``docs/proposals/NERD001_Floci_Local_Architecture.rst``. It has been given
+    its own id.

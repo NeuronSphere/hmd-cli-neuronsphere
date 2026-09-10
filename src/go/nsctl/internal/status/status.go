@@ -86,8 +86,61 @@ func (e Environment) Running() bool {
 	return len(e.Containers) > 0
 }
 
+// Extension is a declared control-plane extension (NERD004 SPEC012).
+//
+// Version and Source travel together deliberately: "0.1.4 from a working tree"
+// and "0.1.4 from a bundled tree" are different facts, and the difference
+// decides what a reader does next.
+type Extension struct {
+	Instance  string
+	RepoClass string
+	Version   string
+	Source    string
+	URL       string
+	// Problem is why this extension did not resolve, empty when it did. A
+	// declaration that failed still appears: dropping it would lose the only
+	// place its name is shown, and "declared, and here is why it is not
+	// running" is the report a reader needs.
+	Problem string
+	// Containers is how many this extension contributes, Running how many are
+	// up. Both zero for one that did not resolve.
+	Containers int
+	Running    int
+}
+
+// HandbackVar is one variable an extension contributes to hmd.env (SPEC010).
+//
+// State is "managed" when the block sets it, "yours" when a value set outside
+// the block won instead. The second is the fact worth surfacing: a hand-set
+// value is otherwise an invisible reason for a local index not being used.
+type HandbackVar struct {
+	Name  string
+	Owner string
+	Merge string
+	State string
+}
+
+// ExtensionQuery is one extension to snapshot, as plain data.
+//
+// Plain data rather than the resolved type, so this package stays free of
+// internal/cpext: status describes what is running and has no business
+// resolving repo classes.
+type ExtensionQuery struct {
+	Instance   string
+	RepoClass  string
+	Version    string
+	Source     string
+	URL        string
+	Problem    string
+	Containers []string
+}
+
 // ControlPlane is a snapshot of the shared half.
 type ControlPlane struct {
+	// Handback is what the managed block of hmd.env carries, and HandbackPath
+	// the file it is in.
+	Handback       []HandbackVar
+	HandbackPath   string
 	Bootstrapped   bool
 	ComposeProject string
 	Network        string
@@ -95,6 +148,7 @@ type ControlPlane struct {
 	FlociDataDir   string
 	MSDeploymentUp bool
 	Containers     []Container
+	Extensions     []Extension
 	RunningEnvs    []string
 	StoppedEnvs    []string
 }
@@ -235,6 +289,28 @@ func (r *Reporter) ControlPlaneStatus(ctx context.Context, reg *registry.Registr
 		} else {
 			out.StoppedEnvs = append(out.StoppedEnvs, name)
 		}
+	}
+	return out
+}
+
+// ExtensionStatus counts each declared extension's containers.
+func (r *Reporter) ExtensionStatus(ctx context.Context, queries []ExtensionQuery) []Extension {
+	out := make([]Extension, 0, len(queries))
+	for _, q := range queries {
+		e := Extension{
+			Instance: q.Instance, RepoClass: q.RepoClass, Version: q.Version,
+			Source: q.Source, URL: q.URL, Problem: q.Problem,
+			Containers: len(q.Containers),
+		}
+		for _, name := range q.Containers {
+			if r.Docker == nil {
+				break
+			}
+			if running, _ := r.Docker.Running(ctx, name); running {
+				e.Running++
+			}
+		}
+		out = append(out, e)
 	}
 	return out
 }

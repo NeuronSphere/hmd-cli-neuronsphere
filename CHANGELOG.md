@@ -1,5 +1,235 @@
 # Changelog
 
+## 2026-09-09
+
+- fix: stop the Floci account selector and the caller's JWT sharing one header
+
+  An environment route has to spend `Authorization` on Floci's SigV4 credential
+  scope: one Floci serves every account, a 12-digit access key *is* the account,
+  and for an API Gateway **v1** REST API — which is what
+  `hmd-lib-cdktf-factories` deploys — that header is the only thing Floci
+  resolves the owning account from. Its v2-only escape hatch, the
+  `{apiId}.execute-api.{region}` virtual host that pins the account from the
+  API's owner, does not apply.
+
+  The scope used to be injected only into an *empty* `Authorization`, which made
+  the two uses mutually exclusive and left no working combination for any
+  environment whose account is not Floci's default: an unauthenticated call had
+  the scope injected, carried it into the Lambda, and 500d when `hmd-lib-auth`
+  handed it to the JWT parser; an authenticated call kept its bearer token, left
+  Floci nothing to resolve the account from, and 404d with `Invalid API id
+  specified`. Only the environment whose account happens to be `000000000000`
+  could serve an authenticated `hmd-ms-*` request at all.
+
+  The scope is now set unconditionally and the caller's token is relocated to
+  `X-NS-Authorization`, which `hmd-lib-auth`'s `auth_token()` reads back.
+  `$ns_auth`'s map and the `$ns_account` variable it needed are gone — both
+  existed only to let a caller's `Authorization` win. Control-plane routes are
+  untouched: the control plane *is* the default account, so an unsigned call
+  already resolves there and a token arrives in `Authorization` unchanged.
+
+
+- feat: write an extension's configuration back into hmd.env
+
+  NERD004 SPEC010, the last unbuilt piece of the control-plane extension
+  mechanism and the one thing NERD006 phase 1 was still doing by hand. An
+  extension declares a `handback` list in `instance_configuration`, beside the
+  `credentials` list and read the same way, and `control-plane start` and
+  `control-plane apply` write the result into a delimited block at the end of
+  `$HMD_HOME/.config/hmd.env`. From there nothing else changed: `hmd python
+  login` writes `uv.toml` and `.pypirc`, `runner.Config.Extra` forwards the
+  environment into every deploy node, and Docker builds pick it up as BuildKit
+  secrets.
+
+  **The rule the SPEC was missing.** "An explicit user value always wins" is
+  wrong for every variable this has to write, which NERD006 SPEC008 found and
+  said had to be settled before the writer existed. `PYTHON_REGISTRIES` is a
+  JSON map, so replacing it deletes the JFrog index a user configured;
+  `GOPROXY` is a delimited list, which is a third shape again. So "wins" is now
+  three rules, declared per variable: a `scalar` the user set is not written at
+  all, leaving theirs the only assignment; a `json-map` merges under its key and
+  yields to a user key of the same name; a `list` appends after their entries
+  and only when not already there.
+
+  **The block goes last, and that is load bearing.** Both readers of this file
+  are last-write-wins within it -- `hmdenv.Parse` by line order, python-dotenv
+  by assignment order in `resolve_variables` -- so a trailing block outranks a
+  line above it, which is what lets a merge carry the user's own value forward.
+  It is relocated to the end on every write rather than replaced in place,
+  because `hmd configure` appends new names and would otherwise silently
+  outrank it.
+
+  The writer splices raw text and never re-serialises `Parse`'s map, which
+  would reformat a hand-maintained file: comments, blank lines, key order,
+  `export ` prefixes and the original quoting all survive byte for byte.
+  Written through a temporary sibling and renamed, preserving the file's mode
+  and creating at 0600. A file whose block is unclosed or doubled is refused
+  rather than guessed at, since guessing would swallow every variable below it.
+
+  A handback carries no secret, and that is now enforced rather than asserted:
+  a `${NS_SECRET_*}` reference is refused with the reason. A literal the
+  manifest already carries is allowed -- the local index is anonymous on the
+  loopback side by design, which is what lets `hmd.env` stay a plain file.
+
+  Two things found while building it. `hmdenv.unquote` did not decode `\'`
+  inside single quotes, so a value containing an apostrophe -- written by
+  python-dotenv's own `set_key` -- read back with the backslash still in it;
+  fixed to match python-dotenv's dialect exactly. And python-dotenv expands
+  `$VAR` in every value whatever the quoting while `hmdenv.Parse` expands none,
+  so a `$` surviving into a written value would mean two different things to
+  the two readers; a contributed value that still names an unset variable is
+  refused, and one that resolves to a literal `$` is too.
+
+  `control-plane status` gains a handback section reporting each variable, its
+  merge shape, its contributing instance, and whether the block carries it or
+  it yielded to a value set outside. The last is the fact worth surfacing: a
+  hand-set value is otherwise an invisible reason for the local index not being
+  used.
+
+  One gap is reported rather than closed. `cmd/root.go` loads `hmd.env` once at
+  command start, so a handback written during a start is not visible to that
+  start. Refreshing mid-run is worse -- the lookup is captured in every
+  service's compose config hash -- so it says which command picks it up.
+
+- feat: run a local PyPI registry as the first control-plane extension
+
+  NERD006 phase 1. Two new RepoClasses, neither of them here: `hmd-img-devpi`
+  wraps devpi-server (it publishes no official image), and
+  `hmd-inf-local-registry` carries the
+  `src/local/docker-compose.extension.yml` that NERD004 runs. `nsctl` needed
+  no change at all to run them, which was the test of whether NERD004 produced
+  a real extension surface rather than a second bundling mechanism.
+
+  devpi is configured with a caching mirror of pypi.org and a hosted index
+  inheriting it, so one index URL answers for an internal wheel and a public
+  package alike. That settles the question everything else was contingent on:
+  `uv`'s stricter PEP 503 parsing was reported to reject devpi's `+simple`
+  pages, the report was closed without a reproduction, and against
+  devpi-server 6.20.3 it does not reproduce. The pypiserver-plus-proxpi
+  fallback is not needed.
+
+  Served at the root of `registry.local.neuronsphere.io` rather than under a
+  `/pypi/` prefix. NERD006 specified per-format path prefixes; NERD004's
+  router has no such shape -- an extension declares one `url` and one
+  `upstream`, and `namedVhostServer` emits a whole server block with a single
+  `location /`. Adding route lists to `cpext` on behalf of one extension is
+  the coupling NERD004 was built to avoid, so later formats take sibling
+  hostnames instead. It also removes rather than solves the
+  `--outside-url`-rewrites-absolute-links problem.
+
+  Storage is `$HMD_HOME/registry/pypi`, which falls out of naming the instance
+  `registry`: NERD004 SPEC008 puts an extension's durable state at
+  `$HMD_HOME/<instance-name>/`. A hosted wheel exists nowhere else, so `env
+  purge` leaves it alone.
+
+  Wired into the toolchain by hand at first. NERD004 SPEC010's `hmd.env`
+  handback now does it instead -- see the entry above, which also settles the
+  rule the SPEC was missing.
+
+- feat: extend the control plane with RepoClasses from `$HMD_HOME/.config/control-plane.yaml`
+
+  NERD004's mechanism, built the way the doc's largest open question is now
+  answered: an extension is a compose file the RepoClass carries at
+  `src/local/docker-compose.extension.yml`, whose services join the control
+  plane's own compose project. Not a BOM entry, not a ChangeSet, and never
+  through `hmd-ms-deployment` -- which is what lets an extension be up *before*
+  the deployment graph exists. That ordering is the whole point for the first
+  consumer: a package registry has to serve `hmd build`, which runs long before
+  anything has been deployed.
+
+  `instance_configuration` reaches the file as `${NS_CONFIG_*}` variables and
+  as compose profiles. There is no generator script; the withdrawn Python
+  plugin model had one, and everything its implementations actually did --
+  injecting an env var, switching a component off -- turns out to be
+  interpolation and a profile. The manifest's own `NS_*` names resolve ahead of
+  the process environment, so a stray export cannot silently beat a checked-in
+  manifest.
+
+  Four rules, three of which the existing code already enforced: no
+  `container_name` (so the container is named from the project, which carries
+  the `HMD_HOME` digest), no published ports (`CheckExclusivePublisher`), no
+  named volumes (`parseVolumes`), and service keys prefixed by instance name.
+
+- feat: `nsctl control-plane apply` and `control-plane repo add|remove|list`
+
+  `start` applies too -- an extension is up whenever the control plane is --
+  and `apply` is the fast path that converges extensions without the Floci
+  health wait, the bootstrap or the route rewrite. Editing the manifest and
+  running `apply` is the same operation as using the verbs. `control-plane
+  status` gains an extensions section carrying each resolved version *and its
+  source*, because "0.1.4 from a working tree" and "0.1.4 from a bundled tree"
+  are different facts.
+
+- fix: a failed control-plane extension no longer takes the control plane with it
+
+  `compose.Runner.Up` iterates services in sorted key order and returns on the
+  first error, which is right for the five bundled services and wrong the
+  moment a sixth arrives that nobody vouched for: one unpullable extension
+  image would have aborted `hmd_proxy`, and which containers survived would
+  have depended on where the extension's name sorted. Extensions run through a
+  new `UpEach` that attempts every service and collects failures; resolution
+  failures are isolated the same way, one stage earlier. A control-plane
+  manifest whose declared checkout is missing no longer fails validation, which
+  would have taken every *other* extension down with it. `start` warns and
+  succeeds -- `env start` returns its error, so an extension able to fail a
+  start could fail every environment start on the machine -- while `apply`
+  exits 4 so a script notices.
+
+- feat: resolve control-plane extension credentials from the host keychain, in Go
+
+  NERD004 SPEC009. `internal/keyring` is a port of `hmd-cli-tools`'
+  `registry_tools.resolve_index_password` and `scrub_secrets`, rather than a
+  call into it: calling it would mean a Python interpreter and an installed
+  hmd-cli-tools on the host, against a binary whose whole premise is that its
+  only prerequisite is Docker. It shells out to the platform's own client --
+  `security` on macOS, `secret-tool` on Linux -- and takes no new module
+  dependency.
+
+  The SPEC's own objection to a second copy is answered rather than dismissed.
+  The candidate order is pinned by a test quoting the Python it came from, and
+  the port was checked against the real thing: a throwaway keychain item that
+  both readers resolved to the same value. The Python's second probe leg is
+  implemented per platform, which is faithfulness and not an omission --
+  keyring 25.6.0's macOS backend does not override `get_credential`, so that
+  leg returns None without touching the keychain there, and implementing it
+  would make nsctl find credentials hmd-cli-tools cannot.
+
+- feat: deliver a resolved credential into a container tmpfs, never to disk
+
+  A `credentials:` block names where a credential lives and never holds one; a
+  literal `password:` is refused rather than honoured, because a manifest is a
+  file a developer may commit. The value is written to `/run/ns-secrets/<name>`
+  in each of the extension's services that declares the tmpfs, mode 0600, on
+  every apply -- a tmpfs is empty again after any restart, and a writer that
+  ran only on create would leave the service anonymous in a way that reads as a
+  missing package.
+
+  Reporting says which references resolved, which did not, and *where each was
+  looked for*: without the last part an unresolved credential surfaces as a 401
+  from a cache, indistinguishable from an empty index.
+
+- fix: do not deliver secrets with `docker cp` -- it writes them to disk
+
+  `CopyToContainer` resolves its destination in the container rootfs as the
+  daemon sees it, where a tmpfs mounted *inside* the container does not exist,
+  so the write lands in the writable layer underneath the mount: invisible to
+  the container, and on disk. `docker diff` reported `A
+  /run/ns-secrets/upstream` on the first real run. Delivery now goes through an
+  exec in the container's own mount namespace, with the value on standard input
+  so it appears in no process listing. The acceptance gate is `docker diff` and
+  a recursive search of `$HMD_HOME`, not a reading of the code.
+
+  `compose` gains `tmpfs:` parsing, which is part of the hashed payload --
+  hence `labelSchema` 3, so every existing container recreates once and a
+  declared tmpfs actually takes effect.
+
+- fix: `control-plane stop` and the purge sweep now take extensions with them
+
+  By compose label rather than by re-resolving the manifest: a container whose
+  repo class has since been deleted, or whose declaration has been removed,
+  still has to stop, and it is exactly the one a name-driven sweep would miss
+  and leave running against a network that is about to go away.
+
 ## 2026-09-08
 
 - test: cover `env add`, `env delete` and the slug rules, and fail when a

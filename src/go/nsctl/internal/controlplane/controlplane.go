@@ -23,6 +23,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/cpext"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -245,6 +246,22 @@ func Start(ctx context.Context, opts *Options) error {
 	}
 	active := ActiveProfiles(opts)
 
+	// Resolved here, before anything is created, for two reasons. The proxy
+	// takes an alias per extension hostname and its config hash has to cover
+	// them, so the alias set has to be known before the core project starts.
+	// And a manifest that will not parse is worth saying now rather than after
+	// a five-minute bootstrap.
+	//
+	// An invalid manifest is a warning, not a refusal: the control plane is
+	// what a user needs in order to fix one, so failing the start would be the
+	// least helpful moment to object (SPEC006).
+	exts, err := ResolveExtensions(ctx, opts, reg, project)
+	if err != nil {
+		opts.warn("%v", err)
+		opts.warn("no extensions will be started; the rest of the control plane is unaffected")
+	}
+	aliasExtensions(project, exts)
+
 	runner, err := compose.NewRunner(opts.Out, opts.Err)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -431,6 +448,13 @@ func Start(ctx context.Context, opts *Options) error {
 		}
 	}
 
+	// After Bootstrap, and last of the container work. Nothing here needs the
+	// deployment graph -- an extension is not a deployment (SPEC003) -- but a
+	// start that brought extensions up before the platform they sit beside
+	// would report them running against a control plane that was not yet.
+	extReport := applyExtensions(ctx, opts, r, runner, exts, extensionOptions(opts, reg, project))
+	reportUndeclared(ctx, opts, runner, project, exts)
+
 	opts.step("Configuring control-plane routes...")
 	gateways, err := floci.NewGateways(ctx, target)
 	if err != nil {
@@ -476,6 +500,19 @@ func Start(ctx context.Context, opts *Options) error {
 	if GUIEnabled(opts) {
 		opts.step("  gui        http://localhost:%d", GUIPort(opts))
 	}
+	for _, e := range extReport.Extensions {
+		if !e.Failed() && e.URL != "" {
+			opts.step("  %-10s %s", e.Instance, e.URL)
+		}
+	}
+	cpext.ReportHosts(opts.Out, extReport.Extensions)
+	cpext.ReportCredentials(opts.Out, extReport)
+	cpext.ReportHandback(opts.Out, extReport.Handback)
+
+	// Last, and a warning rather than an error. `env start` calls this and
+	// returns what it returns, so an extension able to fail a start is an
+	// extension able to fail every environment start on the machine (SPEC006).
+	cpext.ReportFailures(opts.Err, extReport)
 	return nil
 }
 
@@ -503,6 +540,16 @@ func Stop(ctx context.Context, opts *Options) error {
 	}
 
 	opts.step("Stopping control-plane containers...")
+	// Extensions first, by label rather than by re-resolving the manifest.
+	// A container whose repo class has since been deleted, or whose
+	// declaration has been removed, still has to stop -- and it is exactly the
+	// one a name-driven sweep would miss and leave running against a network
+	// that is about to go away.
+	if err := runner.StopNamed(ctx, sortedValues(runner.Adopted(ctx, project))); err != nil {
+		// A warning: an extension that would not stop is not a reason to leave
+		// the control plane running.
+		opts.warn("%v", err)
+	}
 	if err := runner.Stop(ctx, project); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
@@ -540,6 +587,9 @@ func Remove(ctx context.Context, opts *Options) error {
 	}
 
 	opts.step("Removing control-plane containers...")
+	if err := runner.RemoveNamed(ctx, sortedValues(runner.Adopted(ctx, project))); err != nil {
+		opts.warn("%v", err)
+	}
 	if err := runner.Remove(ctx, project); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}

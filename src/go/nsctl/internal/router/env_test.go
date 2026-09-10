@@ -36,11 +36,13 @@ func TestEnvRoutesCarryTheAccountCredentialScope(t *testing.T) {
 	if !strings.Contains(body, "location /local/hmd_ms_dbaccount/") {
 		t.Errorf("the route is not prefixed with the slug:\n%s", body)
 	}
-	if !strings.Contains(body, `set $ns_account "000000000001";`) {
-		t.Errorf("the account is not set:\n%s", body)
-	}
-	if !strings.Contains(body, "proxy_set_header Authorization $ns_auth;") {
+	if !strings.Contains(body, `proxy_set_header Authorization "AWS4-HMAC-SHA256 Credential=000000000001/`) {
 		t.Errorf("the credential scope is not injected:\n%s", body)
+	}
+	// The caller's own token has to survive being displaced, or an
+	// authenticated request reaches the service as an anonymous one.
+	if !strings.Contains(body, "proxy_set_header "+AltAuthHeader+" $http_authorization;") {
+		t.Errorf("the caller's token is not relocated:\n%s", body)
 	}
 }
 

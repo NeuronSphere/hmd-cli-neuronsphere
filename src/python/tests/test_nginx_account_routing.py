@@ -14,6 +14,14 @@ with the route present in the config the whole time.
 Floci parses the account out of the credential scope without verifying the
 signature, so a static header is enough. The control plane owns the default
 account, so its routes need no header and deliberately do not get one.
+
+The scope is set *unconditionally*. It used to fill only an empty
+``Authorization``, which made the two uses of that one header mutually
+exclusive: a caller presenting a real bearer token kept it, left Floci nothing
+to resolve the account from, and 404d -- so only the environment whose account
+happens to be Floci's default could ever serve an authenticated request. The
+caller's token is relocated to ``X-NS-Authorization`` instead, where
+``hmd-lib-auth``'s ``auth_token()`` reads it back.
 """
 
 import types
@@ -41,45 +49,55 @@ class EnvRoutesCarryTheirAccount(unittest.TestCase):
                 nr.write_env_routes(env, {"hmd_ms_dbaccount": "be915fa884"})
             )
 
-    def test_account_is_set_and_authorization_injected(self):
+    def test_credential_scope_names_the_account(self):
         out = self._render(_env())
-        self.assertIn('set $ns_account "000000000001";', out)
-        self.assertIn("proxy_set_header Authorization $ns_auth;", out)
+        self.assertIn(
+            'proxy_set_header Authorization "AWS4-HMAC-SHA256 '
+            "Credential=000000000001/",
+            out,
+        )
 
     def test_each_environment_names_its_own_account(self):
         self.assertIn(
-            'set $ns_account "000000000002";',
+            "Credential=000000000002/",
             self._render(_env(slug="dev2", account_id="000000000002")),
         )
 
+    def test_the_callers_token_is_relocated_not_dropped(self):
+        """The scope displaces whatever the caller sent, so the token has to
+        travel beside it or an authenticated request arrives anonymous."""
+        out = self._render(_env())
+        self.assertIn("proxy_set_header X-NS-Authorization $http_authorization;", out)
+
+    def test_authorization_never_defers_to_the_caller(self):
+        """The defect this replaced: `map`-ing an already-present Authorization
+        through unchanged left the invocation with no account scope at all."""
+        out = self._render(_env())
+        self.assertNotIn("proxy_set_header Authorization $http_authorization;", out)
+        self.assertNotIn("$ns_auth", out)
+        self.assertNotIn("$ns_account", out)
+
     def test_no_account_means_no_header(self):
         """The control plane owns the default account; an unsigned call resolves
-        there already, so its routes are left exactly as they were."""
+        there already, so its routes are left exactly as they were -- and a
+        bearer token reaches the service in Authorization, untouched."""
         out = self._render(_env(account_id=None))
-        self.assertNotIn("ns_account", out)
         self.assertNotIn("Authorization", out)
 
 
-class BaseConfigDefinesTheMap(unittest.TestCase):
+class BaseConfigNoLongerCarriesTheMap(unittest.TestCase):
     def setUp(self):
         self.tmp = self.enterContext(
             mock.patch.dict("os.environ", {"HMD_HOME": self.enterContext(_tmpdir())})
         )
 
-    def test_map_preserves_a_caller_supplied_authorization(self):
+    def test_the_map_and_its_variable_are_gone(self):
+        """Both existed only to let a caller's Authorization win, which is the
+        behaviour being reversed. A leftover `$ns_account` declaration would be
+        dead config, and a leftover map would silently keep working."""
         config = nr.render_base_config().read_text()
-        self.assertIn("map $http_authorization $ns_auth {", config)
-        # Only an *empty* Authorization is filled in; anything else passes through,
-        # so a bearer-token caller is not silently rewritten into an AWS one.
-        self.assertIn("default $http_authorization;", config)
-        self.assertIn("Credential=$ns_account/", config)
-
-    def test_variable_is_declared_even_with_no_environment(self):
-        """`$ns_auth`'s map references `$ns_account`; nginx refuses to load a
-        config whose variables are never declared, so the server block declares
-        it and each environment's locations override it."""
-        config = nr.render_base_config().read_text()
-        self.assertIn('set $ns_account "";', config)
+        self.assertNotIn("$ns_auth", config)
+        self.assertNotIn("$ns_account", config)
 
 
 import contextlib

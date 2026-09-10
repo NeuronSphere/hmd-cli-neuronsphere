@@ -206,3 +206,33 @@ func TestRenderControlPlaneStatusWithNoEnvironments(t *testing.T) {
 		t.Errorf("output does not say there are no environments:\n%s", buf.String())
 	}
 }
+
+func TestRenderControlPlaneStatusShowsTheHandbackBlock(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	renderControlPlaneStatus(&buf, "/home", status.ControlPlane{
+		HandbackPath: "/home/.config/hmd.env",
+		Handback: []status.HandbackVar{
+			{Name: "PYTHON_REGISTRIES.neuronsphere", Merge: "json-map", State: "managed", Owner: "registry"},
+			{Name: "GOPROXY", Merge: "scalar", State: "yours", Owner: "registry"},
+		},
+	})
+	out := buf.String()
+
+	for _, want := range []string{"/home/.config/hmd.env", "PYTHON_REGISTRIES.neuronsphere", "managed", "GOPROXY", "yours"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("handback section does not contain %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderControlPlaneStatusOmitsAnEmptyHandbackSection(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	renderControlPlaneStatus(&buf, "/home", status.ControlPlane{})
+	if strings.Contains(buf.String(), "Handback") {
+		t.Errorf("an empty handback section was rendered:\n%s", buf.String())
+	}
+}

@@ -1,10 +1,13 @@
 package compose
 
 import (
+	"bufio"
 	"context"
 	"io"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -24,6 +27,14 @@ type fakeAPI struct {
 	containers map[string]types.ContainerJSON
 	images     map[string]bool
 	networks   map[string]bool
+
+	// failPull makes one image reference unpullable, which is the failure an
+	// extension with a typo'd or unpublished image actually produces.
+	failPull map[string]error
+
+	execs    map[string]*fakeExec
+	execErr  error
+	execExit int
 
 	created         []string
 	started         []string
@@ -67,6 +78,52 @@ func (f *fakeAPI) ContainerCreate(_ context.Context, cfg *container.Config, host
 	return container.CreateResponse{ID: name}, nil
 }
 
+// execs records what WriteInto wrote, per container and path, so a test can
+// assert the value reached the right place.
+func (f *fakeAPI) ContainerExecCreate(_ context.Context, name string, options container.ExecOptions) (types.IDResponse, error) {
+	if f.execErr != nil {
+		return types.IDResponse{}, f.execErr
+	}
+	if f.execs == nil {
+		f.execs = map[string]*fakeExec{}
+	}
+	id := name + "|" + options.Cmd[len(options.Cmd)-1]
+	f.execs[id] = &fakeExec{container: name, path: options.Cmd[len(options.Cmd)-1], exit: f.execExit}
+	return types.IDResponse{ID: id}, nil
+}
+
+func (f *fakeAPI) ContainerExecAttach(_ context.Context, execID string, _ container.ExecStartOptions) (types.HijackedResponse, error) {
+	e := f.execs[execID]
+	return types.HijackedResponse{
+		Conn:   e,
+		Reader: bufio.NewReader(strings.NewReader("")),
+	}, nil
+}
+
+func (f *fakeAPI) ContainerExecInspect(_ context.Context, execID string) (container.ExecInspect, error) {
+	return container.ExecInspect{ExitCode: f.execs[execID].exit}, nil
+}
+
+// fakeExec stands in for the hijacked connection, capturing standard input.
+type fakeExec struct {
+	container, path string
+	written         []byte
+	exit            int
+}
+
+func (e *fakeExec) Write(p []byte) (int, error) {
+	e.written = append(e.written, p...)
+	return len(p), nil
+}
+func (e *fakeExec) Read([]byte) (int, error)         { return 0, io.EOF }
+func (e *fakeExec) Close() error                     { return nil }
+func (e *fakeExec) CloseWrite() error                { return nil }
+func (e *fakeExec) LocalAddr() net.Addr              { return nil }
+func (e *fakeExec) RemoteAddr() net.Addr             { return nil }
+func (e *fakeExec) SetDeadline(time.Time) error      { return nil }
+func (e *fakeExec) SetReadDeadline(time.Time) error  { return nil }
+func (e *fakeExec) SetWriteDeadline(time.Time) error { return nil }
+
 func (f *fakeAPI) ContainerList(context.Context, container.ListOptions) ([]types.Container, error) {
 	return nil, nil
 }
@@ -104,6 +161,9 @@ func (f *fakeAPI) ImageInspectWithRaw(_ context.Context, ref string) (types.Imag
 }
 
 func (f *fakeAPI) ImagePull(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
+	if err, ok := f.failPull[ref]; ok {
+		return nil, err
+	}
 	f.pulled = append(f.pulled, ref)
 	f.images[ref] = true
 	return io.NopCloser(strings.NewReader("")), nil

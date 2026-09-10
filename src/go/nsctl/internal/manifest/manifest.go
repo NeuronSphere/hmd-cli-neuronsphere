@@ -106,6 +106,13 @@ type Manifest struct {
 	// Path is where this manifest was read from, empty for one built in
 	// memory. Not serialised.
 	Path string `yaml:"-" json:"-"`
+
+	// Scope is which manifest this is. It decides the reserved names and the
+	// wording of every message, and it is set by the loader rather than read
+	// from the file: which directory a manifest was found in is what makes it
+	// an environment's or the control plane's, not anything it says about
+	// itself. Not serialised.
+	Scope Scope `yaml:"-" json:"-"`
 }
 
 // Unsupported names the keys present in this manifest that nsctl ignores.
@@ -135,6 +142,59 @@ func (m *Manifest) Repo(instanceName string) (Repo, bool) {
 // Deliberately not under .cache: a manifest is input a developer edits and may
 // commit, not machine state `env purge` is free to delete.
 func Root(home string) string { return filepath.Join(home, "environments") }
+
+// ControlPlanePathOverride names an explicit control-plane manifest path,
+// bypassing discovery. The analogue of PathOverride, and used for the same
+// reasons: one-off runs, and tests that must not depend on $HMD_HOME's layout.
+const ControlPlanePathOverride = "HMD_LOCAL_CP_MANIFEST"
+
+// ControlPlaneRoot is where the control-plane manifest lives.
+//
+// .config/ because that is where authored configuration already lives --
+// hmd.env, uv.toml, pip.conf -- and because it is not .cache/. The sentence
+// that keeps environment manifests out of .cache decides this file's location
+// too (NERD004 SPEC001).
+func ControlPlaneRoot(home string) string { return filepath.Join(home, ".config") }
+
+// ControlPlaneDefaultPath is where a control-plane manifest is created when
+// there is none.
+func ControlPlaneDefaultPath(home string) string {
+	return filepath.Join(ControlPlaneRoot(home), ControlPlaneName+".yaml")
+}
+
+// FindControlPlane locates the control-plane manifest, returning "" when there
+// is none.
+func FindControlPlane(home string, lookup Lookup) string {
+	if override := lookup(ControlPlanePathOverride); override != "" {
+		path := os.Expand(override, lookup)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+		return ""
+	}
+	for _, ext := range Extensions {
+		candidate := filepath.Join(ControlPlaneRoot(home), ControlPlaneName+ext)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// LoadControlPlane reads $HMD_HOME/.config/control-plane.yaml.
+//
+// No manifest is not an error: it returns nil and the control plane starts
+// exactly as it does today, deploying nothing extra. That default is NERD004's
+// requirement rather than a convenience -- an extension surface whose cost is
+// paid by people who do not use it is the wrong surface -- and it is the same
+// decision Load already makes for an environment with no manifest.
+func LoadControlPlane(home string, lookup Lookup) (*Manifest, error) {
+	path := FindControlPlane(home, lookup)
+	if path == "" {
+		return nil, nil
+	}
+	return LoadFileScoped(path, lookup, ScopeControlPlane)
+}
 
 // Find locates the manifest for a slug, returning "" when it has none.
 func Find(home, slug string, lookup Lookup) string {
@@ -166,20 +226,26 @@ func Load(home, slug string, lookup Lookup) (*Manifest, error) {
 	return LoadFile(path, lookup)
 }
 
-// LoadFile parses and validates the manifest at path.
+// LoadFile parses and validates the environment manifest at path.
 func LoadFile(path string, lookup Lookup) (*Manifest, error) {
+	return LoadFileScoped(path, lookup, ScopeEnvironment)
+}
+
+// LoadFileScoped parses and validates the manifest at path in a given scope.
+func LoadFileScoped(path string, lookup Lookup, scope Scope) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading the environment manifest %s: %w", path, err)
+		return nil, fmt.Errorf("reading the %s %s: %w", scope.Noun(), path, err)
 	}
 	m, err := Parse(data, filepath.Ext(path))
 	if err != nil {
-		return nil, fmt.Errorf("parsing the environment manifest %s: %w", path, err)
+		return nil, fmt.Errorf("parsing the %s %s: %w", scope.Noun(), path, err)
 	}
 	m.Path = path
+	m.Scope = scope
 	if problems := m.Validate(lookup); len(problems) > 0 {
-		return nil, fmt.Errorf("the environment manifest %s is not valid:\n%s",
-			path, "  - "+strings.Join(problems, "\n  - "))
+		return nil, fmt.Errorf("the %s %s is not valid:\n%s",
+			scope.Noun(), path, "  - "+strings.Join(problems, "\n  - "))
 	}
 	return m, nil
 }
@@ -227,10 +293,10 @@ func (m *Manifest) Save(path string) error {
 		data, err = yaml.Marshal(m)
 	}
 	if err != nil {
-		return fmt.Errorf("serialising the environment manifest: %w", err)
+		return fmt.Errorf("serialising the %s: %w", m.Scope.Noun(), err)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("writing the environment manifest %s: %w", path, err)
+		return fmt.Errorf("writing the %s %s: %w", m.Scope.Noun(), path, err)
 	}
 	m.Path = path
 	return nil
@@ -262,14 +328,21 @@ func DefaultPath(home, slug string) string {
 // Validate reports every problem at once rather than failing on the first, so
 // a user fixing a hand-edited manifest sees the whole list.
 //
-// reserved is checked against the substrate instance names the caller owns:
+// reserved is checked against the instance names the manifest's scope owns:
 // declaring one would make it eligible for removal the moment it left the
 // manifest, and nothing user-declared may claim a name nsctl creates.
 func (m *Manifest) Validate(lookup Lookup) []string {
 	var problems []string
 
-	if m.Name == "" {
+	switch {
+	case m.Name == "":
 		problems = append(problems, "'name' is required")
+	case m.Scope == ScopeControlPlane && m.Name != ControlPlaneName:
+		// The only thing another name could mean is that this file was meant
+		// to be an environment manifest and landed in .config/.
+		problems = append(problems, fmt.Sprintf(
+			"'name' must be %q in a control-plane manifest, got %q -- an environment manifest belongs in %s",
+			ControlPlaneName, m.Name, "$HMD_HOME/environments/"))
 	}
 	if m.Version != Version {
 		problems = append(problems,
@@ -289,22 +362,22 @@ func (m *Manifest) Validate(lookup Lookup) []string {
 			} else {
 				seen[r.InstanceName] = i
 			}
-			if Reserved(r.InstanceName) {
+			if m.Scope.Reserved(r.InstanceName) {
 				problems = append(problems, fmt.Sprintf(
-					"%s: %q is reserved for the environment substrate and cannot be declared",
-					where, r.InstanceName))
+					"%s: %q %s and cannot be declared",
+					where, r.InstanceName, m.Scope.reservedReason(r.InstanceName)))
 			}
 		}
 		if r.RepoClassName == "" {
 			problems = append(problems, where+": 'repo_class_name' is required")
 		}
-		problems = append(problems, r.validateSource(where, lookup)...)
+		problems = append(problems, r.validateSource(where, lookup, m.Scope)...)
 		problems = append(problems, r.validateDependencies(where)...)
 	}
 	return problems
 }
 
-func (r Repo) validateSource(where string, lookup Lookup) []string {
+func (r Repo) validateSource(where string, lookup Lookup, scope Scope) []string {
 	switch r.SourceType() {
 	case SourceLocal:
 	case SourceArtifact:
@@ -316,6 +389,14 @@ func (r Repo) validateSource(where string, lookup Lookup) []string {
 			where, r.SourceType(), strings.Join(knownSources, ", "))}
 	}
 	if r.RepoClassName == "" {
+		return nil
+	}
+	if scope == ScopeControlPlane {
+		// Deliberately not checked here. A control-plane manifest that failed
+		// validation would take *every* extension down with the one whose
+		// checkout is missing, which is exactly what NERD004 SPEC006 forbids.
+		// internal/cpext reports a missing tree against the one instance that
+		// has it, and the rest are applied.
 		return nil
 	}
 	// A local instance deploys by mounting its working tree into the

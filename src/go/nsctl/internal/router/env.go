@@ -80,7 +80,7 @@ func (r *Router) WriteEnvRoutes(env Env, services map[string]string, stage strin
 	var blocks []string
 	for _, name := range sortedKeys(services) {
 		route := env.Slug + "/" + name
-		blocks = append(blocks, wrap(route, apiLocation(route, FlociUpstreamHost, services[name], stage, env.AccountID)))
+		blocks = append(blocks, wrap(route, r.apiLocation(route, FlociUpstreamHost, services[name], stage, env.AccountID)))
 	}
 	for _, path := range sortedKeys(extra) {
 		route := env.Slug + "/" + strings.Trim(path, "/")
@@ -253,7 +253,7 @@ func (r *Router) UpsertServiceRoute(env Env, routePath, restAPIID, stageName str
 	routePath = strings.Trim(routePath, "/")
 	route := env.Slug + "/" + routePath
 	fragment := filepath.Join(r.HTTPDir(), EnvFragmentName(env.Slug))
-	block := wrap(route, apiLocation(route, FlociUpstreamHost, restAPIID, stageName, env.AccountID))
+	block := wrap(route, r.apiLocation(route, FlociUpstreamHost, restAPIID, stageName, env.AccountID))
 	return upsertBlock(fragment, route, block)
 }
 

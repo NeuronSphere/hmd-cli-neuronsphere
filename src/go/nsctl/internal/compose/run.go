@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
@@ -65,6 +66,9 @@ type dockerAPI interface {
 	ContainerStart(ctx context.Context, name string, options container.StartOptions) error
 	ContainerStop(ctx context.Context, name string, options container.StopOptions) error
 	ContainerRemove(ctx context.Context, name string, options container.RemoveOptions) error
+	ContainerExecCreate(ctx context.Context, name string, options container.ExecOptions) (types.IDResponse, error)
+	ContainerExecAttach(ctx context.Context, execID string, options container.ExecStartOptions) (types.HijackedResponse, error)
+	ContainerExecInspect(ctx context.Context, execID string) (container.ExecInspect, error)
 	ImageInspectWithRaw(ctx context.Context, ref string) (types.ImageInspect, []byte, error)
 	ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
 	NetworkInspect(ctx context.Context, name string, options network.InspectOptions) (network.Inspect, error)
@@ -111,7 +115,14 @@ type Result struct {
 	Service string
 	Name    string
 	Action  Action
+	// Err is why this service did not start, and is only ever set by UpEach.
+	// Up returns on the first failure and reports it as its error, because for
+	// the control plane's own services a partial start is not a success.
+	Err error
 }
+
+// Failed reports that this service did not start.
+func (r Result) Failed() bool { return r.Err != nil }
 
 // EnsureNetwork creates the project's external network if it is missing.
 //
@@ -141,6 +152,38 @@ func (r *Runner) Up(ctx context.Context, p *Project, active map[string]bool) ([]
 		res, err := r.upService(ctx, p, s)
 		if err != nil {
 			return results, fmt.Errorf("starting %s: %w", s.Key, err)
+		}
+		results = append(results, res)
+	}
+	return results, nil
+}
+
+// UpEach is Up with per-service failure isolation: every enabled service is
+// attempted, and one that fails is recorded in its own Result rather than
+// ending the run.
+//
+// This exists for NERD004 SPEC006. Up is right for the five bundled services --
+// a proxy that will not start is not a partial success -- and wrong the moment
+// a service arrives that nobody vouched for. Services are iterated in sorted
+// key order, so under Up a single unpullable extension image would abort the
+// control plane's own containers, and which ones survived would depend on
+// where the extension's name happened to sort.
+//
+// The returned error is reserved for something that failed the whole project
+// rather than one service; there is nothing of that kind today, and the
+// signature keeps the door open without callers having to guess.
+func (r *Runner) UpEach(ctx context.Context, p *Project, active map[string]bool) ([]Result, error) {
+	var results []Result
+	for _, s := range p.Services {
+		if !s.EnabledBy(active) {
+			results = append(results, Result{Service: s.Key, Name: s.Name(p.Name), Action: ActionSkipped})
+			continue
+		}
+		res, err := r.upService(ctx, p, s)
+		if err != nil {
+			// Name it here rather than at the call site: the caller has a list
+			// of results and no idea which service each error came from.
+			res.Service, res.Name, res.Err = s.Key, s.Name(p.Name), err
 		}
 		results = append(results, res)
 	}
@@ -256,6 +299,157 @@ func (r *Runner) Remove(ctx context.Context, p *Project) error {
 // It does not pull when the image is present, even for a floating tag. That is
 // `docker compose up`'s behaviour too, and it is what makes an offline start
 // work; `--upgrade` is the explicit way to ask for newer images.
+// Adopted is every container labelled with this project that the given project
+// does not describe, as service key -> container name.
+//
+// It is how the control plane stops and removes its extensions. Naming them
+// from a re-resolved manifest would not do: a container whose repo class has
+// since been deleted, or whose declaration has been removed, still has to be
+// stoppable -- and it is exactly the container a name-driven sweep would miss
+// and leave running against a network that is about to go away.
+//
+// A daemon that cannot be asked yields nothing rather than an error. This
+// drives a stop, and an empty inventory is safer than refusing to stop the
+// control plane because a list could not be read.
+func (r *Runner) Adopted(ctx context.Context, p *Project) map[string]string {
+	if p == nil || p.Name == "" {
+		return nil
+	}
+	known := map[string]bool{}
+	for _, s := range p.Services {
+		known[s.Key] = true
+	}
+	f := filters.NewArgs()
+	f.Add("label", LabelProject+"="+p.Name)
+	list, err := r.API.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, c := range list {
+		key := c.Labels[LabelService]
+		if key == "" || known[key] {
+			continue
+		}
+		for _, name := range c.Names {
+			out[key] = strings.TrimPrefix(name, "/")
+			break
+		}
+	}
+	return out
+}
+
+// StopNamed stops the given containers, accumulating failures rather than
+// returning at the first -- Stop's reason: a sweep that stops at the first
+// container it cannot reach is how the others accumulate.
+func (r *Runner) StopNamed(ctx context.Context, names []string) error {
+	return r.eachNamed(ctx, names, "stopping", "stopped", func(name string) error {
+		return r.API.ContainerStop(ctx, name, container.StopOptions{})
+	})
+}
+
+// RemoveNamed force-removes the given containers.
+func (r *Runner) RemoveNamed(ctx context.Context, names []string) error {
+	return r.eachNamed(ctx, names, "removing", "removed", func(name string) error {
+		return r.API.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
+	})
+}
+
+func (r *Runner) eachNamed(ctx context.Context, names []string, verb, past string, do func(string) error) error {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	var failed []string
+	for _, name := range sorted {
+		if err := do(name); err != nil {
+			if client.IsErrNotFound(err) {
+				continue
+			}
+			failed = append(failed, fmt.Sprintf("%s: %v", name, err))
+			continue
+		}
+		r.progress("  %s %s", name, past)
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%s containers: %s", verb, strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// WriteInto writes bytes to a path inside a running container, through an exec
+// reading standard input.
+//
+// **Not** CopyToContainer, and the reason is the whole point of NERD004
+// SPEC009. `docker cp` resolves its destination in the container rootfs as the
+// daemon sees it, where a tmpfs mounted *inside* the container does not exist
+// -- so a copy to /run/ns-secrets lands in the writable layer underneath the
+// mount. That is invisible to the container, which is how it goes unnoticed,
+// and it is on disk, which is the one outcome this SPEC exists to prevent.
+// `docker diff` reported `A /run/ns-secrets/upstream` on the first real run of
+// it.
+//
+// An exec runs in the container's own mount namespace, so it sees the tmpfs.
+// The value travels on standard input rather than in argv, so it appears in no
+// process listing; only the destination path does. Nothing is written to the
+// host filesystem at any point.
+//
+// A container with no shell cannot be written to this way, and says so.
+func (r *Runner) WriteInto(ctx context.Context, name, path string, data []byte) error {
+	created, err := r.API.ContainerExecCreate(ctx, name, container.ExecOptions{
+		// "$1" rather than interpolation: a path is not a place to start
+		// quoting by hand. umask keeps the file 0600 on a tmpfs shared with
+		// whatever else the container runs.
+		Cmd:          []string{"/bin/sh", "-c", `umask 077; cat > "$1"`, "sh", path},
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return fmt.Errorf("preparing to write %s in %s: %w", path, name, err)
+	}
+
+	attached, err := r.API.ContainerExecAttach(ctx, created.ID, container.ExecStartOptions{})
+	if err != nil {
+		return fmt.Errorf("writing %s in %s: %w", path, name, err)
+	}
+	defer attached.Close()
+
+	if _, err := attached.Conn.Write(data); err != nil {
+		return fmt.Errorf("writing %s in %s: %w", path, name, err)
+	}
+	// Without the half-close `cat` never sees EOF and the exec never exits.
+	if err := attached.CloseWrite(); err != nil {
+		return fmt.Errorf("writing %s in %s: %w", path, name, err)
+	}
+	// Drained so the exec completes. The output is diagnostics and never the
+	// value: the command echoes nothing.
+	output, _ := io.ReadAll(attached.Reader)
+
+	inspect, err := r.API.ContainerExecInspect(ctx, created.ID)
+	if err != nil {
+		return fmt.Errorf("confirming the write of %s in %s: %w", path, name, err)
+	}
+	if inspect.ExitCode != 0 {
+		return fmt.Errorf("writing %s in %s failed (exit %d): %s",
+			path, name, inspect.ExitCode, firstLine(output))
+	}
+	return nil
+}
+
+// firstLine trims exec output to something that fits in an error. Exec output
+// is stream-multiplexed when no TTY is attached, so it starts with a frame
+// header rather than text.
+func firstLine(out []byte) string {
+	text := strings.TrimSpace(string(out))
+	if i := strings.IndexByte(text, 10); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimFunc(text, func(r rune) bool { return r < 32 })
+	if text == "" {
+		return "no output"
+	}
+	return text
+}
+
 // EnsureImage pulls the image when it is not already local.
 func (r *Runner) EnsureImage(ctx context.Context, ref string) error {
 	if ref == "" {
@@ -338,6 +532,7 @@ func containerSpec(p *Project, s Service, hash string) (*container.Config, *cont
 	hostCfg := &container.HostConfig{
 		PortBindings:  bindings,
 		Binds:         binds(s.Volumes),
+		Tmpfs:         tmpfs(s.Tmpfs),
 		RestartPolicy: restartPolicy(s.Restart),
 	}
 
@@ -367,6 +562,18 @@ func labels(p *Project, s Service, hash string) map[string]string {
 	}
 	if p.ConfigFile != "" {
 		out[LabelConfigFiles] = p.ConfigFile
+	}
+	return out
+}
+
+// tmpfs renders the in-memory mounts, with Docker's default options.
+func tmpfs(paths []string) map[string]string {
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(paths))
+	for _, path := range paths {
+		out[path] = ""
 	}
 	return out
 }
@@ -439,11 +646,22 @@ func portSpec(ports []Port) (nat.PortSet, nat.PortMap, error) {
 // existing containers carrying the old set forever -- which is exactly what
 // happened when com.docker.compose.config-hash was added: the containers kept
 // their old labels and stayed invisible to `docker compose`.
-const labelSchema = 2
+// 3 adds tmpfs to the hashed payload (NERD004 SPEC009). Every existing
+// container's hash changes with it, so each recreates once on the first start
+// after this lands -- deliberate rather than incidental: a tmpfs added to a
+// running container's declaration must actually take effect, and it cannot
+// without a recreate.
+const labelSchema = 3
 
 // configHash fingerprints everything that would require a recreate. A container
 // whose hash still matches is started in place rather than rebuilt, which is
 // what makes a restart cheap.
+// ConfigHash is the digest upService compares to decide a container is still
+// the one the project describes. Exported so a caller that mutates a parsed
+// project -- adding an extension's hostname to the proxy's aliases -- can
+// assert the change really does force a recreate, rather than assume it.
+func ConfigHash(p *Project, s Service) string { return configHash(p, s) }
+
 func configHash(p *Project, s Service) string {
 	// A struct rendered through encoding/json, whose object keys are sorted, so
 	// the hash does not depend on map iteration order.
@@ -458,6 +676,7 @@ func configHash(p *Project, s Service) string {
 		Environment map[string]string   `json:"environment"`
 		Ports       []Port              `json:"ports"`
 		Volumes     []Mount             `json:"volumes"`
+		Tmpfs       []string            `json:"tmpfs"`
 		Networks    []NetworkAttachment `json:"networks"`
 		Healthcheck *Healthcheck        `json:"healthcheck"`
 		Restart     string              `json:"restart"`
@@ -466,6 +685,7 @@ func configHash(p *Project, s Service) string {
 		Project:     p.Name, Service: s.Key, Image: s.Image, Command: s.Command,
 		WorkingDir: p.WorkingDir, ConfigFile: p.ConfigFile,
 		Environment: s.Environment, Ports: s.Ports, Volumes: s.Volumes,
+		Tmpfs:       s.Tmpfs,
 		Healthcheck: s.Healthcheck, Restart: s.Restart,
 	}
 	// Networks resolved to their real names, sorted: a renamed network must

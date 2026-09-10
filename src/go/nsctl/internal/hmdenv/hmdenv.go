@@ -135,7 +135,13 @@ func unquote(v string) string {
 	if len(v) >= 2 {
 		switch {
 		case v[0] == '\'' && v[len(v)-1] == '\'':
-			return v[1 : len(v)-1]
+			// python-dotenv's _single_quote_escapes: inside single quotes only
+			// \\ and \' are escapes, and \n stays two literal characters.
+			// set_key writes this file in exactly that dialect, so a value
+			// containing a quote round-trips only if this side agrees.
+			inner := v[1 : len(v)-1]
+			inner = strings.ReplaceAll(inner, `\'`, `'`)
+			return strings.ReplaceAll(inner, `\\`, `\`)
 		case v[0] == '"' && v[len(v)-1] == '"':
 			inner := v[1 : len(v)-1]
 			inner = strings.ReplaceAll(inner, `\n`, "\n")

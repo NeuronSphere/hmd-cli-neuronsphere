@@ -61,6 +61,18 @@ const DefaultResolver = "127.0.0.11"
 // DefaultSigV4Region is the region in the injected credential scope.
 const DefaultSigV4Region = "us-west-2"
 
+// AltAuthHeader carries the caller's own Authorization past the account
+// selector.
+//
+// An environment route has to spend Authorization on Floci's SigV4 credential
+// scope -- a 12-digit access key *is* the account, and it is the only thing
+// Floci resolves a v1 REST API's owner from. A caller's bearer token would
+// displace it, so the token rides here instead and hmd-lib-auth's auth_token()
+// falls back to it when Authorization holds a credential scope. In the cloud
+// this header does not exist and Authorization is never a credential scope, so
+// nothing there behaves differently.
+const AltAuthHeader = "X-NS-Authorization"
+
 // serviceAliases route alternate spellings to the same gateway. The robot
 // suites build their URL from HMD_INSTANCE_NAME, which arrives as any of these
 // depending on how bender is invoked.
@@ -147,23 +159,10 @@ http {
         default upgrade;
         ''      close;
     }
-    # Selects the Floci account an API Gateway invocation resolves in. One Floci
-    # serves every account and reads the account out of the SigV4 credential
-    # scope; `+"`proxy_pass`"+` sends an unsigned request, so without this every
-    # environment's API lands in the *default* account and 404s. Floci does not
-    # verify the signature, so the scope alone is enough. A caller that supplies
-    # its own Authorization keeps it -- this only fills an empty one.
-    map $http_authorization $ns_auth {
-        ''      "AWS4-HMAC-SHA256 Credential=$ns_account/20200101/%s/execute-api/aws4_request, SignedHeaders=host, Signature=x";
-        default $http_authorization;
-    }
     include %s/vhost.d/*.conf;
     server {
         listen 80 default_server;
         server_name _;
-        # Declared here so `+"`$ns_auth`"+`'s map is valid even with no env fragment;
-        # each environment's locations override it with their own account.
-        set $ns_account "";
         include %s/http.d/*.conf;
         location / {
             return 404 '{"error": "no route defined"}';
@@ -174,7 +173,7 @@ stream {
     %s
     include %s/stream.d/*.conf;
 }
-`, r.sigV4Region(), NSDir, NSDir, r.resolver(), NSDir)
+`, NSDir, NSDir, r.resolver(), NSDir)
 }
 
 // WriteBaseConfig writes the shell. It is rewritten on every start so an
@@ -279,7 +278,7 @@ func (r *Router) WriteControlPlaneRoutes(services map[string]string, stage, upst
 	var blocks []string
 	routed := map[string]bool{}
 	for _, name := range sortedKeys(services) {
-		blocks = append(blocks, wrap(name, apiLocation(name, upstreamHost, services[name], stage, "")))
+		blocks = append(blocks, wrap(name, r.apiLocation(name, upstreamHost, services[name], stage, "")))
 		routed[name] = true
 	}
 	for _, canonical := range sortedKeys(serviceAliases) {
@@ -291,7 +290,7 @@ func (r *Router) WriteControlPlaneRoutes(services map[string]string, stage, upst
 			if routed[alias] {
 				continue
 			}
-			blocks = append(blocks, wrap(alias, apiLocation(alias, upstreamHost, gw, stage, "")))
+			blocks = append(blocks, wrap(alias, r.apiLocation(alias, upstreamHost, gw, stage, "")))
 			routed[alias] = true
 		}
 	}
@@ -346,6 +345,53 @@ func (r *Router) WriteControlPlaneVhosts(v ControlPlaneVhosts) error {
 		blocks = append(blocks, wrap("authd", r.namedVhostServer(v.AuthHost, AuthUpstream, "ns_authd")))
 	}
 	return r.writeFragment(filepath.Join(r.VhostDir(), ControlPlaneFragment), blocks, "control-plane vhosts")
+}
+
+// ExtensionFragment is the vhost fragment holding every control-plane
+// extension's server block. Numbered after the control plane's own so that a
+// hand-read of vhost.d/ shows the platform first and additions after it.
+const ExtensionFragment = "20-extensions.conf"
+
+// ExtensionVhost is one control-plane extension served by name (NERD004
+// SPEC007): Host is the hostname derived from its single configured URL, and
+// Upstream the "<container>:<port>" that answers for it.
+type ExtensionVhost struct {
+	Name     string
+	Host     string
+	Upstream string
+}
+
+// WriteExtensionVhosts writes vhost.d/20-extensions.conf.
+//
+// Written whole on every start, like WriteControlPlaneVhosts and for the same
+// reason: an extension that is no longer declared loses its listener by being
+// absent. An empty set therefore writes an empty fragment rather than leaving
+// the previous one in place.
+func (r *Router) WriteExtensionVhosts(vhosts []ExtensionVhost) error {
+	var blocks []string
+	for _, v := range vhosts {
+		if v.Host == "" || v.Upstream == "" {
+			continue
+		}
+		blocks = append(blocks, wrap("extension "+v.Name,
+			r.namedVhostServer(v.Host, v.Upstream, "ns_ext_"+varSafe(v.Name))))
+	}
+	return r.writeFragment(filepath.Join(r.VhostDir(), ExtensionFragment), blocks, "control-plane extension vhosts")
+}
+
+// varSafe renders a name as an nginx variable name component. An instance name
+// may hold dots and dashes; an nginx variable may not.
+func varSafe(name string) string {
+	var b strings.Builder
+	for _, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b.WriteRune(c)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 // namedVhostServer serves one container on port 80 for a single Host.
@@ -432,12 +478,19 @@ func (r *Router) writeFragment(path string, blocks []string, header string) erro
 // account. The REST API is not there and Floci answers 404: indistinguishable
 // from a route that was never wired.
 //
-// It is injected through $ns_auth rather than set directly, so a caller that
-// supplies its own Authorization keeps it.
-func apiLocation(path, upstreamHost, gwID, stage, accountID string) string {
+// The credential scope is set *unconditionally*, displacing whatever the caller
+// sent. It used to fill only an empty Authorization, which made the two uses of
+// that header mutually exclusive: a bender request carrying a real JWT kept it,
+// left Floci nothing to resolve the account from, and 404d -- so only the
+// environment whose account happens to be Floci's default could serve an
+// authenticated request at all. The caller's token travels beside it in
+// AltAuthHeader, which hmd-lib-auth reads back.
+func (r *Router) apiLocation(path, upstreamHost, gwID, stage, accountID string) string {
 	account := ""
 	if accountID != "" {
-		account = fmt.Sprintf("\n    set $ns_account \"%s\";\n    proxy_set_header Authorization $ns_auth;", accountID)
+		account = fmt.Sprintf(
+			"\n    proxy_set_header Authorization %q;\n    proxy_set_header %s $http_authorization;",
+			sigV4Credential(accountID, r.sigV4Region()), AltAuthHeader)
 	}
 	return fmt.Sprintf(`location /%s/ {
     proxy_pass %s/restapis/%s/%s/_user_request_/;%s
@@ -447,6 +500,17 @@ func apiLocation(path, upstreamHost, gwID, stage, accountID string) string {
     proxy_read_timeout 300s;
     proxy_connect_timeout 75s;
 }`, path, upstreamHost, gwID, stage, account)
+}
+
+// sigV4Credential is the credential scope Floci reads the account out of.
+//
+// Only the account is read; the date and region are structural filler, kept
+// constant so the rendered config is stable. Floci does not verify the
+// signature, so a static Signature=x suffices.
+func sigV4Credential(accountID, region string) string {
+	return fmt.Sprintf(
+		"AWS4-HMAC-SHA256 Credential=%s/20200101/%s/execute-api/aws4_request, SignedHeaders=host, Signature=x",
+		accountID, region)
 }
 
 // passthroughLocation proxies /<path>/ straight at a URL, with no API Gateway.
