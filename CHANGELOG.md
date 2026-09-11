@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-11
+
+- fix: stop the containers Floci spawned when the control plane stops
+
+  Floci creates its RDS and Neptune backends imperatively through the host
+  docker socket, so they are neither compose services nor carriers of the
+  Adopted label — neither of `Stop`'s other two sweeps could see them. Left
+  running, they orphan against the network the next start recreates.
+  `stopFlociSpawned` finds them by the `floci` label, the same way `PurgeAll`'s
+  catch-all sweep does, and warns rather than aborting when one refuses to stop:
+  a container that is restarting must not leave the rest of the sweep undone.
+
 ## 2026-09-09
 
 - fix: stop the Floci account selector and the caller's JWT sharing one header

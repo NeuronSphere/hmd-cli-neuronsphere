@@ -312,3 +312,65 @@ func TestUniqueValuesIsSortedAndDeduplicated(t *testing.T) {
 		t.Errorf("uniqueValues = %v, want [id1 id2]", got)
 	}
 }
+
+// fakeFlociDocker is the narrow dockerClient double for stopFlociSpawned:
+// RDS and Neptune are not compose services, so the only way to find them is
+// the floci label, and the only way to see this sweep ran is to record what
+// it stopped.
+type fakeFlociDocker struct {
+	labelled map[string][]string
+	stopped  []string
+	stopErr  map[string]error
+}
+
+func (f *fakeFlociDocker) ContainersWithLabel(_ context.Context, key, value string) []string {
+	filter := key
+	if value != "" {
+		filter = key + "=" + value
+	}
+	return f.labelled[filter]
+}
+
+func (f *fakeFlociDocker) Stop(_ context.Context, name string) error {
+	f.stopped = append(f.stopped, name)
+	return f.stopErr[name]
+}
+
+func TestStopFlociSpawnedStopsEveryFlociLabelledContainer(t *testing.T) {
+	t.Parallel()
+
+	d := &fakeFlociDocker{labelled: map[string][]string{
+		"floci": {"floci-rds-db-abc123", "floci-neptune-def456"},
+	}}
+	stopFlociSpawned(context.Background(), testOptions("", nil), d)
+
+	want := []string{"floci-rds-db-abc123", "floci-neptune-def456"}
+	if len(d.stopped) != len(want) {
+		t.Fatalf("stopped = %v, want %v", d.stopped, want)
+	}
+	for i, name := range want {
+		if d.stopped[i] != name {
+			t.Errorf("stopped[%d] = %q, want %q", i, d.stopped[i], name)
+		}
+	}
+}
+
+func TestStopFlociSpawnedWarnsRatherThanStopsOnAFailure(t *testing.T) {
+	t.Parallel()
+
+	var errBuf strings.Builder
+	opts := &Options{Home: "", Lookup: func(string) string { return "" }, Out: io.Discard, Err: &errBuf}
+	d := &fakeFlociDocker{
+		labelled: map[string][]string{"floci": {"floci-rds-db-abc123", "floci-neptune-def456"}},
+		stopErr:  map[string]error{"floci-rds-db-abc123": errors.New("container is restarting")},
+	}
+	stopFlociSpawned(context.Background(), opts, d)
+
+	// Both attempted, in order -- one failing container must not stop the sweep.
+	if len(d.stopped) != 2 {
+		t.Fatalf("stopped = %v, want both containers attempted", d.stopped)
+	}
+	if !strings.Contains(errBuf.String(), "container is restarting") {
+		t.Errorf("Err = %q, want it to report the stop failure", errBuf.String())
+	}
+}

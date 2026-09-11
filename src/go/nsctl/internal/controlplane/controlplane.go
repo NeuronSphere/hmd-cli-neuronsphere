@@ -37,6 +37,15 @@ import (
 // at all.
 var HostsEntries = []string{"neuronsphere", "neuronsphere-workload"}
 
+// dockerClient is the Docker surface Stop needs to reach Floci-spawned
+// containers, narrowed so the sweep is testable without a daemon.
+type dockerClient interface {
+	ContainersWithLabel(ctx context.Context, key, value string) []string
+	Stop(ctx context.Context, name string) error
+}
+
+var newDocker = func() dockerClient { return container.New() }
+
 // GUIProfile gates the Deployment GUI container.
 const GUIProfile = "deployment-gui"
 
@@ -516,6 +525,20 @@ func Start(ctx context.Context, opts *Options) error {
 	return nil
 }
 
+// stopFlociSpawned stops every container Floci has spawned via the host
+// docker socket -- RDS, Neptune, and whatever else it grows. These are
+// created imperatively, not as compose services or Adopted-label containers,
+// so neither of Stop's other sweeps touches them; left running, they orphan
+// against the network the next start recreates. Found by the floci label, the
+// same way PurgeAll's catch-all sweep finds them.
+func stopFlociSpawned(ctx context.Context, opts *Options, d dockerClient) {
+	for _, name := range d.ContainersWithLabel(ctx, container.LabelFloci, "") {
+		if err := d.Stop(ctx, name); err != nil {
+			opts.warn("%v", err)
+		}
+	}
+}
+
 // Stop stops the control plane's containers, leaving the network and every
 // environment's persistent state in place so the next start restarts them.
 //
@@ -550,6 +573,7 @@ func Stop(ctx context.Context, opts *Options) error {
 		// the control plane running.
 		opts.warn("%v", err)
 	}
+	stopFlociSpawned(ctx, opts, newDocker())
 	if err := runner.Stop(ctx, project); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
