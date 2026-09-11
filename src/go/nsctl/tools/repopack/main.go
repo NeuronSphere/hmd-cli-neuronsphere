@@ -17,9 +17,9 @@
 // The fallback is not a convenience. `make generate` runs from GoReleaser's
 // before.hooks on a clean CI checkout with no network and no credentials, so a
 // build that could only fetch would fail exactly where releases are made. Only
-// two of the ten classes are declared as pre_build_artifacts today
-// (hmd-inf-ext-secrets and its CRDs); the rest reach the binary through the
-// committed trees until they publish artifacts of their own.
+// three of the ten classes are declared as pre_build_artifacts today
+// (hmd-inf-ext-secrets, its CRDs and hmd-inf-neptune); the rest reach the
+// binary through the committed trees until they publish artifacts of their own.
 //
 // A class is identified by the `name` in its own meta-data/manifest.json, never
 // by its directory: the artifact directories are named after the plugin

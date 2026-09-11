@@ -110,7 +110,14 @@ services:
       # two broken kube-apiserver overrides Floci injects
       # (--kube-apiserver-arg=storage-backend=sqlite3 and etcd-servers=unix:///tmp/kine.sock)
       # that otherwise crash-loop the apiserver ("--storage-backend invalid").
-      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3}
+      # Pinned to an exact patch rather than the floating `0.3`, for the same
+      # reason as the gremlin pin above and one more: 0.3.2 is the first build
+      # of this image the pipeline ever published (the repo carries no other
+      # tag), and it is what carries `--disable-network-policy`. A machine that
+      # still holds a locally built `0.3` would otherwise keep a wrapper
+      # without it, and k3s dies on a warm start whose recorded node IP has
+      # churned off the default bridge.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3.2}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:

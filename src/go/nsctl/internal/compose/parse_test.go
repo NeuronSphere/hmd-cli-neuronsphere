@@ -184,7 +184,7 @@ func TestParseFlociAliasesAndHealthcheck(t *testing.T) {
 		t.Errorf("Neptune image = %q, want %q", got, want)
 	}
 	// The nested-default line.
-	if got, want := s.Environment["FLOCI_SERVICES_EKS_DEFAULT_IMAGE"], "ghcr.io/neuronsphere/hmd-img-k3s-floci:0.3"; got != want {
+	if got, want := s.Environment["FLOCI_SERVICES_EKS_DEFAULT_IMAGE"], "ghcr.io/neuronsphere/hmd-img-k3s-floci:0.3.2"; got != want {
 		t.Errorf("k3s wrapper image = %q, want %q", got, want)
 	}
 	if got, want := s.Environment["FLOCI_HOSTNAME"], "neuronsphere"; got != want {

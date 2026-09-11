@@ -2,6 +2,46 @@
 
 ## 2026-09-11
 
+- fix: pin the k3s wrapper to `hmd-img-k3s-floci:0.3.2`, the first build of that
+  image its pipeline ever published
+
+  The pin was `0.3`, a tag that exists in no registry — `ghcr.io/hmdlabs` has
+  never served it, `ghcr.io/neuronsphere` serves nothing for this image at all,
+  and the repo carries exactly one tag. What made a cluster come up anyway was a
+  locally built `0.3` sitting in the developer's Docker cache, which is also how
+  a machine could hold a wrapper from *before*
+  `--disable-network-policy` and still report the pinned image as current: the
+  name matched, the layers didn't. Floci recreates the k3s container from
+  whatever the name resolves to, so on a warm start whose recorded node IP had
+  churned off Docker's default bridge, kube-router aborted k3s startup with
+  `failed to find interface with specified node ip`.
+
+  `0.3.2` is an exact patch for the same reason the gremlin pin is: the tag has
+  to name one image, not whichever build last moved a floating tag. The bump
+  covers both compose files, `configured_k3s_wrapper_image`'s fallback (which
+  reconstructs the compose default when Floci is down) and the expectations that
+  pin them.
+
+- feat: take `hmd-inf-neptune` from its published artifact instead of the
+  committed tree
+
+  `hmd-inf-neptune@0.3.36:build` is declared as a `pre_build_artifact`, so the
+  graph's RepoClass reaches `bom_seeder` as a published version rather than as
+  whatever is checked out: version resolution moves from the `local-fallback`
+  tier — which warned `no bundled artifact and no declared version` on every
+  `up` — to `bundled`, off the artifact the wheel now carries under
+  `hmd_cli_neuronsphere/external/neptune`. `repopack` prefers the same artifact
+  when a build has populated it; `bundled-repos/hmd-inf-neptune` is still what a
+  release packs, since GoReleaser runs `make generate` with no credentials.
+
+  It is the first of the eight committed trees to earn a pin, and only because
+  the artifact was resolved first: `hmd build --prebuild-download-only` returned
+  it with `meta-data/VERSION` stamped `0.3.36` and `src/cdktf/` plus
+  `src/local/` byte-identical to the checkout. A pin that does not resolve
+  breaks `hmd build` for everyone, so the other seven still travel as committed
+  trees. `bundled-repos/hmd-inf-neptune` stays as the fallback `make generate`
+  needs on a credential-free CI checkout.
+
 - fix: stop the containers Floci spawned when the control plane stops
 
   Floci creates its RDS and Neptune backends imperatively through the host

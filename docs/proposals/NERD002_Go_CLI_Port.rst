@@ -29,10 +29,15 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     argument. See `Verified from nothing`_.
 
     Two things qualify it, and neither is withdrawn by being recorded here.
-    **The images Floci spawns its backends from are not published** at the
-    versions the compose file pins, so a machine that has never pulled them
-    cannot provision a cluster or a graph however good the binary is; that is a
-    publishing gap in the image repositories and nothing here can close it.
+    **The images Floci spawns its backends from are not all published in one
+    registry** at the versions the compose file pins -- the k3s wrapper and the
+    gremlin server only under ``ghcr.io/hmdlabs``, the Postgres base only under
+    the ``ghcr.io/neuronsphere`` default -- so a machine that has never pulled
+    them cannot provision a cluster, a graph *and* a database from one registry
+    setting however good the binary is; that is a publishing gap in the image
+    repositories and nothing here can close it. The k3s half of it closed on
+    2026-09-11, when that image's pipeline published for the first time and the
+    pin moved to ``0.3.2`` (item 22).
     **The inverted submit path does not work**, for a reason now known exactly
     (SPEC010) -- it is opt-in, was always opt-in, and the default path is the
     one every deploy above took.
@@ -107,10 +112,11 @@ recorded in `What implementation changed about the design`_ and
        and version resolution prefers a bundled tree over a checkout. **Run
        from nothing:** a control plane and an environment deployed from the
        bundled trees alone, with ``HMD_REPO_HOME`` pointed at an empty
-       directory. The eight classes that are not declared as
-       ``pre_build_artifacts`` still travel as committed trees -- whether they
-       publish a consumable artifact is *still* unverified, because resolving
-       one needs librarian credentials. See item 22.
+       directory. Seven of the ten still travel as committed trees, undeclared
+       as ``pre_build_artifacts``; ``hmd-inf-neptune`` no longer does -- it was
+       verified to publish a consumable ``build`` artifact on 2026-09-11 and is
+       pinned at ``0.3.36``. Whether the remaining seven do is *still*
+       unverified. See item 22.
    * - 007
      - implemented
      - EC2 is not used at all -- ``hmd-vpc`` deploys the network instead,
@@ -360,16 +366,23 @@ five of the seven were invisible until a genuinely cold platform ran them.
 22. **"Only Docker" is also a claim about the image registries** (SPEC014).
     The compose file pins
     ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
-    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3`` under
-    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. Of those, only
-    the Postgres one resolves: the gremlin pin is not published under the
-    default registry and the k3s pin is published under *neither* registry at
-    ``0.2``, ``0.3`` or ``stable``, though it carries a RepoDigest and was
-    pulled two days before this was checked. So a machine that has never pulled
-    them cannot provision a cluster or a graph, however self-contained the
-    binary is. The guard that used to *refuse* on an uncached image made this
-    worse rather than surfacing it, and now pulls; the refusal survives for a
-    reference that genuinely resolves nowhere, which is what this is.
+    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3.2`` under
+    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. **No single
+    registry serves all three**, re-checked 2026-09-11: the Postgres pin exists
+    only under the ``ghcr.io/neuronsphere`` default, the gremlin and k3s pins
+    only under ``ghcr.io/hmdlabs``, which is what a developer's ``hmd.env``
+    actually sets. **Partly closed:** the k3s wrapper's build pipeline had never
+    produced a published image at all -- no ``0.2``, ``0.3`` or ``stable`` tag
+    in either registry -- so that pin named a tag that was never there, and a
+    cluster came up only from a locally built image of the same name. It builds
+    now; the pin is ``0.3.2``, the first build it ever published and the one
+    carrying ``--disable-network-policy``. There is still no floating ``0.3``,
+    which is why the pin is an exact patch. So a machine that has never pulled
+    these cannot provision both a cluster and a Postgres backend from one
+    registry setting, however self-contained the binary is. The guard that used
+    to *refuse* on an uncached image made this worse rather than surfacing it,
+    and now pulls; the refusal survives for a reference that genuinely resolves
+    nowhere.
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1139,7 +1152,8 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
        past ``control-plane start``, and the whole of Phase 6's distribution
        work shipped something that stopped there.
 
-       **Ten trees, not the six the manifest declares.** Four of the
+       **Ten trees, not the six the manifest declared then (seven now, with
+       ``hmd-inf-neptune`` pinned).** Four of the
        ``pre_build_artifacts`` entries -- superset, hyperdx, telemetry-debug and
        s3bucket -- are workloads or plugin content and are not wanted. The other
        two are, but not for the reason the manifest declares them: they were
@@ -1163,11 +1177,15 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
        lets ``goreleaser build --snapshot --clean`` work from a fresh clone.
        Each class is taken from the ``pre_build_artifacts`` destination when
        ``hmd build`` has populated it, and from the trees committed under
-       ``bundled-repos/`` otherwise. That is not a fetch-shaped fallback for a
-       fetch that works: **only the two ext-secrets classes are declared as
-       pre_build_artifacts at all.** No repo in the monorepo pins any of the
-       other eight, so whether they publish a consumable ``build`` artifact is
-       unverified, and adding eight untested pins would break ``hmd build`` for
+       ``bundled-repos/`` otherwise. That is mostly not a fetch-shaped fallback
+       for a fetch that works: **three of the ten classes are declared as
+       pre_build_artifacts** -- the two ext-secrets ones and, since 2026-09-11,
+       ``hmd-inf-neptune@0.3.36``, whose artifact was resolved with ``hmd build
+       --prebuild-download-only`` first and found to carry ``meta-data/``
+       (``VERSION`` stamped ``0.3.36``), ``src/cdktf/`` and ``src/local/``
+       byte-identical to the checkout. No repo in the monorepo pins the other
+       seven, so whether they publish a consumable ``build`` artifact is
+       unverified, and adding seven untested pins would break ``hmd build`` for
        everyone. They travel as committed trees until that is established, and
        ``make refresh-bundled-repos`` is what a person runs to update them.
 
@@ -1235,13 +1253,14 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     neither is not deployable at all, which is why the eight travel as committed
     trees rather than as pins nobody can resolve.
 
-    *Still open:* the eight classes that are not declared as
+    *Still open:* the seven classes that are not declared as
     ``pre_build_artifacts`` travel as committed trees, and whether they publish
     a consumable ``build`` artifact remains unverified. Probing them with
-    ``hmd build --prebuild-download-only`` returns ``Unauthorized``: resolving
-    one needs librarian credentials. Pinning an entry that does not resolve
-    breaks ``hmd build`` for everyone, which is why it was not done blind and is
-    still not done.
+    ``hmd build --prebuild-download-only`` returned ``Unauthorized`` when this
+    was written; the same probe resolved ``hmd-inf-neptune@0.3.36`` on
+    2026-09-11, which is how that one stopped being a blind pin and became a
+    declared one. Pinning an entry that does not resolve breaks ``hmd build``
+    for everyone, so the rest wait for the same probe to pass.
 
 .. spec:: AWS SDK -- aws-sdk-go-v2 against Floci
     :id: HMD_CLI_NERD002_SPEC007
@@ -2219,15 +2238,20 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     The fix is in a library, so it reaches a deploy through the projectbuilder
     image; ``nsctl``'s warning stays until one ships carrying it.
 
-    **GAP: the images Floci spawns its backends from are not published.** The
-    compose file pins ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
-    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3`` under
+    **GAP: the images Floci spawns its backends from are not published under the
+    default registry.** The compose file pins
+    ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
+    ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3.2`` under
     ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. Checked against
-    both registries on 2026-09-07, only the Postgres pin resolves: the gremlin
-    pin is absent from the default registry, and the k3s pin is absent from
-    *both* at ``0.2``, ``0.3`` and ``stable`` -- though the image carries a
-    RepoDigest and was pulled from ``ghcr.io/hmdlabs`` two days earlier, so the
-    tag existed and has gone.
+    both registries on 2026-09-07, only the Postgres pin resolved: the gremlin
+    pin is absent from the default registry, and the k3s pin was absent from
+    *both* at ``0.2``, ``0.3`` and ``stable`` -- though the image carried a
+    RepoDigest, so a tag had existed and gone. Re-checked on 2026-09-11, after
+    the wrapper's build pipeline was fixed: ``ghcr.io/hmdlabs`` serves
+    ``hmd-img-k3s-floci:0.3.2``, which is what the pin now names, and the
+    gremlin pin too. Neither registry serves all three -- the Postgres pin is
+    published only under ``ghcr.io/neuronsphere``, the other two only under
+    ``ghcr.io/hmdlabs`` -- and there is still no floating ``0.3`` anywhere.
 
     This is the one gap that contradicts the requirement's own sentence
     directly: a machine whose only prerequisite is Docker cannot provision a

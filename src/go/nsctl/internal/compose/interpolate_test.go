@@ -48,8 +48,8 @@ func TestInterpolate(t *testing.T) {
 		// The one that forces brace matching over a regexp.
 		{
 			"a nested default",
-			"${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3}",
-			"my.registry/hmd-img-k3s-floci:0.3",
+			"${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3.2}",
+			"my.registry/hmd-img-k3s-floci:0.3.2",
 		},
 		{
 			"a nested default where both are unset",
