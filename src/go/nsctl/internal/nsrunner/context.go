@@ -97,19 +97,9 @@ func set(dst *string, v string) {
 	}
 }
 
-// projectBuilderRef is the image every deploy node runs in. It mirrors the
-// CLI's resolution rather than importing it, because internal/environment
-// depends on this direction already.
+// projectBuilderRef is the image every deploy node runs in.
 func projectBuilderRef(lookup func(string) string) string {
-	host := lookup("HMD_LOCAL_NS_CONTAINER_REGISTRY")
-	if host == "" {
-		host = "ghcr.io/neuronsphere"
-	}
-	version := lookup("HMD_PROJECTBUILDER_VERSION")
-	if version == "" {
-		version = "stable"
-	}
-	return fmt.Sprintf("%s/hmd-img-projectbuilder:%s", host, version)
+	return runner.ProjectBuilderRef(lookup)
 }
 
 // WorkflowDir is where a runner keeps its records.

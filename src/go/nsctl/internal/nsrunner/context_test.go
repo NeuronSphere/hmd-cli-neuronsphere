@@ -99,17 +99,17 @@ func TestProjectBuilderRefDefaultsAndOverrides(t *testing.T) {
 		{
 			name: "nothing set",
 			env:  map[string]string{},
-			want: "ghcr.io/neuronsphere/hmd-img-projectbuilder:stable",
+			want: "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.388",
 		},
 		{
 			name: "a different registry",
 			env:  map[string]string{"HMD_LOCAL_NS_CONTAINER_REGISTRY": "ghcr.io/hmdlabs"},
-			want: "ghcr.io/hmdlabs/hmd-img-projectbuilder:stable",
+			want: "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.388",
 		},
 		{
 			name: "a pinned version",
 			env:  map[string]string{"HMD_PROJECTBUILDER_VERSION": "0.9"},
-			want: "ghcr.io/neuronsphere/hmd-img-projectbuilder:0.9",
+			want: "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.9",
 		},
 		{
 			name: "both",

@@ -289,9 +289,13 @@ func TestProjectBuilderRef(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"defaults", nil, "ghcr.io/neuronsphere/hmd-img-projectbuilder:stable"},
-		{"a pinned version", map[string]string{"HMD_PROJECTBUILDER_VERSION": "0.9"}, "ghcr.io/neuronsphere/hmd-img-projectbuilder:0.9"},
-		{"a registry override", map[string]string{"HMD_LOCAL_NS_CONTAINER_REGISTRY": "my.registry"}, "my.registry/hmd-img-projectbuilder:stable"},
+		// The default is hmdlabs and an exact patch. Spelt out rather than
+		// built from the constants, so moving a pin has to be deliberate: the
+		// previous default named a registry and a tag that existed nowhere,
+		// and a test written against the constants would have agreed with it.
+		{"defaults", nil, "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.388"},
+		{"a pinned version", map[string]string{"HMD_PROJECTBUILDER_VERSION": "0.9"}, "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.9"},
+		{"a registry override", map[string]string{"HMD_LOCAL_NS_CONTAINER_REGISTRY": "my.registry"}, "my.registry/hmd-img-projectbuilder:0.5.388"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -372,5 +376,64 @@ func TestStopFlociSpawnedWarnsRatherThanStopsOnAFailure(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "container is restarting") {
 		t.Errorf("Err = %q, want it to report the stop failure", errBuf.String())
+	}
+}
+
+// fakeProxy answers whether hmd_proxy is up, and what it said on the way down.
+type fakeProxy struct {
+	running bool
+	err     error
+	logs    string
+}
+
+func (f fakeProxy) Running(context.Context, string) (bool, error) { return f.running, f.err }
+func (f fakeProxy) Logs(context.Context, string, int) string      { return f.logs }
+
+// A dead proxy must be reported as a dead proxy.
+//
+// Floci publishes no host port of its own -- :4566 is an nginx stream listener
+// -- so its health check runs through hmd_proxy. When the proxy could not start
+// on a stale route fragment, the start spent five minutes reporting "Floci at
+// http://localhost:4566 is not ready", against a Floci that was healthy and
+// logging normally the whole time.
+func TestAProxyThatCannotStartIsNamedRatherThanBlamedOnFloci(t *testing.T) {
+	t.Parallel()
+
+	opts := testOptions("/tmp/home", nil)
+	err := checkProxyStarted(context.Background(), opts,
+		fakeProxy{running: false, logs: `nginx: [emerg] unknown "ns_auth" variable`})
+	if err == nil {
+		t.Fatal("checkProxyStarted() succeeded with the proxy down")
+	}
+	// nginx names the problem; the error has to carry its words, say why this
+	// stops everything else, and point at the fragments. A diagnosis with no
+	// next step is what the Floci timeout already was.
+	for _, want := range []string{"hmd_proxy", "ns_auth", "Floci", ".cache/nginx"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// A running proxy, an unreadable answer, and no client at all are all fine:
+// this gates a start, so anything indeterminate must not refuse one.
+func TestTheProxyCheckRefusesOnlyWhenItKnows(t *testing.T) {
+	t.Parallel()
+
+	opts := testOptions("/tmp/home", nil)
+	for _, tt := range []struct {
+		name string
+		d    proxyInspector
+	}{
+		{"running", fakeProxy{running: true}},
+		{"cannot tell", fakeProxy{err: errors.New("docker is not answering")}},
+		{"no client", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if err := checkProxyStarted(context.Background(), opts, tt.d); err != nil {
+				t.Errorf("checkProxyStarted() = %v, want nil", err)
+			}
+		})
 	}
 }

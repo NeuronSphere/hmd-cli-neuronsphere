@@ -15,12 +15,13 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	nsdocker "github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 )
 
 // Compose's own labels. nsctl stamps them so the Python CLI's
@@ -70,14 +71,32 @@ type dockerAPI interface {
 	ContainerExecAttach(ctx context.Context, execID string, options container.ExecStartOptions) (types.HijackedResponse, error)
 	ContainerExecInspect(ctx context.Context, execID string) (container.ExecInspect, error)
 	ImageInspectWithRaw(ctx context.Context, ref string) (types.ImageInspect, []byte, error)
-	ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error)
 	NetworkInspect(ctx context.Context, name string, options network.InspectOptions) (network.Inspect, error)
 	NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error)
 }
 
+// Puller fetches an image reference.
+//
+// Injected because the Engine API cannot do it. ImagePull sends whatever
+// credentials the caller puts in PullOptions and nothing else -- the daemon
+// never reads ~/.docker/config.json, which is the CLI's job -- so a pull with
+// empty options is credential-less, and ghcr.io answers a credential-less
+// request with `unauthorized` even for a public image. That failed the first
+// genuinely cold start here, on an image that pulls anonymously from the CLI
+// without complaint, and it had stayed invisible because the image is in the
+// cache of every machine that has ever run the platform.
+//
+// The remedy is the path the rest of nsctl already uses: container.PullImage
+// shells out to `docker pull`, which resolves credential helpers, keychains and
+// anonymous tokens exactly as the user's own `docker pull` would.
+type Puller func(ctx context.Context, ref string) error
+
 // Runner creates and reconciles a project's containers.
 type Runner struct {
 	API dockerAPI
+	// PullImage fetches an image. NewRunner supplies the CLI-backed one; a
+	// test may substitute its own.
+	PullImage Puller
 	// Out carries progress; Err carries note: and warning: lines.
 	Out io.Writer
 	Err io.Writer
@@ -89,7 +108,23 @@ func NewRunner(out, errOut io.Writer) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connecting to Docker: %w", err)
 	}
-	return &Runner{API: cli, Out: out, Err: errOut}, nil
+	return &Runner{API: cli, PullImage: nsdocker.New().PullImage, Out: out, Err: errOut}, nil
+}
+
+// pull fetches an image through the injected puller.
+//
+// A Runner built by hand with no Puller cannot pull at all, and says so rather
+// than falling back to the Engine API: that fallback is precisely the
+// credential-less path this field exists to avoid, and a silent fallback would
+// reintroduce the failure on exactly the machines that cannot afford it.
+func (r *Runner) pull(ctx context.Context, ref string) error {
+	if r.PullImage == nil {
+		return fmt.Errorf("pulling %s: this runner has no puller", ref)
+	}
+	if err := r.PullImage(ctx, ref); err != nil {
+		return fmt.Errorf("pulling %s: %w", ref, err)
+	}
+	return nil
 }
 
 // Action is what Up did to one service.
@@ -459,29 +494,14 @@ func (r *Runner) EnsureImage(ctx context.Context, ref string) error {
 		return nil
 	}
 	r.progress("Pulling %s...", ref)
-	body, err := r.API.ImagePull(ctx, ref, image.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("pulling %s: %w", ref, err)
-	}
-	defer body.Close()
-	// The pull is only complete once the stream is drained.
-	if _, err := io.Copy(io.Discard, body); err != nil {
-		return fmt.Errorf("pulling %s: %w", ref, err)
-	}
-	return nil
+	return r.pull(ctx, ref)
 }
 
 // Pull fetches a service's image whether or not it is already local. This is
 // what `--upgrade` uses.
 func (r *Runner) Pull(ctx context.Context, ref string) error {
 	r.progress("Pulling %s...", ref)
-	body, err := r.API.ImagePull(ctx, ref, image.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("pulling %s: %w", ref, err)
-	}
-	defer body.Close()
-	_, err = io.Copy(io.Discard, body)
-	return err
+	return r.pull(ctx, ref)
 }
 
 func (r *Runner) warn(format string, a ...any) {

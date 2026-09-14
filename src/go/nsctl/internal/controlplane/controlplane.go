@@ -26,8 +26,10 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/cpext"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/pgcheck"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
 // HostsEntries are the names the host must resolve to a loopback address.
@@ -204,6 +206,15 @@ func Start(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
+	// Docker first, because it is the one prerequisite this CLI claims to have
+	// and the only failure every later step shares. Without it the first
+	// symptom was whichever call happened to run first -- "connecting to
+	// Docker: ..." from the Engine API, or a bare `docker: executable file not
+	// found` from a shelled-out command -- neither of which says what to
+	// install. The message that does say it was written and never called.
+	if err := container.New().Available(ctx); err != nil {
+		return nserr.Wrap(nserr.Usage, err)
+	}
 	if err := CheckHostsEntries(nil); err != nil {
 		return err
 	}
@@ -338,6 +349,13 @@ func Start(ctx context.Context, opts *Options) error {
 		}
 	}
 
+	// Before compose starts Floci, because after it the container is recreated
+	// from the configured image and the refusal arrives as a crash loop that
+	// nothing attributes to a version bump.
+	if err := checkPostgresMajor(ctx, opts, docker, project, reg); err != nil {
+		return err
+	}
+
 	opts.step("Starting control-plane containers...")
 	results, err := runner.Up(ctx, project, active)
 	if err != nil {
@@ -347,6 +365,15 @@ func Start(ctx context.Context, opts *Options) error {
 		if res.Action != compose.ActionSkipped {
 			opts.step("  %s %s", res.Name, res.Action)
 		}
+	}
+
+	// Before waiting on Floci, because the wait goes *through* the proxy.
+	// Floci publishes nothing itself; :4566 is an nginx stream listener. So a
+	// proxy that cannot start reports as "Floci is not ready after 5m0s" --
+	// five minutes spent on the wrong diagnosis, against a Floci that is
+	// healthy and says so in its own logs.
+	if err := checkProxyStarted(ctx, opts, docker); err != nil {
+		return err
 	}
 
 	opts.step("Waiting for Floci...")
@@ -629,15 +656,7 @@ func EnsureProjectBuilder(ctx context.Context, opts *Options, runner *compose.Ru
 
 // ProjectBuilderRef is the projectbuilder image, honouring the version pin.
 func ProjectBuilderRef(opts *Options) string {
-	registryHost := opts.lookup("HMD_LOCAL_NS_CONTAINER_REGISTRY")
-	if registryHost == "" {
-		registryHost = "ghcr.io/neuronsphere"
-	}
-	version := opts.lookup("HMD_PROJECTBUILDER_VERSION")
-	if version == "" {
-		version = "stable"
-	}
-	return registryHost + "/hmd-img-projectbuilder:" + version
+	return runner.ProjectBuilderRef(opts.Lookup)
 }
 
 // ComposeCacheDir is where the embedded compose file is materialised.
@@ -867,4 +886,82 @@ func seedAuthSecret(ctx context.Context, opts *Options, target floci.Target) err
 		authd.IssuerFor(base, authd.ServerNS),
 		authd.IssuerFor(base, authd.ServerServices),
 		AuthClientID)
+}
+
+// ConfiguredPostgresImage is the image Floci will spawn RDS backends from, read
+// off the parsed compose project.
+//
+// Read from the project rather than rebuilt from the environment: the value
+// lives behind two nested ${VAR:-default} expansions, and a reconstruction that
+// disagrees with what Floci is actually handed would check the wrong image --
+// the same trap floci.K3sWrapperImage documents for the cluster.
+func ConfiguredPostgresImage(project *compose.Project) string {
+	if project == nil {
+		return ""
+	}
+	for _, s := range project.Services {
+		if s.ContainerName == floci.ContainerName || s.Key == "floci" {
+			return s.Environment["FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE"]
+		}
+	}
+	return ""
+}
+
+// checkPostgresMajor refuses a start whose postgres image cannot read the data
+// directories already on disk.
+func checkPostgresMajor(ctx context.Context, opts *Options, docker *container.Docker,
+	project *compose.Project, reg *registry.Registry) error {
+
+	image := ConfiguredPostgresImage(project)
+	if image == "" {
+		return nil
+	}
+	mismatches := pgcheck.FindMismatches(ctx, docker, image, reg.ControlPlane.FlociDataDir)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return nserr.New(nserr.Usage, "%s", pgcheck.Explain(mismatches))
+}
+
+// ProxyContainer is the nginx container every host-facing route goes through.
+const ProxyContainer = "hmd_proxy"
+
+// proxyInspector is the Docker surface checkProxyStarted needs, narrowed so the
+// check is testable without a daemon.
+type proxyInspector interface {
+	Running(ctx context.Context, name string) (bool, error)
+	Logs(ctx context.Context, name string, lines int) string
+}
+
+// checkProxyStarted refuses when the proxy is not actually up.
+//
+// `compose up` reports success once it has *started* a container; nginx exiting
+// on a bad configuration a moment later is a restart loop, not a start failure,
+// so nothing upstream notices. Everything then fails as something else: Floci's
+// health check is an nginx stream listener, so a dead proxy is reported as a
+// dead Floci, and the control plane is declared ready over a platform that
+// answers nothing.
+//
+// The config is the usual cause and nginx names the line, so its own words are
+// the error. A stale route fragment under $HMD_HOME/.cache/nginx written by an
+// older nsctl is enough to do it -- one referencing a variable that release no
+// longer defines bricked a platform exactly this way.
+func checkProxyStarted(ctx context.Context, opts *Options, docker proxyInspector) error {
+	if docker == nil {
+		return nil
+	}
+	up, err := docker.Running(ctx, ProxyContainer)
+	if err != nil || up {
+		// Cannot tell is not a failure: this gates a start, and the same
+		// doctrine ImageOf and InspectState state applies.
+		return nil
+	}
+	detail := strings.TrimSpace(docker.Logs(ctx, ProxyContainer, 20))
+	if detail == "" {
+		detail = "(no output)"
+	}
+	return nserr.New(nserr.Fail,
+		"%s started and is not running. Every host-facing route goes through it, including Floci's, so nothing else can come up.\n%s\n"+
+			"  An invalid route fragment is the usual cause. They are regenerated, so moving %s aside and starting again is safe.",
+		ProxyContainer, detail, filepath.Join(opts.Home, ".cache", "nginx"))
 }

@@ -160,13 +160,16 @@ func (f *fakeAPI) ImageInspectWithRaw(_ context.Context, ref string) (types.Imag
 	return types.ImageInspect{}, nil, nil
 }
 
-func (f *fakeAPI) ImagePull(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
+// pull stands in for the injected Puller rather than for the Engine API's
+// ImagePull. The runner no longer pulls through the API at all: that path
+// carries no credentials and ghcr.io rejects it even for public images.
+func (f *fakeAPI) pull(_ context.Context, ref string) error {
 	if err, ok := f.failPull[ref]; ok {
-		return nil, err
+		return err
 	}
 	f.pulled = append(f.pulled, ref)
 	f.images[ref] = true
-	return io.NopCloser(strings.NewReader("")), nil
+	return nil
 }
 
 func (f *fakeAPI) NetworkInspect(_ context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
@@ -222,7 +225,7 @@ func svc(t *testing.T, p *Project, key string) Service {
 }
 
 func newRunner(f *fakeAPI) *Runner {
-	return &Runner{API: f, Out: io.Discard, Err: io.Discard}
+	return &Runner{API: f, PullImage: f.pull, Out: io.Discard, Err: io.Discard}
 }
 
 func TestUpCreatesMissingContainers(t *testing.T) {
@@ -663,5 +666,40 @@ func TestIdenticalBindsAreCollapsed(t *testing.T) {
 	})
 	if len(both) != 2 {
 		t.Errorf("binds = %v, want the ro variant kept", both)
+	}
+}
+
+// The runner must not pull through the Engine API.
+//
+// ImagePull carries only the credentials the caller puts in PullOptions -- the
+// daemon never reads ~/.docker/config.json, which is the CLI's job -- so an
+// Engine-API pull is credential-less, and ghcr.io answers a credential-less
+// request with `unauthorized` even for a public image. That failed the first
+// genuinely cold start, on an image `docker pull` fetches anonymously without
+// complaint, and it stayed hidden because the image is in the cache of every
+// machine that has run the platform.
+//
+// Asserted structurally: the narrowed dockerAPI must not carry ImagePull at
+// all, so the broken path cannot be reached back for.
+func TestTheRunnerPullsOutsideTheEngineAPI(t *testing.T) {
+	t.Parallel()
+
+	var api dockerAPI = newFakeAPI()
+	if _, ok := api.(interface {
+		ImagePull(context.Context, string, image.PullOptions) (io.ReadCloser, error)
+	}); ok {
+		t.Error("dockerAPI still exposes ImagePull; a pull through it sends no credentials")
+	}
+}
+
+// Without a puller the runner says so rather than quietly falling back to the
+// Engine API, which is the path that fails.
+func TestARunnerWithNoPullerRefusesToPull(t *testing.T) {
+	t.Parallel()
+
+	r := &Runner{API: newFakeAPI(), Out: io.Discard, Err: io.Discard}
+	err := r.EnsureImage(context.Background(), "nginx:stable-alpine")
+	if err == nil || !strings.Contains(err.Error(), "no puller") {
+		t.Errorf("EnsureImage = %v, want a refusal naming the missing puller", err)
 	}
 }

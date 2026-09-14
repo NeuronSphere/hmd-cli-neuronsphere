@@ -3,20 +3,24 @@ package controlplane
 import (
 	"context"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 // GUI image resolution, from environments.deployment_gui_image.
 const (
 	// GUIImageVersion is the version this CLI ships against. A plain pin,
 	// because the app is no longer a pre_build_artifacts entry -- it runs from
-	// its published image rather than its Helm chart.
-	GUIImageVersion = "0.1.74"
+	// its published image rather than its Helm chart. Neither org tags this
+	// image `stable`, so there is no floating alternative to pin to.
+	GUIImageVersion = "0.1.80"
 	// GUIRepoClass and GUIPublishedRegistry name the published image.
 	GUIRepoClass         = "hmd-app-neuronsphere"
 	GUIPublishedRegistry = "ghcr.io/hmdlabs"
 	// PublishedRegistryDefault is where every other NeuronSphere image is
-	// published.
-	PublishedRegistryDefault = "ghcr.io/neuronsphere"
+	// published. An alias for repoclass.PublishedRegistry, which is where it
+	// lives so internal/floci can reach it too.
+	PublishedRegistryDefault = repoclass.PublishedRegistry
 )
 
 // ImagePresent reports whether a ref is already in the host image cache.

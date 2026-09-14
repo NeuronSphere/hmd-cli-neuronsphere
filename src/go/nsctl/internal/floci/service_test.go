@@ -1,10 +1,13 @@
 package floci
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 func repoWith(t *testing.T, files map[string]string) string {
@@ -466,5 +469,88 @@ func TestLibrarianBucketNameIgnoresANonLibrarian(t *testing.T) {
 	}
 	if got := LibrarianBucketName(dir, "cp", Names{Region: "reg1", CustomerCode: "hmdtr1"}); got != "" {
 		t.Errorf("LibrarianBucketName = %q for a non-librarian, want the empty string", got)
+	}
+}
+
+// noEnv is a lookup with nothing set -- the fresh-install case.
+func noEnv(string) string { return "" }
+
+// nothingPublished is images_test.go's fake with every pull failing, which is
+// how a version that exists nowhere behaves.
+func nothingPublished() *fakeImages {
+	return &fakeImages{present: map[string]bool{}, failing: map[string]bool{}}
+}
+
+// A locally built image wins, and nothing is fetched. This is the iteration
+// loop: `hmd build` in a service's repo and restart.
+func TestServiceImagePrefersALocalBuild(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeImages{present: map[string]bool{"hmd-ms-naming:0.1.58": true}}
+	got, err := ServiceImage(context.Background(), f, "hmd-ms-naming", "0.1.58", noEnv)
+	if err != nil {
+		t.Fatalf("ServiceImage() error = %v", err)
+	}
+	if got != "hmd-ms-naming:0.1.58" {
+		t.Errorf("ServiceImage() = %q, want the local build", got)
+	}
+	if len(f.pulled) != 0 {
+		t.Errorf("pulled %v with a local image available", f.pulled)
+	}
+}
+
+// Nothing cached is the `brew install` case: no repositories, so `hmd build` is
+// advice the machine cannot take. Refusing here stopped a cold bootstrap three
+// services in, on images that are published.
+func TestServiceImagePullsThePublishedImage(t *testing.T) {
+	t.Parallel()
+
+	published := repoclass.PublishedRegistry + "/hmd-ms-naming:0.1.58"
+	f := &fakeImages{present: map[string]bool{}, failing: map[string]bool{}}
+	got, err := ServiceImage(context.Background(), f, "hmd-ms-naming", "0.1.58", noEnv)
+	if err != nil {
+		t.Fatalf("ServiceImage() error = %v", err)
+	}
+	if got != published {
+		t.Errorf("ServiceImage() = %q, want %q", got, published)
+	}
+}
+
+// An explicitly named registry is a statement about where images come from.
+// Serving a different one's image instead would be worse than saying what is
+// missing.
+func TestServiceImageDoesNotCrossAnExplicitRegistry(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeImages{present: map[string]bool{}, failing: map[string]bool{}}
+	lookup := func(k string) string {
+		if k == "HMD_CONTAINER_REGISTRY" {
+			return "my.registry"
+		}
+		return ""
+	}
+	if _, err := ServiceImage(context.Background(), f, "hmd-ms-naming", "0.1.58", lookup); err == nil {
+		t.Error("ServiceImage() succeeded across an explicitly named registry")
+	}
+	if len(f.pulled) != 0 {
+		t.Errorf("pulled %v despite an explicit registry", f.pulled)
+	}
+}
+
+// A version that exists nowhere is what the refusal was really written for, and
+// it still names both remedies.
+func TestServiceImageRefusesAVersionThatExistsNowhere(t *testing.T) {
+	t.Parallel()
+
+	f := nothingPublished()
+	f.failing[repoclass.PublishedRegistry+"/hmd-ms-naming:9.9.9"] = true
+	_, err := ServiceImage(context.Background(), f, "hmd-ms-naming", "9.9.9", noEnv)
+	if err == nil {
+		t.Fatal("ServiceImage() succeeded for a version that exists nowhere")
+	}
+	for _, want := range []string{"hmd-ms-naming", "9.9.9", "hmd build", "HMD_LOCAL_VERSION_HMD_MS_NAMING"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
 	}
 }

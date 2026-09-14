@@ -9,11 +9,22 @@ import (
 	"github.com/docker/docker/api/types/container"
 )
 
-// ownedBy builds an existing container labelled with a compose project, the way
+// ownedBy builds a *running* container labelled with a compose project, the way
 // a control plane started from another HMD_HOME leaves one.
 func ownedBy(project, home string) types.ContainerJSON {
+	c := stoppedOwnedBy(project, home)
+	c.State.Running = true
+	return c
+}
+
+// stoppedOwnedBy is the same container after `control-plane stop`: still
+// present, still holding the name, serving nothing.
+func stoppedOwnedBy(project, home string) types.ContainerJSON {
 	return types.ContainerJSON{
-		ContainerJSONBase: &types.ContainerJSONBase{ID: "id-" + project},
+		ContainerJSONBase: &types.ContainerJSONBase{
+			ID:    "id-" + project,
+			State: &types.ContainerState{},
+		},
 		Config: &container.Config{
 			Labels: map[string]string{LabelProject: project},
 			Env:    []string{"HMD_HOME=" + home, "OTHER=x"},
@@ -107,5 +118,38 @@ func TestAnInactiveProfilesContainerIsIgnored(t *testing.T) {
 	active := map[string]bool{"nsrunner": true}
 	if owners := CheckOwnership(context.Background(), api, ownershipProject(), active); len(owners) != 1 {
 		t.Errorf("with the runner enabled its container should conflict, got %v", owners)
+	}
+}
+
+// The refusal used to name a remedy that did not resolve it. `control-plane
+// stop` stops rather than removes, so the containers kept their names, the next
+// start refused again with the same message, and there was nothing left to try
+// short of `docker rm`. A stopped container is serving nothing; taking its name
+// costs its owner only what stopping already cost it.
+func TestAStoppedOwnersContainersAreNotAConflict(t *testing.T) {
+	t.Parallel()
+
+	api := newFakeAPI()
+	api.containers["hmd_proxy"] = stoppedOwnedBy("local_neuronsphere-99999999", "/Users/someone/other-home")
+	api.containers["floci"] = stoppedOwnedBy("local_neuronsphere-99999999", "/Users/someone/other-home")
+
+	if owners := CheckOwnership(context.Background(), api, ownershipProject(), nil); len(owners) != 0 {
+		t.Errorf("found %d owners for a stopped control plane, want 0: %v", len(owners), owners)
+	}
+}
+
+// One running container is still a conflict even when its siblings are stopped:
+// a platform mid-shutdown, or one whose proxy alone survived, is still a
+// platform this start would break.
+func TestOneRunningOwnerIsStillAConflict(t *testing.T) {
+	t.Parallel()
+
+	api := newFakeAPI()
+	api.containers["hmd_proxy"] = ownedBy("local_neuronsphere-99999999", "/Users/someone/other-home")
+	api.containers["floci"] = stoppedOwnedBy("local_neuronsphere-99999999", "/Users/someone/other-home")
+
+	owners := CheckOwnership(context.Background(), api, ownershipProject(), nil)
+	if len(owners) != 1 || owners[0].Container != "hmd_proxy" {
+		t.Errorf("owners = %v, want hmd_proxy alone", owners)
 	}
 }

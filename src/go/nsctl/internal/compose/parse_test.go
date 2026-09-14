@@ -174,18 +174,29 @@ func TestParseFlociAliasesAndHealthcheck(t *testing.T) {
 		t.Errorf("healthcheck timings = %+v", s.Healthcheck)
 	}
 
-	// The image pins Floci recreates its backend containers from. Getting these
-	// wrong fails a database with "database files are incompatible" and needs a
-	// purge, so they are worth asserting.
-	if got, want := s.Environment["FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE"], "ghcr.io/neuronsphere/hmd-postgres-base:stable"; got != want {
-		t.Errorf("RDS image = %q, want %q", got, want)
+	// The image references Floci recreates its backend containers from must
+	// come out fully interpolated -- a ${...} left in one is handed to Docker
+	// verbatim and fails as an invalid reference.
+	//
+	// Which registry and version they name is asserted in
+	// internal/controlplane's TestComposeImageDefaultsNameThePublishingRegistry,
+	// not here: this package's subject is interpolation, and pinning the
+	// current defaults in two files means every pin move has to be made twice.
+	for _, key := range []string{
+		"FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE",
+		"FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE",
+		"FLOCI_SERVICES_EKS_DEFAULT_IMAGE",
+	} {
+		got := s.Environment[key]
+		if got == "" || strings.Contains(got, "${") {
+			t.Errorf("%s = %q, want a fully interpolated reference", key, got)
+		}
 	}
-	if got, want := s.Environment["FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE"], "ghcr.io/neuronsphere/hmd-img-gremlin-server:0.3.5"; got != want {
-		t.Errorf("Neptune image = %q, want %q", got, want)
-	}
-	// The nested-default line.
-	if got, want := s.Environment["FLOCI_SERVICES_EKS_DEFAULT_IMAGE"], "ghcr.io/neuronsphere/hmd-img-k3s-floci:0.3.2"; got != want {
-		t.Errorf("k3s wrapper image = %q, want %q", got, want)
+	// The k3s line is the nested-default case: ${A:-${B:-literal}} with neither
+	// A nor B set has to fall through to the innermost literal, which is the
+	// only place in this file that shape appears.
+	if got, want := s.Environment["FLOCI_SERVICES_EKS_DEFAULT_IMAGE"], "/hmd-img-k3s-floci:0.3.2"; !strings.HasSuffix(got, want) {
+		t.Errorf("k3s wrapper image = %q, want the nested default to end %q", got, want)
 	}
 	if got, want := s.Environment["FLOCI_HOSTNAME"], "neuronsphere"; got != want {
 		t.Errorf("FLOCI_HOSTNAME = %q, want %q", got, want)

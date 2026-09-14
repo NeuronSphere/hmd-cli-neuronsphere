@@ -28,6 +28,8 @@ type dockerClient interface {
 	RemoveContainer(ctx context.Context, name string) error
 	RemoveVolumes(ctx context.Context, names ...string) error
 	VolumesMatching(ctx context.Context, prefix string) []string
+	DanglingVolumesMatching(ctx context.Context, prefix string) []string
+	ContainersWithLabelOnNetwork(ctx context.Context, key, value, network string) []string
 	RemoveNetwork(ctx context.Context, name string) error
 	Exec(ctx context.Context, name string, args ...string) ([]byte, error)
 }
@@ -308,23 +310,43 @@ func PurgeAll(ctx context.Context, opts *Options, cp ControlPlaneTeardown) error
 		}
 	}
 
-	// Every remaining Floci-spawned container, across every account. The
+	// Every remaining Floci-spawned container on *this platform's network*. The
 	// environment sweeps above cover the accounts the registry knows about;
 	// this covers the control plane's own Lambdas and anything an environment
 	// purged before this fix landed left behind. It runs before the volume
 	// sweep and the network removal because both of those fail behind a
 	// container still holding what they are trying to remove -- which is
 	// exactly how the first real run of this ended.
-	for _, name := range d.ContainersWithLabel(ctx, container.LabelFloci, "") {
+	//
+	// Scoped to the network, not merely to the Floci label. Accounts are
+	// allocated per registry and every HMD_HOME starts at 000000000001, so the
+	// account label cannot tell two platforms apart; the network can, because
+	// it carries the HMD_HOME hash. A label-only sweep removed another
+	// platform's containers -- and that, not the volume sweep, is what made its
+	// volumes dangling, so the dangling check below was necessary and on its
+	// own useless. Both were needed; only having one was found out by trying
+	// it.
+	for _, name := range d.ContainersWithLabelOnNetwork(ctx, container.LabelFloci, "", reg.ControlPlane.Network) {
 		removeContainers(ctx, opts, d, "Floci-spawned", name)
 	}
 
 	// A name sweep, after the fact, for the volumes an earlier purge -- or the
 	// Python's, which asks Floci after killing it -- could not reach. Floci's
-	// spawned volumes carry no account label, so the name is the only handle,
-	// and by this point every account is going anyway. Forty-nine of these had
-	// accumulated on one machine before anyone looked.
-	if stale := d.VolumesMatching(ctx, flociVolumePrefix); len(stale) > 0 {
+	// spawned volumes carry no account label, so the name is the only handle.
+	// Forty-nine of these had accumulated on one machine before anyone looked.
+	//
+	// Dangling only. This used to sweep every matching name, justified by "by
+	// this point every account is going anyway" -- true within one Floci, and
+	// false across HMD_HOMEs, because volume names are global to the daemon
+	// while the network, compose project and Floci data directory are all
+	// namespaced. A purge run from a throwaway HMD_HOME therefore destroyed a
+	// working platform's control-plane database, deployment graph and cluster
+	// datastores. It was not a near miss; it happened.
+	//
+	// This home's own volumes are dangling by now -- its containers were
+	// removed above -- so nothing this purge should collect is missed, while a
+	// volume another platform's container still holds is left alone.
+	if stale := d.DanglingVolumesMatching(ctx, flociVolumePrefix); len(stale) > 0 {
 		if err := d.RemoveVolumes(ctx, stale...); err != nil {
 			opts.warn("%v", err)
 		} else {

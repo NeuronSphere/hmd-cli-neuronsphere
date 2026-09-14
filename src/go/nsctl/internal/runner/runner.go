@@ -473,3 +473,41 @@ func (r *Runner) SetCSDStatus(ctx context.Context, csdNid, status string) {
 		r.warn("could not record the changeset deployment as %s: %v", status, err)
 	}
 }
+
+// ProjectBuilderDefaultRegistry and ProjectBuilderDefaultVersion are the image
+// every deploy node runs in, when nothing overrides it.
+//
+// hmdlabs, not neuronsphere: neuronsphere carried only the released subset and
+// has no projectbuilder at all, so the old default resolved nowhere and every
+// fresh install failed on the bootstrap's first node. An exact patch rather
+// than a floating tag because hmdlabs publishes no `stable` -- the tag the old
+// default asked for has never existed under either org -- and because "which
+// projectbuilder was this built against" should have an answer.
+//
+// 0.5.388 also carries hmd-lib-cdktf's 2026-09-08 path-style-S3 fix, which is
+// what an environment not named `local` needs in order to deploy at all.
+const (
+	ProjectBuilderDefaultRegistry = "ghcr.io/hmdlabs"
+	ProjectBuilderDefaultVersion  = "0.5.388"
+)
+
+// ProjectBuilderRef resolves the projectbuilder image from the environment.
+//
+// One implementation for all three callers -- the control plane, an
+// environment apply and the runner service. They had drifted into three copies
+// of the same eight lines, which is three places to miss when a default moves,
+// and the default has now moved.
+func ProjectBuilderRef(lookup func(string) string) string {
+	if lookup == nil {
+		lookup = func(string) string { return "" }
+	}
+	host := lookup("HMD_LOCAL_NS_CONTAINER_REGISTRY")
+	if host == "" {
+		host = ProjectBuilderDefaultRegistry
+	}
+	version := lookup("HMD_PROJECTBUILDER_VERSION")
+	if version == "" {
+		version = ProjectBuilderDefaultVersion
+	}
+	return host + "/hmd-img-projectbuilder:" + version
+}

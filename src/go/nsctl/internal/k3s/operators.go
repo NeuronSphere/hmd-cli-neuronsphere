@@ -315,8 +315,24 @@ func CoreDNSConfigMap(records []CoreDNSRecord) ([]byte, error) {
 //
 // The ConfigMap arrives as a mounted file rather than on stdin: `apply -f -`
 // has no equivalent when the caller is a script inside a container.
+//
+// The wait is for a race only a cold start reaches. k3s creates CoreDNS from an
+// addon manifest *after* the node goes Ready, and on a cluster the deploy has
+// just created this script can get there first -- `apply` succeeds, then
+// `rollout restart` fails with `deployments.apps "coredns" not found` and
+// `set -e` takes the whole step down. The records are on disk by then, so the
+// failure costs only the immediate reload, but it is reported as a warning
+// against a cluster that looks healthy, which is the least useful place to
+// learn about it. Waiting for the deployment to exist is the same shape as the
+// node-Ready wait above, for the same reason.
 const coreDNSScript = `set -eu
 kubectl apply -f "$STEP_DIR/coredns.yaml"
+i=0
+while [ "$i" -lt 60 ]; do
+  kubectl -n kube-system get deploy coredns >/dev/null 2>&1 && break
+  i=$((i+1))
+  sleep 2
+done
 kubectl -n kube-system rollout restart deploy coredns
 kubectl -n kube-system rollout status deploy coredns --timeout=60s
 `

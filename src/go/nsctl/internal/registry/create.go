@@ -23,6 +23,12 @@ func (e *AlreadyExistsError) Error() string {
 //
 // The caller must Save.
 func (r *Registry) NewEnvironment(home, name string, lookup Lookup) (*Environment, error) {
+	// Normalised here as Load and Environment do. portBase calls this
+	// unguarded, so a nil lookup used to panic rather than take the defaults it
+	// plainly means.
+	if lookup == nil {
+		lookup = func(string) string { return "" }
+	}
 	slug, err := ValidateSlug(name)
 	if err != nil {
 		return nil, err
@@ -96,4 +102,52 @@ func (r *Registry) RemoveEnvironment(name string, lookup Lookup) error {
 		}
 	}
 	return nil
+}
+
+// EnsureFirstEnvironment registers and persists an environment when this
+// registry holds none at all. It reports whether it created one.
+//
+// The name is the one asked for, or HMD_LOCAL_ENV, or DefaultEnv -- the same
+// order Environment resolves in, so `env start` and `env start <name>` create
+// exactly the environment they would then have gone looking for.
+//
+// The guard is `len(r.Environments) == 0` and nothing else. Environment's rule
+// that a missing environment is an error rather than a creation is there to
+// stop a typo becoming a second environment alongside the one that was meant;
+// with nothing registered there is no such hazard, and the alternative is a
+// fresh install that runs an entire control-plane bootstrap and then refuses,
+// with a fix the user could not have known to run first.
+//
+// Persisted here rather than left to the caller: an environment that exists in
+// memory and not on disk is one whose containers the next invocation cannot
+// name, and every caller would have to remember to Save.
+func (r *Registry) EnsureFirstEnvironment(home, name string, lookup Lookup) (*Environment, bool, error) {
+	if len(r.Environments) > 0 {
+		return nil, false, nil
+	}
+	if lookup == nil {
+		lookup = func(string) string { return "" }
+	}
+	if name == "" {
+		name = lookup("HMD_LOCAL_ENV")
+	}
+	if name == "" {
+		name = r.DefaultEnv
+	}
+	if name == "" {
+		name = DefaultEnvName
+	}
+
+	env, err := r.NewEnvironment(home, name, lookup)
+	if err != nil {
+		return nil, false, err
+	}
+	// NewEnvironment only fills DefaultEnv when it was empty. applyDefaults
+	// always sets it -- to `local` -- so on a synthesized registry it is
+	// already populated and would name an environment that does not exist.
+	r.DefaultEnv = env.Slug
+	if err := r.Save(home); err != nil {
+		return nil, false, err
+	}
+	return env, true, nil
 }

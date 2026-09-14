@@ -661,3 +661,131 @@ func TestSaveOnAnEmptyRegistry(t *testing.T) {
 		t.Error("Save should clear Synthesized")
 	}
 }
+
+func TestEnsureFirstEnvironmentRegistersOnAnEmptyRegistry(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, created, err := reg.EnsureFirstEnvironment(home, "", nil)
+	if err != nil {
+		t.Fatalf("EnsureFirstEnvironment() error = %v", err)
+	}
+	if !created {
+		t.Fatal("EnsureFirstEnvironment() created = false, want true")
+	}
+	if env.Slug != DefaultEnvName {
+		t.Errorf("slug = %q, want %q", env.Slug, DefaultEnvName)
+	}
+	if env.AccountID == ControlPlaneAccountID {
+		t.Errorf("account = %s, which is the control plane's", env.AccountID)
+	}
+
+	// Persisted, not just returned: an environment only this process knows
+	// about is one whose containers the next invocation cannot name.
+	reread, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.Synthesized {
+		t.Error("the registry was not written")
+	}
+	if _, ok := reread.Environments[DefaultEnvName]; !ok {
+		t.Errorf("environments = %v, want %q", reread.Names(), DefaultEnvName)
+	}
+	if reread.DefaultEnv != DefaultEnvName {
+		t.Errorf("DefaultEnv = %q, want %q", reread.DefaultEnv, DefaultEnvName)
+	}
+}
+
+func TestEnsureFirstEnvironmentHonoursAName(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Normalised through ValidateSlug, exactly as `env add` would have.
+	env, created, err := reg.EnsureFirstEnvironment(home, "Dev-1", nil)
+	if err != nil {
+		t.Fatalf("EnsureFirstEnvironment() error = %v", err)
+	}
+	if !created || env.Slug != "dev-1" {
+		t.Fatalf("EnsureFirstEnvironment() = %q, %v, want dev-1, true", env.Slug, created)
+	}
+	// DefaultEnv must follow, or the registry names a default that is not
+	// there -- applyDefaults always sets it to `local`, whatever was created.
+	if reg.DefaultEnv != "dev-1" {
+		t.Errorf("DefaultEnv = %q, want dev-1", reg.DefaultEnv)
+	}
+}
+
+func TestEnsureFirstEnvironmentPrefersHMDLocalEnv(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(k string) string {
+		if k == "HMD_LOCAL_ENV" {
+			return "scratch"
+		}
+		return ""
+	}
+	// The same order Environment resolves in, so `env start` creates exactly
+	// the environment it would then have gone looking for.
+	env, _, err := reg.EnsureFirstEnvironment(home, "", lookup)
+	if err != nil {
+		t.Fatalf("EnsureFirstEnvironment() error = %v", err)
+	}
+	if env.Slug != "scratch" {
+		t.Errorf("slug = %q, want scratch", env.Slug)
+	}
+}
+
+func TestEnsureFirstEnvironmentIsANoOpOnceAnyExists(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.NewEnvironment(home, "dev", nil); err != nil {
+		t.Fatal(err)
+	}
+	// A second name with one already registered is a typo, not a first run.
+	env, created, err := reg.EnsureFirstEnvironment(home, "prod", nil)
+	if err != nil {
+		t.Fatalf("EnsureFirstEnvironment() error = %v", err)
+	}
+	if created || env != nil {
+		t.Errorf("EnsureFirstEnvironment() = %v, %v, want nil, false", env, created)
+	}
+	if names := reg.Names(); len(names) != 1 {
+		t.Errorf("environments = %v, want dev alone", names)
+	}
+}
+
+func TestEnsureFirstEnvironmentRejectsABadName(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// `api` is a control-plane route: an environment there would swallow it.
+	if _, created, err := reg.EnsureFirstEnvironment(home, "api", nil); err == nil {
+		t.Errorf("EnsureFirstEnvironment(api) created = %v, want an error", created)
+	}
+	if _, err := os.Stat(Path(home)); err == nil {
+		t.Error("a rejected name still wrote the registry")
+	}
+}

@@ -462,3 +462,28 @@ func TestNoLegacyReleaseMeansNoWarning(t *testing.T) {
 		})
 	}
 }
+
+// The CoreDNS step has to survive a cluster that does not have CoreDNS yet.
+//
+// k3s creates it from an addon manifest after the node goes Ready, so on a
+// cluster a deploy has just created this script can arrive first: `apply`
+// succeeds, `rollout restart` fails with `deployments.apps "coredns" not
+// found`, and `set -e` takes the step down. A cold start hit exactly that.
+func TestTheCoreDNSScriptWaitsForTheDeploymentToExist(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(coreDNSScript, "get deploy coredns") {
+		t.Error("the script does not wait for the CoreDNS deployment to exist")
+	}
+	// The wait has to come before the restart, or it is not a wait.
+	wait := strings.Index(coreDNSScript, "get deploy coredns")
+	restart := strings.Index(coreDNSScript, "rollout restart")
+	if wait < 0 || restart < 0 || wait > restart {
+		t.Errorf("the wait does not precede the restart:\n%s", coreDNSScript)
+	}
+	// And it must not be the thing that fails: the probe is the loop's
+	// condition, not a command `set -e` can abort on.
+	if !strings.Contains(coreDNSScript, "get deploy coredns >/dev/null 2>&1 && break") {
+		t.Errorf("the existence probe is not guarded against set -e:\n%s", coreDNSScript)
+	}
+}

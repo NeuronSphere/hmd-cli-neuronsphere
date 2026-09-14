@@ -75,7 +75,12 @@ func newEnvStartCommand(opts *Options) *cobra.Command {
 
 The control plane is started first if it is down, and is left running
 afterwards -- stopping it would take every other environment's emulated AWS
-with it.`,
+with it.
+
+On an HMD_HOME with no environments registered this also registers the first
+one, so a new install needs this command and nothing before it. Once any
+environment exists a name that matches none of them is refused, because then it
+is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -87,6 +92,13 @@ with it.`,
 			var name string
 			if len(args) == 1 {
 				name = args[0]
+			}
+			// Which environment this is about, settled before anything starts:
+			// a fresh HMD_HOME gets its first one registered here, and a name
+			// that matches nothing is refused here rather than after the
+			// control-plane bootstrap has run.
+			if err := resolveStartTarget(cmd, opts, home, name); err != nil {
+				return err
 			}
 			// `env start` starts the control plane implicitly if it is down,
 			// and then leaves it running.
@@ -367,18 +379,8 @@ what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
 				return nserr.Wrap(nserr.Fail, err)
 			}
 
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Registered environment %q\n", env.Slug)
-			fmt.Fprintf(out, "  account:  %s\n", env.AccountID)
-			fmt.Fprintf(out, "  slot:     %d (Floci %d, Trino %d)\n",
-				env.PortSlot, env.FlociPort(), env.TrinoPort())
-			fmt.Fprintf(out, "  cluster:  %s\n", env.K3sCluster)
-			fmt.Fprintf(out, "  state:    %s\n", env.StateDir)
-			fmt.Fprintf(out, "\nStart it with `nsctl env start %s`.\n", env.Slug)
-			// Before the choice is acted on, not after it fails.
-			environment.WarnUndeployableSlug(func(format string, a ...any) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: "+format+"\n", a...)
-			}, env.Slug)
+			renderNewEnvironment(cmd, env)
+			fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
 			return nil
 		},
 	}
@@ -558,4 +560,55 @@ func confirmFullPurge(cmd *cobra.Command, opts *Options) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(line), "yes")
+}
+
+// renderNewEnvironment reports an environment that has just been registered,
+// with the derived names a later `docker ps` will show.
+//
+// Shared by `env add` and by `env start`'s first-run registration so the two
+// read identically: the same act deserves the same words whichever verb
+// performed it.
+func renderNewEnvironment(cmd *cobra.Command, env *registry.Environment) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Registered environment %q\n", env.Slug)
+	fmt.Fprintf(out, "  account:  %s\n", env.AccountID)
+	fmt.Fprintf(out, "  slot:     %d (Floci %d, Trino %d)\n",
+		env.PortSlot, env.FlociPort(), env.TrinoPort())
+	fmt.Fprintf(out, "  cluster:  %s\n", env.K3sCluster)
+	fmt.Fprintf(out, "  state:    %s\n", env.StateDir)
+	// Before the choice is acted on, not after it fails.
+	environment.WarnUndeployableSlug(func(format string, a ...any) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: "+format+"\n", a...)
+	}, env.Slug)
+}
+
+// resolveStartTarget settles which environment `env start` is about, before
+// anything is started.
+//
+// Two jobs, both of which have to happen ahead of the control plane. A fresh
+// HMD_HOME has no environments at all, and registering the first one here is
+// what makes `nsctl env start` a complete first run rather than a ten-minute
+// bootstrap followed by "create one with `nsctl env add local`". And a name
+// that does not match any registered environment is a typo whose cost should
+// be a line of output, not that same ten minutes -- the refusal used to arrive
+// after the bootstrap, because the registry was not consulted until the
+// environment's own start began.
+func resolveStartTarget(cmd *cobra.Command, opts *Options, home, name string) error {
+	reg, err := registry.Load(home, opts.Lookup)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	env, created, err := reg.EnsureFirstEnvironment(home, name, opts.Lookup)
+	if err != nil {
+		return nserr.Wrap(nserr.Usage, err)
+	}
+	if created {
+		renderNewEnvironment(cmd, env)
+		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
+	}
+	if _, err := reg.Environment(name, opts.Lookup); err != nil {
+		return nserr.Wrap(nserr.Usage, err)
+	}
+	return nil
 }

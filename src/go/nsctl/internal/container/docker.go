@@ -378,14 +378,7 @@ func (d *Docker) ContainerEnv(ctx context.Context, name string) map[string]strin
 	if err != nil {
 		return nil
 	}
-	env := map[string]string{}
-	for _, line := range strings.Split(out, "\n") {
-		key, value, found := strings.Cut(strings.TrimSpace(line), "=")
-		if found && key != "" {
-			env[key] = value
-		}
-	}
-	return env
+	return envMap(out)
 }
 
 // DefaultBridgeNetwork is Docker's built-in bridge, the one every container
@@ -585,11 +578,47 @@ func (d *Docker) RemoveNetwork(ctx context.Context, name string) error {
 // an account -- which is why the Python sweeps `floci-rds-` by name too. An
 // unreadable answer is an empty list, never a partial one presented as
 // complete.
+//
+// Every match, including volumes another platform is using. A caller that
+// intends to *delete* what it finds must use DanglingVolumesMatching instead --
+// see the scar recorded there.
 func (d *Docker) VolumesMatching(ctx context.Context, prefix string) []string {
+	return d.volumesMatching(ctx, prefix, false)
+}
+
+// DanglingVolumesMatching lists volumes whose name contains prefix and which no
+// container references.
+//
+// This is the only safe basis for a sweep that deletes. Floci volume names are
+// global to the Docker daemon and carry nothing identifying the HMD_HOME that
+// created them, while the network, compose project and Floci data directory are
+// all namespaced -- so a name-only sweep from one HMD_HOME matches every other
+// one's volumes too. `env purge` did exactly that and destroyed a working
+// platform's control-plane database, its deployment graph and its clusters'
+// datastores, from a throwaway HMD_HOME that had nothing to do with it. The
+// sweep's own comment said "by this point every account is going anyway", which
+// is true within one Floci and false across homes.
+//
+// Dangling is the right discriminator rather than a cleverer one: a volume no
+// container references is a genuine leftover, which is what the sweep was
+// written to collect, and a volume some other platform's container still holds
+// -- stopped or running -- is that platform's. The purging home's own volumes
+// are dangling by the time this runs, because its containers were removed
+// first, so nothing it should collect is missed.
+func (d *Docker) DanglingVolumesMatching(ctx context.Context, prefix string) []string {
+	return d.volumesMatching(ctx, prefix, true)
+}
+
+func (d *Docker) volumesMatching(ctx context.Context, prefix string, danglingOnly bool) []string {
 	if prefix == "" {
 		return nil
 	}
-	out, err := d.capture(ctx, "volume", "ls", "--filter", "name="+prefix, "--format", "{{.Name}}")
+	args := []string{"volume", "ls", "--filter", "name=" + prefix}
+	if danglingOnly {
+		args = append(args, "--filter", "dangling=true")
+	}
+	args = append(args, "--format", "{{.Name}}")
+	out, err := d.capture(ctx, args...)
 	if err != nil {
 		return nil
 	}
@@ -608,6 +637,23 @@ func (d *Docker) VolumesMatching(ctx context.Context, prefix string) []string {
 // Docker-generated name and nothing else ties it to the environment whose
 // deploy started it, so the label the runner sets is the only handle.
 func (d *Docker) ContainersWithLabel(ctx context.Context, key, value string) []string {
+	return d.ContainersWithLabelOnNetwork(ctx, key, value, "")
+}
+
+// ContainersWithLabelOnNetwork narrows that to one network.
+//
+// Which is what makes it safe to *remove* what it finds. Floci's spawned
+// containers carry an account label, but accounts are allocated per registry
+// and every HMD_HOME starts at 000000000001 -- so the label says nothing about
+// which platform a container belongs to. The network does: it is
+// `neuronsphere_default-<HMD_HOME hash>`, namespaced like the compose project
+// and the Floci data directory, and a stopped container keeps its attachment.
+//
+// A daemon-wide sweep by label alone removed another platform's containers,
+// which then dangled its volumes and let the volume sweep take those too. The
+// dangling check on that sweep is necessary and was not sufficient, because
+// this ran first and created exactly the condition it tests for.
+func (d *Docker) ContainersWithLabelOnNetwork(ctx context.Context, key, value, network string) []string {
 	if key == "" {
 		return nil
 	}
@@ -615,7 +661,12 @@ func (d *Docker) ContainersWithLabel(ctx context.Context, key, value string) []s
 	if value != "" {
 		filter = key + "=" + value
 	}
-	out, err := d.capture(ctx, "ps", "-a", "--filter", "label="+filter, "--format", "{{.Names}}")
+	args := []string{"ps", "-a", "--filter", "label=" + filter}
+	if network != "" {
+		args = append(args, "--filter", "network="+network)
+	}
+	args = append(args, "--format", "{{.Names}}")
+	out, err := d.capture(ctx, args...)
 	if err != nil {
 		return nil
 	}
@@ -626,4 +677,59 @@ func (d *Docker) ContainersWithLabel(ctx context.Context, key, value string) []s
 		}
 	}
 	return names
+}
+
+// ImageEnv is the environment an image declares.
+//
+// `image inspect` rather than the plain `inspect` ContainerEnv uses: the two
+// namespaces overlap, and plain inspect resolves a container first, so an image
+// sharing a name with a container would be read as the container. That matters
+// here because the caller is comparing an image's declared version against a
+// container's -- reading one when it meant the other would compare a thing to
+// itself and find no difference.
+func (d *Docker) ImageEnv(ctx context.Context, ref string) map[string]string {
+	if ref == "" {
+		return nil
+	}
+	out, err := d.capture(ctx, "image", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", ref)
+	if err != nil {
+		return nil
+	}
+	return envMap(out)
+}
+
+// VolumeUserImage is the image of a container that mounts a volume, or "" when
+// none does.
+//
+// That container is what initialised the volume's contents, which makes it both
+// the right image to read those contents with -- it is present locally by
+// definition, so reading costs no pull -- and the most useful thing to name in
+// an error: "pin this back" is a cheaper remedy to offer than "discard your
+// data".
+func (d *Docker) VolumeUserImage(ctx context.Context, volume string) string {
+	if volume == "" {
+		return ""
+	}
+	out, err := d.capture(ctx, "ps", "-a", "--filter", "volume="+volume, "--format", "{{.Image}}")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// envMap parses `docker inspect`'s rendered KEY=VALUE lines.
+func envMap(out string) map[string]string {
+	env := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), "=")
+		if found && key != "" {
+			env[key] = value
+		}
+	}
+	return env
 }

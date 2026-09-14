@@ -2,7 +2,6 @@ package environment
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 
@@ -376,15 +375,7 @@ func k3sEnabled(opts *Options) bool {
 
 // projectBuilderRef is the image every deploy node runs in.
 func projectBuilderRef(opts *Options) string {
-	registryHost := opts.lookup("HMD_LOCAL_NS_CONTAINER_REGISTRY")
-	if registryHost == "" {
-		registryHost = "ghcr.io/neuronsphere"
-	}
-	version := opts.lookup("HMD_PROJECTBUILDER_VERSION")
-	if version == "" {
-		version = "stable"
-	}
-	return fmt.Sprintf("%s/hmd-img-projectbuilder:%s", registryHost, version)
+	return runner.ProjectBuilderRef(opts.Lookup)
 }
 
 // splitSubstrate divides a plan's entries into the two changesets an apply

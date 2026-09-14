@@ -14,16 +14,33 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tools"
 )
 
-// ImagePresence reports whether an image reference is in the local cache.
+// ImagePresence reports whether an image reference is in the local cache, and
+// fetches one that is not.
 type ImagePresence interface {
 	ImagePresent(ctx context.Context, ref string) bool
+	PullImage(ctx context.Context, ref string) error
 }
 
 // ServiceImage finds the image to run a foundation service from.
 //
-// Local only, deliberately. Floci spawns Lambda containers through the mounted
-// host docker.sock, so any image in the host's cache is usable directly, and a
-// registry round trip would make a start depend on the network.
+// Local first, published second. Floci spawns Lambda containers through the
+// mounted host docker.sock, so any image in the host's cache is usable
+// directly; a locally built one therefore wins, which is what makes
+// `hmd build` in a service's own repo the whole iteration loop.
+//
+// This used to be local *only*, on the grounds that a registry round trip would
+// make a start depend on the network. That is true of a warm start and false of
+// the one it mattered for: a cold start already pulls nginx, Floci, the GUI,
+// the gremlin server, the k3s wrapper and the projectbuilder before it gets
+// here. What the rule actually did was stop a machine with no repositories --
+// a `brew install` of nsctl, which is the case this CLI exists to serve --
+// from ever bootstrapping, three services into the control plane, with advice
+// (`hmd build` in that repo) that such a machine cannot take. The three
+// foundation services are published; nothing was gained by refusing to fetch
+// them.
+//
+// The refusal survives for what it was really written for: a version that
+// exists nowhere, local or published.
 func ServiceImage(ctx context.Context, d ImagePresence, repoClass, version string, lookup func(string) string) (string, error) {
 	var candidates []string
 	for _, key := range []string{"HMD_CONTAINER_REGISTRY", "HMD_LOCAL_NS_CONTAINER_REGISTRY"} {
@@ -38,8 +55,21 @@ func ServiceImage(ctx context.Context, d ImagePresence, repoClass, version strin
 			return ref, nil
 		}
 	}
+
+	// Nothing cached. Try the published image before giving up -- but only if
+	// no explicit registry was named: a caller who set HMD_CONTAINER_REGISTRY
+	// meant that registry, and silently serving a different one's image is a
+	// worse outcome than saying what is missing.
+	published := repoclass.PublishedRegistry + "/" + repoClass + ":" + version
+	if lookup("HMD_CONTAINER_REGISTRY") == "" && lookup("HMD_LOCAL_NS_CONTAINER_REGISTRY") == "" {
+		if err := d.PullImage(ctx, published); err == nil {
+			return published, nil
+		}
+		candidates = append(candidates, published)
+	}
+
 	return "", fmt.Errorf(
-		"no local image for %s@%s (looked for %v). Build it with `hmd build` in that repo, or set %s to a version you have",
+		"no image for %s@%s (looked for %v). Build it with `hmd build` in that repo, or set %s to a version you have",
 		repoClass, version, candidates, repoclass.VersionEnvVar(repoClass))
 }
 

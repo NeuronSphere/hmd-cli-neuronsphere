@@ -263,3 +263,13 @@ func (r *Resolver) Resolve(repoClass, declared string) (string, map[string]any, 
 	}
 	return resolution.Version, manifest.Deploy.Dependencies, manifest.Deploy.DefaultConfiguration, nil
 }
+
+// PublishedRegistry is where a repo class's built image is published.
+//
+// ghcr.io/hmdlabs, not ghcr.io/neuronsphere: the latter mirrored only the
+// released subset and has gone stale. It lives here rather than in
+// internal/controlplane because both the control plane and internal/floci
+// resolve images against it, and both already depend on this package -- a
+// second copy is a second place to miss when it moves, which is how the old
+// default came to name tags that existed nowhere.
+const PublishedRegistry = "ghcr.io/hmdlabs"

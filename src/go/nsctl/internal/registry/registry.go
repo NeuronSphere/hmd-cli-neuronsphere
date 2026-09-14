@@ -409,7 +409,11 @@ func (r *Registry) Names() []string {
 // registry default.
 //
 // A missing environment is an error, never a creation: `env add` is an explicit
-// action, not a side effect of a typo.
+// action, not a side effect of a typo. What makes that the right rule is that
+// something else is registered -- creating `dveelop` because `develop` was
+// misspelt is worse than refusing. On a registry holding nothing at all there
+// is no typo to protect against and nothing to be confused with, which is why
+// EnsureFirstEnvironment exists and why it is the only exception.
 func (r *Registry) Environment(name string, lookup Lookup) (*Environment, error) {
 	if lookup == nil {
 		lookup = func(string) string { return "" }

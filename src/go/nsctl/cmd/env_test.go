@@ -236,3 +236,100 @@ func TestRenderControlPlaneStatusOmitsAnEmptyHandbackSection(t *testing.T) {
 		t.Errorf("an empty handback section was rendered:\n%s", buf.String())
 	}
 }
+
+// startTarget exercises the resolution `env start` performs before it starts
+// anything, which is the whole point of the function: it runs ahead of the
+// control plane so a first run registers and a typo refuses, both without
+// Docker.
+//
+// Called directly rather than through `env start`. Driving the command would
+// mean that a regression in the ordering this asserts does not fail the test --
+// it starts a real control plane, on whatever machine is running the suite.
+func startTarget(t *testing.T, home, name string) (string, string, error) {
+	t.Helper()
+	root := NewRootCommand("test", func(string) string { return "" })
+	var out, errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+
+	opts := &Options{Version: "test"}
+	opts.resolve(home, func(string) string { return "" }, func(string) {})
+	err := resolveStartTarget(root, opts, home, name)
+	return out.String(), errOut.String(), err
+}
+
+// An unknown name used to be refused by environment.Start -- after the control
+// plane had been bootstrapped, which on a cold machine is ten minutes. It is a
+// typo; it should cost a line.
+func TestEnvStartRefusesAnUnknownNameBeforeStartingAnything(t *testing.T) {
+	t.Parallel()
+
+	home := registryHome(t, twoEnvRegistry)
+	_, _, err := startTarget(t, home, "nosuchenv")
+	if err == nil {
+		t.Fatal("env start <unknown> succeeded, want a refusal")
+	}
+	if got := nserr.CodeOf(err); got != nserr.Usage {
+		t.Errorf("code = %d, want %d (usage)", got, nserr.Usage)
+	}
+	// Naming what does exist is what makes a typo one line from fixed.
+	for _, want := range []string{"nosuchenv", "local", "dev"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// A name that is registered resolves and creates nothing.
+func TestEnvStartAcceptsARegisteredName(t *testing.T) {
+	t.Parallel()
+
+	home := registryHome(t, twoEnvRegistry)
+	out, _, err := startTarget(t, home, "dev")
+	if err != nil {
+		t.Fatalf("env start dev = %v, want nil", err)
+	}
+	if strings.Contains(out, "Registered environment") {
+		t.Errorf("an existing environment was re-registered:\n%s", out)
+	}
+}
+
+// The empty registry is the one case that is not a typo, because there is
+// nothing to have mistyped.
+func TestEnvStartRegistersTheFirstEnvironment(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	out, _, err := startTarget(t, home, "")
+	if err != nil {
+		t.Fatalf("env start on an empty home = %v, want nil", err)
+	}
+	if !strings.Contains(out, "Registered environment") {
+		t.Errorf("output does not report the registration:\n%s", out)
+	}
+
+	reg := loadReg(t, home)
+	if _, ok := reg.Environments[registry.DefaultEnvName]; !ok {
+		t.Errorf("environments = %v, want %q", reg.Names(), registry.DefaultEnvName)
+	}
+	if reg.DefaultEnv != registry.DefaultEnvName {
+		t.Errorf("DefaultEnv = %q, want %q", reg.DefaultEnv, registry.DefaultEnvName)
+	}
+}
+
+// A named first run creates that name, not the default.
+func TestEnvStartRegistersTheNameItWasGiven(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	if _, _, err := startTarget(t, home, "scratch"); err != nil {
+		t.Fatalf("env start scratch = %v, want nil", err)
+	}
+	reg := loadReg(t, home)
+	if _, ok := reg.Environments["scratch"]; !ok {
+		t.Errorf("environments = %v, want scratch", reg.Names())
+	}
+	if reg.DefaultEnv != "scratch" {
+		t.Errorf("DefaultEnv = %q, want scratch", reg.DefaultEnv)
+	}
+}

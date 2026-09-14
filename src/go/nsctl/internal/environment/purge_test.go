@@ -42,6 +42,9 @@ type fakeDocker struct {
 	floci      map[string]string
 	labelled   map[string][]string
 	volumes    []string
+	// attached are volumes some container still holds. They are another
+	// platform's, and a sweep must not take them.
+	attached map[string]bool
 }
 
 func (f *fakeDocker) ContainerNames(context.Context) map[string]bool { return f.containers }
@@ -54,9 +57,22 @@ func (f *fakeDocker) FlociContainer(_ context.Context, service, _, resource stri
 // different label queries and a fake that answers them all identically would
 // let the Floci sweep pass while querying the projectbuilder label.
 func (f *fakeDocker) ContainersWithLabel(_ context.Context, key, value string) []string {
+	return f.ContainersWithLabelOnNetwork(context.Background(), key, value, "")
+}
+
+// Keyed by "<filter>@<network>" when a network is named, so a test can give one
+// platform's containers and another's different answers -- which is the whole
+// point of the narrowing.
+func (f *fakeDocker) ContainersWithLabelOnNetwork(_ context.Context, key, value, network string) []string {
 	filter := key
 	if value != "" {
 		filter = key + "=" + value
+	}
+	if network != "" {
+		if named, ok := f.labelled[filter+"@"+network]; ok {
+			return named
+		}
+		return nil
 	}
 	return f.labelled[filter]
 }
@@ -69,6 +85,16 @@ func (f *fakeDocker) RemoveVolumes(_ context.Context, names ...string) error {
 	return nil
 }
 func (f *fakeDocker) VolumesMatching(context.Context, string) []string { return f.volumes }
+
+func (f *fakeDocker) DanglingVolumesMatching(context.Context, string) []string {
+	var out []string
+	for _, v := range f.volumes {
+		if !f.attached[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 func (f *fakeDocker) RemoveNetwork(_ context.Context, name string) error {
 	f.rec.log("rm network %s", name)
 	return nil
@@ -293,10 +319,13 @@ func TestTheFlociSweepRunsBeforeTheVolumeAndNetworkRemovals(t *testing.T) {
 	rec := &recorder{}
 	home := purgeHome(t, map[string]registry.Environment{})
 	withFakes(t, rec, &fakeDocker{
-		rec:      rec,
-		floci:    map[string]string{},
-		volumes:  []string{"floci-rds-x"},
-		labelled: map[string][]string{container.LabelFloci: {"floci-ecr-registry"}},
+		rec:     rec,
+		floci:   map[string]string{},
+		volumes: []string{"floci-rds-x"},
+		// Keyed by network: the sweep asks only about this platform's.
+		labelled: map[string][]string{
+			container.LabelFloci + "@neuronsphere_default-abc12345": {"floci-ecr-registry"},
+		},
 	})
 
 	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
@@ -327,5 +356,62 @@ func TestTheFlociSweepRunsBeforeTheVolumeAndNetworkRemovals(t *testing.T) {
 		if at < swept {
 			t.Errorf("%q ran before the Floci sweep, so it fails behind whatever the sweep would have removed", after)
 		}
+	}
+}
+
+// A purge must not take another HMD_HOME's containers or volumes.
+//
+// Two scopes, and the first attempt at this fixed only the second. Floci volume
+// names are global to the daemon and carry nothing naming the HMD_HOME that
+// created them, so the leftover sweep matched every platform's -- that is the
+// dangling check. But the container sweep ahead of it matched every Floci-
+// labelled container on the daemon, because accounts are allocated per registry
+// and both platforms start at 000000000001, so it removed the other platform's
+// containers *and thereby dangled its volumes*, and the dangling check then
+// let them through. Scoping the container sweep to this platform's network --
+// the one identifier that does carry the HMD_HOME hash -- is what makes the
+// dangling check mean anything.
+//
+// A purge run from a throwaway HMD_HOME destroyed a working platform's
+// control-plane database, its deployment graph and its clusters' datastores.
+// This is that, pinned at both layers.
+func TestThePurgeLeavesAnotherPlatformsContainersAndVolumesAlone(t *testing.T) {
+	rec := &recorder{}
+	home := purgeHome(t, map[string]registry.Environment{})
+	ours := "neuronsphere_default-abc12345"
+	withFakes(t, rec, &fakeDocker{
+		rec:   rec,
+		floci: map[string]string{},
+		labelled: map[string][]string{
+			// Only ours answers for our network. Theirs is on another one and
+			// must never be asked for, let alone removed.
+			container.LabelFloci + "@" + ours: {"floci-ours"},
+			container.LabelFloci:              {"floci-ours", "floci-theirs"},
+		},
+		volumes: []string{"floci-rds-db-ours", "floci-rds-db-theirs"},
+		// Still held by the other platform's container, stopped or running.
+		attached: map[string]bool{"floci-rds-db-theirs": true},
+	})
+
+	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
+	if err := PurgeAll(context.Background(), opts, ControlPlaneTeardown{
+		GraphIdentifier: "cp-graph",
+		Stop:            func(context.Context) error { return nil },
+	}); err != nil {
+		t.Fatalf("PurgeAll() error = %v", err)
+	}
+
+	all := strings.Join(rec.calls, "\n")
+	if !strings.Contains(all, "rm container floci-ours") {
+		t.Errorf("the purge did not remove its own container:\n%s", all)
+	}
+	if strings.Contains(all, "floci-theirs") {
+		t.Errorf("the purge touched another platform's container:\n%s", all)
+	}
+	if !strings.Contains(all, "floci-rds-db-ours") {
+		t.Errorf("the purge did not collect its own leftover volume:\n%s", all)
+	}
+	if strings.Contains(all, "floci-rds-db-theirs") {
+		t.Errorf("the purge took another platform's volume:\n%s", all)
 	}
 }

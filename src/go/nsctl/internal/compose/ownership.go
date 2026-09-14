@@ -39,6 +39,15 @@ func (o Owner) String() string {
 // SPEC014 recorded the collision and noted that nothing detected it. This is
 // the detection. It does not fix the collision -- see the SPEC.
 //
+// Only *running* containers count. The hazard is taking a working platform's
+// proxy away from it mid-flight; a stopped container is serving nothing, and
+// recreating it costs its owner only what it has already given up. Counting
+// stopped ones made the refusal name a remedy that did not work: `control-plane
+// stop` stops rather than removes, so doing exactly what the message said left
+// the names held and the next start refused again, with nothing further to try
+// short of `docker rm`. Two HMD_HOMEs still cannot run at once -- they still
+// cannot share the names -- but they can now take turns.
+//
 // A container that cannot be inspected is *unknown*, not a conflict. This
 // decides whether to refuse, so a daemon hiccup must not invent an owner; the
 // same doctrine the container package's ImageOf and InspectState state.
@@ -63,6 +72,9 @@ func CheckOwnership(ctx context.Context, api dockerAPI, p *Project, active map[s
 		// HMD_HOME's either, and upService's hash comparison already handles
 		// it the way it always has.
 		if owner == "" || owner == p.Name {
+			continue
+		}
+		if existing.State == nil || !existing.State.Running {
 			continue
 		}
 		owners = append(owners, Owner{Container: name, Project: owner, Home: envValue(existing.Config.Env, "HMD_HOME")})
