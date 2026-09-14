@@ -30,6 +30,11 @@ type Server struct {
 	now   func() time.Time
 	mu    sync.Mutex
 	codes map[string]pendingAuth
+	// devices holds issued device codes awaiting approval, beside the
+	// authorization codes and under the same mutex.
+	devices map[string]pendingDevice
+	// refresh holds issued refresh tokens, same again.
+	refresh map[string]pendingRefresh
 }
 
 // pendingAuth is an issued authorization code awaiting exchange.
@@ -46,10 +51,12 @@ const codeLifetime = 5 * time.Minute
 // NewServer builds a server signing with key and issuing under issuer.
 func NewServer(issuer string, key *Key) *Server {
 	return &Server{
-		Issuer: strings.TrimSuffix(issuer, "/"),
-		key:    key,
-		now:    time.Now,
-		codes:  map[string]pendingAuth{},
+		Issuer:  strings.TrimSuffix(issuer, "/"),
+		key:     key,
+		now:     time.Now,
+		codes:   map[string]pendingAuth{},
+		devices: map[string]pendingDevice{},
+		refresh: map[string]pendingRefresh{},
 	}
 }
 
@@ -71,6 +78,12 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET "+prefix+"/v1/authorize", s.authorize(name))
 		mux.HandleFunc("POST "+prefix+"/v1/authorize", s.authorizeSubmit(name))
 		mux.HandleFunc("GET "+prefix+"/v1/userinfo", s.userinfo)
+		// RFC 8628. /v1/device/authorize is where the CLI asks for a code;
+		// /v1/device is where the person approves it, and is the URL printed
+		// on the terminal, so it is deliberately the shorter of the two.
+		mux.HandleFunc("POST "+prefix+"/v1/device/authorize", s.deviceAuthorize(name))
+		mux.HandleFunc("GET "+prefix+"/v1/device", s.deviceVerify(name))
+		mux.HandleFunc("POST "+prefix+"/v1/device", s.deviceApprove(name))
 	}
 	// Not an Okta endpoint. This is the token vending machine the exercise is
 	// for: a test asks for a claim set and gets a token, with no browser and no
@@ -87,13 +100,16 @@ func (s *Server) metadata(server string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		issuer := IssuerFor(s.Issuer, server)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"issuer":                                issuer,
-			"authorization_endpoint":                issuer + "/v1/authorize",
-			"token_endpoint":                        issuer + "/v1/token",
-			"userinfo_endpoint":                     issuer + "/v1/userinfo",
-			"jwks_uri":                              issuer + "/v1/keys",
-			"response_types_supported":              []string{"code"},
-			"grant_types_supported":                 []string{"authorization_code", "client_credentials", "refresh_token"},
+			"issuer":                        issuer,
+			"authorization_endpoint":        issuer + "/v1/authorize",
+			"token_endpoint":                issuer + "/v1/token",
+			"userinfo_endpoint":             issuer + "/v1/userinfo",
+			"jwks_uri":                      issuer + "/v1/keys",
+			"device_authorization_endpoint": issuer + "/v1/device/authorize",
+			"response_types_supported":      []string{"code"},
+			"grant_types_supported": []string{
+				"authorization_code", "client_credentials", "refresh_token", DeviceGrantType,
+			},
 			"subject_types_supported":               []string{"public"},
 			"id_token_signing_alg_values_supported": []string{"RS256"},
 			"scopes_supported":                      []string{"openid", "email", "profile", "groups", "offline_access"},
@@ -143,9 +159,14 @@ func (s *Server) token(server string) http.HandlerFunc {
 				return
 			}
 			s.issue(w, server, pending.request, pending.nonce)
+		case DeviceGrantType:
+			s.deviceToken(w, server, r)
+		case "refresh_token":
+			s.refreshGrant(w, server, r)
 		default:
 			oauthError(w, http.StatusBadRequest, "unsupported_grant_type",
-				fmt.Sprintf("%q is not supported; use client_credentials or authorization_code", grant))
+				fmt.Sprintf("%q is not supported; use client_credentials, authorization_code or %s",
+					grant, DeviceGrantType))
 		}
 	}
 }
@@ -179,13 +200,20 @@ func (s *Server) issue(w http.ResponseWriter, server string, req Request, nonce 
 		oauthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	body := map[string]any{
 		"token_type":   "Bearer",
 		"expires_in":   int(DefaultLifetime.Seconds()),
 		"access_token": access,
 		"id_token":     idToken,
 		"scope":        strings.Join(req.Scopes, " "),
-	})
+	}
+	// Only when asked for. A service on client_credentials already holds its
+	// own credentials, and a refresh token it never wanted is a long-lived
+	// secret nobody agreed to look after.
+	if wantsOfflineAccess(req.Scopes) {
+		body["refresh_token"] = s.storeRefresh(req)
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // authorize renders the sign-in form.

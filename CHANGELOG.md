@@ -2,6 +2,101 @@
 
 ## 2026-09-14
 
+- feat: sign in from the CLI with `nsctl login`
+
+  `nsctl` could authenticate to nothing. The only login in the platform was the
+  Python `hmd-cli-login`, whose shape is wrong for a CLI a new user has just
+  installed: it is authorization-code plus PKCE through a Flask server on
+  `localhost:8082`, signalled back by watching the token file's mtime for sixty
+  seconds — so it needs a browser on the same host and works neither over SSH
+  nor in a container. It also requires `HMD_NS_ISSUER` and `HMD_NS_CLIENT_ID` in
+  `hmd.env` before the first command, and `hmd configure` — the command whose
+  job is to write that file — never prompts for either. And it cannot refresh:
+  the Okta app is provisioned without the grant and the flow never asks for
+  `offline_access`, so every hour the browser dance repeats.
+
+  `nsctl login` is the **OAuth 2.0 device authorization grant** (RFC 8628)
+  against an endpoint found by OIDC discovery. It prints a code and a URL and
+  polls; the browser can be on another machine or absent entirely. The endpoint
+  comes from one key in `$HMD_HOME/.config/nsctl.toml`, which nsctl offers to
+  write on a terminal and refuses with exit 2 without one — naming the path and
+  printing the two lines to paste. Profiles are named, because an existing
+  customer with two admin accounts needs more than one endpoint.
+
+  **The user's machine carries no client secret.** It may carry a public
+  `client_id`, which the device grant makes public by design. Where `auth_url`
+  points is not the client's concern: a customer's own Okta or Auth0 issuer, the
+  local mock, or anything else presenting the same endpoints — nsctl cannot tell
+  them apart, and a release build may carry a default endpoint linked in with
+  `-X ...logincfg.DefaultAuthURL=`, so an installed binary can sign in having
+  read no configuration at all. No build sets it yet, so today it refuses and
+  says what to write. `NERD008` SPEC009 records which population each of those
+  serves.
+
+  **The token extends `$HMD_HOME/.cache/tokens.yaml` rather than reshaping it.**
+  That file is read by roughly forty Python packages through
+  `hmd_cli_tools.okta_tools.get_auth_token` and reimplemented in Go by
+  `internal/librarian`, all of which take `data["login"]["access_token"]`. The
+  new fields — `refresh_token`, `expires_at`, `issuer`, `profile` — sit inside
+  `login:`, where both readers ignore them, so authenticated artifact pulls
+  start working in Go and Python alike and a golden test fails loudly if that
+  ever stops being true. It is written `0600` through a temp-and-rename; the
+  Python writer sets no mode, so the bearer token has been landing `0644`.
+
+  `nsctl login` against a valid credential says so and does nothing; against an
+  expired one it renews from the refresh token and never opens a browser.
+  `nsctl whoami` decodes what is cached — and says it is decoded, not verified.
+
+- feat: `nsctl authd` implements the device grant, and the refresh grant it had
+  been advertising
+
+  The mock identity provider gains `/v1/device/authorize`, a verification page,
+  and the `device_code` grant, so the whole login flow is exercised by
+  `make check` with no cloud, no credentials, no network and no Docker — the
+  real client driving the real server in process. The verification page renders
+  the *same* claims-choosing form the redirect flow uses: the groups decide
+  every Rego decision, so a device path that logged in a fixed user would be
+  testing something else.
+
+  While wiring it up: the discovery document has listed `refresh_token` in
+  `grant_types_supported` since this server's first version, and the token
+  endpoint answered it with `unsupported_grant_type`. Nothing local held a
+  refresh token, so nobody had found out. It is implemented now — issued when
+  `offline_access` is requested, rotated and single use — which is what lets the
+  renewal path above be proven against the mock rather than against a stub.
+
+- docs: withdraw NERD008's admin-account broker
+
+  SPEC007 specified a service in the customer's admin account presenting the RFC
+  endpoints and holding the client registration. It is withdrawn:
+  `hmd-ms-identity` stays out of the authentication path and fronts user
+  management only (`hmd-ms-identity` NERD001), so `auth_url` names the
+  customer's own provider.
+
+  **No client code changed**, which is the property the indirection was drawn
+  for. Two things in the original reasoning were wrong and are recorded rather
+  than left to be re-derived: "the broker holds the client secret" was never the
+  real justification, since the device grant is a public-client flow needing no
+  secret; and the Okta gap was overstated — `HmdOktaClient.create_pkce_application`
+  already registers a native application, so the real gap is the narrower one
+  that `Okta.oauth_native_app` is unimplemented in `hmd-lib-cdktf-factories`
+  while `Auth0` implements it. Until that is fixed an enterprise Okta customer
+  provisions the application by hand.
+
+  A broker could be revived with no client change, but would have to mint its
+  own tokens rather than relay: publishing `issuer: <broker>` while returning
+  the provider's tokens, which carry `iss: <provider>`, satisfies neither
+  RFC 8414 nor `hmd_lib_auth.verify_token`.
+
+- fix: `/dev/null` was mistaken for a terminal
+
+  Found by running `nsctl login < /dev/null`, which is how a script says there
+  is nobody here: it printed the prompt and *then* refused. `/dev/null` is a
+  character device on every Unix, so a check for `os.ModeCharDevice` is true for
+  it. The check asks the kernel for terminal attributes now
+  (`golang.org/x/term`), which `/dev/null` does not have. The exit code was
+  always right; the prompt in a CI log reads like a hang.
+
 - fix: make a fresh install actually start
 
   Five defects, found by doing the thing the README promises: a new `HMD_HOME`

@@ -60,7 +60,7 @@ func (e *Error) Error() string {
 	}
 	msg := fmt.Sprintf("%s: HTTP %d: %s", e.Operation, e.Status, body)
 	if e.Unauthorized() {
-		msg += "\n  the credential was rejected; run `hmd login`, or set " + APIKeyEnv
+		msg += "\n  the credential was rejected; run `nsctl login` or `hmd login`, or set " + APIKeyEnv
 	}
 	return msg
 }
@@ -126,7 +126,7 @@ func New(cfg Config) (*Client, error) {
 		token:  authToken(lookup, home),
 	}
 	if c.apiKey == "" && c.token == "" {
-		return nil, fmt.Errorf("%w: set %s, or run `hmd login` to cache one in %s",
+		return nil, fmt.Errorf("%w: set %s, or run `nsctl login` to cache one in %s",
 			ErrNoCredentials, APIKeyEnv, filepath.Join(homeOrPlaceholder(home), TokenRelPath))
 	}
 	return c, nil

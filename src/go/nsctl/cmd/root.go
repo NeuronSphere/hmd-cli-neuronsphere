@@ -128,6 +128,9 @@ above that is a RepoClass you add.`,
 		newControlPlaneCommand(opts),
 		newRunnerCommand(opts),
 		newAuthdCommand(opts),
+		newLoginCommand(opts),
+		newLogoutCommand(opts),
+		newWhoamiCommand(opts),
 		newVersionCommand(opts),
 	)
 

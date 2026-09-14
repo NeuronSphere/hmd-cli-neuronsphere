@@ -222,10 +222,110 @@ Commands
      - What the manifest declares, beside what the graph has deployed.
    * - ``nsctl repo import``
      - Write the environment's deployed instances into its manifest.
+   * - ``nsctl login``
+     - Sign in with the device authorization grant. See `Signing in`_.
+   * - ``nsctl logout`` / ``nsctl whoami``
+     - Discard the cached credential; show what it says about you.
 
 ``--home`` overrides ``HMD_HOME`` on any command. Exit codes are ``0`` success,
 ``1`` error, ``2`` invalid usage or refused precondition, ``3`` refused because
 something is in use, ``4`` a deploy node failed.
+
+Signing in
+----------
+
+``nsctl login`` authenticates through the **OAuth 2.0 device authorization
+grant** (RFC 8628). It prints a code and a URL; you open the URL in whatever
+browser you have, on whatever machine you have, and type the code:
+
+.. code-block:: console
+
+    $ nsctl login
+
+      Open:  https://auth-aaa-us-west-2.acme-admin-neuronsphere.io/oauth2/ns/v1/device
+      Code:  MYWM-PPFD
+
+    Waiting for you to finish signing in...
+    Signed in as alice, until Mon, 14 Sep 2026 19:00:37 EDT.
+
+Nothing binds a port on this machine and nothing needs a browser on it, so this
+works over SSH and inside a container -- which the Python ``hmd login`` cannot
+do, since it runs a server on ``localhost:8082`` and opens a browser at it.
+``--no-browser`` skips the attempt to open one; the URL is printed either way.
+
+Where the endpoint comes from
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``$HMD_HOME/.config/nsctl.toml``, one table per profile:
+
+.. code-block:: toml
+
+    default_profile = "acme"
+
+    [profile.acme]
+    auth_url = "https://auth-aaa-us-west-2.acme-admin-neuronsphere.io/oauth2/ns"
+
+``auth_url`` is the only required key, and it is the **issuer** rather than a
+hostname: discovery is fetched from ``{auth_url}/.well-known/...``, and an
+authorization server lives at a path. It names your identity provider's own
+issuer -- an Okta authorization server, an Auth0 tenant, or the local mock.
+
+``client_id`` is optional here and needed in practice against a real provider,
+which registers its own applications and rejects a client it does not know. It
+is not a secret: the device grant is a public-client flow, and there is no
+client secret to configure anywhere.
+
+With no configuration and a terminal to answer, ``nsctl login`` asks for the URL
+once and writes the file. With no terminal -- in CI, or under
+``< /dev/null`` -- it refuses with exit ``2`` and prints the two lines to write.
+A file that exists and does not parse is an error naming the line, and is never
+silently replaced.
+
+A build may also carry a default endpoint, linked in at build time and appearing
+as a profile named ``neuronsphere``; where one is present, ``nsctl login`` needs
+no configuration at all, and a ``[profile.neuronsphere]`` table in your own file
+replaces it. No published build sets one yet.
+
+``--profile`` selects one; ``--auth-url`` overrides the file for a single run,
+and with ``--save`` writes the profile, so a scripted install can pass the URL
+once and never author TOML.
+
+Staying signed in
+~~~~~~~~~~~~~~~~~
+
+Profiles request ``offline_access`` by default, so the server issues a refresh
+token. ``nsctl login`` against a credential that is still valid says so and does
+nothing; against an expired one it renews silently and never opens a browser.
+Only when there is no refresh token, or the server rejects it, is a sign-in
+needed again.
+
+Where the token goes
+~~~~~~~~~~~~~~~~~~~~
+
+``$HMD_HOME/.cache/tokens.yaml``, at mode ``0600`` -- the same file the Python
+``hmd login`` writes and every HMD tool reads, so signing in with either front
+end authenticates both. The new fields (``refresh_token``, ``expires_at``,
+``issuer``, ``profile``) sit inside the existing ``login:`` mapping, where
+readers that want only ``login.access_token`` ignore them.
+
+Trying it against the local mock
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``nsctl authd`` implements the grant, so the whole flow runs with no cloud and
+no credentials:
+
+.. code-block:: console
+
+    $ export HMD_LOCAL_NEURONSPHERE_ENABLE_AUTH=true
+    $ nsctl control-plane start
+    $ printf '[profile.local]\nauth_url = "http://auth.local.neuronsphere.io/oauth2/ns"\n' \
+        > "$HMD_HOME/.config/nsctl.toml"
+    $ nsctl login --profile local
+
+The sign-in page asks which groups the token should carry, so a policy can be
+exercised against a realistic claim set. It signs with a key it generated and
+will mint a token with any claims asked of it: it is not an authorization server
+anyone should trust. See ``NERD008``.
 
 The control-plane manifest
 --------------------------

@@ -24,7 +24,13 @@ builds:
       # -s -w, which bartleby does not pass. Measured on this binary: 34.4 MB
       # stripped against 49.4 MB unstripped, so dropping them would meet
       # SPEC013's 50 MB target by 0.6 MB instead of 15.
-      - -s -w -X main.version={{ .Version }}
+      # NSCTL_DEFAULT_AUTH_URL is the endpoint a released binary signs in
+      # against with no configuration, so someone can install nsctl and run
+      # `nsctl login` having set nothing up. Unset until the hosted tenant
+      # exists: an unset value links as the empty string, which is exactly the
+      # "refuse and say what to write" behaviour, so a release built today
+      # behaves as it does now rather than naming a host that cannot answer.
+      - -s -w -X main.version={{ .Version }} -X github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg.DefaultAuthURL={{ .Env.NSCTL_DEFAULT_AUTH_URL }}
     goos:
       # No windows. SPEC013 listed windows/amd64 and its amendment records why
       # it is gone: nsctl shells out to `docker`, mounts /var/run/docker.sock,
