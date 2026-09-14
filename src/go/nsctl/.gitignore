@@ -8,6 +8,10 @@
 # Packed by `make generate` from this module's own sources.
 /internal/bundled/runner/
 
-# Packed by `make generate` from bundled-repos/ and the pre_build_artifacts
-# destination. Not committed: both sources are.
+# Packed by `make generate` from the repo classes' published `build` artifacts.
+# Not committed: they are fetched, and .artifacts/ below is where they land.
 /internal/bundled/repos/
+
+# Repo trees fetched by tools/repopack, keyed <class>@<version>. Survives
+# `make clean`; `make clean-artifacts` discards it.
+/.artifacts/

@@ -7,19 +7,28 @@
 // Docker" untrue of everything past `control-plane start`, which is most of
 // what nsctl is for. These archives are what nsctl unpacks to stand in.
 //
-// Two sources, per repo class, in this order:
+// Every tree comes from the repo class's published `build` artifact, pinned in
+// this repository's own meta-data/manifest.json as a BACON pre_build_artifact.
+// Three sources, per class, in this order:
 //
-//  1. -artifacts, the BACON pre_build_artifacts destination that `hmd build`
-//     populates. A published artifact is a reproducible version, which is why
-//     bom_seeder.resolve_repo_version prefers one over any working tree.
-//  2. -fallback, the trees committed to this repository.
+//  1. -artifacts, the pre_build_artifacts destination `hmd build` populates.
+//     Free when a Python build has already run.
+//  2. -cache, a previous fetch by this tool, keyed <class>@<version>.
+//  3. The artifact librarian, fetched directly. This is what lets `make
+//     generate` run from GoReleaser's before.hooks on a CI runner with no `hmd`
+//     installed, given HMD_ARTIFACT_LIBRARIAN_API_KEY.
 //
-// The fallback is not a convenience. `make generate` runs from GoReleaser's
-// before.hooks on a clean CI checkout with no network and no credentials, so a
-// build that could only fetch would fail exactly where releases are made. Only
-// three of the ten classes are declared as pre_build_artifacts today
-// (hmd-inf-ext-secrets, its CRDs and hmd-inf-neptune); the rest reach the
-// binary through the committed trees until they publish artifacts of their own.
+// Until 2026-09-11 there was a fourth: trees committed under bundled-repos/,
+// because probing the seven undeclared classes returned Unauthorized and seven
+// pins nobody could resolve would have broken `hmd build` for everyone. The
+// probe passed with a fresh credential -- all ten publish a consumable `build`
+// artifact -- and the committed trees are gone. They were not merely redundant:
+// bundled-repos/hmd-vpc had drifted from its repository and was missing the
+// NERD0004 add_resource_output block, so a binary built from it deployed a VPC
+// that handed hmd-postgres-rds no db_subnet_group_name. Their meta-data/VERSION
+// also carried the MAJOR.MINOR stub (0.4) rather than the published version
+// (0.4.854), which is the version ResolveVersion then reported for a tree it
+// had not used.
 //
 // A class is identified by the `name` in its own meta-data/manifest.json, never
 // by its directory: the artifact directories are named after the plugin
@@ -34,8 +43,12 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +57,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 )
 
 // skipDirs are build outputs and VCS state. Everything else in meta-data/ and
@@ -64,42 +79,70 @@ var skipDirs = map[string]bool{
 // names the version and the dependencies, and the sources the deploy runs.
 var packDirs = []string{"meta-data", "src"}
 
+// maxEntry caps one file unpacked from a fetched zip, matching repotree's limit
+// on the archives this tool writes.
+const maxEntry = 32 << 20
+
 func main() {
 	out := flag.String("out", "", "directory to write <class>.tar.gz into")
 	artifacts := flag.String("artifacts", "", "pre_build_artifacts destination, searched first")
-	fallback := flag.String("fallback", "", "committed trees, searched second")
+	cache := flag.String("cache", "", "directory for artifacts fetched by this tool")
+	manifestPath := flag.String("manifest", "", "this repository's meta-data/manifest.json, for the version pins")
+	offline := flag.Bool("offline", false, "never fetch; fail instead")
 	flag.Parse()
 
 	if *out == "" || flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: repopack -out DIR [-artifacts DIR] [-fallback DIR] CLASS...")
+		fmt.Fprintln(os.Stderr, "usage: repopack -out DIR -manifest FILE [-artifacts DIR] [-cache DIR] [-offline] CLASS...")
 		os.Exit(2)
 	}
-	if err := run(*out, *artifacts, *fallback, flag.Args()); err != nil {
+	if err := run(options{
+		out:       *out,
+		artifacts: *artifacts,
+		cache:     *cache,
+		manifest:  *manifestPath,
+		offline:   *offline,
+		classes:   flag.Args(),
+	}); err != nil {
 		fmt.Fprintln(os.Stderr, "repopack:", err)
 		os.Exit(1)
 	}
 }
 
-func run(out, artifacts, fallback string, classes []string) error {
-	if err := os.MkdirAll(out, 0o755); err != nil {
+type options struct {
+	out, artifacts, cache, manifest string
+	offline                         bool
+	classes                         []string
+}
+
+func run(o options) error {
+	if err := os.MkdirAll(o.out, 0o755); err != nil {
 		return err
 	}
-	index := manifestIndex(artifacts)
+	pins, err := loadPins(o.manifest)
+	if err != nil {
+		return err
+	}
+	index := manifestIndex(o.artifacts)
+
+	// Built on first use, so a run served entirely from -artifacts or -cache
+	// needs no credentials at all. That is the common case on a developer
+	// machine and the one `make test` hits.
+	var client *librarian.Client
+	var clientErr error
+	clientOnce := func() (*librarian.Client, error) {
+		if client == nil && clientErr == nil {
+			client, clientErr = librarian.New(librarian.Config{})
+		}
+		return client, clientErr
+	}
 
 	total := 0
-	for _, class := range classes {
-		src := index[class]
-		source := "artifact"
-		if src == "" {
-			src = filepath.Join(fallback, class)
-			source = "bundled"
-			if _, err := os.Stat(src); err != nil {
-				return fmt.Errorf("%s has neither a built artifact under %s nor a committed tree at %s; "+
-					"run `make refresh-bundled-repos` with the repo checked out under $HMD_REPO_HOME",
-					class, artifacts, src)
-			}
+	for _, class := range o.classes {
+		src, source, err := locate(o, class, pins, index, clientOnce)
+		if err != nil {
+			return err
 		}
-		n, err := pack(src, filepath.Join(out, class+".tar.gz"))
+		n, err := pack(src, filepath.Join(o.out, class+".tar.gz"))
 		if err != nil {
 			return fmt.Errorf("%s: %w", class, err)
 		}
@@ -108,6 +151,126 @@ func run(out, artifacts, fallback string, classes []string) error {
 	}
 	fmt.Printf("  %-28s %7d bytes\n", "total", total)
 	return nil
+}
+
+// locate resolves one repo class to a directory to pack, fetching it if that is
+// the only way, and reports which tier answered.
+func locate(o options, class string, pins map[string]librarian.Spec, index map[string]string,
+	clientOnce func() (*librarian.Client, error)) (dir, source string, err error) {
+
+	if dir := index[class]; dir != "" {
+		return dir, "artifact", nil
+	}
+
+	spec, pinned := pins[class]
+	if !pinned {
+		return "", "", fmt.Errorf("%s is not declared in %s.\n"+
+			"  Add it to build.pre_build_artifacts as \"%s@<version>:build\", or drop it from BUNDLED_REPOS.",
+			class, o.manifest, class)
+	}
+
+	cached := filepath.Join(o.cache, spec.Name+"@"+spec.Version)
+	if o.cache != "" {
+		if _, statErr := os.Stat(filepath.Join(cached, "meta-data")); statErr == nil {
+			return cached, "cached", nil
+		}
+	}
+
+	if o.offline {
+		return "", "", unavailable(o, spec, cached, errors.New("offline"))
+	}
+	client, err := clientOnce()
+	if err != nil {
+		return "", "", unavailable(o, spec, cached, err)
+	}
+	if o.cache == "" {
+		return "", "", fmt.Errorf("%s must be fetched but no -cache directory was given", spec)
+	}
+
+	fmt.Printf("  %-28s fetching %s\n", class, spec.Version)
+	data, err := client.Fetch(context.Background(), spec.ContentPath())
+	if err != nil {
+		return "", "", unavailable(o, spec, cached, err)
+	}
+	if err := unzip(data, cached); err != nil {
+		return "", "", fmt.Errorf("%s: unpacking the artifact: %w", spec, err)
+	}
+	return cached, "fetched", nil
+}
+
+// unavailable reports a class that could not be resolved, naming the version
+// wanted and every place that was looked. A bare 404 or "no credentials" here
+// is indistinguishable from three different problems with three different
+// fixes, which is the failure NERD002's cold-bootstrap errors exist to avoid.
+func unavailable(o options, spec librarian.Spec, cached string, cause error) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s is not available.\n", spec)
+	fmt.Fprintf(&b, "  pre_build_artifacts: %s  (absent)\n", or(o.artifacts, "<not searched>"))
+	fmt.Fprintf(&b, "  fetch cache:         %s  (absent)\n", or(cached, "<no -cache given>"))
+	fmt.Fprintf(&b, "  artifact librarian:  %v\n", cause)
+
+	switch {
+	case errors.Is(cause, librarian.ErrNoCredentials):
+		b.WriteString("Run `hmd login`, or set HMD_ARTIFACT_LIBRARIAN_API_KEY.\n")
+		b.WriteString("Alternatively run `hmd build --prebuild-download-only` to populate the\n")
+		b.WriteString("pre_build_artifacts destination, which this tool reads first.")
+	case errors.Is(cause, librarian.ErrNotPublished):
+		b.WriteString("The librarian has no such version. Check the pin in " + o.manifest + ".")
+	default:
+		var lerr *librarian.Error
+		if errors.As(cause, &lerr) && lerr.Unauthorized() {
+			b.WriteString("The credential was rejected. Run `hmd login` for a fresh token.")
+		} else {
+			b.WriteString("Run `hmd build --prebuild-download-only` to populate the\n")
+			b.WriteString("pre_build_artifacts destination, which this tool reads first.")
+		}
+	}
+	return errors.New(b.String())
+}
+
+func or(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
+// loadPins reads build.pre_build_artifacts and keys it by repo class.
+//
+// The spec's <name> is the repo class; the destination directory beside it is
+// the plugin alias and is deliberately not used as a key.
+func loadPins(path string) (map[string]librarian.Spec, error) {
+	if path == "" {
+		return nil, errors.New("no -manifest given; the version pins live in build.pre_build_artifacts")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading the pins: %w", err)
+	}
+	var m struct {
+		Build struct {
+			PreBuildArtifacts [][]json.RawMessage `json:"pre_build_artifacts"`
+		} `json:"build"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	pins := map[string]librarian.Spec{}
+	for _, entry := range m.Build.PreBuildArtifacts {
+		if len(entry) == 0 {
+			continue
+		}
+		var raw string
+		if json.Unmarshal(entry[0], &raw) != nil {
+			continue
+		}
+		spec, err := librarian.ParseSpec(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		pins[spec.Name] = spec
+	}
+	return pins, nil
 }
 
 // manifestIndex maps repo class to artifact directory, keyed by each artifact's
@@ -141,6 +304,57 @@ func manifestIndex(root string) map[string]string {
 		index[m.Name] = dir
 	}
 	return index
+}
+
+// unzip writes a fetched artifact to dest, staging first so an interrupted
+// fetch cannot leave a half-tree that the next run mistakes for a cache hit.
+func unzip(data []byte, dest string) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(dest), ".staging-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+
+	for _, f := range zr.File {
+		name := filepath.Clean(filepath.FromSlash(f.Name))
+		if name == "." || strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
+			return fmt.Errorf("refusing an entry outside the archive root: %q", f.Name)
+		}
+		target := filepath.Join(staging, name)
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		w, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(w, io.LimitReader(rc, maxEntry))
+		rc.Close()
+		w.Close()
+		if err != nil {
+			return err
+		}
+	}
+	os.RemoveAll(dest)
+	return os.Rename(staging, dest)
 }
 
 // collect lists the files to pack, as sorted slash-separated relative paths.

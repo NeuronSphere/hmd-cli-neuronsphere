@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "base-vpc": {
-      "instance_name": "base-vpc",
-      "repo_name": "hmd-vpc"
-    }
-  }
-}

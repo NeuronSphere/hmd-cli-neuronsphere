@@ -1,6 +1,0 @@
-{
-  "short_name": "bender_results",
-  "description": "A zip file of bender test results.",
-  "match_regex": ".*\\.zip",
-  "mime_type": "application/zip"
-}

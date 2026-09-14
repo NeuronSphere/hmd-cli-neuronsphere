@@ -25,11 +25,24 @@ jobs:
         with:
           go-version-file: src/go/nsctl/go.mod
 
+      # GoReleaser's before.hooks run `make generate`, which fetches the repo
+      # trees the binary embeds. Keyed on the pins in manifest.json.
+      - uses: actions/cache@v4
+        with:
+          path: src/go/nsctl/.artifacts
+          key: repo-artifacts-${{ hashFiles('meta-data/manifest.json') }}
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The repo trees are pinned as pre_build_artifacts and fetched by
+          # `make generate`; without these the release build has no trees to
+          # embed and fails at go:embed rather than shipping a binary that
+          # cannot deploy.
+          HMD_ARTIFACT_LIBRARIAN_URL: ${{ secrets.HMD_ARTIFACT_LIBRARIAN_URL }}
+          HMD_ARTIFACT_LIBRARIAN_API_KEY: ${{ secrets.HMD_ARTIFACT_LIBRARIAN_API_KEY }}
           # PAT with repo scope on neuronsphere/homebrew-tap
           # so GoReleaser can push the updated formula
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

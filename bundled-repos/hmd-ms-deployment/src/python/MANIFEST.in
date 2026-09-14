@@ -1,1 +1,0 @@
-recursive-include hmd_ms_deployment/base_resources *.yaml

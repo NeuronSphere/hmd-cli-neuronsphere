@@ -37,9 +37,14 @@ places that directory can come from today: a tree the binary carries
 ``$HMD_REPO_HOME``. Both are wrong for distributing something.
 
 - **Bundled** means shipping it inside ``nsctl``. That is right for the ten
-  substrate repos in ``bundled-repos/`` and wrong for everything else: it
+  substrate repos ``make generate`` embeds and wrong for everything else: it
   couples an extension's release to the CLI's, and it is precisely the
-  "built-in catalogue" that ``internal/bom`` was written to avoid.
+  "built-in catalogue" that ``internal/bom`` was written to avoid. Note that
+  those ten now *arrive* as published artifacts -- ``tools/repopack`` fetches
+  them through ``internal/librarian``, which is the client SPEC005 and SPEC006
+  need. What they still lack is the second half this document proposes: a
+  manifest that can name one, and a resolver that reads it at deploy time
+  rather than at build time.
 
 - **A checkout** means the user clones a repository to run a plugin. That is
   the development path, and it is the right one *for development*. As a

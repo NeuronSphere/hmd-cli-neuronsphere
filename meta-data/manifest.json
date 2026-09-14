@@ -30,6 +30,34 @@
       [
         "hmd-inf-neptune@0.3.36:build",
         "src/python/hmd_cli_neuronsphere/external/neptune"
+      ],
+      [
+        "hmd-vpc@0.2.41:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-vpc"
+      ],
+      [
+        "hmd-postgres-rds@0.8.51:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-postgres-rds"
+      ],
+      [
+        "hmd-inf-eks-cluster@0.7.115:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-inf-eks-cluster"
+      ],
+      [
+        "hmd-ms-naming@0.1.58:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-naming"
+      ],
+      [
+        "hmd-ms-artifact-lib@0.1.94:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-artifact-lib"
+      ],
+      [
+        "hmd-ms-deployment@0.4.854:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-deployment"
+      ],
+      [
+        "hmd-ms-dbaccount@0.1.44:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-dbaccount"
       ]
     ],
     "commands": [

@@ -43,18 +43,24 @@ RUNNER_EMBED_DIR := $(GO_DIR)/internal/bundled/runner
 # environment at all -- the substrate's first node fails looking for a tree
 # under $HMD_REPO_HOME that a distributed binary has no reason to have.
 #
-# Sources, in order: the pre_build_artifacts destination `hmd build` populates,
-# then the trees committed under bundled-repos/. The fallback is what lets
-# `make generate` run on a clean CI checkout with no network and no
-# credentials, which is where GoReleaser runs it.
+# Every tree comes from the repo class's published `build` artifact, pinned in
+# meta-data/manifest.json as a BACON pre_build_artifact. repopack takes each
+# from the pre_build_artifacts destination `hmd build` populates, then from its
+# own fetch cache, then from the artifact librarian directly -- which is what
+# lets `make generate` run on a CI runner with no `hmd` installed.
+#
+# The fetch cache is deliberately not the pre_build_artifacts destination:
+# `hmd build` rmtree's that when it finishes, so a cache living there would be
+# wiped by an ordinary Python build.
 REPOS_EMBED_DIR := $(GO_DIR)/internal/bundled/repos
 ARTIFACTS_DIR   := src/python/hmd_cli_neuronsphere/external
-BUNDLED_REPOS_DIR := bundled-repos
+ARTIFACT_CACHE  := .artifacts
 
 # The control plane's own instances, the environment substrate, the foundation
 # services, and the two operators every cloud chart's ExternalSecrets need.
 # Not the workloads: superset, hyperdx, telemetry-debug and s3bucket are
-# plugin content and are deliberately absent.
+# plugin content and are deliberately absent, though the manifest pins them
+# for the Python CLI.
 BUNDLED_REPOS := hmd-vpc hmd-postgres-rds hmd-inf-neptune hmd-inf-eks-cluster \
                  hmd-ms-naming hmd-ms-artifact-lib hmd-ms-deployment hmd-ms-dbaccount \
                  hmd-inf-ext-secrets-crds hmd-inf-ext-secrets
@@ -67,11 +73,11 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSRUNNER_IMAGE ?= hmd-img-nsrunner:$(VERSION)
 
-.PHONY: test-parity all build generate generate-verbose refresh-bundled-repos image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean run test-cli help
+.PHONY: test-parity all build generate generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli help
 
 all: build
 
-## generate: stage the bundled compose files and runner sources for go:embed
+## generate: stage the bundled compose files, runner sources and repo trees
 generate:
 	@mkdir -p $(EMBED_DIR)
 	@cp $(SERVICES_SRC)/docker-compose.control-plane.yml $(EMBED_DIR)/
@@ -80,43 +86,20 @@ generate:
 	@mkdir -p $(REPOS_EMBED_DIR)
 	@cd $(GO_DIR) && $(GO) run ./tools/repopack \
 	  -out internal/bundled/repos \
+	  -manifest ../../../meta-data/manifest.json \
 	  -artifacts ../../../$(ARTIFACTS_DIR) \
-	  -fallback ../../../$(BUNDLED_REPOS_DIR) \
+	  -cache $(ARTIFACT_CACHE) \
 	  $(BUNDLED_REPOS) >/dev/null
 
-## generate-verbose: the same, printing what each bundled repo tree costs
+## generate-verbose: the same, printing where each bundled repo tree came from
 generate-verbose:
 	@$(MAKE) generate
 	@cd $(GO_DIR) && $(GO) run ./tools/repopack \
 	  -out internal/bundled/repos \
+	  -manifest ../../../meta-data/manifest.json \
 	  -artifacts ../../../$(ARTIFACTS_DIR) \
-	  -fallback ../../../$(BUNDLED_REPOS_DIR) \
+	  -cache $(ARTIFACT_CACHE) \
 	  $(BUNDLED_REPOS)
-
-## refresh-bundled-repos: re-copy the committed repo trees from $HMD_REPO_HOME
-#
-# Run by a person, and its output is committed. Deliberately not part of
-# `generate`: a release build must not depend on ten checkouts being present,
-# and a tree that silently changed under a build would make two binaries of the
-# same version deploy different code.
-refresh-bundled-repos:
-	@test -n "$(HMD_REPO_HOME)" || { echo "set HMD_REPO_HOME to where the repos are checked out"; exit 2; }
-	@for repo in $(BUNDLED_REPOS); do \
-	  src="$(HMD_REPO_HOME)/$$repo"; \
-	  test -d "$$src" || { echo "missing $$src"; exit 1; }; \
-	  rm -rf "$(BUNDLED_REPOS_DIR)/$$repo"; \
-	  mkdir -p "$(BUNDLED_REPOS_DIR)/$$repo"; \
-	  for top in meta-data src; do \
-	    test -d "$$src/$$top" || continue; \
-	    rsync -a --delete \
-	      --exclude '.git' --exclude 'build' --exclude 'target' --exclude 'dist' \
-	      --exclude 'node_modules' --exclude '__pycache__' --exclude '*.egg-info' \
-	      --exclude '.terraform' --exclude 'cdktf.out' --exclude '.pytest_cache' \
-	      --exclude 'resources_output' \
-	      "$$src/$$top" "$(BUNDLED_REPOS_DIR)/$$repo/"; \
-	  done; \
-	  echo "  refreshed $$repo"; \
-	done
 
 ## build: compile the binary to src/go/nsctl/build/nsctl
 build: generate
@@ -180,8 +163,16 @@ tidy:
 	cd $(GO_DIR) && $(GO) mod tidy && $(GO) mod verify
 
 ## clean: remove build artifacts and staged files
+#
+# Leaves the fetch cache alone. It is keyed <class>@<version>, so it is only
+# ever stale when a pin moves, and discarding it turns every `make clean` into
+# ten downloads.
 clean:
 	rm -rf $(BUILD_DIR) $(EMBED_DIR) $(RUNNER_EMBED_DIR) $(REPOS_EMBED_DIR)
+
+## clean-artifacts: also discard the fetched repo trees, forcing a refetch
+clean-artifacts: clean
+	rm -rf $(GO_DIR)/$(ARTIFACT_CACHE)
 
 ## run: build and print help (quick smoke test)
 run: build

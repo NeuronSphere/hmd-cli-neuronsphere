@@ -1,5 +1,0 @@
-hmd-cli-tools
-hmd-lib-secrets-backend
-boto3
-cement
-mangum
