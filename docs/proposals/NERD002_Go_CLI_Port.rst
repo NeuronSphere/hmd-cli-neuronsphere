@@ -28,19 +28,16 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     this requirement's own sentence, and until it had been run it was an
     argument. See `Verified from nothing`_.
 
-    Two things qualify it, and neither is withdrawn by being recorded here.
-    **The images Floci spawns its backends from are not all published in one
-    registry** at the versions the compose file pins -- the k3s wrapper and the
-    gremlin server only under ``ghcr.io/hmdlabs``, the Postgres base only under
-    the ``ghcr.io/neuronsphere`` default -- so a machine that has never pulled
-    them cannot provision a cluster, a graph *and* a database from one registry
-    setting however good the binary is; that is a publishing gap in the image
-    repositories and nothing here can close it. The k3s half of it closed on
-    2026-09-11, when that image's pipeline published for the first time and the
-    pin moved to ``0.3.2`` (item 22).
-    **The inverted submit path does not work**, for a reason now known exactly
-    (SPEC010) -- it is opt-in, was always opt-in, and the default path is the
-    one every deploy above took.
+    One thing qualifies it. **The inverted submit path does not work**, for a
+    reason now known exactly (SPEC010) -- it is opt-in, was always opt-in, and
+    the default path is the one every deploy above took.
+
+    The registry qualifier is **withdrawn** as of 2026-09-14: one registry now
+    serves all three backend images, and a fresh install has been run end to end
+    against them. See item 22 and `A second cold start, from a genuinely empty
+    HMD_HOME`_ -- which also found that the claim had been false in four further
+    ways nobody had tested, every one of them hidden by state a working machine
+    already has.
 
 .. note::
 
@@ -364,25 +361,89 @@ five of the seven were invisible until a genuinely cold platform ran them.
     event and the ``callback_url`` POST. See SPEC010.
 
 22. **"Only Docker" is also a claim about the image registries** (SPEC014).
-    The compose file pins
+    **Closed 2026-09-14.** The compose file used to pin
     ``hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}``,
     ``hmd-img-gremlin-server:0.3.5`` and ``hmd-img-k3s-floci:0.3.2`` under
-    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``. **No single
-    registry serves all three**, re-checked 2026-09-11: the Postgres pin exists
-    only under the ``ghcr.io/neuronsphere`` default, the gremlin and k3s pins
-    only under ``ghcr.io/hmdlabs``, which is what a developer's ``hmd.env``
-    actually sets. **Partly closed:** the k3s wrapper's build pipeline had never
-    produced a published image at all -- no ``0.2``, ``0.3`` or ``stable`` tag
-    in either registry -- so that pin named a tag that was never there, and a
-    cluster came up only from a locally built image of the same name. It builds
-    now; the pin is ``0.3.2``, the first build it ever published and the one
-    carrying ``--disable-network-policy``. There is still no floating ``0.3``,
-    which is why the pin is an exact patch. So a machine that has never pulled
-    these cannot provision both a cluster and a Postgres backend from one
-    registry setting, however self-contained the binary is. The guard that used
-    to *refuse* on an uncached image made this worse rather than surfacing it,
-    and now pulls; the refusal survives for a reference that genuinely resolves
-    nowhere.
+    ``${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}``, and no single
+    registry served all three: the Postgres pin existed only under the
+    ``ghcr.io/neuronsphere`` default, the gremlin and k3s pins only under
+    ``ghcr.io/hmdlabs``.
+
+    The premise was wrong rather than the arithmetic. ``ghcr.io/neuronsphere``
+    was a mirror of ``ghcr.io/hmdlabs`` carrying only the released subset, and it
+    had gone stale; ``hmdlabs`` is where images are built and tagged, and its
+    packages are now public. The defaults name it, and the versions are explicit
+    patch pins because ``hmdlabs`` publishes a moving ``latest`` and no
+    ``stable``. Two of the old defaults -- the gremlin server and the
+    projectbuilder's ``:stable`` -- named tags that had never existed anywhere.
+
+    What was left was ``hmd-postgres-base``, whose only ``hmdlabs`` artifact was
+    an ``amd64``-only leaf: its index tags were listed but resolved to no
+    manifest, so an arm64 host had nothing to pull. Its ``main`` also carried a
+    ``postgres:14-alpine`` bump that had been committed and never built, so
+    *every* published tag in *either* registry still shipped 12.9. Rebuilding it
+    as ``0.3.12`` produced both a multi-architecture image and the postgres 14 the
+    repository had specified for years -- which is a major version bump over
+    existing data directories, and is why ``internal/pgcheck`` now exists.
+
+    The guard that used to *refuse* on an uncached image made this worse rather
+    than surfacing it, and now pulls; the refusal survives for a reference that
+    genuinely resolves nowhere.
+
+A second cold start, from a genuinely empty HMD_HOME
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+`The cold start had never run`_ describes a platform with no *deployment graph*.
+It still ran on a developer's machine, with that machine's ``hmd.env``, its
+Docker image cache and its ``HMD_REPO_HOME``. On 2026-09-14 the remaining three
+were taken away too: a new ``HMD_HOME``, no repositories, and an environment
+scrubbed to ``PATH``, ``HOME`` and ``HMD_HOME``. Five more defects, and the
+shape is the same one as before -- every single one was hidden by state that any
+machine which has run the platform already has.
+
+1. **The default image registry named a mirror that had gone stale.** Item 22,
+   above, in full. Invisible because a developer's ``hmd.env`` sets
+   ``HMD_LOCAL_NS_CONTAINER_REGISTRY`` and so never reaches the default.
+
+2. **The Engine API cannot pull an image.** ``ImagePull`` sends only the
+   credentials in ``PullOptions``; the daemon never reads
+   ``~/.docker/config.json``, because resolving credentials is the CLI's job. So
+   the compose runner's pull was credential-less, and ``ghcr.io`` answers a
+   credential-less request with ``unauthorized`` -- for a *public* image, one
+   that ``docker pull`` fetches anonymously without complaint. Invisible because
+   the image is in the cache of every machine that has run the platform, and
+   ``EnsureImage`` returns early when it is. It pulls through
+   ``container.PullImage`` now, and ``ImagePull`` is gone from the narrowed
+   ``dockerAPI`` so the broken path cannot be reached back for.
+
+3. **``env start`` refused on a fresh home -- after bootstrapping it.** A
+   synthesized registry holds no environments, so the default slug resolved to
+   nothing; but only once ``environment.Start`` was reached, past the entire
+   control-plane bootstrap, with a remedy the user had no way to know to run
+   first. The command now settles which environment it is about before anything
+   starts. Invisible because every developer's registry already had ``local`` in
+   it.
+
+4. **A stopped control plane blocked another ``HMD_HOME`` permanently.** The
+   ownership guard counted containers that merely existed, and
+   ``control-plane stop`` stops rather than removes -- so doing exactly what the
+   refusal instructed left the names held and the next start refused again, with
+   nothing left to try short of ``docker rm``. Only running containers count
+   now. Invisible because it takes two ``HMD_HOME``\ s to see, and until this
+   run there had only ever been one. Taking turns is as far as this goes;
+   running two at once is :doc:`NERD007 <NERD007_Concurrent_Control_Planes>`.
+
+5. **The Docker preflight was written and never called.** ``Available`` reports
+   a missing binary or an unresponsive daemon in the words someone chose for
+   exactly that moment, and ``grep`` found no caller. Invisible because the
+   machine developing a Docker CLI has Docker.
+
+The lesson is the one the previous section drew, and it did not take the second
+time: *a guard that finds what it needs already present does not exercise the
+code that would have created it.* Every defect here is a default, a fallback or
+a refusal -- the branches a working machine never takes. They are only testable
+by taking the machine's state away, and taking away "the graph" was not the same
+as taking away "everything".
 
 The cold start had never run
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1171,23 +1232,33 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
        34.8 MB against SPEC013's 50 MB target: the size question this was
        previously framed around does not exist.
 
-       **The build was the hard part, and it is a fetch with a committed
-       fallback.** ``make generate`` runs from GoReleaser's ``before.hooks`` on
-       a clean CI checkout with no network and no credentials, which is what
-       lets ``goreleaser build --snapshot --clean`` work from a fresh clone.
-       Each class is taken from the ``pre_build_artifacts`` destination when
-       ``hmd build`` has populated it, and from the trees committed under
-       ``bundled-repos/`` otherwise. That is mostly not a fetch-shaped fallback
-       for a fetch that works: **three of the ten classes are declared as
-       pre_build_artifacts** -- the two ext-secrets ones and, since 2026-09-11,
-       ``hmd-inf-neptune@0.3.36``, whose artifact was resolved with ``hmd build
-       --prebuild-download-only`` first and found to carry ``meta-data/``
-       (``VERSION`` stamped ``0.3.36``), ``src/cdktf/`` and ``src/local/``
-       byte-identical to the checkout. No repo in the monorepo pins the other
-       seven, so whether they publish a consumable ``build`` artifact is
-       unverified, and adding seven untested pins would break ``hmd build`` for
-       everyone. They travel as committed trees until that is established, and
-       ``make refresh-bundled-repos`` is what a person runs to update them.
+       **The build was the hard part, and it is now a fetch with no committed
+       fallback.** ``make generate`` runs from GoReleaser's ``before.hooks``,
+       so whatever it does has to work on a CI runner with no ``hmd``
+       installed. It resolves each class from the ``pre_build_artifacts``
+       destination when ``hmd build`` has populated it, then from
+       ``src/go/nsctl/.artifacts/<class>@<version>/``, and otherwise fetches
+       the published ``build`` artifact from the artifact librarian directly --
+       ``internal/librarian``, a port of ``artifact_tools`` and
+       ``okta_tools.get_auth_token`` and nothing else. CI authenticates with
+       ``HMD_ARTIFACT_LIBRARIAN_API_KEY``; a developer authenticates with the
+       token ``hmd login`` already cached, so neither has to configure anything
+       twice. The cache is deliberately **not** the ``pre_build_artifacts``
+       destination, which ``hmd build`` deletes when it finishes.
+
+       Until 2026-09-11 the last tier was ten trees committed under
+       ``bundled-repos/``, because the probe below had returned
+       ``Unauthorized`` and seven pins nobody could resolve would have broken
+       ``hmd build`` for everyone. They are gone, and they were not merely
+       redundant. ``bundled-repos/hmd-vpc`` had drifted from its repository and
+       was missing the ``NERD0004`` ``add_resource_output`` block, so a binary
+       built from it deployed a VPC that emitted no Resource and handed
+       ``hmd-postgres-rds`` no ``db_subnet_group_name``. Every committed tree
+       also carried the ``MAJOR.MINOR`` stub in ``meta-data/VERSION`` -- ``0.4``
+       for ``hmd-ms-deployment``, not ``0.4.854`` -- which is the version
+       ``ResolveVersion`` then reported for a tree it had not used. That is the
+       failure mode ``NERD005`` names as the worst available, arrived at from
+       the other direction.
 
        **A tree has to be materialised on disk, not merely embedded.**
        projectbuilder is launched as a *sibling* through the Docker socket, so
@@ -1249,18 +1320,61 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     'type: local' to deploy from a local working tree"*. The name is reserved so
     that declaring one fails with that sentence rather than "unknown source
     type", but nothing resolves it: every declared repo is a checkout or a
-    bundled tree. This is the constraint the item below rests on -- a class with
-    neither is not deployable at all, which is why the eight travel as committed
-    trees rather than as pins nobody can resolve.
+    bundled tree. Note the asymmetry this leaves, which ``NERD005`` exists to
+    close: the *build* now resolves a repo class from a published artifact,
+    while a *deploy* still cannot.
 
-    *Still open:* the seven classes that are not declared as
-    ``pre_build_artifacts`` travel as committed trees, and whether they publish
-    a consumable ``build`` artifact remains unverified. Probing them with
-    ``hmd build --prebuild-download-only`` returned ``Unauthorized`` when this
-    was written; the same probe resolved ``hmd-inf-neptune@0.3.36`` on
-    2026-09-11, which is how that one stopped being a blind pin and became a
-    declared one. Pinning an entry that does not resolve breaks ``hmd build``
-    for everyone, so the rest wait for the same probe to pass.
+    *Resolved 2026-09-11.* All ten classes are declared as
+    ``pre_build_artifacts`` and ``bundled-repos/`` is deleted. The earlier
+    ``Unauthorized`` was a stale credential, not a missing publication: with a
+    fresh ``hmd login`` every one of the seven resolved on the first attempt,
+    each stamped to exactly the version its latest pipeline tag names.
+
+    .. list-table:: The probe, run against every undeclared class
+       :header-rows: 1
+       :widths: 30 14 56
+
+       * - Repo class
+         - Pinned
+         - What the artifact carries
+       * - ``hmd-vpc``
+         - ``0.2.41``
+         - ``meta-data/`` + ``src/{cdktf,local}``; the same file set as the
+           committed tree, whose ``cdktf_local.py`` had gone stale
+       * - ``hmd-postgres-rds``
+         - ``0.8.51``
+         - the same file set as the committed tree
+       * - ``hmd-inf-eks-cluster``
+         - ``0.7.115``
+         - the same file set as the committed tree
+       * - ``hmd-ms-naming``
+         - ``0.1.58``
+         - drops ``src/{docker,python}``, adds
+           ``meta-data/docker.ext_artifact.hmdentity``
+       * - ``hmd-ms-artifact-lib``
+         - ``0.1.94``
+         - as above
+       * - ``hmd-ms-deployment``
+         - ``0.4.854``
+         - as above
+       * - ``hmd-ms-dbaccount``
+         - ``0.1.44``
+         - as above
+
+    The four ``hmd-ms-*`` artifacts drop ``src/docker/`` and ``src/python/``,
+    which are build-time inputs already baked into the published image and
+    which no deploy reads, and gain
+    ``meta-data/docker.ext_artifact.hmdentity`` -- the image the build actually
+    produced, e.g. ``ghcr.io/hmdlabs/hmd-ms-deployment:0.4.854``. The committed
+    trees carried that nowhere. Net effect: the ten archives fell from 382 KB
+    to 222 KB, and 247 files and 3.5 MB left the repository.
+
+    *Verified on the path that matters.* ``goreleaser build --snapshot
+    --clean`` from a tree containing only tracked files -- no
+    ``bundled-repos/``, no ``external/``, no fetch cache -- fetches all ten and
+    produces a binary carrying every one at its published version. Without
+    credentials the same build fails naming the class, the version and every
+    place that was looked, rather than at ``go:embed``.
 
 .. spec:: AWS SDK -- aws-sdk-go-v2 against Floci
     :id: HMD_CLI_NERD002_SPEC007

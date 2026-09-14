@@ -27,15 +27,23 @@ Then:
 
 ```shell
 export HMD_HOME=~/hmd          # never defaulted; nsctl refuses without it
-nsctl control-plane start      # the shared control plane, one per HMD_HOME
-nsctl env add dev
-nsctl env start dev
+nsctl env start                # control plane, then an environment
 ```
+
+That is the whole first run. `env start` brings up the control plane if it is
+down, and on an `HMD_HOME` with nothing registered it registers the first
+environment itself — there is no separate `env add` step to discover. Name it if
+you would rather: `nsctl env start dev`. Once an environment exists, adding
+another is explicit, with `nsctl env add`.
 
 A new environment is **empty but usable** — a k3s cluster, a Postgres, and the
 External Secrets operator a cloud chart's secrets resolve through. Airflow,
 Argo, Trino, Superset, transform and your own services are RepoClasses you add,
 not things that arrive by default.
+
+Two things the host has to provide, both of which `nsctl` checks before it does
+anything: Docker, and `neuronsphere` plus `neuronsphere-workload` resolving to
+loopback. The second is one line in `/etc/hosts`, and the refusal prints it.
 
 Full guide: [`docs/nsctl.rst`](docs/nsctl.rst).
 
@@ -56,6 +64,17 @@ any of these costs nothing:
   hmd-lib-cdktf's 2026-09-08 fix.** Before it, path-style S3 addressing was
   gated on the environment's *name* while ms-deployment passes its slug, so any
   other name failed its first CDKTF node. `nsctl` warns until the image has it.
+- **Only one control plane can run at a time per machine.** The five
+  control-plane services pin `container_name`, so those names are global while
+  the network, compose project and Floci data directory are namespaced per
+  `HMD_HOME`. Two homes can take turns — `nsctl control-plane stop --home <the
+  other one>` releases the names — but they cannot both be up.
+- **nsctl detects a PostgreSQL major-version bump; it does not migrate one.**
+  Floci reuses an RDS instance's volume across starts, so a data directory
+  written by an older major makes the new binary refuse it. `nsctl` checks
+  before it starts anything and names both remedies; the migration itself is
+  `hmd neuronsphere db upgrade`, which works because both front ends address the
+  same `HMD_HOME`.
 - **Plugin-contributed workloads need `nsctl repo import` once** per
   environment that was brought up with `hmd`.
 - **The DAG runner is opt-in** and its first start builds a local image.

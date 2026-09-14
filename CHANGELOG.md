@@ -1,6 +1,184 @@
 # Changelog
 
+## 2026-09-14
+
+- fix: make a fresh install actually start
+
+  Five defects, found by doing the thing the README promises: a new `HMD_HOME`
+  with no repos under `HMD_REPO_HOME` and not one environment variable set.
+  Each had been invisible because every machine that has ever run the platform
+  already carries the state that hides it.
+
+  **The default image registry named the wrong org.** `ghcr.io/neuronsphere`
+  held only the released subset and had gone stale; `ghcr.io/hmdlabs` is where
+  the images are built, tagged, and now public. Two of the three references
+  Floci spawns its backends from existed under no tag at all, so an install with
+  nothing set could bring up neither a graph nor a cluster, and the
+  projectbuilder default — `ghcr.io/neuronsphere/hmd-img-projectbuilder:stable`,
+  a `stable` tag neither org has ever had — failed the bootstrap's first deploy
+  node. Every default now names hmdlabs and an explicit patch version.
+
+  **The Engine API cannot pull.** `ImagePull` sends only the credentials in
+  `PullOptions`; the daemon never reads `~/.docker/config.json`, which is the
+  CLI's job. So the compose runner's pull was credential-less, and ghcr.io
+  answers a credential-less request with `unauthorized` even for a public image.
+  It pulls through `container.PullImage` now — the `docker pull` the rest of
+  nsctl already uses, which resolves credential helpers and anonymous tokens
+  exactly as the user's own would. `ImagePull` is gone from the narrowed
+  `dockerAPI`, so the broken path cannot be reached back for.
+
+  **`env start` refused on a fresh home, after bootstrapping it.** A synthesized
+  registry holds no environments, so the default slug resolved to nothing — but
+  only once `environment.Start` was reached, ten minutes past the control-plane
+  bootstrap, with a fix the user had no way to know to run first. `env start`
+  now settles which environment it is about before anything starts: it registers
+  the first one on an empty registry, and refuses an unknown name immediately
+  rather than after the bootstrap. The narrow guard is deliberate — creation
+  only when nothing at all is registered, because the rule it bends exists to
+  stop a typo becoming a second environment, and there is no typo to protect
+  against when there is nothing to be confused with.
+
+  **A stopped control plane blocked another `HMD_HOME` forever.** The ownership
+  refusal counted containers that merely existed, and `control-plane stop` stops
+  rather than removes — so following the message's own instruction left the
+  names held and the next start refused again, with nothing further to try short
+  of `docker rm`. Only running containers count now. Two homes still cannot run
+  at once; they can take turns.
+
+  **The Docker preflight was written and never called.** `Available` reports a
+  missing binary or a daemon that will not answer, in the words someone chose
+  for exactly that moment. Nothing called it, so the one prerequisite this CLI
+  claims surfaced as whichever call happened to run first.
+
+- fix: report a proxy that cannot start, instead of blaming Floci
+
+  Floci publishes no host port of its own -- `:4566` is an nginx stream listener
+  -- so its health check runs through `hmd_proxy`. When the proxy could not
+  start, the start reported `Floci at http://localhost:4566 is not ready after
+  5m0s`: five minutes spent on the wrong component, against a Floci that was
+  healthy and logging normally throughout.
+
+  `compose up` is no help here, because it reports success once a container has
+  *started*; nginx exiting on a bad configuration a moment later is a restart
+  loop, not a start failure. The start now checks the proxy is actually running
+  before it waits on anything that goes through it, and hands back nginx's own
+  words plus where the route fragments live.
+
+  A stale fragment under `$HMD_HOME/.cache/nginx` is enough to cause it: one
+  written by an older nsctl, referencing a variable this release no longer
+  defines, bricked a platform exactly this way. The fragments are regenerated on
+  the next `env start`, so the remedy the error names is to move them aside.
+
+- fix: wait for CoreDNS to exist before rolling it
+
+  k3s creates CoreDNS from an addon manifest *after* the node reports Ready, so
+  on a cluster the deploy has just created, the records step can arrive first:
+  `kubectl apply` succeeds, `rollout restart` fails with `deployments.apps
+  "coredns" not found`, and `set -e` takes the whole step down. The records are
+  already on disk by then, so the cost is the immediate reload -- but it is
+  reported as a warning against a cluster that otherwise looks healthy, which is
+  the least useful place to learn about it.
+
+  The step now waits for the deployment to exist, which is the same shape as the
+  node-Ready wait beside it and there for the same reason. Only a genuinely cold
+  start reaches this: a cluster that already has CoreDNS never waits.
+
+- fix: stop `env purge` destroying another HMD_HOME's data
+
+  `nsctl env purge` with no name swept every Docker volume whose name began
+  `floci-`, across the whole daemon. Floci volume names are global and carry
+  nothing naming the HMD_HOME that created them, while the network, compose
+  project and Floci data directory are all namespaced by one -- so a purge run
+  from a throwaway HMD_HOME took a working platform's volumes with it. The
+  sweep's own comment justified the breadth with "by this point every account is
+  going anyway", which is true within one Floci and false across homes.
+
+  It is not a hypothetical. Purging a scratch platform during the fresh-install
+  verification destroyed the machine's real one: its control-plane database, the
+  deployment graph for every environment, and both clusters' datastores.
+  Authored state -- the registry, the environment manifests, `.config` -- was
+  untouched, so the cost was a re-bootstrap rather than lost declarations, but
+  nothing about the sweep made that the bounded outcome.
+
+  It is scoped at two layers now, and the first attempt fixed only one of them.
+  The volume sweep collects *dangling* volumes alone -- ones no container
+  references -- which is what a genuine leftover looks like and what it was
+  written to collect. That was necessary and, by itself, useless: the container
+  sweep running just ahead of it matched every Floci-labelled container on the
+  daemon, because accounts are allocated per registry and every HMD_HOME starts
+  at `000000000001`, so it removed the other platform's containers and thereby
+  dangled its volumes for the check to wave through. Re-running the purge with
+  only that half in place took all seven volumes again.
+
+  So the container sweep is scoped to the platform's Docker network, which is
+  the one identifier that does carry the HMD_HOME hash and which a stopped
+  container keeps. Each half is pinned by a test that fails when the other half
+  is reverted.
+
+- feat: refuse a start whose postgres image cannot read the data on disk
+
+  `hmd-postgres-base` 0.3.12 is the first build to ship the PostgreSQL 14 its
+  Dockerfile has specified since the bump was committed and never released, and
+  the first published for arm64. That is a major version change, and Floci
+  recreates an RDS container from the current image on every start while reusing
+  the instance's volume — so a data directory written by 12 makes the 14 binary
+  exit with `database files are incompatible with server` while Floci goes on
+  calling the instance available.
+
+  `internal/pgcheck` compares the configured image's `PG_MAJOR` against the
+  `PG_VERSION` each volume holds, before compose starts Floci, and names both
+  ways out: `hmd neuronsphere db upgrade`, or the tag to pin back to. It is the
+  detector from the Python CLI's `pg_upgrade` and only the detector — migrating
+  a volume belongs in one place, and both front ends address the same
+  `HMD_HOME`. Volumes no Floci record references are ignored, because a purge is
+  what orphans them and refusing over one would leave no way forward; everything
+  indeterminate raises no alarm, because this gates a start.
+
 ## 2026-09-11
+
+- feat: fetch the ten embedded repo trees instead of committing them
+
+  `bundled-repos/` is gone: 247 files and 3.5 MB that were verbatim copies of
+  other repositories, refreshed by hand. `tools/repopack` now takes every class
+  from the `pre_build_artifacts` destination `hmd build` populates, then from
+  `src/go/nsctl/.artifacts/<class>@<version>/`, and otherwise fetches the
+  published `build` artifact from the artifact librarian itself. The new
+  `internal/librarian` is that client — a port of `artifact_tools` and
+  `okta_tools.get_auth_token`, which is two environment variables and the YAML
+  file `hmd login` writes, not an Okta flow. CI passes
+  `HMD_ARTIFACT_LIBRARIAN_API_KEY`; a developer needs nothing they have not
+  already set up.
+
+  The seven classes SPEC006 left unpinned are pinned. The `Unauthorized` that
+  blocked them was a stale credential, not a missing publication — with a fresh
+  login all seven resolved on the first attempt, each stamped to the version its
+  latest pipeline tag names.
+
+  The committed trees were not merely redundant. `bundled-repos/hmd-vpc` had
+  drifted from its repository and was missing the NERD0004
+  `add_resource_output` block, so a binary built from it deployed a VPC that
+  emitted no Resource and handed `hmd-postgres-rds` no `db_subnet_group_name`.
+  Every one of them also carried the MAJOR.MINOR stub in `meta-data/VERSION` —
+  `0.4` for `hmd-ms-deployment`, not `0.4.854` — which is the version
+  `ResolveVersion` then reported for a tree it had not used. The artifacts
+  instead carry `meta-data/docker.ext_artifact.hmdentity`, naming the image the
+  build actually produced, and drop `src/docker/` and `src/python/`, which no
+  deploy reads. The ten archives fell from 382 KB to 222 KB.
+
+  `goreleaser build --snapshot --clean` from a tree of tracked files alone —
+  no committed trees, no `external/`, no cache — was the path the fallback
+  existed to protect, and it is the path this was verified on. Without
+  credentials it now fails naming the class, the version and every place looked,
+  rather than at `go:embed`.
+
+- fix: ship every `external/*/src/local/` subdirectory in the wheel
+
+  `package_data` named `config/`, `templates/`, `scripts/` and
+  `scripts/postgres/` one at a time while `services/`, `src/helm/` and
+  `src/cdktf/` were recursive, so any other subdirectory an artifact shipped was
+  present in an editable install and absent from the wheel. That is the bug the
+  comment above `services/*` was written to memorialise, in the block directly
+  below it.
 
 - fix: pin the k3s wrapper to `hmd-img-k3s-floci:0.3.2`, the first build of that
   image its pipeline ever published

@@ -557,6 +557,20 @@ rewrites a database, and a migration that destroys its only copy is not one wort
 offering. That backup deliberately sits outside Floci's ``floci-rds-`` namespace,
 so it is neither rescanned by the check nor mistaken by Floci for a live volume.
 
+``nsctl`` performs the same check, in ``internal/pgcheck``, before compose starts
+Floci. It is the detector alone: it compares the configured image's ``PG_MAJOR``
+against each volume's ``PG_VERSION``, refuses, and names both remedies above.
+Migrating a volume stays here, in ``hmd neuronsphere db upgrade`` — a dump and
+restore belongs in one place, and both front ends address the same ``HMD_HOME``,
+so reaching for the Python CLI costs nothing.
+
+The baseline moved with ``hmd-postgres-base`` 0.3.12, which is the first build to
+ship PostgreSQL **14**. Every earlier tag — including
+``ghcr.io/neuronsphere/hmd-postgres-base:stable``, which every install defaulted
+to — shipped 12.9: the Dockerfile's bump to ``postgres:14-alpine`` was committed
+and then never built. An ``HMD_HOME`` whose environment database predates 0.3.12
+therefore meets exactly the refusal this section describes on its next start.
+
 Upgrading past the single-Floci collapse (breaking)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

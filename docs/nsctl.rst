@@ -112,6 +112,19 @@ carry on:
   ``AWS_ENDPOINT_URL`` is set instead, but the fix reaches a deploy through the
   projectbuilder image, so a stale one still fails. ``nsctl`` warns at
   ``env add`` and again before the deploy.
+- **Only one control plane runs at a time per machine.** The five control-plane
+  services pin ``container_name``, so those names are global while the network,
+  compose project and Floci data directory are namespaced per ``HMD_HOME``. Two
+  homes can take turns -- ``nsctl control-plane stop --home <the other one>``
+  releases the names -- but not both be up. Running them concurrently is
+  :doc:`NERD007 <proposals/NERD007_Concurrent_Control_Planes>`.
+- **It detects a PostgreSQL major-version bump; it does not migrate one.** Floci
+  reuses an RDS instance's volume across starts, so a data directory written by
+  an older major makes the new binary refuse it. ``nsctl`` compares the
+  configured image's ``PG_MAJOR`` against each volume before Floci starts and
+  names both remedies; the migration itself is ``hmd neuronsphere db upgrade``,
+  which works because both front ends address the same ``HMD_HOME``. See
+  :doc:`environments`.
 - **Plugin-contributed workloads are invisible until imported.** Anything an
   installed plugin package contributed to an environment brought up by ``hmd``
   needs ``nsctl repo import`` once. See `Using it alongside the Python CLI`_.
@@ -140,6 +153,26 @@ own services -- is a RepoClass you add.
 This is the main difference from ``hmd neuronsphere up``, which resolves its
 workloads from whichever plugin packages happen to be pip-installed.
 
+Where the images come from
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every image default names ``ghcr.io/hmdlabs`` and an explicit patch version.
+``ghcr.io/neuronsphere`` was a mirror carrying only the released subset, and it
+is stale: two of the three references Floci spawns its backends from, and the
+projectbuilder every deploy node runs in, existed under no tag there at all. A
+machine with nothing set -- which is every fresh install -- could bring up
+neither a graph nor a cluster, and failed the bootstrap's first node.
+
+``HMD_LOCAL_NS_CONTAINER_REGISTRY`` still overrides all of them at once, for a
+mirror that carries everything. The versions are patch pins rather than a
+floating tag: ``hmdlabs`` publishes a moving ``latest`` and no ``stable``, and a
+floating default makes "what was this install built against" unanswerable.
+
+Pulls go through ``docker pull`` rather than the Engine API. The daemon does not
+read ``~/.docker/config.json`` -- resolving credentials is the CLI's job -- so an
+Engine-API pull carries none, and ``ghcr.io`` answers a credential-less request
+with ``unauthorized`` even for a public image.
+
 Commands
 --------
 
@@ -158,9 +191,16 @@ Commands
    * - ``nsctl control-plane repo add|remove|list``
      - Declare what the control plane runs alongside itself. See ``NERD004``.
    * - ``nsctl env add <name>``
-     - Register an environment, allocating its account and port slot.
+     - Register a *further* environment, allocating its account and port slot.
+       The first one needs no ``add`` -- see ``env start``.
    * - ``nsctl env start [name]``
      - Start an environment: database, graph, cluster, routes, then apply.
+       Starts the control plane first if it is down. On an ``HMD_HOME`` with
+       nothing registered it registers the first environment itself, so a new
+       install needs this command and nothing before it. Once any environment
+       exists a name matching none of them is refused -- then it is a typo, not
+       a first run -- and refused immediately, before the control plane starts,
+       rather than after a bootstrap it would have to pay for first.
    * - ``nsctl env apply [name]``
      - Reconcile an environment to its manifest without restarting it.
    * - ``nsctl env attach [name]``
@@ -251,8 +291,7 @@ A typical session
 
 .. code-block:: shell
 
-   nsctl env add scratch
-   nsctl env start scratch              # substrate only: cluster, database, ext-secrets
+   nsctl env start scratch              # control plane, then the substrate
 
    nsctl repo add hmd-ms-myapi \
        --env scratch \
