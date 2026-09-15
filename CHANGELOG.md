@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-15
+
+- feat(nsctl): accept `source: {type: artifact}` in a manifest
+
+  The kind was parsed and deliberately refused with "not supported yet". It is
+  now validated: a version is required, because an artifact is addressed *by*
+  version and there is no `meta-data/VERSION` to fall back on; `source.path` is
+  rejected rather than ignored; and `source.artifact_type` defaults to `build`.
+
+  Nothing resolves an artifact yet -- NERD005 SPEC002's resolution tier is the
+  next step -- so this only widens what a manifest may say.
+
 ## 2026-09-14
 
 - feat: sign in from the CLI with `nsctl login`

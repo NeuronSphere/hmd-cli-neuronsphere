@@ -268,20 +268,30 @@ func TestValidateSourceTypes(t *testing.T) {
 	lookup := fakeEnv(map[string]string{"HMD_REPO_HOME": repos})
 
 	tests := []struct {
-		name   string
-		source *Source
-		want   string
+		name    string
+		source  *Source
+		version string
+		want    string
 	}{
-		{"missing tree", &Source{Type: "local", Path: "/definitely/not/here"}, "local repo path does not exist"},
-		{"reserved kind", &Source{Type: "artifact"}, "is not supported yet"},
-		{"unknown kind", &Source{Type: "wishful"}, "unknown source type"},
-		{"default is local", nil, ""},
+		{"missing tree", &Source{Type: "local", Path: "/definitely/not/here"}, "", "local repo path does not exist"},
+		{"unknown kind", &Source{Type: "wishful"}, "", "unknown source type"},
+		{"default is local", nil, "", ""},
+
+		// NERD005 SPEC001. A version is required because an artifact is
+		// addressed *by* version: there is no meta-data/VERSION to fall back
+		// on, and the 0.1.0 sentinel would be a silently wrong answer.
+		{"artifact without a version", &Source{Type: SourceArtifact}, "", "'version' is required"},
+		{"artifact with a path", &Source{Type: SourceArtifact, Path: "/somewhere"}, "0.1.4", "'source.path' is meaningless"},
+		{"artifact with a malformed type", &Source{Type: SourceArtifact, ArtifactType: "Build Zip"}, "0.1.4", "not a librarian content item type"},
+		// No working tree is consulted, and none is required.
+		{"artifact", &Source{Type: SourceArtifact}, "0.1.4", ""},
+		{"artifact with an explicit type", &Source{Type: SourceArtifact, ArtifactType: "schema"}, "0.1.4", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			m := &Manifest{Version: Version, Name: "dev", Repos: []Repo{
-				{InstanceName: "a", RepoClassName: "hmd-ms-a", Source: tt.source},
+				{InstanceName: "a", RepoClassName: "hmd-ms-a", Source: tt.source, Version: tt.version},
 			}}
 			problems := strings.Join(m.Validate(lookup), "\n")
 			if tt.want == "" {
@@ -292,6 +302,93 @@ func TestValidateSourceTypes(t *testing.T) {
 			}
 			if !strings.Contains(problems, tt.want) {
 				t.Errorf("problems = %q, want it to mention %q", problems, tt.want)
+			}
+		})
+	}
+}
+
+// An artifact source resolves from the librarian even with $HMD_REPO_HOME
+// pointed at an empty directory. That is NERD005 SPEC002's deliberate reversal
+// of the last existing tier, and it is the acceptance criterion for the whole
+// document, so it is asserted at the validation layer too: a manifest that
+// cannot be validated without a checkout can never be applied without one.
+func TestValidateAcceptsAnArtifactWithNoCheckoutAnywhere(t *testing.T) {
+	t.Parallel()
+
+	empty := t.TempDir()
+	m := &Manifest{Version: Version, Name: "dev", Repos: []Repo{
+		{InstanceName: "a", RepoClassName: "hmd-ms-a", Version: "0.1.4",
+			Source: &Source{Type: SourceArtifact}},
+	}}
+
+	if problems := m.Validate(fakeEnv(map[string]string{"HMD_REPO_HOME": empty})); len(problems) > 0 {
+		t.Errorf("an artifact source needed a checkout: %q", problems)
+	}
+}
+
+// validateSource returns early for a control-plane manifest, so that one
+// extension's missing checkout cannot fail every other extension with it
+// (NERD004 SPEC006). A malformed artifact declaration is not host state
+// though -- it is a file-format error -- so it must still be reported in that
+// scope. Ordering these two checks the other way around is the subtle bug.
+func TestValidateChecksAnArtifactInControlPlaneScopeToo(t *testing.T) {
+	t.Parallel()
+
+	lookup := fakeEnv(nil)
+	for _, tt := range []struct {
+		name string
+		repo Repo
+		want string
+	}{
+		{"no version", Repo{InstanceName: "a", RepoClassName: "hmd-ms-a",
+			Source: &Source{Type: SourceArtifact}}, "'version' is required"},
+		{"stray path", Repo{InstanceName: "a", RepoClassName: "hmd-ms-a", Version: "0.1.4",
+			Source: &Source{Type: SourceArtifact, Path: "/somewhere"}}, "'source.path' is meaningless"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &Manifest{Version: Version, Name: ControlPlaneName,
+				Scope: ScopeControlPlane, Repos: []Repo{tt.repo}}
+			problems := strings.Join(m.Validate(lookup), "\n")
+			if !strings.Contains(problems, tt.want) {
+				t.Errorf("problems = %q, want it to mention %q", problems, tt.want)
+			}
+		})
+	}
+}
+
+// A local source in control-plane scope keeps its exemption: the missing tree
+// is cpext's to report, per instance.
+func TestValidateSkipsAMissingTreeInControlPlaneScope(t *testing.T) {
+	t.Parallel()
+
+	m := &Manifest{Version: Version, Name: ControlPlaneName, Scope: ScopeControlPlane,
+		Repos: []Repo{{InstanceName: "a", RepoClassName: "hmd-ms-a",
+			Source: &Source{Type: SourceLocal, Path: "/definitely/not/here"}}}}
+
+	if problems := m.Validate(fakeEnv(nil)); len(problems) > 0 {
+		t.Errorf("control-plane scope reported a missing tree: %q", problems)
+	}
+}
+
+// ArtifactType defaults to build, which is what hmd build publishes and what
+// every pin in this repository's own pre_build_artifacts uses.
+func TestArtifactTypeDefaults(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		repo Repo
+		want string
+	}{
+		{"no source", Repo{}, DefaultArtifactType},
+		{"no artifact_type", Repo{Source: &Source{Type: SourceArtifact}}, DefaultArtifactType},
+		{"explicit", Repo{Source: &Source{Type: SourceArtifact, ArtifactType: "schema"}}, "schema"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.repo.ArtifactType(); got != tt.want {
+				t.Errorf("ArtifactType = %q, want %q", got, tt.want)
 			}
 		})
 	}

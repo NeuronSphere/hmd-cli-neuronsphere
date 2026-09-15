@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -38,13 +39,26 @@ const PathOverride = "HMD_LOCAL_ENV_MANIFEST"
 // format, JSON is accepted for generated or checked-in manifests.
 var Extensions = []string{".yaml", ".yml", ".json"}
 
-// Source kinds a declared instance can deploy from. Only a local working tree
-// is supported today; `artifact` is reserved so a manifest written against the
-// eventual name fails with "not supported yet" rather than "unknown".
+// Source kinds a declared instance can deploy from: a working tree on this
+// machine, or a versioned artifact held by the control plane's Artifact
+// Librarian (NERD005).
 const (
 	SourceLocal    = "local"
 	SourceArtifact = "artifact"
 )
+
+// DefaultArtifactType is the librarian content item type an artifact source
+// resolves from when it names none. `build` is what `hmd build` publishes and
+// what every pin in this repository's own pre_build_artifacts uses.
+const DefaultArtifactType = "build"
+
+// artifactTypePattern is a shape, deliberately, and not an allowlist of the
+// librarian's content item types. The installer variants' exact spellings are
+// not present in this repository, and a wrong allowlist rejects a legitimate
+// manifest with an error its author cannot fix -- whereas a wrong type fails on
+// the fetch with librarian.ErrNotPublished naming the exact content path, which
+// is already clear and actionable. NERD005 SPEC001 records the softening.
+var artifactTypePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 var knownSources = []string{SourceArtifact, SourceLocal}
 
@@ -52,10 +66,15 @@ var knownSources = []string{SourceArtifact, SourceLocal}
 // which panics under t.Parallel.
 type Lookup = func(string) string
 
-// Source locates the working tree an instance deploys from.
+// Source says where an instance's code comes from: the working tree for a
+// local source, or the librarian content item type for an artifact source.
 type Source struct {
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+	// ArtifactType is the librarian content item type, for an artifact source
+	// distributed as something other than a build. Meaningless for a local
+	// source.
+	ArtifactType string `yaml:"artifact_type,omitempty" json:"artifact_type,omitempty"`
 }
 
 // Repo is one declared repo instance.
@@ -74,6 +93,15 @@ func (r Repo) SourceType() string {
 		return SourceLocal
 	}
 	return r.Source.Type
+}
+
+// ArtifactType is the librarian content item type to resolve this instance
+// from, defaulting to build.
+func (r Repo) ArtifactType() string {
+	if r.Source == nil || r.Source.ArtifactType == "" {
+		return DefaultArtifactType
+	}
+	return r.Source.ArtifactType
 }
 
 // RepoPath is the working tree this instance deploys from, or "" when it
@@ -381,9 +409,30 @@ func (r Repo) validateSource(where string, lookup Lookup, scope Scope) []string 
 	switch r.SourceType() {
 	case SourceLocal:
 	case SourceArtifact:
-		return []string{fmt.Sprintf(
-			"%s: source type %q is not supported yet; use 'type: %s' to deploy from a local working tree",
-			where, SourceArtifact, SourceLocal)}
+		// Returned from here rather than falling through, so that none of the
+		// working-tree checks below run: an artifact source resolves from the
+		// librarian even with $HMD_REPO_HOME pointed at an empty directory,
+		// which is NERD005 SPEC002's reversal of the last existing tier.
+		//
+		// Note this also means the checks run in *both* scopes. The
+		// ScopeControlPlane exemption further down is about missing host
+		// state; everything here is a file-format error, and a control-plane
+		// manifest is no more entitled to a malformed one.
+		var problems []string
+		if strings.TrimSpace(r.Version) == "" {
+			problems = append(problems, where+": 'version' is required for an artifact source"+
+				" -- an artifact is addressed by version, and there is no meta-data/VERSION to read it from")
+		}
+		if r.Source != nil && r.Source.Path != "" {
+			problems = append(problems, where+
+				": 'source.path' is meaningless for an artifact source;"+
+				" use 'type: "+SourceLocal+"' to deploy from a working tree")
+		}
+		if t := r.ArtifactType(); !artifactTypePattern.MatchString(t) {
+			problems = append(problems, fmt.Sprintf(
+				"%s: 'source.artifact_type' %q is not a librarian content item type", where, t))
+		}
+		return problems
 	default:
 		return []string{fmt.Sprintf("%s: unknown source type %q; expected one of %s",
 			where, r.SourceType(), strings.Join(knownSources, ", "))}
