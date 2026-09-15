@@ -79,7 +79,7 @@ appears to do.
 .. spec:: Enumerating a repo class's published versions
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD011
-    :status: proposed
+    :status: implemented
 
     The published versions of a repo class shall be obtained in three requests
     against an Artifact Librarian:
@@ -129,6 +129,29 @@ appears to do.
       route pays for URL signing purely to read paths. That is acceptable in a
       command a developer runs occasionally and is **not** acceptable on any
       path a deploy takes.
+
+    **Implemented 2026-09-15** as ``internal/librarian``'s search surface --
+    ``Repos``, ``RepoIdentifier``, ``ContentItemIDs``, ``ContentItemsByNID`` and
+    ``ParseContentPath`` -- driven by ``internal/versions.Enumerate``.
+
+    Three things writing it settled that the proposal did not state.
+
+    The repo list is **memoised on the client**, not merely "cached for the life
+    of the process" as a note: one unfiltered search brings back every repo, so
+    a second enumeration in the same command costs nothing, and the client is
+    where that belongs because nothing else would know it was safe.
+
+    The **chunking lives in the client**, not in its caller. The hundred-id limit
+    is a fact about the service, and a second caller that had to rediscover it
+    would rediscover it as a timeout in whichever repo class first grew a long
+    enough history.
+
+    ``ParseContentPath`` **verifies by re-rendering**: it parses the path, then
+    asserts that ``Spec.ContentPath()`` reproduces it exactly. That is stronger
+    than reading the grammar backwards by hand, and it is what makes "reuse that
+    type rather than a second regular expression" true rather than merely
+    intended -- a file name that names a different repo or version than its own
+    directories fails the round trip and is skipped.
 
 .. spec:: The satisfaction test, and the operators that must be refused
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC002
@@ -273,7 +296,7 @@ appears to do.
 .. spec:: Caching, and staying off the deploy path
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD011
-    :status: proposed
+    :status: implemented
 
     An enumeration is cached under
     ``$HMD_HOME/.cache/neuronsphere/versions/<repo_class>.json``, carrying the
@@ -294,9 +317,22 @@ appears to do.
       anything else uses what is there. An implicit refresh would reintroduce
       the non-determinism by the back door.
 
-    The cache records the query time so that ``nsctl lock`` can report how old
-    the data was, which is the difference between "this is the newest version"
-    and "this was the newest version when somebody last asked".
+    The cache records the query time so that the command doing the resolving can
+    report how old the data was, which is the difference between "this is the
+    newest version" and "this was the newest version when somebody last asked".
+
+    **Implemented 2026-09-15** as ``internal/versions``' ``Root``, ``Load`` and
+    ``Save``, under ``$HMD_HOME/.cache/neuronsphere/versions``.
+
+    One amendment. This SPEC said the capability "is reached from ``nsctl lock``
+    and from nothing else"; it is reached from the ``artifact`` verbs and from
+    nothing else, for the reason SPEC005 now records. Both halves of the rule
+    that matter are unchanged: nothing on a deploy path resolves a version, and
+    no cache entry is ever refreshed implicitly.
+
+    A missing ``HMD_HOME`` disables the cache rather than failing the command.
+    Refusing to answer a question that has already been answered because the
+    answer cannot be filed would be the wrong trade.
 
 .. spec:: Where it lives, and who may call it
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC005

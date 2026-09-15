@@ -250,28 +250,9 @@ func (c *Client) closeUpload(ctx context.Context, contentPath, nid string, part 
 
 // operation POSTs a custom operation, the way invoke_custom_operation does.
 func (c *Client) operation(ctx context.Context, name string, payload any, out any) error {
-	body, err := json.Marshal(payload)
+	payloadBytes, err := c.request(ctx, http.MethodPost, "/apiop/"+name, payload, name)
 	if err != nil {
 		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/apiop/"+name, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.headers(req)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	defer resp.Body.Close()
-	payloadBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("%s: reading the response: %w", name, err)
-	}
-	if resp.StatusCode >= 400 {
-		return &Error{Operation: name, Status: resp.StatusCode, Body: string(payloadBytes)}
 	}
 	if err := json.Unmarshal(payloadBytes, out); err != nil {
 		return fmt.Errorf("%s: decoding the response: %w", name, err)

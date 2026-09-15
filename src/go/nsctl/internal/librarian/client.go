@@ -79,6 +79,10 @@ type Client struct {
 
 	apiKey string
 	token  string
+
+	// The repo list, memoised: it is one unfiltered request that brings back
+	// every repo at once, and every enumeration needs it.
+	reposCache
 }
 
 // Config is what New needs. The zero value is usable: Lookup falls back to the
@@ -196,6 +200,47 @@ func (c *Client) headers(req *http.Request) {
 	if c.token != "" {
 		req.Header.Set("Authorization", c.token)
 	}
+}
+
+// request performs one authenticated request and returns the body.
+//
+// The three shapes this client speaks -- POST /api/<entity>, GET
+// /api/<relationship>/to/<id> and POST /apiop/<operation> -- differ only in
+// method, path and body, so they share this rather than each carrying its own
+// copy of the header and error handling.
+func (c *Client) request(ctx context.Context, method, path string, payload any,
+	operation string) ([]byte, error) {
+
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.headers(req)
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer resp.Body.Close()
+	payloadBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: reading the response: %w", operation, err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, &Error{Operation: operation, Status: resp.StatusCode, Body: string(payloadBytes)}
+	}
+	return payloadBytes, nil
 }
 
 // DownloadURL resolves a content path to the URL its bytes can be read from.

@@ -2,6 +2,47 @@
 
 ## 2026-09-15
 
+- feat(nsctl): enumerate what a repo class has published
+
+  NERD011 SPEC001 and SPEC004. `internal/librarian` grows a search surface and
+  `internal/versions` uses it to answer "what versions of this repo class exist",
+  caching the answer under `$HMD_HOME/.cache/neuronsphere/versions`.
+
+  Three requests, because the obvious routes do not work and most of them fail
+  quietly. `/apiop/search` with `like`, `contains`, `startswith` or
+  `begins_with` on a content path answers 500; any *filtered* CRUD search
+  answers 500 while the unfiltered body succeeds; listing every content item
+  answers 502. Worst of the four is
+  `hmd_lang_artifact_librarian.repo_has_repo_version`, which is the
+  relationship an implementer reaches for first and is declared in the language
+  pack and never populated -- it returns an empty list rather than an error, so
+  code built on it looks like a librarian with nothing published. All four are
+  recorded in the package doc so they are not rediscovered.
+
+  What does work: an unfiltered repo search (217 rows in 1.3 s, memoised on the
+  client), the `content_item_has_repo` edges of the matching repo, and
+  `get_by_nid` over those ids. The version and the item type are read out of the
+  content path rather than fetched as entities, by parsing with the same
+  `librarian.Spec` that generates those paths and verifying the parse by
+  re-rendering it -- so there is one statement of the grammar rather than a
+  generating half and a parsing half that can drift. A path that does not
+  round-trip is skipped, because a librarian holds content items that are not
+  build artifacts.
+
+  The `get_by_nid` batch is chunked at a hundred ids, and the chunking lives in
+  the client rather than in its caller. 392 ids in one request took 29.3 s,
+  close enough to a Lambda timeout that a repo class with a longer history would
+  simply fail, and a second caller should not have to rediscover that as a
+  timeout. Progress is reported per chunk for the same reason: half a minute of
+  silence reads as a hang.
+
+  The cache is cache in NERD005 SPEC003's sense -- wholly reconstructible, so
+  deleting it costs a re-query and nothing else, and purging an environment
+  never reaches it. It records when the librarian was asked, which is what lets
+  a reader tell "this is the newest version" from "this was the newest version
+  when somebody last asked", and it is never refreshed implicitly: the command
+  the user typed queries, everything else reads what is there.
+
 - feat(nsctl): evaluate a version specifier the way the control plane does
 
   NERD011 SPEC002 and SPEC003. `internal/versionspec` answers which published
