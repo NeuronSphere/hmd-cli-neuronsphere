@@ -333,14 +333,20 @@ configuration keys, and a verb that joins two existing halves together.
 
     Selection is by flag -- ``--instance`` and ``--class``, repeatable, plus
     ``--all`` and ``--exclude`` -- and ``show`` accepts the same flags, so a
-    ``show`` is exactly a preview of the ``import`` that follows it. An empty
-    selection shall be refused rather than defaulting to everything: importing
-    a sixty-instance cloud environment is a thing to ask for out loud.
+    ``show`` is exactly a preview of the ``import`` that follows it, closure
+    included. An empty selection shall be refused rather than defaulting to
+    everything: importing a sixty-instance cloud environment is a thing to ask
+    for out loud.
+
+    ``--exclude`` applies **after** the closure and refuses to remove something
+    the closure requires, naming what wanted it. An exclusion that silently
+    unfilled a role would reintroduce exactly the failure the closure exists to
+    prevent.
 
     ``import`` shall proceed in this order, and the order is load-bearing:
-    **select, filter, resolve dependencies, fetch, declare.** Nothing is written
-    to the manifest until the artifact behind it is in the control plane, so an
-    import never leaves a declaration that cannot deploy.
+    **select, filter, close over dependencies, fetch, declare.** Nothing is
+    written to the manifest until the artifact behind it is in the control
+    plane, so an import never leaves a declaration that cannot deploy.
 
     **Filtering** drops three things, each for a reason that already exists:
 
@@ -353,15 +359,42 @@ configuration keys, and a verb that joins two existing halves together.
       ``FAILED`` instance appears in a BOM and is not a thing to reproduce by
       default.
 
-    **Dependencies are the interesting case.** A cloud environment's roles point
-    at things that have no local counterpart -- VPCs, API gateways, an identity
-    provider -- and a closure taken by default would drag a cherry-pick into a
-    whole-environment import. So: a role whose target is substrate binds to the
-    local substrate instance; a role whose target is neither selected nor
-    substrate is **dropped with a warning naming the role, the target, and the
-    flag that would have included it**. Cherry-picking means cherry-picking, and
-    a missing required role is then reported by the manifest validation that
-    already runs, at the moment it can be acted on.
+    **The selection shall be closed under its dependencies.** Selecting
+    ``ms-transform`` selects whatever fills its roles, transitively, and says so.
+
+    This is not a convenience. ``hmd-ms-deployment`` **fails the whole
+    ChangeSet** on a required role nothing fills, so a selection that dropped
+    roles would routinely produce a manifest that cannot deploy -- and the
+    failure would arrive at ``env apply``, minutes later, naming a role rather
+    than the import that omitted it.
+
+    It would be better to close over *required* roles only, and that is not
+    available: a BOM entry's ``dependencies`` is ``{role: target}`` with **no
+    required flag** -- the flag lives on the RepoClassVersion's declared
+    dependencies, not on the deployed edge. Closing over every role is the
+    conservative direction, and it is conservative in the direction that
+    matters: importing an instance nobody needed costs a fetch, while omitting
+    one costs a deploy.
+
+    Each target resolves in one of four ways, and the resolution is reported:
+
+    #. **Substrate** -- ``base-vpc``, ``eks-cluster``, ``environment-db``,
+       ``local-neuronsphere``. Bound to the local substrate instance. Not
+       imported, because ``nsctl`` deploys it either way.
+    #. **Already declared locally.** Bound by name. Not imported, and not
+       overwritten.
+    #. **Present in the same BOM.** Added to the selection, carrying its own
+       concrete version, and closed over in turn.
+    #. **Absent from the BOM.** Warned about by name, with the role that wanted
+       it. This is what a cloud-only dependency looks like -- something whose
+       instance was never ``DEPLOYED``, or lives outside the environment -- and
+       naming it is the whole of the honest answer available here.
+
+    The closure is reported apart from the explicit selection, because "I asked
+    for one thing and got nine" needs to be visible rather than merely true.
+    ``--no-deps`` takes the selection literally instead, warning about every
+    role it leaves unfilled; that is the flag for a machine that already holds
+    the rest.
 
     **A selection is declared from an artifact**, explicitly -- not left to
     default resolution. The version came from a cloud librarian, and a
@@ -453,8 +486,15 @@ Risks
    * - A cherry-pick drops a role the instance actually needs, and the failure
        appears much later as a refused ChangeSet
      - Medium
-     - Every dropped role is warned about by name at import time, and the
+     - The selection is closed under its dependencies by default; a target the
+       BOM does not contain is warned about by name at import time, and the
        manifest is validated before it is written.
+   * - The closure pulls in far more than the user expected, including
+       cloud-only infrastructure
+     - Medium
+     - The closure is reported apart from the explicit selection and shown by
+       ``--dry-run`` before anything is fetched; ``--no-deps`` takes the
+       selection literally.
    * - An environment variable silently overrides the profile someone named
      - Medium
      - SPEC001's guard reports the shadowing, naming both values.
@@ -486,10 +526,14 @@ Acceptance criteria
    ``repo_class_version``, and says for each whether this machine already holds
    that artifact.
 #. ``nsctl bom import <env> --instance <one> --dry-run`` writes nothing, fetches
-   nothing, and names the roles it would drop.
-#. ``nsctl bom import <env> --instance <one>`` declares exactly that instance,
-   at the cloud's version, from an artifact, and ``nsctl repo list`` then shows
-   it with its artifact cached.
+   nothing, and reports the dependency closure apart from the explicit
+   selection, naming any target the BOM does not contain.
+#. Selecting an instance with dependencies imports those dependencies too, at
+   their own versions, while binding roles filled by the substrate rather than
+   importing them; ``--no-deps`` imports only what was named.
+#. ``nsctl bom import <env> --instance <one>`` declares that instance, at the
+   cloud's version, from an artifact, and ``nsctl repo list`` then shows it with
+   its artifact cached.
 #. An import whose artifact cannot be fetched declares nothing for that instance
    and exits non-zero naming it.
 #. A profile with neither a ``deployment_url`` nor a ``customer_code`` is
