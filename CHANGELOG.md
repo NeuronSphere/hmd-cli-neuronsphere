@@ -2,6 +2,41 @@
 
 ## 2026-09-15
 
+- feat(nsctl): reconcile an environment from a repository
+
+  NERD010 SPEC006 and SPEC008. `nsctl env apply --from-repo <path>` re-reads a
+  repository's lock and reconciles an environment that already exists, then
+  deploys it through the apply path that already existed. No new deployment
+  mechanism appears anywhere in NERD010.
+
+  The asymmetry with `env add` is the substance. This one is **offline by
+  default**: an artifact nothing has fetched fails with NERD005 SPEC007's
+  message, naming `nsctl artifact pull`, because an apply that reaches the
+  internet unasked is an apply that behaves differently on an aeroplane. `--pull`
+  fetches first, as a declared step that prints what it does.
+
+  With no `--profile` it uses the profiles the environment recorded, and with no
+  `--name` the instance names it already bound -- so a re-apply never duplicates
+  an instance you renamed.
+
+  Two kinds of instance stop being asked for and they are not the same request,
+  which SPEC006 is amended to say. A renamed one is always undeclared: naming an
+  instance something else is a request about that instance, and leaving both
+  names would deploy the same thing twice into one environment. One dropped by
+  deactivating a profile stays declared unless `--prune`, because narrowing the
+  profile set says nothing about those instances. Neither is ever torn down, and
+  `--prune` undeclares rather than destroys -- the promise `nsctl repo remove`
+  already makes. An instance nobody declared through `--from-repo` is untouched
+  either way.
+
+  The acceptance test caught a bug the proposal did not predict, and it was this
+  SPEC's own failure mode. "Use what the environment recorded" cannot be decided
+  by looking at the recorded profile list, because a lean environment records an
+  empty one and that is indistinguishable from an environment never created from
+  a repository -- so a bare apply silently re-expanded a lean environment to the
+  repository's `default_profiles`. The decision now keys off the `bindings` map,
+  which a `--from-repo` run always writes.
+
 - feat(nsctl): create an environment from a repository
 
   NERD010 SPEC005. `nsctl env add <name> --from-repo <path>` reads a

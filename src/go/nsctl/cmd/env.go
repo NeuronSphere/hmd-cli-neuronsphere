@@ -123,7 +123,10 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 }
 
 func newEnvApplyCommand(opts *Options) *cobra.Command {
-	var verbose, force bool
+	var verbose, force, pull, prune bool
+	var repo fromRepo
+	var libs librarians
+
 	cmd := &cobra.Command{
 		Use:   "apply [name]",
 		Short: "Reconcile an environment to its manifest",
@@ -134,7 +137,22 @@ Editing it by hand and running this is the same operation as ` + "`nsctl repo ad
 which edits that file and reconciles for you.
 
 This is what ` + "`env start`" + ` runs at the end, so applying after an edit does not
-need a restart. An environment with no manifest gets the substrate alone.`,
+need a restart. An environment with no manifest gets the substrate alone.
+
+With --from-repo it re-reads a repository's lock first and reconciles the
+environment to it. Unlike ` + "`env add`" + ` this is offline: an artifact nothing has
+fetched fails naming ` + "`nsctl artifact pull`" + ` rather than reaching for the
+network, because an apply that reaches the internet unasked is an apply that
+behaves differently on an aeroplane. --pull fetches what is missing first, as a
+declared step.
+
+With no --profile it uses the profiles the environment recorded, and with no
+--name the instance names it already bound -- so a re-apply never duplicates an
+instance you renamed. Deactivating a profile leaves its instances declared
+unless --prune; nothing is ever torn down on your behalf.`,
+		Example: `  nsctl env apply
+  nsctl env apply dev --from-repo .
+  nsctl env apply dev --from-repo . --profile full --pull`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -147,6 +165,11 @@ need a restart. An environment with no manifest gets the substrate alone.`,
 			if len(args) == 1 {
 				name = args[0]
 			}
+			if repo.requested() {
+				if err := applyFromRepo(cmd, opts, &repo, &libs, home, name, pull, prune); err != nil {
+					return err
+				}
+			}
 			return environment.Apply(cmd.Context(), &environment.Options{
 				Home: home, Lookup: opts.Lookup, Verbose: verbose, ForceRedeploy: force,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
@@ -156,7 +179,77 @@ need a restart. An environment with no manifest gets the substrate alone.`,
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
 	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
 		"Deploy everything declared, ignoring what the graph says is already deployed")
+	cmd.Flags().BoolVar(&pull, "pull", false,
+		"Fetch the artifacts the declaration names but this machine does not hold")
+	cmd.Flags().BoolVar(&prune, "prune", false,
+		"Undeclare instances this repository no longer asks for. Does not tear them down")
+	repo.bind(cmd)
+	libs.bind(cmd)
 	return cmd
+}
+
+// applyFromRepo reconciles an environment manifest to what a repository's lock
+// says, before the deploy that follows reads it.
+//
+// Offline unless asked otherwise. NERD005 SPEC004 refuses to let resolution
+// reach the internet unasked, and this verb honours the same rule: the fetch is
+// a step the user typed, never a side effect of applying.
+func applyFromRepo(cmd *cobra.Command, opts *Options, repo *fromRepo, libs *librarians,
+	home, name string, pull, prune bool) error {
+
+	_, _, slug, err := resolveEnvSlug(opts, name)
+	if err != nil {
+		return err
+	}
+	existing, err := openManifest(opts, home, slug)
+	if err != nil {
+		return err
+	}
+	plan, err := planFromRepo(repo, existing)
+	if err != nil {
+		return err
+	}
+	if err := checkNamesAreUsed(repo, plan); err != nil {
+		return err
+	}
+
+	if missing := plan.missingArtifacts(home); len(missing) > 0 {
+		if !pull {
+			return uncachedError(opts, home, missing, "--pull")
+		}
+		if err := pullMissing(cmd, opts, libs, home, missing); err != nil {
+			return err
+		}
+	}
+
+	added, kept := plan.apply(existing, prune)
+	if problems := existing.Validate(opts.Lookup); len(problems) > 0 {
+		return nserr.New(nserr.Usage,
+			"the environment this repository describes is not valid:\n  - %s",
+			strings.Join(problems, "\n  - "))
+	}
+	if err := existing.Save(existing.Path); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+
+	plan.render(cmd, slug)
+	if len(kept) > 0 {
+		// These verbs edit a manifest; nothing tears an instance down on the
+		// user's behalf, which is the promise `nsctl repo remove` already makes.
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"note: %s %s no longer asked for, left declared. Pass --prune to undeclare them\n",
+			strings.Join(kept, ", "), plural(len(kept), "is", "are"))
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Reconciled %s to %s (%d instance(s))\n\n",
+		existing.Path, plan.Spec.Path, len(added))
+	return nil
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func newEnvAttachCommand(opts *Options) *cobra.Command {

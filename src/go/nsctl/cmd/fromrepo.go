@@ -106,11 +106,7 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	if existing != nil {
 		bound = existing.Bindings
 	}
-	var recorded []string
-	if existing != nil {
-		recorded = existing.Profiles
-	}
-	profiles := activeProfiles(f, spec, l, recorded)
+	profiles := activeProfiles(f, spec, l, existing)
 
 	plan := &repoPlan{Spec: spec, Lock: l, Profiles: profiles, Bindings: map[string]string{}}
 	taken := map[string]bool{}
@@ -185,12 +181,22 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	return plan, nil
 }
 
-// activeProfiles settles which profiles are on.
+// activeProfiles settles which profiles are on: what was asked for, then what
+// the environment already recorded, then what the repository defaults to.
 //
-// --lean wins over everything, because it is the one that means "none" and a
-// silent default would defeat asking for it. Otherwise: what was asked for, then
-// what the environment already recorded, then what the repository defaults to.
-func activeProfiles(f *fromRepo, spec *localspec.Manifest, l *lock.Lock, recorded []string) []string {
+// The middle tier keys off **bindings, not profiles**, and that is the whole
+// reason it is written this way. A lean environment records *no* profiles, so
+// testing the recorded profile list for emptiness cannot tell "created lean"
+// from "never created from a repository" -- and getting that wrong means a bare
+// `nsctl env apply` silently re-expands a lean environment to the repository's
+// default_profiles, which is exactly the delta-apply SPEC005 step 5 exists to
+// prevent: correct according to a file nobody re-read.
+//
+// Bindings answer the question the profile list cannot, because a --from-repo
+// run always binds at least the repository itself.
+func activeProfiles(f *fromRepo, spec *localspec.Manifest, l *lock.Lock,
+	existing *manifest.Manifest) []string {
+
 	switch {
 	case f.lean:
 		return nil
@@ -198,8 +204,9 @@ func activeProfiles(f *fromRepo, spec *localspec.Manifest, l *lock.Lock, recorde
 		return l.AllProfiles()
 	case len(f.profiles) > 0:
 		return f.profiles
-	case len(recorded) > 0:
-		return recorded
+	case existing != nil && len(existing.Bindings) > 0:
+		// Possibly empty, and that is the point: it means lean.
+		return existing.Profiles
 	default:
 		return spec.Local.DefaultProfiles
 	}
@@ -299,14 +306,28 @@ func checkNamesAreUsed(f *fromRepo, plan *repoPlan) error {
 // apply writes the plan into an environment manifest, replacing what a previous
 // --from-repo run put there and leaving everything else alone.
 //
-// prune decides what happens to an instance this repository declared before and
-// no longer does -- a profile that was deactivated, or a want that was removed.
-// Without it they stay declared, which is the promise these verbs already make:
-// they edit a manifest, and nothing tears an instance down on anyone's behalf.
+// Two kinds of instance stop being asked for, and they are treated differently
+// because the user asked for different things.
+//
+// A **renamed** one is always undeclared. Naming an instance something else is a
+// request about that instance, and leaving both names declared would deploy the
+// same thing twice into one environment -- the duplicate the naming order exists
+// to prevent.
+//
+// One dropped by **deactivating a profile** stays declared unless prune. The user
+// narrowed which profiles are on; they said nothing about the instances, and
+// quietly undeclaring them would make a later apply look like it had lost them.
+//
+// Neither is ever torn down. These verbs edit a manifest, which is the promise
+// `nsctl repo remove` already makes.
 func (p *repoPlan) apply(m *manifest.Manifest, prune bool) (added, kept []string) {
 	owned := map[string]bool{}
 	for _, previous := range m.Bindings {
 		owned[previous] = true
+	}
+	renamed := map[string]bool{}
+	for _, previous := range p.Renamed {
+		renamed[previous] = true
 	}
 
 	declare := make([]manifest.Repo, 0, len(p.Instances)+1)
@@ -327,6 +348,8 @@ func (p *repoPlan) apply(m *manifest.Manifest, prune bool) (added, kept []string
 		switch {
 		case wanted[existing.InstanceName]:
 			// Re-declared below, at whatever the lock now pins.
+			continue
+		case renamed[existing.InstanceName]:
 			continue
 		case owned[existing.InstanceName] && prune:
 			continue
@@ -435,7 +458,8 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 	}
 	for _, previous := range p.Renamed {
 		fmt.Fprintf(cmd.ErrOrStderr(),
-			"warning: %s was renamed, so it is no longer declared. It stays deployed;"+
-				" remove it with `nsctl repo remove %s --env %s`\n", previous, previous, slug)
+			"warning: %s was renamed, so it is no longer declared. Anything already deployed"+
+				" under that name stays deployed -- `nsctl repo list --env %s` shows it as"+
+				" undeclared\n", previous, slug)
 	}
 }

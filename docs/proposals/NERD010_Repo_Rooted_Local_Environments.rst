@@ -551,7 +551,7 @@ already exist.
 .. spec:: ``nsctl env apply --from-repo``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     ``nsctl env apply [<name>] --from-repo [<path>] [--profile ...] [--pull]``
     re-reads the lock and reconciles an environment that already exists. With
@@ -572,6 +572,36 @@ already exist.
     Both verbs are thin: they compose ``localspec``, the lock reader, the
     ``NERD005`` pull, and the existing ``openManifest`` / ``Save`` / apply path.
     No new deployment mechanism appears in this document.
+
+    **Amended 2026-09-15: what ``--prune`` covers, and what it does not.** Two
+    kinds of instance stop being asked for, and they are not the same request.
+
+    An instance whose **name changed** -- through ``--name``, or through a
+    binding that no longer matches -- is *always* undeclared, with or without
+    ``--prune``. Naming an instance something else is a request about that
+    instance, and leaving both names declared would deploy the same thing twice
+    into one environment, which is the duplicate the naming order exists to
+    prevent.
+
+    An instance dropped by **deactivating a profile** stays declared unless
+    ``--prune``. The user narrowed which profiles are on and said nothing about
+    those instances; quietly undeclaring them would make a later apply look as
+    though it had lost them.
+
+    Neither is ever torn down, and ``--prune`` does not tear down either -- it
+    undeclares. An instance this repository never declared is untouched by
+    ``--prune`` in any case, because these verbs own only what they wrote.
+
+    **Implemented 2026-09-15.** One thing the acceptance test caught that the
+    proposal did not predict, and it is this SPEC's own failure mode: with no
+    ``--profile``, "use what the environment recorded" cannot be decided by
+    looking at the recorded *profile list*, because a **lean environment records
+    an empty one** -- indistinguishable from an environment never created from a
+    repository. Reading it that way makes a bare ``nsctl env apply`` silently
+    re-expand a lean environment to ``default_profiles``, which is precisely the
+    delta-apply SPEC005 step 5 forbids. The decision is therefore made on the
+    ``bindings`` map, which a ``--from-repo`` run always writes because it always
+    binds the repository itself.
 
 .. spec:: Why the root, and why TOML
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC007
@@ -614,7 +644,7 @@ already exist.
 .. spec:: What this is not
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     **Not a package index.** The lock pins RepoClass build artifacts held by a
     librarian. Wheels, images and npm packages are ``NERD006``, and the
