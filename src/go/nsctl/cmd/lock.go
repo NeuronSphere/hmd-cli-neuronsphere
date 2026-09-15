@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -91,7 +92,7 @@ differently share one checked-in lock.`,
 func runLockCheck(cmd *cobra.Command, repoDir string, m *localspec.Manifest) error {
 	l, err := lock.Read(repoDir)
 	if err != nil {
-		return nserr.New(nserr.Usage, "%v.\nGenerate one with `nsctl lock`", err)
+		return nserr.Wrap(nserr.Usage, withLockRemedy(err))
 	}
 
 	missing, extra := lock.Check(l, m.Wants())
@@ -275,4 +276,16 @@ func deployedVersions(cmd *cobra.Command, opts *Options, envName string) (string
 		}
 	}
 	return slug, versions, nil
+}
+
+// withLockRemedy appends "generate one" only when there is no lock to read.
+//
+// A lock that exists but cannot be parsed already carries its own remedy, and
+// following this one instead would overwrite a file whose problem is that this
+// binary is too old for it.
+func withLockRemedy(err error) error {
+	if errors.Is(err, lock.ErrAbsent) {
+		return fmt.Errorf("%w.\nGenerate one with `nsctl lock`", err)
+	}
+	return err
 }

@@ -92,7 +92,7 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 		// Never a fall back to resolving on the fly: the whole point of the lock
 		// is that a fresh clone gets the same answer as the machine that wrote
 		// it, and an on-the-fly resolve is exactly the different answer.
-		return nil, nserr.New(nserr.Usage, "%v.\nGenerate one with `nsctl lock`", err)
+		return nil, nserr.Wrap(nserr.Usage, withLockRemedy(err))
 	}
 	if f.allProfiles && f.lean {
 		return nil, nserr.New(nserr.Usage, "--all-profiles and --lean ask for opposite things")

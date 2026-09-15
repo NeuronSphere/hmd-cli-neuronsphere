@@ -315,3 +315,27 @@ func TestLockIgnoresARangeOnAnUngatedOptionalDependency(t *testing.T) {
 		t.Error("pinned an optional dependency nothing wants locally")
 	}
 }
+
+// "Generate one with `nsctl lock`" belongs only to a repository that has no
+// lock. A lock that exists but this binary cannot parse carries its own remedy,
+// and following the generate advice would overwrite a file whose only problem is
+// that nsctl is too old for it.
+func TestLockCheckDoesNotSuggestGeneratingOverAnUnreadableLock(t *testing.T) {
+	t.Parallel()
+
+	repo := lockRepo(t, lockable)
+	writeFile(t, lock.Path(repo), "version = 7\nrepo_class_name = \"x\"\n")
+	_, _, err := run(t, fakeEnv(nil), "lock", repo, "--check")
+	if err == nil {
+		t.Fatal("succeeded, want a refusal")
+	}
+	if strings.Contains(err.Error(), "Generate one with") {
+		t.Errorf("advises generating over a lock that exists:\n%s", err)
+	}
+
+	// And it still says it for a repository that genuinely has none.
+	_, _, err = run(t, fakeEnv(nil), "lock", lockRepo(t, lockable), "--check")
+	if err == nil || !strings.Contains(err.Error(), "Generate one with") {
+		t.Errorf("a repository with no lock is not told to generate one: %v", err)
+	}
+}

@@ -2,6 +2,15 @@
 
 ## 2026-09-15
 
+- fix(nsctl): do not advise generating a lock that already exists
+
+  Found in the NERD010 acceptance run. A lock declaring a schema version this
+  binary does not know was refused correctly -- "lock schema version 7 is not
+  supported; this nsctl understands 1" -- and then told the reader to "generate
+  one with `nsctl lock`", which is advice for a repository that has no lock at
+  all. Following it would overwrite a file whose only problem is that nsctl is
+  too old for it. The remedy is now appended only for the absent case.
+
 - feat(nsctl): reconcile an environment from a repository
 
   NERD010 SPEC006 and SPEC008. `nsctl env apply --from-repo <path>` re-reads a
