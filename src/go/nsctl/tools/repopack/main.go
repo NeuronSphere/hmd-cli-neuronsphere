@@ -43,8 +43,6 @@ package main
 
 import (
 	"archive/tar"
-	"archive/zip"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -58,30 +56,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 )
-
-// skipDirs are build outputs and VCS state. Everything else in meta-data/ and
-// src/ travels: guessing which files a repo's deploy reads is how a bundled
-// tree deploys differently from a checkout.
-var skipDirs = map[string]bool{
-	".git": true, "build": true, "target": true, "dist": true,
-	"node_modules": true, "__pycache__": true, ".terraform": true,
-	"cdktf.out": true, ".pytest_cache": true, ".mypy_cache": true,
-	// A deploy's own output, not its source. The runner reads
-	// meta-data/resources_output/ out of the workspace after a node runs and
-	// submits what it finds to ms-deployment -- so a copy left in a checkout
-	// would have every environment submitting whoever's deploy produced it.
-	"resources_output": true,
-}
 
 // packDirs are the top-level directories a deploy needs: the metadata that
 // names the version and the dependencies, and the sources the deploy runs.
 var packDirs = []string{"meta-data", "src"}
-
-// maxEntry caps one file unpacked from a fetched zip, matching repotree's limit
-// on the archives this tool writes.
-const maxEntry = 32 << 20
 
 func main() {
 	out := flag.String("out", "", "directory to write <class>.tar.gz into")
@@ -192,7 +173,7 @@ func locate(o options, class string, pins map[string]librarian.Spec, index map[s
 	if err != nil {
 		return "", "", unavailable(o, spec, cached, err)
 	}
-	if err := unzip(data, cached); err != nil {
+	if err := artifact.UnzipInto(data, cached); err != nil {
 		return "", "", fmt.Errorf("%s: unpacking the artifact: %w", spec, err)
 	}
 	return cached, "fetched", nil
@@ -306,57 +287,6 @@ func manifestIndex(root string) map[string]string {
 	return index
 }
 
-// unzip writes a fetched artifact to dest, staging first so an interrupted
-// fetch cannot leave a half-tree that the next run mistakes for a cache hit.
-func unzip(data []byte, dest string) error {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	staging, err := os.MkdirTemp(filepath.Dir(dest), ".staging-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(staging)
-
-	for _, f := range zr.File {
-		name := filepath.Clean(filepath.FromSlash(f.Name))
-		if name == "." || strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
-			return fmt.Errorf("refusing an entry outside the archive root: %q", f.Name)
-		}
-		target := filepath.Join(staging, name)
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		w, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		_, err = io.Copy(w, io.LimitReader(rc, maxEntry))
-		rc.Close()
-		w.Close()
-		if err != nil {
-			return err
-		}
-	}
-	os.RemoveAll(dest)
-	return os.Rename(staging, dest)
-}
-
 // collect lists the files to pack, as sorted slash-separated relative paths.
 func collect(root string) ([]string, error) {
 	var files []string
@@ -371,7 +301,7 @@ func collect(root string) ([]string, error) {
 			}
 			name := d.Name()
 			if d.IsDir() {
-				if skipDirs[name] || strings.HasSuffix(name, ".egg-info") {
+				if artifact.SkipDirs[name] || strings.HasSuffix(name, ".egg-info") {
 					return fs.SkipDir
 				}
 				return nil

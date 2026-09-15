@@ -2,6 +2,46 @@
 
 ## 2026-09-15
 
+- feat(nsctl): cache an unpacked artifact under `$HMD_HOME`
+
+  `internal/artifact` unpacks a versioned librarian artifact to
+  `$HMD_HOME/.cache/neuronsphere/artifacts/<class>@<version>/`, beside the trees
+  `repotree` materialises out of the binary and for the same reason: a deploy
+  node runs in a sibling container and bind-mounts host paths, so a zip has to
+  become an ordinary directory before anything downstream can use it.
+
+  The control flow is `repotree.Dir`'s -- stat the token-named directory, take a
+  package-level mutex, stage, validate, rename, and re-stat on a lost rename race
+  -- but none of its code: `repotree` reads a gzipped tar and artifacts are zips.
+  Two deliberate differences. The token is the *version* rather than a content
+  digest, because the version is what the manifest asked for and what `status`
+  will report. And `Store` returns an error where `repotree.Dir` returns `""`:
+  "the binary carries no tree" is a legitimate state to fall through on, but a
+  failed unpack of a version a manifest named by number is not, and returning
+  nothing for it is how a deploy comes to report a version it did not use.
+
+  Validation requires `meta-data/manifest.json` and `meta-data/VERSION` and
+  deliberately *not* `src/`, since a schema or configuration artifact
+  legitimately has none. It checks the two paths directly rather than calling
+  `repoclass.LoadManifest`, because `repoclass` will import this package.
+
+  `Invalidate` is the half of re-registering that is easy to forget: overwriting
+  a version in the librarian while an unpacked copy of it sits in the cache
+  deploys the previous build under the new build's version.
+
+  Nothing here fetches. The offline guarantee is a property of the package's
+  imports -- `internal/manifest` and the standard library -- rather than of a
+  runtime flag, so resolution cannot reach the network even by accident.
+
+- refactor(nsctl): lift `repopack`'s zip extractor into `internal/artifact`
+
+  `unzip` and `skipDirs` were already correct and zip-slip-safe in
+  `tools/repopack`; both now live in `internal/artifact` and `repopack` calls
+  them. A deletion rather than an addition, and one fewer place for the
+  `resources_output` exclusion to be missed -- a copy of a deploy's own output
+  carried in an artifact has every environment submitting someone else's
+  resources.
+
 - feat(nsctl): accept `source: {type: artifact}` in a manifest
 
   The kind was parsed and deliberately refused with "not supported yet". It is

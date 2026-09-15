@@ -268,7 +268,7 @@ resolution learns that anything changed.
 .. spec:: Unpack and cache
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: implemented
 
     A fetched artifact is unpacked to::
 
@@ -316,6 +316,16 @@ resolution learns that anything changed.
     never touches ``.cache/neuronsphere``. One cache keyed by class and version
     is correct and needs no purge work, only a test asserting the cache root
     lies outside any environment state directory.
+
+    **Implemented 2026-09-15** as ``internal/artifact``. ``Store`` mirrors
+    ``repotree.Dir``'s control flow and returns an error where ``repotree``
+    returns ``""``; ``Cached`` stats ``meta-data`` inside the tree rather than
+    the tree itself; ``UnzipInto`` is ``tools/repopack``'s ``unzip``, lifted, and
+    ``repopack`` now calls it. The package imports ``internal/manifest`` and the
+    standard library and nothing else, which is what makes the offline guarantee
+    a property of the dependency graph rather than of a runtime flag --
+    ``repoclass`` will import *this* package, so a fetch cannot be reached from
+    resolution even by accident.
 
 .. spec:: ``nsctl artifact pull``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC004

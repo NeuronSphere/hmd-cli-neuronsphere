@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"errors"
 	"os"
@@ -203,28 +202,6 @@ func TestUnavailableNamesEveryPlaceLooked(t *testing.T) {
 	published := unavailable(o, spec, "/c", librarian.ErrNotPublished).Error()
 	if !strings.Contains(published, "no such version") {
 		t.Errorf("an unpublished version should say so:\n%s", published)
-	}
-}
-
-func TestUnzipRefusesTraversal(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	w, err := zw.Create("../escaped.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write([]byte("nope")); err != nil {
-		t.Fatal(err)
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	dest := filepath.Join(t.TempDir(), "tree")
-	if err := unzip(buf.Bytes(), dest); err == nil {
-		t.Fatal("unzip accepted an entry outside the archive root")
 	}
 }
 
