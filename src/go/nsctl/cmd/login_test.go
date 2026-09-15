@@ -19,7 +19,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/browser"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/deviceauth"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tokenstore"
 )
@@ -80,7 +80,7 @@ func (h *loginHarness) login(args loginArgs) error {
 
 func (h *loginHarness) writeConfig(t *testing.T, body string) {
 	t.Helper()
-	path := filepath.Join(h.home, ".config", logincfg.Name)
+	path := filepath.Join(h.home, ".config", nsconfig.Name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestLoginWithoutConfigRefusesWithUsage(t *testing.T) {
 		t.Errorf("exit code = %d, want %d", code, nserr.Usage)
 	}
 	// The message must name the path and show the shape.
-	if !strings.Contains(err.Error(), logincfg.Path(h.home, h.opts.Lookup)) {
+	if !strings.Contains(err.Error(), nsconfig.Path(h.home, h.opts.Lookup)) {
 		t.Errorf("error = %v, want it to name the config path", err)
 	}
 	if !strings.Contains(err.Error(), "auth_url") {
@@ -266,7 +266,7 @@ func TestLoginPromptsAndSavesTheEndpoint(t *testing.T) {
 	// test.
 	_ = h.login(loginArgs{})
 
-	cfg, err := logincfg.Load(h.home, h.opts.Lookup)
+	cfg, err := nsconfig.Load(h.home, h.opts.Lookup)
 	if err != nil {
 		t.Fatalf("the prompt did not write a config: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestLoginNeverOverwritesAnInvalidConfig(t *testing.T) {
 		t.Fatalf("error = %v (code %d), want a usage refusal", err, nserr.CodeOf(err))
 	}
 
-	data, readErr := os.ReadFile(logincfg.Path(h.home, h.opts.Lookup))
+	data, readErr := os.ReadFile(nsconfig.Path(h.home, h.opts.Lookup))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
@@ -333,7 +333,7 @@ func TestLoginAuthURLFlagSaves(t *testing.T) {
 	h := newLoginHarness(t, nil)
 	_ = h.login(loginArgs{authURL: "https://flag.test/oauth2/ns", save: true, noPrompt: true})
 
-	cfg, err := logincfg.Load(h.home, h.opts.Lookup)
+	cfg, err := nsconfig.Load(h.home, h.opts.Lookup)
 	if err != nil {
 		t.Fatalf("--save wrote no config: %v", err)
 	}
@@ -558,9 +558,9 @@ func TestInvalidClientExplainsTheMissingClientID(t *testing.T) {
 		Code: "invalid_client", Description: "Invalid value for 'client_id' parameter.",
 	}
 
-	defaulted := logincfg.Profile{Name: "acme", ClientID: logincfg.DefaultClientID}
+	defaulted := nsconfig.Profile{Name: "acme", ClientID: nsconfig.DefaultClientID}
 	got := explainClientRejection(rejection, defaulted)
-	for _, want := range []string{"client_id", "[profile.acme]", logincfg.DefaultClientID} {
+	for _, want := range []string{"client_id", "[profile.acme]", nsconfig.DefaultClientID} {
 		if !strings.Contains(got.Error(), want) {
 			t.Errorf("error missing %q:\n%s", want, got)
 		}
@@ -568,7 +568,7 @@ func TestInvalidClientExplainsTheMissingClientID(t *testing.T) {
 
 	// A profile that named a client id is being told something true about that
 	// client; adding "you set no client_id" would be false and misleading.
-	named := logincfg.Profile{Name: "acme", ClientID: "0oa1b2c3"}
+	named := nsconfig.Profile{Name: "acme", ClientID: "0oa1b2c3"}
 	if explainClientRejection(rejection, named).Error() != rejection.Error() {
 		t.Error("the hint was added to a profile that already names a client id")
 	}

@@ -189,8 +189,8 @@ local mock; and the **contract** the admin-account service must satisfy.
     to remove it.
 
     So a build **may** carry a default endpoint, in
-    ``logincfg.DefaultAuthURL``, set at link time
-    (``-X ...logincfg.DefaultAuthURL=...``) the way ``main.version`` already is.
+    ``nsconfig.DefaultAuthURL``, set at link time
+    (``-X ...nsconfig.DefaultAuthURL=...``) the way ``main.version`` already is.
     It appears as a profile named ``neuronsphere``. The file always wins: a
     ``[profile.neuronsphere]`` table replaces it outright rather than merging,
     so the endpoint someone reads in their own file is the one that is used. It

@@ -1,5 +1,11 @@
-// Package logincfg reads $HMD_HOME/.config/nsctl.toml, which names the
-// endpoints `nsctl login` authenticates against.
+// Package nsconfig reads $HMD_HOME/.config/nsctl.toml, nsctl's own
+// configuration file: the tenants it can reach, one profile each.
+//
+// A profile names an identity provider's issuer and, optionally, the addresses
+// of that tenant's services. It was called logincfg while signing in was the
+// only thing it configured; the name was widened rather than a second file
+// invented, because "the acme tenant" is one fact and splitting it across two
+// files would be two places to keep a customer code in step.
 //
 // TOML rather than the YAML every manifest uses, and a new file rather than a
 // key in hmd.env, because this is the one piece of configuration a brand new
@@ -13,7 +19,7 @@
 // two admin accounts, or anyone working across tenants. One extra table level
 // costs nothing and cannot be retrofitted without changing the file format
 // under people who already wrote one.
-package logincfg
+package nsconfig
 
 import (
 	"errors"
@@ -103,7 +109,7 @@ const BuiltinProfileName = "neuronsphere"
 // DefaultAuthURL is the endpoint a build signs in against when nothing is
 // configured. Injected at link time:
 //
-//	-X github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg.DefaultAuthURL=https://...
+//	-X github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig.DefaultAuthURL=https://...
 //
 // **Empty by default, and that is deliberate.** A release build pointed at the
 // hosted NeuronSphere tenant lets someone install the binary and run `nsctl

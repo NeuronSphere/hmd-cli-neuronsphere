@@ -137,7 +137,7 @@ Reference: what already exists
    * - The cached token, and ``x-api-key`` beside it
      - ``internal/librarian/client.go``'s ``authToken`` and ``headers``
    * - ``nsctl.toml`` and its profiles
-     - ``internal/logincfg``
+     - ``internal/nsconfig``
    * - Turning a deployed instance into a manifest declaration
      - ``cmd/repo.go``'s ``declarationFor``
    * - Copying an artifact into the control plane

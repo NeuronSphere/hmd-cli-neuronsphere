@@ -2,6 +2,18 @@
 
 ## 2026-09-15
 
+- refactor(nsctl): widen the login config into nsctl's config
+
+  `internal/logincfg` becomes `internal/nsconfig`. No behaviour changes: the
+  same `$HMD_HOME/.config/nsctl.toml`, the same `[profile.<name>]` tables, the
+  same `HMD_LOCAL_NSCTL_CONFIG` override, the same link-time `DefaultAuthURL`.
+
+  The rename is groundwork for NERD012, which puts a tenant's service addresses
+  in the same profile that already names its issuer. A package called
+  `logincfg` holding the URL of an Artifact Librarian is the kind of misnomer
+  that costs the next reader ten minutes, and it is cheaper to fix before the
+  keys land than after.
+
 - feat(nsctl): choose a published version from the command line
 
   NERD011 SPEC005 and SPEC006, which completes the document.

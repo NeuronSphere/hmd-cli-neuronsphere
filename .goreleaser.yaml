@@ -30,7 +30,7 @@ builds:
       # exists: an unset value links as the empty string, which is exactly the
       # "refuse and say what to write" behaviour, so a release built today
       # behaves as it does now rather than naming a host that cannot answer.
-      - -s -w -X main.version={{ .Version }} -X github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg.DefaultAuthURL={{ .Env.NSCTL_DEFAULT_AUTH_URL }}
+      - -s -w -X main.version={{ .Version }} -X github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig.DefaultAuthURL={{ .Env.NSCTL_DEFAULT_AUTH_URL }}
     goos:
       # No windows. SPEC013 listed windows/amd64 and its amendment records why
       # it is gone: nsctl shells out to `docker`, mounts /var/run/docker.sock,

@@ -21,7 +21,7 @@
 // SPEC001 says the section is read through NERD009 SPEC006's manifest store,
 // with its meta-data/manifest.toml, meta-data/manifest.json and repo-root
 // neuronsphere.toml tiers. **That store does not exist.** NERD009 is entirely
-// proposed; go-toml/v2 is linked into the binary but internal/logincfg is its
+// proposed; go-toml/v2 is linked into the binary but internal/nsconfig is its
 // only importer, and nothing in this module reads a TOML manifest or a repo-root
 // neuronsphere.toml at all.
 //

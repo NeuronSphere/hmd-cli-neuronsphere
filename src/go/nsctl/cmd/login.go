@@ -16,7 +16,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/browser"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/deviceauth"
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tokenstore"
 )
@@ -250,7 +250,7 @@ func runLogin(cmd *cobra.Command, opts *Options, deps *loginDeps, args loginArgs
 // profile that worked against `nsctl authd` and fails against Okta fails here,
 // with a bare "invalid_client" and no indication that the file is missing a
 // key it was never required to set.
-func explainClientRejection(err error, profile logincfg.Profile) error {
+func explainClientRejection(err error, profile nsconfig.Profile) error {
 	var oauthErr *deviceauth.Error
 	if !errors.As(err, &oauthErr) {
 		return err
@@ -258,19 +258,19 @@ func explainClientRejection(err error, profile logincfg.Profile) error {
 	if oauthErr.Code != "invalid_client" && oauthErr.Code != "unauthorized_client" {
 		return err
 	}
-	if profile.ClientID != logincfg.DefaultClientID {
+	if profile.ClientID != nsconfig.DefaultClientID {
 		return err
 	}
 	return fmt.Errorf("%w\n"+
 		"  Profile %q sets no client_id, so nsctl sent the default %q.\n"+
 		"  A real provider only accepts an application it has registered; add its\n"+
 		"  client id to the profile:\n\n      [profile.%s]\n      client_id = \"...\"\n",
-		err, profile.Name, logincfg.DefaultClientID, profile.Name)
+		err, profile.Name, nsconfig.DefaultClientID, profile.Name)
 }
 
 // storeToken writes a token response, keeping the previous refresh token when
 // the server did not rotate it.
-func storeToken(home string, profile logincfg.Profile, meta *deviceauth.Metadata,
+func storeToken(home string, profile nsconfig.Profile, meta *deviceauth.Metadata,
 	token *deviceauth.Token, previous tokenstore.Login, now time.Time) error {
 
 	issuer := meta.Issuer
@@ -298,7 +298,7 @@ func storeToken(home string, profile logincfg.Profile, meta *deviceauth.Metadata
 
 // resolveProfile finds the endpoint to sign in against, prompting or refusing
 // when there is no configuration.
-func resolveProfile(cmd *cobra.Command, opts *Options, deps *loginDeps, home string, args loginArgs) (logincfg.Profile, error) {
+func resolveProfile(cmd *cobra.Command, opts *Options, deps *loginDeps, home string, args loginArgs) (nsconfig.Profile, error) {
 	name := args.profile
 
 	// An explicit --auth-url needs no file at all, which is what lets a
@@ -307,25 +307,25 @@ func resolveProfile(cmd *cobra.Command, opts *Options, deps *loginDeps, home str
 		if name == "" {
 			name = "default"
 		}
-		profile := logincfg.Profile{Name: name, AuthURL: args.authURL}
+		profile := nsconfig.Profile{Name: name, AuthURL: args.authURL}
 		if err := profile.Validate(); err != nil {
-			return logincfg.Profile{}, nserr.Wrap(nserr.Usage, err)
+			return nsconfig.Profile{}, nserr.Wrap(nserr.Usage, err)
 		}
 		if args.save {
 			if err := saveProfile(cmd, opts, home, profile); err != nil {
-				return logincfg.Profile{}, err
+				return nsconfig.Profile{}, err
 			}
 		}
 		return normalizeProfile(profile), nil
 	}
 
-	cfg, err := logincfg.Load(home, opts.Lookup)
+	cfg, err := nsconfig.Load(home, opts.Lookup)
 	switch {
 	case err == nil:
 		// Resolve consults the file first and the build's compiled-in endpoint
 		// second, so a release build signs in with no configuration at all
 		// while anyone who wrote a file keeps what they wrote.
-		profile, perr := logincfg.Resolve(cfg, name)
+		profile, perr := nsconfig.Resolve(cfg, name)
 		if perr == nil {
 			return profile, nil
 		}
@@ -333,35 +333,35 @@ func resolveProfile(cmd *cobra.Command, opts *Options, deps *loginDeps, home str
 		// here would be reasonable only for an empty file; anything else is a
 		// question the user already answered, differently.
 		if len(cfg.Profiles) > 0 {
-			return logincfg.Profile{}, nserr.Wrap(nserr.Usage, perr)
+			return nsconfig.Profile{}, nserr.Wrap(nserr.Usage, perr)
 		}
-	case strings.Contains(err.Error(), logincfg.ErrNoConfig.Error()):
+	case strings.Contains(err.Error(), nsconfig.ErrNoConfig.Error()):
 		// No file. The build's own endpoint answers here if it has one; a
 		// development build has none, and that is the prompt-or-refuse case.
-		if profile, rerr := logincfg.Resolve(nil, name); rerr == nil {
+		if profile, rerr := nsconfig.Resolve(nil, name); rerr == nil {
 			return profile, nil
 		}
 	default:
 		// A file that exists and does not parse. Never overwritten, never
 		// prompted over: a typo must not become data loss.
-		return logincfg.Profile{}, nserr.Wrap(nserr.Usage, err)
+		return nsconfig.Profile{}, nserr.Wrap(nserr.Usage, err)
 	}
 
 	if args.noPrompt || !deps.isTTY(cmd) {
-		return logincfg.Profile{}, noConfigError(home, opts, name)
+		return nsconfig.Profile{}, noConfigError(home, opts, name)
 	}
 	return promptForProfile(cmd, opts, home, name)
 }
 
 // promptForProfile asks for the one value that cannot be defaulted, then
 // writes it so the question is asked once.
-func promptForProfile(cmd *cobra.Command, opts *Options, home, name string) (logincfg.Profile, error) {
+func promptForProfile(cmd *cobra.Command, opts *Options, home, name string) (nsconfig.Profile, error) {
 	if name == "" {
 		name = "default"
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "\n  No login endpoint is configured in %s.\n",
-		logincfg.Path(home, opts.Lookup))
+		nsconfig.Path(home, opts.Lookup))
 	fmt.Fprintln(out, "  This is the OAuth issuer nsctl signs in against: your identity")
 	fmt.Fprintln(out, "  provider's issuer URL, such as an Okta authorization server.")
 	fmt.Fprintf(out, "\n  Endpoint for profile %q: ", name)
@@ -369,39 +369,39 @@ func promptForProfile(cmd *cobra.Command, opts *Options, home, name string) (log
 	reader := bufio.NewReader(cmd.InOrStdin())
 	line, err := reader.ReadString('\n')
 	if err != nil && strings.TrimSpace(line) == "" {
-		return logincfg.Profile{}, noConfigError(home, opts, name)
+		return nsconfig.Profile{}, noConfigError(home, opts, name)
 	}
-	profile := logincfg.Profile{Name: name, AuthURL: strings.TrimSpace(line)}
+	profile := nsconfig.Profile{Name: name, AuthURL: strings.TrimSpace(line)}
 	if verr := profile.Validate(); verr != nil {
-		return logincfg.Profile{}, nserr.Wrap(nserr.Usage, verr)
+		return nsconfig.Profile{}, nserr.Wrap(nserr.Usage, verr)
 	}
 	if err := saveProfile(cmd, opts, home, profile); err != nil {
-		return logincfg.Profile{}, err
+		return nsconfig.Profile{}, err
 	}
 	return normalizeProfile(profile), nil
 }
 
 // saveProfile adds a profile to the config, creating the file if absent.
-func saveProfile(cmd *cobra.Command, opts *Options, home string, profile logincfg.Profile) error {
-	cfg, err := logincfg.Load(home, opts.Lookup)
+func saveProfile(cmd *cobra.Command, opts *Options, home string, profile nsconfig.Profile) error {
+	cfg, err := nsconfig.Load(home, opts.Lookup)
 	if err != nil {
-		if !strings.Contains(err.Error(), logincfg.ErrNoConfig.Error()) {
+		if !strings.Contains(err.Error(), nsconfig.ErrNoConfig.Error()) {
 			return nserr.Wrap(nserr.Usage, err)
 		}
-		cfg = &logincfg.Config{}
+		cfg = &nsconfig.Config{}
 	}
 	cfg.Set(profile)
-	if err := logincfg.Save(home, opts.Lookup, cfg); err != nil {
+	if err := nsconfig.Save(home, opts.Lookup, cfg); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "  Saved to %s\n", logincfg.Path(home, opts.Lookup))
+	fmt.Fprintf(cmd.OutOrStdout(), "  Saved to %s\n", nsconfig.Path(home, opts.Lookup))
 	return nil
 }
 
 // normalizeProfile applies the defaults Profile() would have applied to a
 // profile that came from a flag or a prompt rather than from the file.
-func normalizeProfile(p logincfg.Profile) logincfg.Profile {
-	cfg := &logincfg.Config{Profiles: map[string]logincfg.Profile{p.Name: p}}
+func normalizeProfile(p nsconfig.Profile) nsconfig.Profile {
+	cfg := &nsconfig.Config{Profiles: map[string]nsconfig.Profile{p.Name: p}}
 	resolved, err := cfg.Profile(p.Name)
 	if err != nil {
 		return p
@@ -418,7 +418,7 @@ func noConfigError(home string, opts *Options, name string) error {
 			"  Write %s:\n\n%s\n"+
 			"  auth_url is the OAuth issuer -- your identity provider's issuer URL, such as\n"+
 			"  an Okta authorization server. Or pass --auth-url once with --save.",
-		logincfg.Path(home, opts.Lookup), indent(logincfg.Example(name)))
+		nsconfig.Path(home, opts.Lookup), indent(nsconfig.Example(name)))
 }
 
 func indent(block string) string {

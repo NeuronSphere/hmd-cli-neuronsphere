@@ -1,4 +1,4 @@
-package logincfg
+package nsconfig
 
 import (
 	"errors"

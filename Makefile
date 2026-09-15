@@ -11,11 +11,11 @@ VERSION   := $(shell cat meta-data/VERSION 2>/dev/null || echo "dev")
 # pointing at a host that does not answer is worse than `nsctl login` refusing
 # and saying what to write. A release sets it -- see .goreleaser.yaml.
 NSCTL_DEFAULT_AUTH_URL ?=
-LOGINCFG  := github.com/neuronsphere/hmd-cli-neuronsphere/internal/logincfg
+NSCONFIG  := github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig
 
 # -s -w drop the symbol table and DWARF. This is a distributed binary, not one
 # anyone debugs in place, and they take roughly 20 MB off it.
-LDFLAGS   := -ldflags "-X main.version=$(VERSION) -X $(LOGINCFG).DefaultAuthURL=$(NSCTL_DEFAULT_AUTH_URL) -s -w"
+LDFLAGS   := -ldflags "-X main.version=$(VERSION) -X $(NSCONFIG).DefaultAuthURL=$(NSCTL_DEFAULT_AUTH_URL) -s -w"
 
 # Robot Framework is optional and not a Go dependency. Override ROBOT to run it
 # without installing it, e.g.
