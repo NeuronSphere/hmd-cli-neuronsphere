@@ -264,7 +264,7 @@ already exist.
 .. spec:: ``neuronsphere.lock``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall generate, and the repository shall check in, a file named
     ``neuronsphere.lock`` at the **repository root**, in **TOML**.
@@ -309,10 +309,38 @@ already exist.
     honoured, because a silently-ignored ``resolved`` entry is a missing
     instance nobody looks for.
 
+    **Amended 2026-09-15.** ``satisfies`` is a **list** of roles, not a single
+    role. One repo class routinely fills several: ``hmd-inf-credentials`` fills
+    ``users``, ``ro-users`` and ``adhoc-users`` in ``hmd-inf-trino``, and
+    ``hmd-inf-eks-node-group`` fills ``compute`` and ``worker-compute``. A string
+    could not say so, and the alternative -- one entry per role -- would pin the
+    same class several times, which is the one thing a lock must not do. An empty
+    or absent list still means "a companion", which is the distinction the field
+    exists for.
+
+    **No instance name ever appears in a lock**, and this is load bearing rather
+    than an omission. Two engineers may deploy the same class at the same locked
+    version under **different local instance names**, and both must still resolve
+    the same roles from the same checked-in lock: a role is portable across
+    machines and an instance name is not. That is why entries are keyed by repo
+    class and why ``satisfies`` names roles. What an instance is called locally is
+    the environment manifest's business -- see SPEC005's naming order.
+
+    It follows that two declared wants of one class which resolve to *different*
+    versions is a refusal naming both, rather than a lock pinning the class twice
+    or silently taking whichever was seen first. Profiles are unioned across the
+    wants that name a class, and one unconditional want makes the class
+    unconditional: a profile is a filter, and something that always starts cannot
+    be filtered out by a profile some other entry named.
+
+    **Implemented 2026-09-15** as ``internal/lock``. The file is written through
+    ``internal/atomicfile`` rather than ``os.WriteFile``, because a ``pre-commit``
+    hook or a CI job may be reading it at that moment.
+
 .. spec:: ``nsctl lock``, and where a version actually comes from
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: partial
 
     ``nsctl lock [<path>]`` reads a repository's ``deploy.dependencies`` and
     its ``local`` section and writes ``neuronsphere.lock``.
@@ -385,10 +413,30 @@ already exist.
     than ``"env:<name>"``. Resolving each range to its newest satisfying version
     is a guess that they are mutually compatible; a running environment is proof.
 
+    **Partly implemented 2026-09-15.** Tiers 1 and 2 are built as ``nsctl lock``;
+    tier 3 is not, and stays ``NERD011``'s. An entry neither tier settles is
+    reported with the specifier and both remedies, exactly as above, and every
+    such entry is reported at once rather than one per run -- a real manifest
+    carries several ranges, and one failure per run would mean one edit per run.
+
+    Two things writing it settled that the proposal did not state.
+
+    ``--pin`` beats ``--from-env``. One is a version the user typed for this run
+    and the other is whatever happens to be deployed; an explicit answer should
+    never lose to an ambient one.
+
+    An **optional dependency the ``local`` section does not gate is not locked**,
+    because it is never deployed locally -- SPEC001 says an unmentioned optional
+    dependency keeps today's behaviour, and today's behaviour is to stay
+    undeclared. So a range on one is not a reason ``nsctl lock`` cannot run, and
+    ``--pin`` naming one is refused with *that* reason ("gate it under
+    ``local.dependencies``") rather than with "this repository does not declare
+    it", which would send the reader to correct a spelling that is already right.
+
 .. spec:: ``nsctl lock --check``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     ``nsctl lock --check`` reports whether ``neuronsphere.lock`` still covers
     what the manifest declares, and **writes nothing**.
@@ -409,6 +457,11 @@ already exist.
     It does **not** check that the pinned versions still exist in any
     librarian. That is a network operation, and ``--check`` must run on an
     aeroplane and in a CI job with no librarian credential.
+
+    **Implemented 2026-09-15.** The first finding exits ``1``; the third exits
+    ``2``, because a lock this binary cannot read is a file the caller must fix
+    rather than a drift it can regenerate away. The second is a warning on
+    standard error and exits ``0``.
 
 .. spec:: ``nsctl env add --from-repo``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC005
@@ -472,7 +525,7 @@ already exist.
 .. spec:: Why the root, and why TOML
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     The lock is at the repository root and in TOML. Both halves are decisions
     and both are cheap to get wrong later, so they are recorded here.
@@ -494,6 +547,8 @@ already exist.
     declaration beside a generated lock, as with ``pyproject.toml`` and
     ``uv.lock``, or ``Cargo.toml`` and ``Cargo.lock``. That is worth something
     on its own: nobody has to be told which file to edit.
+
+    **Implemented 2026-09-15** alongside SPEC002. Both halves stand as written.
 
     **The declaration stays in the manifest**, and the contrast with the lock
     is the point. A generated, ``nsctl``-owned file is free to be new. A
