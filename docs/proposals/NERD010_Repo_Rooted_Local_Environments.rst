@@ -331,62 +331,30 @@ already exist.
     ``lock`` never contacts a librarian in tiers 1 and 2. Tier 1 contacts
     ``ms-deployment``, which is local.
 
-    **Spike outcome, 2026-09-15: tier 3 is feasible.** Measured against a real
-    cloud librarian, so the route below is observed rather than designed.
+    **Spike outcome, 2026-09-15: tier 3 is feasible, and it has its own
+    document.** Measured against a real cloud librarian: a repo class's
+    published versions can be enumerated in three requests, and resolving
+    ``~= 0.1`` for ``hmd-inf-trino`` selects the highest satisfying version out
+    of 96 candidates.
 
-    What does **not** work, each confirmed rather than assumed:
+    Because it is feasible it is also general -- ``hmd build``'s
+    ``pre_build_artifacts`` pins ranges too -- so the mechanism is specified in
+    ``NERD011`` and this SPEC consumes it. Four things that document settles and
+    this one therefore does not repeat: the enumeration route and its dead ends,
+    the measured cost and the batch chunking it forces, the fact that ``~= 0.1``
+    accepts ``0.2.5`` rather than meaning "the 0.1 series", and the refusal of
+    the ordered operators.
 
-    - ``/apiop/search`` with ``like``, ``contains``, ``startswith`` or
-      ``begins_with`` on ``content_item_path`` -- all four answer ``500``.
-    - A *filtered* CRUD search. ``POST /api/<class>`` with
-      ``{"repo_name": "..."}`` answers ``500``; only the unfiltered body works.
-    - Enumerating every ``hmd_lang_librarian.content_item`` in one call --
-      ``502``, the response being far too large.
-    - ``hmd_lang_artifact_librarian.repo_has_repo_version``. The relationship is
-      declared in the language pack but **never populated**: every repo returns
-      zero edges. The content-path parser writes ``content_item_has_repo`` and
-      ``content_item_has_repo_version`` instead, so anything keyed off the
-      obvious-looking relationship silently finds nothing.
+    What stays this SPEC's business is the **order of the tiers**, and the spike
+    does not change it. Tiers 1 and 2 remain the default: a known-good
+    environment is better evidence that a set of versions works together than
+    the highest version each range independently admits. Tier 3 is what makes
+    ``lock`` possible for a repo that has no working environment yet.
 
-    What works is three requests per repo class:
-
-    #. ``POST /api/hmd_lang_artifact_librarian.repo`` with an empty body --
-       217 rows, 1.3 s, giving ``repo_name`` to ``identifier``. Cache it for the
-       run; it answers for every class at once.
-    #. ``GET /api/hmd_lang_artifact_librarian.content_item_has_repo/to/<identifier>``
-       -- the content items belonging to that repo, as edges whose ``ref_from``
-       is the content item.
-    #. ``POST /apiop/get_by_nid`` with those ids, then read ``content_item_path``
-       off each result and parse it with the grammar the librarian already
-       writes: ``repository:/<repo>/<version>/<repo>_<version>_<type>.zip``.
-       **The version never has to be looked up as an entity** -- it is in the
-       path, which also yields the content item type.
-
-    Measured cost, and it is the reason this tier is not on a hot path:
-    ``hmd-ms-artifact-lib`` 18 versions in 4.8 s, ``hmd-inf-trino`` 96 in 8.2 s,
-    ``hmd-ms-transform`` **392 in 29.3 s**. Two consequences for the
-    implementation:
-
-    - **Chunk the ``get_by_nid`` batch** at roughly a hundred ids. The 392-id
-      request is close enough to a Lambda timeout that a repository with a
-      longer history would simply fail.
-    - ``get_by_nid`` mints a presigned ``download_url`` for every item, so this
-      route pays for URL signing purely to read paths. It is acceptable for a
-      ``lock`` a developer runs occasionally and would not be acceptable inside
-      resolution, which is another reason resolution stays offline.
-
-    Resolution against the result is then ordinary: ``~= 0.1`` for
-    ``hmd-inf-trino`` selects ``0.1.225`` from 96 candidates, and ``~= 0.3``
-    correctly selects nothing rather than falling back to a version the
-    specifier excludes.
-
-    Because tier 3 is feasible, it is a **general capability** -- resolving a
-    ``version_spec`` against a librarian's published versions is wanted by
-    ``hmd build``'s ``pre_build_artifacts`` and by anything else that pins a
-    range -- and per house rule it shall be given its own NERD, which this SPEC
-    then consumes rather than burying the mechanism here. Tiers 1 and 2 remain
-    the default, because a known-good environment is still better evidence than
-    the highest version that matches a range.
+    One consequence for ``lock``'s output: an entry resolved by tier 3 records
+    ``generated_from = "manifest"``, and a reader should treat that as weaker
+    than ``"env:<name>"``. Resolving each range to its newest satisfying version
+    is a guess that they are mutually compatible; a running environment is proof.
 
 .. spec:: ``nsctl lock --check``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
