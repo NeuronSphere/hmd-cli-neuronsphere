@@ -192,7 +192,9 @@ Commands
      - Declare what the control plane runs alongside itself. See ``NERD004``.
    * - ``nsctl env add <name>``
      - Register a *further* environment, allocating its account and port slot.
-       The first one needs no ``add`` -- see ``env start``.
+       The first one needs no ``add`` -- see ``env start``. With ``--from-repo``
+       it also declares what a repository says it needs; see
+       `Repo-rooted environments`_.
    * - ``nsctl env start [name]``
      - Start an environment: database, graph, cluster, routes, then apply.
        Starts the control plane first if it is down. On an ``HMD_HOME`` with
@@ -203,6 +205,7 @@ Commands
        rather than after a bootstrap it would have to pay for first.
    * - ``nsctl env apply [name]``
      - Reconcile an environment to its manifest without restarting it.
+       ``--from-repo`` re-reads a repository's lock first.
    * - ``nsctl env attach [name]``
      - Watch a deployment already in flight.
    * - ``nsctl env stop [name]``
@@ -222,6 +225,9 @@ Commands
      - What the manifest declares, beside what the graph has deployed.
    * - ``nsctl repo import``
      - Write the environment's deployed instances into its manifest.
+   * - ``nsctl lock``
+     - Pin what a repository needs locally into a checked-in
+       ``neuronsphere.lock``. ``--check`` validates it and writes nothing.
    * - ``nsctl login``
      - Sign in with the device authorization grant. See `Signing in`_.
    * - ``nsctl logout`` / ``nsctl whoami``
@@ -532,6 +538,103 @@ sitting in ``$HMD_REPO_HOME``, because deploying that would report a version
 it did not use. ``nsctl status`` reports the version and where it came from.
 
 See ``NERD005``.
+
+Repo-rooted environments
+------------------------
+
+A repository can declare the local environment it needs in order to be tested,
+and ``nsctl`` can create that environment from it in one command. Two files, two
+jobs -- the pairing every reader already knows from ``pyproject.toml`` beside
+``uv.lock``.
+
+**What the repository wants** goes in a ``local`` section of its BACON manifest,
+by hand:
+
+.. code-block:: json
+
+   "local": {
+     "version": 1,
+     "default_profiles": ["transforms"],
+     "repos": [
+       {"instance_name": "cache", "repo_class_name": "hmd-inf-redis",
+        "version_spec": "0.2.1"},
+       {"instance_name": "ms-transform", "repo_class_name": "hmd-ms-transform",
+        "version_spec": "~= 0.5", "profiles": ["transforms", "full"]}
+     ],
+     "dependencies": {"otel-collector": {"profiles": ["full", "telemetry"]}}
+   }
+
+``local.repos`` are **companions**: things that are not dependencies of this
+repository but are what make testing it meaningful -- a Transform runtime that
+calls its endpoints, a Librarian that Transform reads from. Its real
+dependencies stay in ``deploy.dependencies`` and are not repeated here;
+``local.dependencies`` only profile-gates the *optional* ones.
+
+Profiles are ``docker compose``'s: an entry with a ``profiles`` key starts only
+when one of them is activated, an entry without one always starts, and **lean
+needs no declaration at all** -- it is what activating nothing gives you. A
+*required* dependency cannot be gated, and saying so is a manifest error rather
+than a silent no-op: ``ms-deployment`` fails the whole ChangeSet on an unmet
+required role.
+
+**What those wants resolve to** is generated:
+
+.. code-block:: bash
+
+   nsctl lock                      # from exact specifiers and --pin
+   nsctl lock --from-env local     # or from what an environment is running
+   nsctl lock --check              # in pre-commit and CI; writes nothing
+
+``neuronsphere.lock`` goes at the repository root, in TOML, and is checked in.
+It pins every profile's entries rather than only the active ones, because
+activation is a read-time filter and a lock covering one profile would force a
+re-resolve -- a network trip, and a different answer -- the first time anyone
+switched.
+
+Resolving a range needs a list of published versions, which is a separate
+mechanism (see ``NERD011``). Until it exists, ``nsctl lock`` settles exact
+specifiers, ``--pin`` and ``--from-env``, and reports anything else with both
+remedies rather than guessing. ``--from-env`` is the one to reach for: a
+known-good environment is the only thing that has ever proved a set of versions
+works together.
+
+**Standing it up:**
+
+.. code-block:: bash
+
+   nsctl env add dev --from-repo .            # fetches what is missing
+   nsctl env start dev
+
+   nsctl env apply dev --from-repo . --profile full   # offline; --pull to fetch
+
+Every activated entry is declared at its pinned version as
+``source: {type: artifact}``, and the repository itself is declared from its
+working tree -- which is what makes it the thing under test. A want the
+environment substrate already provides (``base-vpc``, ``eks-cluster``,
+``environment-db``) is bound to but not declared, and says so.
+
+``env add`` fetches what this machine does not hold, because that is first start
+and there is no environment yet to have an offline expectation about.
+``env apply`` does **not**: a missing artifact fails naming
+``nsctl artifact pull``, and ``--pull`` fetches as a declared step. An apply that
+reached the internet unasked would behave differently on an aeroplane.
+
+**Naming.** The lock names repo classes and dependency *roles*, never instances.
+That is deliberate: two engineers may run the same class at the same locked
+version under different local instance names and must still resolve the same
+roles from one checked-in lock. An instance is named, most specific first, by
+what the environment manifest already bound, then ``--name``, then the
+declaration's own ``instance_name``, then the dependency role::
+
+   nsctl env add dev --from-repo . --name neptune-db=my-graph
+
+The environment manifest records the activated ``profiles`` and a ``bindings``
+map, so a later bare ``nsctl env apply`` reconciles to the same set under the
+same names instead of re-defaulting. Renaming an instance undeclares the old
+name; deactivating a profile leaves its instances declared unless ``--prune``.
+Nothing is ever torn down on your behalf.
+
+See ``NERD010``.
 
 The local identity provider
 ---------------------------
