@@ -331,10 +331,62 @@ already exist.
     ``lock`` never contacts a librarian in tiers 1 and 2. Tier 1 contacts
     ``ms-deployment``, which is local.
 
-    If range resolution proves feasible, it is a general capability -- resolving
-    a ``version_spec`` against published versions is useful well beyond local
-    environments -- and it shall be given its own NERD, which this SPEC then
-    consumes, rather than being buried here.
+    **Spike outcome, 2026-09-15: tier 3 is feasible.** Measured against a real
+    cloud librarian, so the route below is observed rather than designed.
+
+    What does **not** work, each confirmed rather than assumed:
+
+    - ``/apiop/search`` with ``like``, ``contains``, ``startswith`` or
+      ``begins_with`` on ``content_item_path`` -- all four answer ``500``.
+    - A *filtered* CRUD search. ``POST /api/<class>`` with
+      ``{"repo_name": "..."}`` answers ``500``; only the unfiltered body works.
+    - Enumerating every ``hmd_lang_librarian.content_item`` in one call --
+      ``502``, the response being far too large.
+    - ``hmd_lang_artifact_librarian.repo_has_repo_version``. The relationship is
+      declared in the language pack but **never populated**: every repo returns
+      zero edges. The content-path parser writes ``content_item_has_repo`` and
+      ``content_item_has_repo_version`` instead, so anything keyed off the
+      obvious-looking relationship silently finds nothing.
+
+    What works is three requests per repo class:
+
+    #. ``POST /api/hmd_lang_artifact_librarian.repo`` with an empty body --
+       217 rows, 1.3 s, giving ``repo_name`` to ``identifier``. Cache it for the
+       run; it answers for every class at once.
+    #. ``GET /api/hmd_lang_artifact_librarian.content_item_has_repo/to/<identifier>``
+       -- the content items belonging to that repo, as edges whose ``ref_from``
+       is the content item.
+    #. ``POST /apiop/get_by_nid`` with those ids, then read ``content_item_path``
+       off each result and parse it with the grammar the librarian already
+       writes: ``repository:/<repo>/<version>/<repo>_<version>_<type>.zip``.
+       **The version never has to be looked up as an entity** -- it is in the
+       path, which also yields the content item type.
+
+    Measured cost, and it is the reason this tier is not on a hot path:
+    ``hmd-ms-artifact-lib`` 18 versions in 4.8 s, ``hmd-inf-trino`` 96 in 8.2 s,
+    ``hmd-ms-transform`` **392 in 29.3 s**. Two consequences for the
+    implementation:
+
+    - **Chunk the ``get_by_nid`` batch** at roughly a hundred ids. The 392-id
+      request is close enough to a Lambda timeout that a repository with a
+      longer history would simply fail.
+    - ``get_by_nid`` mints a presigned ``download_url`` for every item, so this
+      route pays for URL signing purely to read paths. It is acceptable for a
+      ``lock`` a developer runs occasionally and would not be acceptable inside
+      resolution, which is another reason resolution stays offline.
+
+    Resolution against the result is then ordinary: ``~= 0.1`` for
+    ``hmd-inf-trino`` selects ``0.1.225`` from 96 candidates, and ``~= 0.3``
+    correctly selects nothing rather than falling back to a version the
+    specifier excludes.
+
+    Because tier 3 is feasible, it is a **general capability** -- resolving a
+    ``version_spec`` against a librarian's published versions is wanted by
+    ``hmd build``'s ``pre_build_artifacts`` and by anything else that pins a
+    range -- and per house rule it shall be given its own NERD, which this SPEC
+    then consumes rather than burying the mechanism here. Tiers 1 and 2 remain
+    the default, because a known-good environment is still better evidence than
+    the highest version that matches a range.
 
 .. spec:: ``nsctl lock --check``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
@@ -493,9 +545,16 @@ Risks
      - Mitigation
    * - Range resolution is impossible, so ``lock`` cannot be generated from a
        manifest alone
-     - **High**
-     - Settled by a spike before tier 3 is built. Tiers 1 and 2 are a complete
-       product without it, and ``--from-env`` is the better origin anyway.
+     - **Retired**
+     - Settled by the SPEC003 spike on 2026-09-15: it is feasible, in three
+       requests per repo class. Tiers 1 and 2 remain the default regardless,
+       because a known-good environment is better evidence than the highest
+       version matching a range.
+   * - Tier 3 is slow enough to time out on a long-lived repo
+     - Medium
+     - Measured at 29.3 s for 392 versions. The ``get_by_nid`` batch is chunked
+       at roughly a hundred ids, and tier 3 never runs during resolution --
+       only in ``nsctl lock``.
    * - A lock drifts from the manifest and nobody notices
      - Medium
      - ``lock --check``, designed to run in ``pre-commit`` and CI without a
