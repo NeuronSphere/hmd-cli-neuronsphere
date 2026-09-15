@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repotree"
 )
 
@@ -38,6 +39,12 @@ const (
 	// in progress -- the same reason bom_seeder.resolve_repo_version prefers a
 	// bundled artifact.
 	SourceBundled Source = "bundled"
+	// SourceArtifact is a versioned artifact the control plane's librarian
+	// holds, unpacked into the cache. It beats a bundled tree and an
+	// unasked-for checkout, because the manifest named a version and neither of
+	// those is that version -- quietly substituting one produces the worst
+	// outcome available, a deploy that reports a version it did not use.
+	SourceArtifact Source = "artifact"
 	// SourceDeclared is the version an environment manifest or BOM entry named.
 	SourceDeclared Source = "declared"
 	// SourceSentinel is the fallback.
@@ -67,6 +74,13 @@ type Resolver struct {
 	// environment manifest declares with an explicit source path -- which by
 	// definition is not under RepoHome.
 	Paths map[string]string
+	// Artifacts maps a repo class to the version a manifest declared
+	// `source: {type: artifact}` for. It is deliberately not folded into Paths:
+	// an entry there means "the manifest named this working tree" and is taken
+	// without a stat, which is tier two, while an artifact is tier three and
+	// resolves through the cache under Home. Conflating them would report an
+	// artifact's version with Source working-tree.
+	Artifacts map[string]string
 }
 
 // New builds a Resolver with no bundled tier.
@@ -80,7 +94,11 @@ func NewWithHome(repoHome, home string, lookup Lookup) *Resolver {
 	if lookup == nil {
 		lookup = func(string) string { return "" }
 	}
-	return &Resolver{RepoHome: repoHome, Home: home, Lookup: lookup, Paths: map[string]string{}}
+	return &Resolver{
+		RepoHome: repoHome, Home: home, Lookup: lookup,
+		Paths:     map[string]string{},
+		Artifacts: map[string]string{},
+	}
 }
 
 // PreferLocalVersionsEnv asks for every repo class to resolve from its working
@@ -119,6 +137,47 @@ func (r *Resolver) treeDir(repoClass string) (dir string, declared bool) {
 	return "", false
 }
 
+// artifactDir is the unpacked tree for a repo class a manifest declared an
+// artifact source for, or "" when none was declared or none is cached.
+//
+// It never fetches. Resolution is offline by construction -- an apply that
+// reached the internet without being asked is an apply that behaves differently
+// on an aeroplane -- so a version that was never pulled resolves to no directory
+// here and is reported by whoever checked before the deploy started.
+func (r *Resolver) artifactDir(repoClass string) string {
+	version := r.Artifacts[repoClass]
+	if version == "" || r.Home == "" {
+		return ""
+	}
+	if !artifact.Cached(r.Home, repoClass, version) {
+		return ""
+	}
+	return artifact.Dir(r.Home, repoClass, version)
+}
+
+// PreemptedArtifact reports the working tree that will be used in place of a
+// declared artifact source, or "" when none will be.
+//
+// Development beats distribution: a tree the user explicitly asked for still
+// wins, because the whole purpose of $HMD_REPO_HOME is to run uncommitted
+// changes and an artifact source that overrode it would make the platform
+// untestable by the people who build it. But the substitution is exactly the
+// kind that is invisible until it has cost an afternoon, so a caller is given
+// what it needs to say so on the way past.
+func (r *Resolver) PreemptedArtifact(repoClass string) string {
+	if r.Artifacts[repoClass] == "" {
+		return ""
+	}
+	if pinned := r.Lookup(VersionEnvVar(repoClass)); pinned != "" && !strings.EqualFold(pinned, "local") {
+		return ""
+	}
+	tree, declared := r.treeDir(repoClass)
+	if tree != "" && (declared || r.preferLocal(repoClass)) {
+		return tree
+	}
+	return ""
+}
+
 // BundledDir materialises the tree the binary carries for a repo class, or ""
 // when it carries none.
 func (r *Resolver) BundledDir(repoClass string) string {
@@ -137,12 +196,23 @@ func VersionEnvVar(repoClass string) string {
 //
 // Precedence follows ResolveVersion's, so the version, the dependencies and the
 // deploy sources all come from one place: an explicitly declared path, then a
-// checkout the user asked for, then the tree the binary carries, then whatever
-// checkout happens to be lying around.
+// checkout the user asked for, then a declared artifact, then the tree the
+// binary carries, then whatever checkout happens to be lying around.
+//
+// A declared artifact that is not cached answers "" rather than falling through.
+// Every remaining tier would return code that is not the version ResolveVersion
+// reported, and a caller is better served by nothing than by the wrong tree.
 func (r *Resolver) Dir(repoClass string) string {
 	tree, declared := r.treeDir(repoClass)
 	if tree != "" && (declared || r.preferLocal(repoClass)) {
 		return tree
+	}
+	if r.Artifacts[repoClass] != "" {
+		// Returned from here whether or not it is cached. Falling through to a
+		// bundled tree or a checkout would hand back code that is not the
+		// version ResolveVersion just reported, which is the whole failure this
+		// tier exists to refuse -- and it would do it silently.
+		return r.artifactDir(repoClass)
 	}
 	if b := r.BundledDir(repoClass); b != "" {
 		return b
@@ -162,10 +232,24 @@ func (r *Resolver) Dir(repoClass string) string {
 //  2. A checkout the user asked for: that variable set to "local",
 //     HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS, or a source path the
 //     environment manifest declares outright.
-//  3. The tree the binary carries.
-//  4. The version the BOM entry declared.
-//  5. Whatever checkout happens to be under $HMD_REPO_HOME, as a last resort.
-//  6. The sentinel.
+//  3. The version a manifest declared an artifact source for.
+//  4. The tree the binary carries.
+//  5. The version the BOM entry declared.
+//  6. Whatever checkout happens to be under $HMD_REPO_HOME, as a last resort.
+//  7. The sentinel.
+//
+// Tier three is NERD005 SPEC002's reversal of the last existing tier, and the
+// only one of these not forced by prior art. An instance declared
+// `source: {type: artifact}` resolves from the librarian even when a checkout of
+// that class happens to be sitting in $HMD_REPO_HOME: the manifest asked for a
+// version, a stale checkout is not that version, and substituting it produces a
+// deploy that reports a version it did not use.
+//
+// It reports the declared version whether or not the artifact is cached, because
+// an artifact is addressed *by* version and that version is known from the
+// manifest either way. Whether the bytes are on this machine is a different
+// question, asked before the deploy starts so it fails in seconds with the four
+// causes told apart rather than nine hundred log lines in.
 func (r *Resolver) ResolveVersion(repoClass, declared string) Resolution {
 	if pinned := r.Lookup(VersionEnvVar(repoClass)); pinned != "" && !strings.EqualFold(pinned, "local") {
 		return Resolution{Version: pinned, Source: SourcePin}
@@ -176,6 +260,14 @@ func (r *Resolver) ResolveVersion(repoClass, declared string) Resolution {
 		if v := readVersion(tree); v != "" {
 			return Resolution{Version: v, Source: SourceWorkingTree, Root: tree}
 		}
+	}
+	if version := r.Artifacts[repoClass]; version != "" {
+		// Root is the cached tree when there is one, and "" when there is not.
+		// Resolve then falls back to r.Dir for the manifest, which answers ""
+		// as well -- so the dependencies come from the BOM entry rather than
+		// from some other tree of the same class, which is the mismatch
+		// Source's doc comment warns about.
+		return Resolution{Version: version, Source: SourceArtifact, Root: r.artifactDir(repoClass)}
 	}
 	if b := r.BundledDir(repoClass); b != "" {
 		if v := readVersion(b); v != "" {
@@ -249,7 +341,13 @@ func (r *Resolver) Resolve(repoClass, declared string) (string, map[string]any, 
 	// build that never existed, which is what the Source doc warns about and
 	// what re-deriving the directory here used to risk.
 	dir := resolution.Root
-	if dir == "" {
+	if dir == "" && resolution.Source != SourceArtifact {
+		// Not for an artifact whose tree is not cached. r.Dir would answer with
+		// the bundled tree or a checkout of the same class, and reading the
+		// dependencies of one version out of another build is precisely the
+		// mismatch Source's doc comment warns about -- worse here than
+		// elsewhere, because the version reported alongside them is the
+		// artifact's.
 		dir = r.Dir(repoClass)
 	}
 	manifest, err := r.loadManifestFrom(repoClass, dir)

@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repotree"
 )
 
 // The generated script runs a bare `hmd ... deploy`, which makes hmd-cli-deploy
@@ -352,5 +354,72 @@ func TestRepoPathOverrideDoesNotFallBack(t *testing.T) {
 
 	if got, _ := r.repoPath("hmd-ms-a"); got != "" {
 		t.Errorf("repoPath = %q, want the missing override to resolve to nothing", got)
+	}
+}
+
+// TestAnArtifactTreeIsIsolatedLikeABundledOne. An unpacked artifact arrives
+// through RepoPaths exactly as a vendored checkout does, but it is not the same
+// kind of thing: it is keyed by version, shared by every environment on this
+// HMD_HOME, and a deploy writing meta-data/resources_output/ into it would hand
+// the next environment this one's resources. Mounting it directly is the quiet
+// version of that bug.
+func TestAnArtifactTreeIsIsolatedLikeABundledOne(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	cached := artifact.Dir(home, "hmd-ms-a", "0.1.4")
+	if err := os.MkdirAll(filepath.Join(cached, "meta-data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(t.TempDir(), "vendored")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		wantShared bool
+	}{
+		{"an unpacked artifact", cached, true},
+		{"a vendored checkout", checkout, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &Runner{Config: Config{Home: home, RepoPaths: map[string]string{"hmd-ms-a": tt.path}}}
+			got, shared := r.repoPath("hmd-ms-a")
+			if got != tt.path {
+				t.Errorf("repoPath = %q, want %q", got, tt.path)
+			}
+			if shared != tt.wantShared {
+				t.Errorf("shared = %v, want %v", shared, tt.wantShared)
+			}
+		})
+	}
+}
+
+// The predicate is asked of the path, so a cache root added later is covered by
+// having put it in the same place rather than by remembering to list it.
+func TestSharedTreeCoversEveryCacheRoot(t *testing.T) {
+	t.Parallel()
+
+	const home = "/hmd"
+	for _, path := range []string{
+		filepath.Join(repotree.Root(home), "hmd-vpc@abc123"),
+		filepath.Join(artifact.Root(home), "hmd-inf-x@0.1.4"),
+	} {
+		if !sharedTree(home, path) {
+			t.Errorf("sharedTree(%q) = false", path)
+		}
+	}
+	for _, path := range []string{"", "/elsewhere/hmd-vpc", filepath.Join(home, "environments", "local")} {
+		if sharedTree(home, path) {
+			t.Errorf("sharedTree(%q) = true", path)
+		}
+	}
+	if sharedTree("", filepath.Join(artifact.Root(home), "x@1")) {
+		t.Error("sharedTree said true with no HMD_HOME to anchor it")
 	}
 }

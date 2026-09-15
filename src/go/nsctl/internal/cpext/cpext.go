@@ -24,8 +24,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
@@ -149,6 +151,13 @@ func Resolve(opts Options) ([]Extension, error) {
 		// and is taken without a stat, so seeding it with the convention would
 		// hand back a directory that does not exist -- the distinction
 		// bom.RepoPaths already draws for the environment path.
+		if r.SourceType() == manifest.SourceArtifact {
+			// Tier three, not tier two: Paths means "the manifest named this
+			// working tree", and an artifact resolves through the cache under
+			// Home instead.
+			resolver.Artifacts[r.RepoClassName] = r.Version
+			continue
+		}
 		if r.Source == nil || r.Source.Path == "" {
 			continue
 		}
@@ -189,6 +198,17 @@ func resolveOne(r manifest.Repo, resolver *repoclass.Resolver, opts Options) Ext
 
 	e.RepoDir = resolver.Dir(r.RepoClassName)
 	if e.RepoDir == "" {
+		if r.SourceType() == manifest.SourceArtifact {
+			// A different failure with a different fix, so it gets a different
+			// message: the manifest asked for a version nothing has fetched, and
+			// telling the reader there is no checkout sends them to clone a repo
+			// they deliberately chose not to.
+			spec := librarian.Spec{Name: r.RepoClassName, Version: r.Version, ItemType: r.ArtifactType()}
+			e.Err = fmt.Errorf("%w\nFetch it with:  nsctl artifact pull %s",
+				artifact.Unavailable(opts.Home, r.RepoClassName, r.Version, spec.ContentPath(), opts.RepoHome, nil),
+				spec.String())
+			return e
+		}
 		e.Err = fmt.Errorf("no working tree for %s: nsctl carries none, the manifest declares no source.path, "+
 			"and there is none under $HMD_REPO_HOME (%s)", r.RepoClassName, orNotSet(opts.RepoHome))
 		return e

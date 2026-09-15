@@ -228,27 +228,12 @@ func loadPins(path string) (map[string]librarian.Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading the pins: %w", err)
 	}
-	var m struct {
-		Build struct {
-			PreBuildArtifacts [][]json.RawMessage `json:"pre_build_artifacts"`
-		} `json:"build"`
-	}
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	specs, err := librarian.PreBuildArtifacts(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	pins := map[string]librarian.Spec{}
-	for _, entry := range m.Build.PreBuildArtifacts {
-		if len(entry) == 0 {
-			continue
-		}
-		var raw string
-		if json.Unmarshal(entry[0], &raw) != nil {
-			continue
-		}
-		spec, err := librarian.ParseSpec(raw)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
+	for _, spec := range specs {
 		pins[spec.Name] = spec
 	}
 	return pins, nil

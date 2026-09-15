@@ -5,7 +5,7 @@ NERD005 Artifact-Sourced RepoClasses
 
 .. req:: Deploy a RepoClass from a versioned artifact in the local Artifact Librarian
     :id: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: partial
 
     A RepoClass declared in a manifest shall be deployable from a **versioned
     artifact held by the control plane's Artifact Librarian**, and not only
@@ -147,7 +147,7 @@ resolution learns that anything changed.
 .. spec:: The artifact source kind
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: implemented
 
     ``source: {type: artifact}`` becomes valid in a manifest, in both the
     environment manifest and the control-plane manifest.
@@ -191,7 +191,7 @@ resolution learns that anything changed.
 .. spec:: The resolution tier, and precedence
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: implemented
 
     ``repoclass.Resolver`` gains ``SourceArtifact``. Where it sits is the
     substance of this SPEC, and it is the only decision in this document that
@@ -265,6 +265,32 @@ resolution learns that anything changed.
     Collapsing the two duplicate tier implementations is worth doing and is
     explicitly **not** part of this document.
 
+    **Implemented 2026-09-15**, and it found two more things than the amendment
+    above predicted.
+
+    ``Resolver.Dir`` must answer ``""`` for a declared artifact that is not
+    cached, rather than continuing down the tiers. Falling through returns the
+    bundled tree or a checkout -- code that is not the version ``ResolveVersion``
+    just reported -- so the caller gets the wrong tree silently, which is the
+    High risk arriving by a second route. ``Resolve`` needs the same guard on its
+    directory fallback, or the dependencies come out of one build and the version
+    out of another.
+
+    **The runner's isolation flag is load bearing and was not in the plan.** An
+    unpacked artifact reaches a deploy through ``runner.Config.RepoPaths``, which
+    until now meant "a checkout somebody declared" -- and the runner mounts such a
+    tree read-write and directly. An artifact tree is not that: it is keyed by
+    version, shared by every environment on this ``HMD_HOME``, and a deploy
+    writing ``meta-data/resources_output/`` into it would hand the next
+    environment this one's resources. That is the exact hazard the bundled tier
+    already isolates against. ``Runner.repoPath`` now asks whether a path lies
+    under one of the cache roots rather than tracking the answer alongside it, so
+    a third cache added later is covered by having put it in the same place.
+
+    The pre-flight is ``internal/environment.checkArtifacts``, run before the plan
+    for the reason ``EnsureBackendImages`` is: a manifest naming three uncached
+    versions should say so in seconds and name all three.
+
 .. spec:: Unpack and cache
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD005
@@ -330,7 +356,7 @@ resolution learns that anything changed.
 .. spec:: ``nsctl artifact pull``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: implemented
 
     ``nsctl artifact pull <repo_class>@<version>[:<type>]`` downloads a
     versioned artifact from a cloud Artifact Librarian and stores it in the
@@ -398,10 +424,21 @@ resolution learns that anything changed.
     Version *ranges* on ``pull`` are out of scope, and the open question about
     them is transferred to ``NERD010`` SPEC003, which owns version resolution.
 
+    **Implemented 2026-09-15.** ``pull`` fetches from the cloud, stores in the
+    control plane's librarian, **and** unpacks into the cache, because resolution
+    never fetches and a librarian holding bytes nothing has unpacked resolves to
+    nothing.
+
+    That left one state unreachable -- the librarian holds a version whose
+    unpacked copy has been deleted -- so ``nsctl artifact unpack`` exists as the
+    repair path: control plane to cache, no cloud round trip and nothing rebuilt.
+    It is also what makes the offline acceptance criterion testable without a
+    network at all.
+
 .. spec:: ``nsctl artifact register``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: partial
+    :status: implemented
 
     ``nsctl artifact register [<path>]`` stores a local ``hmd build`` output
     in the control plane's librarian, so a developer's own build becomes
@@ -481,7 +518,7 @@ resolution learns that anything changed.
 .. spec:: Pre-build artifacts
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: partial
 
     BACON declares a repo's build-time inputs as::
 
@@ -525,10 +562,22 @@ resolution learns that anything changed.
     affects every build everywhere, including CI, and does not belong in a
     local-platform NERD.
 
+    **Partly implemented 2026-09-15** as ``nsctl artifact cache``, which reads
+    ``build.pre_build_artifacts`` and copies each entry from the cloud librarian
+    into the control plane's under the identical content path. The parser is
+    shared with ``tools/repopack``, which had the only copy of it.
+
+    It stays *partial* deliberately: the risk table promised this would be run
+    against a real repo with a real ``pre_build_artifacts`` entry before being
+    marked implemented, and it has not been. The second direction -- a repo that
+    *is* another repo's pre-build artifact, registered with its own item type --
+    works through ``register --type``, which is tested but likewise unexercised
+    against a real build.
+
 .. spec:: Offline behaviour and failure messages
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: implemented
 
     With no network, an already-cached artifact deploys. That is the whole
     point of caching it, and it is the acceptance test.
@@ -575,7 +624,7 @@ resolution learns that anything changed.
 .. spec:: Plugin distribution
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: partial
 
     Taken with ``NERD004``, this is a complete distribution story for an
     extension, and it is worth writing out end to end because neither
@@ -614,10 +663,16 @@ resolution learns that anything changed.
     above remains correct for a hand-authored manifest; ``NERD010`` is what
     makes it reproducible across machines.
 
+    **Partly implemented 2026-09-15.** Every command in the motion above now
+    exists and the whole chain is covered end to end at the unit level, against
+    librarians stood up in-process. It has **not** been run against a live
+    control plane, which is what the acceptance criteria ask for, so this stays
+    partial until it has been.
+
 .. spec:: Credentials
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: implemented
 
     The cloud librarian's credential is resolved per ``NERD004`` SPEC009:
     named in configuration, resolved from the host keychain, never written

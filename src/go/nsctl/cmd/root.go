@@ -124,6 +124,7 @@ above that is a RepoClass you add.`,
 
 	root.AddCommand(
 		newEnvCommand(opts),
+		newArtifactCommand(opts),
 		newRepoCommand(opts),
 		newControlPlaneCommand(opts),
 		newRunnerCommand(opts),

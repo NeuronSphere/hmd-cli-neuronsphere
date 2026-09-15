@@ -22,6 +22,7 @@
 package librarian
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -72,3 +73,38 @@ func (s Spec) ContentPath() string {
 // String renders the spec back, for error messages that should name what was
 // asked for rather than the address it was translated into.
 func (s Spec) String() string { return s.Name + "@" + s.Version + ":" + s.ItemType }
+
+// PreBuildArtifacts reads build.pre_build_artifacts out of a BACON manifest.
+//
+// The specs are returned in declaration order and keyed by nothing: the <name>
+// is the repo class and the destination beside it is the plugin alias, and a
+// caller that wants a map should say which of the two it is keying on. Getting
+// that wrong silently mismatches every aliased artifact, which is the bug
+// repopack's manifestIndex and bom_seeder._artifact_version_index both exist to
+// avoid.
+func PreBuildArtifacts(manifestJSON []byte) ([]Spec, error) {
+	var m struct {
+		Build struct {
+			PreBuildArtifacts [][]json.RawMessage `json:"pre_build_artifacts"`
+		} `json:"build"`
+	}
+	if err := json.Unmarshal(manifestJSON, &m); err != nil {
+		return nil, fmt.Errorf("parsing the manifest: %w", err)
+	}
+	var specs []Spec
+	for _, entry := range m.Build.PreBuildArtifacts {
+		if len(entry) == 0 {
+			continue
+		}
+		var raw string
+		if json.Unmarshal(entry[0], &raw) != nil {
+			continue
+		}
+		spec, err := ParseSpec(raw)
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, spec)
+	}
+	return specs, nil
+}

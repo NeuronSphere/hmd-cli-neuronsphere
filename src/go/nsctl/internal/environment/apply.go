@@ -5,9 +5,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
@@ -163,6 +165,30 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	for class, path := range repoPaths {
 		resolver.Paths[class] = path
+	}
+	// Artifact sources are seeded separately and deliberately not into Paths:
+	// an entry there means "the manifest named this working tree" and wins at
+	// tier two, while an artifact is tier three. Folding them together would
+	// report an artifact's version with Source working-tree.
+	for _, r := range declaredRepos {
+		if r.SourceType() == manifest.SourceArtifact && r.RepoClassName != "" {
+			resolver.Artifacts[r.RepoClassName] = r.Version
+		}
+	}
+	if err := checkArtifacts(opts, resolver, declaredRepos); err != nil {
+		return err
+	}
+	// Merged after the resolver is seeded, never before: bom.RepoPaths drops
+	// every artifact instance, because manifest.Repo.RepoPath answers "" for a
+	// non-local source. Without this the runner falls through to its own bundled
+	// and any-checkout tiers and deploys whatever tree it finds under the
+	// version the resolver just reported -- the High risk this is written
+	// against, and one that looks exactly like success.
+	for class, path := range artifact.Paths(opts.Home, declaredRepos) {
+		if repoPaths == nil {
+			repoPaths = map[string]string{}
+		}
+		repoPaths[class] = path
 	}
 
 	// Versions are resolved before the plan, not left to the seeder: the
@@ -326,6 +352,48 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 }
 
 // settled is the entries whose recorded digest is trustworthy after a run.
+// checkArtifacts refuses an apply that names an artifact nothing has fetched,
+// and reports a working tree that will pre-empt one.
+//
+// Run before the deploy starts rather than left to the node that would mount
+// nothing, for the same reason EnsureBackendImages is: a manifest naming three
+// uncached versions should say so in seconds and name all three, not fail on the
+// first one nine hundred log lines in with a message about a missing directory.
+//
+// Nothing here contacts the librarian. Resolution is offline by construction, so
+// this is a stat of the cache and the message says as much -- a message implying
+// a 404 would invite the reader to debug a network that was never involved.
+func checkArtifacts(opts *Options, resolver *repoclass.Resolver, repos []manifest.Repo) error {
+	var missing []string
+	for _, r := range repos {
+		if r.SourceType() != manifest.SourceArtifact || r.RepoClassName == "" {
+			continue
+		}
+		// Development beats distribution: a tree the user explicitly asked for
+		// still wins. Said out loud on the way past, because it is the kind of
+		// substitution that is invisible until it has cost an afternoon -- and
+		// the user asked for it by setting the variable, so printing it costs
+		// nothing next to debugging its absence.
+		if tree := resolver.PreemptedArtifact(r.RepoClassName); tree != "" {
+			opts.warn("using the working tree at %s for %s instead of the declared artifact %s",
+				tree, r.RepoClassName, r.Version)
+			continue
+		}
+		if artifact.Cached(opts.Home, r.RepoClassName, r.Version) {
+			continue
+		}
+		spec := librarian.Spec{Name: r.RepoClassName, Version: r.Version, ItemType: r.ArtifactType()}
+		missing = append(missing, artifact.Unavailable(
+			opts.Home, r.RepoClassName, r.Version, spec.ContentPath(),
+			opts.lookup("HMD_REPO_HOME"), nil).Error()+
+			"\nFetch it with:  nsctl artifact pull "+spec.String())
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return nserr.New(nserr.Usage, "%s", strings.Join(missing, "\n\n"))
+}
+
 func settled(plan *reconcile.Plan, succeeded []string) []bom.Entry {
 	known := make(map[string]bool, len(succeeded)+len(plan.Unchanged))
 	for _, name := range succeeded {

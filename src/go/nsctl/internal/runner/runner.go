@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repotree"
 )
@@ -197,7 +198,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		return Result{Node: node, Failed: true, Err: fmt.Errorf("the node carries no deploy script")}
 	}
 
-	repoPath, bundled := r.repoPath(node.RepoClassName)
+	repoPath, shared := r.repoPath(node.RepoClassName)
 	if repoPath == "" {
 		return Result{Node: node, Failed: true, Err: fmt.Errorf(
 			"no tree for %s: the binary carries none, and there is none under %s. "+
@@ -205,9 +206,10 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 			node.RepoClassName, r.Config.RepoHome)}
 	}
 
-	// A bundled tree is shared and digest-addressed, so it is never the thing a
-	// deploy writes into.
-	workspace, script, cleanup, err := r.prepareWorkspace(repoPath, node.Script, bundled)
+	// A cached tree -- bundled or unpacked from an artifact -- is shared by
+	// every environment on this HMD_HOME and vouched for by the token in its
+	// directory name, so it is never the thing a deploy writes into.
+	workspace, script, cleanup, err := r.prepareWorkspace(repoPath, node.Script, shared)
 	if err != nil {
 		return Result{Node: node, Failed: true, Err: err}
 	}
@@ -363,26 +365,32 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// repoPath is the host directory to mount for a repo class, and whether it came
-// from the binary rather than from disk.
+// repoPath is the host directory to mount for a repo class, and whether that
+// directory is a cache this HMD_HOME shares rather than a tree its owner owns.
 //
 // The precedence is repoclass.ResolveVersion's, for the reason its comment
 // gives: reading a version from one tree and deploying another describes a
 // build that never existed. An explicitly declared source path wins, then a
 // checkout the developer asked for, then the tree the binary carries, then
-// whatever checkout is under $HMD_REPO_HOME.
+// whatever checkout is under $HMD_REPO_HOME. An artifact-sourced instance
+// arrives through RepoPaths, seeded by whoever read the manifest.
 //
 // It must be a host path either way. projectbuilder is launched as a sibling
 // through the Docker socket, so the daemon resolves every bind mount on the
 // host: a tree that exists only inside this binary is not mountable, which is
 // why a bundled one is materialised under $HMD_HOME first.
-func (r *Runner) repoPath(repoClass string) (path string, bundled bool) {
+func (r *Runner) repoPath(repoClass string) (path string, shared bool) {
 	if repoClass == "" {
 		return "", false
 	}
 	if override := r.Config.RepoPaths[repoClass]; override != "" {
 		if info, err := os.Stat(override); err == nil && info.IsDir() {
-			return override, false
+			// An override is usually a checkout, and then it is the developer's
+			// to write into. An unpacked artifact arrives the same way and is
+			// not: it is keyed by version, shared by every environment here, and
+			// a deploy writing meta-data/resources_output/ into it would hand
+			// the next environment this one's resources.
+			return override, sharedTree(r.Config.Home, override)
 		}
 		return "", false
 	}
@@ -401,6 +409,24 @@ func (r *Runner) repoPath(repoClass string) (path string, bundled bool) {
 		return dir, true
 	}
 	return tree, false
+}
+
+// sharedTree reports whether a path is one of the caches under $HMD_HOME rather
+// than a tree on disk that somebody owns.
+//
+// Asked of the path rather than tracked alongside it, because the property
+// belongs to where the tree lives: every cache root is token-addressed, so a
+// third one added later is covered by having put it in the same place.
+func sharedTree(home, path string) bool {
+	if home == "" || path == "" {
+		return false
+	}
+	for _, root := range []string{repotree.Root(home), artifact.Root(home)} {
+		if path == root || strings.HasPrefix(path, root+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // preferLocal mirrors repoclass's: the developer asking for their own checkout,

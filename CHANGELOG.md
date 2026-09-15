@@ -2,6 +2,73 @@
 
 ## 2026-09-15
 
+- feat(nsctl): deploy a RepoClass from a versioned artifact
+
+  NERD005 SPEC002. `repoclass.Resolver` gains an artifact tier, between the
+  checkout a user asked for and the tree the binary carries. An instance
+  declared `source: {type: artifact}` resolves from the librarian even when a
+  checkout of that class is sitting in `$HMD_REPO_HOME`: the manifest asked for
+  a version, a stale checkout is not that version, and substituting it produces
+  a deploy that reports a version it did not use. A tree the user *explicitly*
+  asked for still wins -- `source.path`, `=local`, `PREFER_LOCAL_VERSIONS` --
+  because the whole purpose of `$HMD_REPO_HOME` is to run uncommitted changes,
+  and `nsctl` now says so on the way past.
+
+  Two things the code turned up that the proposal had not.
+
+  `Resolver.Dir` must answer `""` for a declared artifact that is not cached
+  rather than continuing down the tiers, and `Resolve` needs the same guard on
+  its directory fallback. Falling through hands back the bundled tree or a
+  checkout -- code that is not the version just reported -- silently.
+
+  And an artifact tree reaches a deploy through `runner.Config.RepoPaths`, which
+  until now meant "a checkout somebody declared", so the runner mounted it
+  read-write and directly. An unpacked artifact is not that: it is keyed by
+  version and shared by every environment on this `HMD_HOME`, so a deploy
+  writing `meta-data/resources_output/` into it would hand the next environment
+  this one's resources -- the exact hazard the bundled tier already isolates
+  against. `Runner.repoPath` now asks whether a path lies under one of the cache
+  roots instead of tracking the answer alongside it.
+
+  The integration point is `internal/environment/apply.go`: `bom.RepoPaths`
+  drops every artifact instance, because `manifest.Repo.RepoPath` answers `""`
+  for a non-local source, so the artifact paths are merged in separately -- and
+  deliberately not into `resolver.Paths`, where they would report an artifact's
+  version with source `working-tree`. `checkArtifacts` runs before the plan, for
+  the reason `EnsureBackendImages` does: a manifest naming three uncached
+  versions should say so in seconds and name all three.
+
+- feat(nsctl): add `nsctl artifact` -- pull, register, unpack, cache
+
+  The four verbs that fill the control plane's Artifact Librarian, so a plugin
+  is distributed by version number rather than by git remote.
+
+  `pull` copies a published artifact from a cloud librarian into the control
+  plane's *and* unpacks it, because resolution never fetches and a librarian
+  holding bytes nothing has unpacked resolves to nothing. `register` stores a
+  local `hmd build` output -- an explicit zip, a directory zipped on the fly, or
+  the conventional path `hmd build` writes under `$HMD_BUILD_OUTPUT_DIR` -- and
+  invalidates the unpacked copy first, so re-registering a version deploys the
+  build that was just registered rather than the one before it. `unpack` is the
+  repair path from the control plane alone: no cloud round trip, nothing
+  rebuilt. `cache` copies a repo's declared `pre_build_artifacts` across, since
+  the spec string BACON writes is already the librarian's own content-path
+  grammar.
+
+  `register` does not shell out to `hmd build`. The Python `push_artifact` does
+  by default, and nsctl's premise is that Docker is the only host prerequisite:
+  a register that needed the Python CLI installed would fail in exactly the
+  environment nsctl exists to serve.
+
+  The `--url` override layers over the injected lookup rather than exporting
+  into the process, because every test in `cmd/` runs in parallel and `t.Setenv`
+  panics there.
+
+- refactor(nsctl): share the pre-build-artifacts parser with repopack
+
+  `tools/repopack` held the only reader of `build.pre_build_artifacts`;
+  `librarian.PreBuildArtifacts` is now that reader and both call it.
+
 - feat(nsctl): upload an artifact to the control plane's librarian
 
   `librarian.Client.Put` is the three-leg exchange `put_file` performs:
