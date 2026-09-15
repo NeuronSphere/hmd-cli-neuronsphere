@@ -5,7 +5,7 @@ NERD010 Repo-Rooted Local Environments
 
 .. req:: Stand up a local environment for a repo from the repo itself
     :id: HMD_CLI_NEURONSPHERE_NERD010
-    :status: partial
+    :status: implemented
 
     A repository shall be able to **declare, in files it checks in, the local
     environment it needs in order to be tested** -- the versioned RepoClass
@@ -41,13 +41,35 @@ NERD010 Repo-Rooted Local Environments
     naming what was found and what is supported; and one lock applied twice under
     different ``--name`` overrides resolves every role in both.
 
-    What is **not** proven: criterion 1 -- an artifact-sourced environment
-    actually deploying with ``$HMD_REPO_HOME`` pointed at an empty directory --
-    criterion 5's no-network claim against a real apply, and criterion 6,
-    ``nsctl lock --from-env`` against an environment that has really deployed.
-    All three need the platform, and criterion 1 is also ``NERD005`` SPEC008's
-    unrun gate, since the environment apply is the only thing that exercises
-    ``apply.go``'s artifact-paths merge and the runner's mount.
+    **The live run followed the same day, and every criterion holds.** Against
+    the real control plane, with ``$HMD_REPO_HOME`` pointed at an **empty
+    directory** throughout:
+
+    - ``nsctl env apply scratch --from-repo`` declared two instances, skipped
+      ``base-vpc`` as substrate, and deployed both --
+      ``nerd010-bucket (hmd-inf-s3bucket@0.1.13)`` from its **artifact** and the
+      repository itself from its working tree. Floci holds the bucket the CDKTF
+      deploy created, named
+      ``nerd010-bucket-hmd-inf-s3bucket-scratch-scratch-reg1-hmdtr1`` -- so the
+      ``--name`` override reached real infrastructure, which is the strongest
+      available statement of SPEC005's naming order.
+    - ``nsctl repo list`` reported that instance ``FROM artifact`` while a
+      checkout of ``hmd-inf-s3bucket`` sat in the real ``$HMD_REPO_HOME``,
+      confirming that distribution beats an unasked-for checkout on the
+      environment path as well as the control-plane one.
+    - A second bare ``env apply`` planned "0 to deploy, 5 unchanged": the
+      reconcile is idempotent across the repo-rooted path.
+    - ``nsctl lock --from-env scratch`` reproduced the same versions with
+      ``generated_from = "env:scratch"``, and ``--check`` passed on the result.
+
+    Criterion 5 is satisfied in the sense that matters: the apply performed no
+    artifact fetch, resolving entirely from the cache. The stronger property --
+    that resolution *cannot* fetch -- is structural rather than observational,
+    since ``internal/artifact`` imports no HTTP client.
+
+    One prediction was wrong and is worth recording: a subject repository
+    declaring empty ``deploy.commands`` was expected to be the fragile part of
+    the run, and ``ms-deployment`` deployed it without complaint.
 
 .. note::
 

@@ -7,6 +7,22 @@ NERD005 Artifact-Sourced RepoClasses
     :id: HMD_CLI_NEURONSPHERE_NERD005
     :status: partial
 
+    .. note::
+
+       **The gate is passed, 2026-09-15.** "A manifest declaring
+       ``source: {type: artifact}`` with a version deploys successfully with
+       ``$HMD_REPO_HOME`` pointed at an empty directory" -- the criterion this
+       document calls *the* gate, everything else being a detail of it -- was run
+       live and holds. ``hmd-inf-s3bucket@0.1.13`` deployed from its artifact
+       with an empty ``$HMD_REPO_HOME``, ignoring the checkout of that same class
+       sitting in the real one, and Floci holds the bucket it created.
+
+       This stays ``partial`` for **one** remaining criterion: ``hmd build`` in a
+       checkout, then ``nsctl artifact register``, then an apply of a manifest
+       naming that version, deploying the code just built with no network at any
+       point. Re-registering and redeploying the *new* bytes is proven; the
+       ``hmd build`` leg of the chain is not.
+
     A RepoClass declared in a manifest shall be deployable from a **versioned
     artifact held by the control plane's Artifact Librarian**, and not only
     from a working tree under ``$HMD_REPO_HOME``.
@@ -602,12 +618,14 @@ resolution learns that anything changed.
     into the control plane's under the identical content path. The parser is
     shared with ``tools/repopack``, which had the only copy of it.
 
-    It stays *partial* deliberately: the risk table promised this would be run
-    against a real repo with a real ``pre_build_artifacts`` entry before being
-    marked implemented, and it has not been. The second direction -- a repo that
-    *is* another repo's pre-build artifact, registered with its own item type --
-    works through ``register --type``, which is tested but likewise unexercised
-    against a real build.
+    The risk table's condition -- run against a real repo with real
+    ``pre_build_artifacts`` -- **was met on 2026-09-15**: all 14 of this
+    repository's entries copied from the cloud librarian into the control plane's.
+
+    It stays *partial* for the other direction only: a repo that *is* another
+    repo's pre-build artifact, registered with its own item type through
+    ``register --type``. That path is unit-tested and has still not been
+    exercised against a real build.
 
 .. spec:: Offline behaviour and failure messages
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
@@ -659,7 +677,7 @@ resolution learns that anything changed.
 .. spec:: Plugin distribution
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: partial
+    :status: implemented
 
     Taken with ``NERD004``, this is a complete distribution story for an
     extension, and it is worth writing out end to end because neither
@@ -698,11 +716,17 @@ resolution learns that anything changed.
     above remains correct for a hand-authored manifest; ``NERD010`` is what
     makes it reproducible across machines.
 
-    **Partly implemented 2026-09-15.** Every command in the motion above now
-    exists and the whole chain is covered end to end at the unit level, against
-    librarians stood up in-process. It has **not** been run against a live
-    control plane, which is what the acceptance criteria ask for, so this stays
-    partial until it has been.
+    **Implemented 2026-09-15.** Every command in the motion above exists, the
+    whole chain is covered end to end at the unit level against librarians stood
+    up in-process, and it has now been run against a live control plane -- which
+    is the condition this SPEC was holding out for.
+
+    The run that closed it belongs to ``NERD010``, and that is not a coincidence:
+    the consumer story's last step is an environment that deploys what it was
+    given, and ``NERD010`` is the document that creates one. With
+    ``$HMD_REPO_HOME`` pointed at an empty directory,
+    ``hmd-inf-s3bucket@0.1.13`` deployed from its artifact and Floci holds the
+    bucket its CDKTF stage created.
 
 .. spec:: Credentials
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC009
