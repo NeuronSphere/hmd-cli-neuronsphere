@@ -5,7 +5,7 @@ NERD012 Cloud Environment BOMs
 
 .. req:: Build a local environment from a cloud environment's Bill of Materials
     :id: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: partial
 
     ``nsctl`` shall be able to read the **Bill of Materials of an environment
     running in the cloud** -- every deployed repo instance, its concrete repo
@@ -23,6 +23,17 @@ NERD012 Cloud Environment BOMs
 
     Every operation in this document is a **read** of a cloud service. Nothing
     here writes to one.
+
+    .. note::
+
+        ``partial`` as of 2026-09-15. All seven SPECs are implemented and the
+        whole path is exercised against a fake deployment service and a fake
+        librarian. What is outstanding is **acceptance criterion 1**: no
+        response from a real ``hmd-ms-deployment`` has been captured, so the
+        decoder is written from the Python that produces the format rather than
+        from anything observed. Until that is done the wire shape is the one
+        claim in this document that rests on reading source, and it is the claim
+        everything else is built on.
 
 .. note::
 
@@ -396,7 +407,7 @@ configuration keys, and a verb that joins two existing halves together.
 .. spec:: Cherry-picking a BOM into a local environment
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     A new ``nsctl bom`` family, rather than flags on ``nsctl repo``. Every verb
     in it reaches a cloud service, and nothing in ``repo`` does; keeping the
@@ -484,10 +495,34 @@ configuration keys, and a verb that joins two existing halves together.
     verb to make an exception for: a networked fetch and a ten-minute deploy
     should not be the same keystroke.
 
+    **Implemented 2026-09-15** as ``cmd/bom.go`` and ``cmd/bom_select.go``, the
+    selection kept in its own file as a function over data -- a BOM, a "is it
+    declared" predicate and a "is it reserved" predicate in, a decision out --
+    so the closure is testable without a server.
+
+    Three things writing it settled that the proposal did not state.
+
+    The closure is **iterative rather than recursive**. The BOM is a DAG and a
+    recursive walk would be shorter; it would also overflow a stack rather than
+    terminate if a graph ever stopped being the DAG it claims to be, and a
+    visited set costs one line.
+
+    An instance is recorded as "pulled in by the closure" **only when it is
+    actually imported**. The first version recorded it on arrival, which
+    reported ``eks-cluster`` as both pulled in by the closure and bound without
+    importing -- two accounts of one thing -- and reported a target that is not
+    in the BOM at all as though it had been imported.
+
+    A **selector matching nothing is refused**, listing what the BOM does have.
+    The proposal only refused an *empty* selection. But ``--instance
+    ms-transfrom`` contributing nothing has exactly the shape of a successful
+    small import, and finding out at the end that an import was smaller than
+    intended is much worse than finding out before anything is fetched.
+
 .. spec:: Copying the chosen artifacts down
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     Each selected entry names a repo class and a concrete version, which is
     already an artifact address. Fetching it is ``nsctl artifact pull``'s
@@ -514,10 +549,24 @@ configuration keys, and a verb that joins two existing halves together.
     them separately, and is not a case this document goes out of its way to
     support.
 
+    **Implemented 2026-09-15**, reusing ``nsctl artifact pull``'s path through a
+    split: ``storeLocally`` keeps its two lines of reporting for the caller that
+    stores one artifact, and ``storeArtifact`` is the same work without them for
+    the caller that stores twenty. A split rather than a second implementation,
+    because what must not differ between them is the invalidate-before-store
+    order -- an unpacked copy left in place would deploy the previous build
+    under the new build's version.
+
+    One addition the proposal did not state: an artifact **already unpacked in
+    the cache is not fetched again**, and the run says so. These are
+    multi-megabyte zips addressed by an exact version, so a copy already here is
+    the same bytes; ``artifact.Cached`` is the same check the ``CACHED`` column
+    reports.
+
 .. spec:: What this is not
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     **Not a write path to the cloud.** ``NERD010`` SPEC008 says a lock is a
     local convenience and never an input to a cloud deploy; ``NERD011`` SPEC006
@@ -543,6 +592,14 @@ configuration keys, and a verb that joins two existing halves together.
     Nothing here consults ``internal/versionspec`` or a librarian's version
     enumeration, and a BOM import is not affected by what has been published
     since.
+
+    **Implemented 2026-09-15**, and all five still stand. The one worth
+    re-stating after the fact is the third: an import brings versions and
+    configuration across, and does not claim the result is the same
+    environment. The dropped-role warning is where that stops being a silent
+    difference -- a cloud environment's roles reach VPCs, API gateways and an
+    identity provider that have no local counterpart, and the honest thing
+    available is to name each one.
 
 Risks
 -----

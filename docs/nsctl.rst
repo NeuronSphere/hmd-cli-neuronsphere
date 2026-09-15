@@ -225,6 +225,11 @@ Commands
      - What the manifest declares, beside what the graph has deployed.
    * - ``nsctl repo import``
      - Write the environment's deployed instances into its manifest.
+   * - ``nsctl bom envs`` / ``bom show <env>``
+     - What a cloud ``hmd-ms-deployment`` is running. See
+       `Cloud environments`_.
+   * - ``nsctl bom import <env>``
+     - Copy part of a cloud environment's BOM down and declare it here.
    * - ``nsctl lock``
      - Pin what a repository needs locally into a checked-in
        ``neuronsphere.lock``. ``--check`` validates it and writes nothing.
@@ -658,6 +663,73 @@ name; deactivating a profile leaves its instances declared unless ``--prune``.
 Nothing is ever torn down on your behalf.
 
 See ``NERD010``.
+
+Cloud environments
+------------------
+
+A cloud ``dev`` or ``prod`` environment is a known-good version set -- somebody
+is running it in earnest -- which makes it the strongest thing to seed a local
+environment from. ``nsctl bom`` reads one and builds part of it here.
+
+.. code-block:: console
+
+    $ nsctl bom envs --profile acme
+    ENVIRONMENT  ACCOUNT       REGION
+    dev          123456789012  reg1
+    prod         210987654321  reg1
+
+    $ nsctl bom show dev
+    dev is running 63 instances.
+
+    INSTANCE      REPO CLASS           VERSION  STATUS    CACHED
+    artifact-lib  hmd-ms-artifact-lib  0.4.12   deployed  no
+    ms-transform  hmd-ms-transform     0.5.201  deployed  no
+    trino         hmd-inf-trino        0.2.5    deployed  yes
+
+``CACHED`` says whether this machine already holds that artifact, and is
+answered from the cache alone -- ``show`` reaches no librarian.
+
+**Cherry-picking.** ``--instance`` and ``--class`` are repeatable, and ``--all``
+takes the lot; an empty selection is refused, because importing a
+sixty-instance cloud environment is a thing to ask for out loud. ``show``
+accepts the same flags, so it is a preview of the ``import`` that follows it:
+
+.. code-block:: console
+
+    $ nsctl bom import dev --instance ms-transform
+    INSTANCE      REPO CLASS           VERSION  STATUS    CACHED  SELECTED
+    artifact-lib  hmd-ms-artifact-lib  0.4.12   deployed  no      ms-transform needs it for librarian
+    device-lib    hmd-ms-device-lib    0.4.3    deployed  no      ms-transform needs it for librarian
+    ms-transform  hmd-ms-transform     0.5.201  deployed  no      asked for
+
+    Fetching 3 artifacts from https://artifact-aaa-reg1.acme-admin-neuronsphere.io:
+      hmd-ms-artifact-lib  0.4.12   ok
+      hmd-ms-device-lib    0.4.3    ok
+      hmd-ms-transform     0.5.201  ok
+
+    Declared 3 instances in ~/hmd/environments/local.yaml
+    Run `nsctl env apply local` to deploy it.
+
+**The selection is closed under its dependencies.** ``hmd-ms-deployment`` fails
+a whole ChangeSet on a required role nothing fills, so importing one instance
+without what fills its roles would routinely produce a manifest that cannot
+deploy. Roles filled by the environment substrate -- ``eks-cluster``,
+``environment-db``, ``base-vpc`` -- are bound rather than imported; a target the
+BOM does not contain is named and its role is left undeclared. ``--no-deps``
+takes the selection literally instead, and ``--exclude`` refuses to remove
+something the closure needs.
+
+Each instance is declared at the cloud's version as ``source: {type: artifact}``
+-- never from a checkout, because a version that came from a cloud librarian
+must not silently resolve to whatever sits under ``$HMD_REPO_HOME``. The
+artifacts are fetched **before** anything is written, so an import never leaves
+a declaration that cannot deploy; one that cannot be fetched is named and that
+instance is not declared. ``--dry-run`` writes and fetches nothing,
+``--no-pull`` declares and prints the ``nsctl artifact pull`` lines instead.
+
+Declaring is not deploying: ``nsctl env apply`` is still what deploys the
+result. And nothing here writes to a cloud service -- a BOM is an input to a
+local manifest, never an output to a cloud deploy. See ``NERD012``.
 
 The local identity provider
 ---------------------------

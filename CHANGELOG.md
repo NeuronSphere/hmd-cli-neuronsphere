@@ -2,6 +2,47 @@
 
 ## 2026-09-15
 
+- feat(nsctl): cherry-pick a cloud environment's BOM into a local one
+
+  NERD012 SPEC005, SPEC006 and SPEC007, which completes the document's code.
+  `nsctl bom envs` lists a tenant's environments, `nsctl bom show <env>` prints
+  what one is running -- every deployed instance, its concrete version, and
+  whether this machine already holds that artifact -- and `nsctl bom import
+  <env>` copies a selection down and declares it locally.
+
+  A cloud environment is a known-good version set, which NERD010 already argues
+  is the strongest thing to build a local environment from; until now
+  reproducing one meant reading it by hand and retyping the versions.
+
+  The selection is closed under its dependencies, which is the part worth
+  explaining. `hmd-ms-deployment` fails a whole ChangeSet on a required role
+  nothing fills, so importing `ms-transform` without whatever fills its roles
+  would routinely produce a manifest that cannot deploy -- and the failure would
+  arrive at `env apply` naming a role rather than the import that omitted it.
+  Closing over *required* roles only would be better and is not available: a BOM
+  entry's dependencies carry no required flag. So the closure covers every role,
+  erring in the direction that costs a fetch rather than a deploy. Roles filled
+  by the substrate are bound instead of imported, a target the BOM does not
+  contain is named with the role that wanted it, and `--no-deps` takes the
+  selection literally.
+
+  Fetch happens before declare, always. An import must never leave behind a
+  declaration whose artifact is not here, because that is a manifest that fails
+  at apply for a reason the manifest does not mention; an artifact that cannot
+  be fetched is reported, its instance is not declared, and the command exits
+  non-zero after every other instance has been handled. Each declaration says
+  `source: {type: artifact}` explicitly, so a version that came from a cloud
+  librarian cannot silently resolve to whatever sits under `$HMD_REPO_HOME`.
+
+  An empty selection is refused, and so is a selector matching nothing: `--all`
+  is how you ask for a sixty-instance environment out loud, and `--instance
+  ms-transfrom` contributing nothing has exactly the shape of a successful small
+  import.
+
+  `nsctl bom import` declares; `nsctl env apply` deploys. And nothing here
+  writes to a cloud service -- a BOM is an input to a local manifest, never an
+  output to a cloud deploy.
+
 - feat(nsctl): read a cloud hmd-ms-deployment
 
   NERD012 SPEC002, SPEC003 and SPEC004. `internal/msdeploy` gains a second

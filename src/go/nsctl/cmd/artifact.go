@@ -3,6 +3,7 @@ package cmd
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -366,20 +367,36 @@ resolves RepoClasses, not schemas.`,
 func storeLocally(cmd *cobra.Command, local *librarian.Client, home string,
 	spec librarian.Spec, data []byte) error {
 
-	ctx := cmd.Context()
-	if err := local.Put(ctx, spec.ContentPath(), spec.ItemType, data); err != nil {
-		return nserr.Wrap(nserr.Fail, err)
-	}
-	if err := artifact.Invalidate(home, spec.Name, spec.Version); err != nil {
-		return nserr.Wrap(nserr.Fail, err)
-	}
-	dir, err := artifact.Store(home, spec.Name, spec.Version, data)
+	dir, err := storeArtifact(cmd.Context(), local, home, spec, data)
 	if err != nil {
-		return nserr.Wrap(nserr.Fail, err)
+		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Stored %s in %s\n", spec, local.BaseURL)
 	fmt.Fprintf(cmd.OutOrStdout(), "Unpacked to %s\n", dir)
 	return nil
+}
+
+// storeArtifact is storeLocally without the reporting, for a caller storing
+// many artifacts in a row.
+//
+// Two lines per artifact is right when there is one of them and is noise when
+// there are twenty; what must not differ between the two callers is the
+// invalidate-before-store order, which is why this is a split rather than a
+// second implementation.
+func storeArtifact(ctx context.Context, local *librarian.Client, home string,
+	spec librarian.Spec, data []byte) (string, error) {
+
+	if err := local.Put(ctx, spec.ContentPath(), spec.ItemType, data); err != nil {
+		return "", nserr.Wrap(nserr.Fail, err)
+	}
+	if err := artifact.Invalidate(home, spec.Name, spec.Version); err != nil {
+		return "", nserr.Wrap(nserr.Fail, err)
+	}
+	dir, err := artifact.Store(home, spec.Name, spec.Version, data)
+	if err != nil {
+		return "", nserr.Wrap(nserr.Fail, err)
+	}
+	return dir, nil
 }
 
 // artifactRequest is a reference to an artifact whose version may not be settled
