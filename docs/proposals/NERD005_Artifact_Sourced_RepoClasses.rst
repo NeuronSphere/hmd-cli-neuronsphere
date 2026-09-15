@@ -291,6 +291,25 @@ resolution learns that anything changed.
     for the reason ``EnsureBackendImages`` is: a manifest naming three uncached
     versions should say so in seconds and name all three.
 
+    **Amended 2026-09-15.** ``Resolution.Source`` reaching ``nsctl status`` was
+    only half done. ``nsctl control-plane repo list`` printed it; the environment
+    listing did not, because ``nsctl repo list`` carried two different facts in
+    one SOURCE column -- where the *declaration* came from, beside the manifest's
+    *unresolved* version. An artifact-sourced instance read ``0.1.4 / manifest``
+    and a working tree read ``- / manifest``, so neither said where the version
+    came from, which is the acceptance criterion.
+
+    The column is split: DECLARED keeps the three literals, FROM carries
+    ``Resolution.Source``, and VERSION is the resolved version rather than the
+    declared one. The listing builds a real resolver the way ``apply.go`` does --
+    resolution is offline by construction and every tier either stats the
+    filesystem or answers from the manifest, so it adds no way for a listing to
+    fail, which matters because ``repo list`` is already best-effort about a
+    control plane that is not running. A declared artifact whose bytes are absent
+    reads ``artifact (uncached)`` and the listing names the ``nsctl artifact
+    pull`` that fixes it: this is where a user notices, rather than at the apply
+    that refuses.
+
 .. spec:: Unpack and cache
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD005

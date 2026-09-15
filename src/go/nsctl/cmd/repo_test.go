@@ -3,9 +3,11 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
@@ -394,4 +396,127 @@ func TestRepoImportRefusesWithoutTheDeploymentService(t *testing.T) {
 	if !strings.Contains(err.Error(), "not answering") {
 		t.Errorf("error = %v, want it to say the service is unreachable", err)
 	}
+}
+
+// The acceptance criterion NERD005 states as "`nsctl status` distinguishes
+// '0.1.4 from an artifact' from '0.1.4 from a working tree'". The declaration
+// cannot say it -- both read `manifest` -- so the listing resolves, and FROM is
+// the column that carries the answer.
+//
+// It runs with nothing at all running: repoEnv points the deployment service at
+// a closed port, so this also pins that resolution never turns a listing into an
+// error.
+func TestRepoListSaysWhereEachVersionCameFrom(t *testing.T) {
+	t.Parallel()
+
+	home, env := repoEnv(t)
+	// Same version as the cached artifact, so the FROM column is the only thing
+	// that can tell the two apart. No declared version: the checkout's own
+	// meta-data/VERSION is what a bare `nsctl repo add` resolves through.
+	tree := filepath.Join(env["HMD_REPO_HOME"], "hmd-ms-tree")
+	writeFile(t, filepath.Join(tree, "meta-data", "VERSION"), "0.1.4")
+
+	if _, err := artifact.Store(home, "hmd-inf-cached", "0.1.4",
+		artifactZip(t, "hmd-inf-cached", "0.1.4", "cached")); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &manifest.Manifest{Version: manifest.Version, Name: "local", Repos: []manifest.Repo{
+		{InstanceName: "cached", RepoClassName: "hmd-inf-cached", Version: "0.1.4",
+			Source: &manifest.Source{Type: manifest.SourceArtifact}},
+		{InstanceName: "uncached", RepoClassName: "hmd-inf-uncached", Version: "0.2.0",
+			Source: &manifest.Source{Type: manifest.SourceArtifact}},
+		{InstanceName: "ms-tree", RepoClassName: "hmd-ms-tree"},
+	}}
+	if err := m.Save(manifest.DefaultPath(home, "local")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, err := run(t, fakeEnv(env), "repo", "list")
+	if err != nil {
+		t.Fatalf("repo list: %v", err)
+	}
+	if !strings.Contains(stderr, "not answering") {
+		t.Errorf("stderr does not explain the missing status: %q", stderr)
+	}
+	rows := listRows(t, out)
+
+	for _, tc := range []struct {
+		instance, version, declared, from string
+	}{
+		// An artifact whose bytes are here, and a checkout of the same version:
+		// identical but for FROM, which is the whole point.
+		{instance: "cached", version: "0.1.4", declared: "manifest", from: "artifact"},
+		{instance: "ms-tree", version: "0.1.4", declared: "manifest", from: "working-tree"},
+		// Declared but never pulled. The version is known -- an artifact is
+		// addressed by version -- and the bytes are not, which is the state
+		// `nsctl artifact pull` fixes.
+		{instance: "uncached", version: "0.2.0", declared: "manifest", from: "artifact (uncached)"},
+		{instance: "eks-cluster", version: "-", declared: "substrate", from: "-"},
+	} {
+		t.Run(tc.instance, func(t *testing.T) {
+			t.Parallel()
+
+			row, ok := rows[tc.instance]
+			if !ok {
+				t.Fatalf("no row for %s:\n%s", tc.instance, out)
+			}
+			if row["VERSION"] != tc.version {
+				t.Errorf("VERSION = %q, want %q", row["VERSION"], tc.version)
+			}
+			if row["DECLARED"] != tc.declared {
+				t.Errorf("DECLARED = %q, want %q", row["DECLARED"], tc.declared)
+			}
+			if row["FROM"] != tc.from {
+				t.Errorf("FROM = %q, want %q", row["FROM"], tc.from)
+			}
+		})
+	}
+
+	if rows["cached"]["VERSION"] != rows["ms-tree"]["VERSION"] {
+		t.Fatal("the fixture no longer pins the two to one version, so FROM is not what distinguishes them")
+	}
+	if rows["cached"]["FROM"] == rows["ms-tree"]["FROM"] {
+		t.Errorf("an artifact and a working tree read the same in FROM:\n%s", out)
+	}
+	// Named with the version, because that is what `pull` takes.
+	if !strings.Contains(out, "nsctl artifact pull hmd-inf-uncached@0.2.0:build") {
+		t.Errorf("output does not name the command that fetches the missing artifact:\n%s", out)
+	}
+}
+
+// listRows parses `repo list`'s table into one field map per instance, keyed by
+// the header. Reading columns by name is what keeps these assertions about the
+// contents rather than about the column order -- and splitting on the padding
+// rather than on whitespace is what keeps "REPO CLASS" and "artifact
+// (uncached)" one cell each.
+func listRows(t *testing.T, out string) map[string]map[string]string {
+	t.Helper()
+
+	padding := regexp.MustCompile(`\s{2,}`)
+	rows := map[string]map[string]string{}
+	var header []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, " \t")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := padding.Split(line, -1)
+		if fields[0] == "INSTANCE" {
+			header = fields
+			continue
+		}
+		if header == nil || len(fields) != len(header) {
+			continue
+		}
+		row := map[string]string{}
+		for i, name := range header {
+			row[name] = fields[i]
+		}
+		rows[fields[0]] = row
+	}
+	if header == nil {
+		t.Fatalf("no table in the output:\n%s", out)
+	}
+	return rows
 }

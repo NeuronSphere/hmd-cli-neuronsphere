@@ -7,11 +7,14 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/spf13/cobra"
 )
 
@@ -226,7 +229,12 @@ The substrate is listed too, marked as such: nsctl deploys it whether or not a
 manifest exists, so seeing it here explains instances you never declared.
 
 An instance shown as undeclared is deployed but named by no manifest -- what a
-deleted line leaves behind.`,
+deleted line leaves behind.
+
+DECLARED and FROM answer two different questions. DECLARED is where the
+declaration came from; FROM is where the version came from, which the
+declaration cannot say -- an instance deploying 0.1.4 out of an artifact and one
+deploying 0.1.4 out of a checkout are both declared in the manifest.`,
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -265,10 +273,38 @@ deleted line leaves behind.`,
 						"Declare something with `nsctl repo add <repo-class> --env %s`.\n\n", slug, slug)
 			}
 
+			// Two different facts, and one column used to carry both. DECLARED
+			// says where the declaration came from; FROM says where the version
+			// came from, which is what separates "0.1.4 from an artifact" from
+			// "0.1.4 from a working tree". Answering the second needs a real
+			// resolver, built the way internal/environment/apply.go builds one
+			// so the listing reads the same tiers the deploy will.
+			//
+			// It never fetches and never fails: every tier either stats the
+			// filesystem or answers from the manifest, so a listing stays
+			// usable with nothing running.
+			resolver := repoclass.NewWithHome(opts.Lookup("HMD_REPO_HOME"), home, opts.Lookup)
+			if m != nil {
+				for class, path := range bom.RepoPaths(m.Repos, opts.Lookup) {
+					resolver.Paths[class] = path
+				}
+				// Artifacts, never Paths: an entry in Paths means "the manifest
+				// named this working tree" and wins at tier two, while an
+				// artifact is tier three. Folding them together would report an
+				// artifact's version with Source working-tree.
+				for _, r := range m.Repos {
+					if r.SourceType() == manifest.SourceArtifact && r.RepoClassName != "" {
+						resolver.Artifacts[r.RepoClassName] = r.Version
+					}
+				}
+			}
+
+			var uncached []string
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "INSTANCE\tREPO CLASS\tVERSION\tSOURCE\tDEPLOYED")
+			fmt.Fprintln(w, "INSTANCE\tREPO CLASS\tVERSION\tDECLARED\tFROM\tDEPLOYED")
 			for _, name := range manifest.ReservedNames() {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, "-", "-", "substrate", deployedCell(status, name))
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, "-", "-", "substrate", "-", deployedCell(status, name))
 			}
 			if m != nil {
 				declarations := append([]manifest.Repo{}, m.Repos...)
@@ -276,13 +312,27 @@ deleted line leaves behind.`,
 					return declarations[i].InstanceName < declarations[j].InstanceName
 				})
 				for _, r := range declarations {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-						r.InstanceName, r.RepoClassName, orDash(r.Version),
-						"manifest", deployedCell(status, r.InstanceName))
+					resolution := resolver.ResolveVersion(r.RepoClassName, r.Version)
+					from := string(resolution.Source)
+					if resolution.Source == repoclass.SourceArtifact && resolution.Root == "" {
+						// The version is known either way -- an artifact is
+						// addressed *by* version -- but its bytes are not on
+						// this machine, so that version will not deploy. This
+						// listing is where a user would notice, rather than at
+						// the next apply.
+						from = "artifact (uncached)"
+						uncached = append(uncached, librarian.Spec{
+							Name: r.RepoClassName, Version: r.Version, ItemType: r.ArtifactType(),
+						}.String())
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+						r.InstanceName, r.RepoClassName, orDash(resolution.Version),
+						"manifest", orDash(from), deployedCell(status, r.InstanceName))
 				}
 			}
 			// Deployed here but declared nowhere: what a removed line leaves
-			// behind, and the only way to notice it.
+			// behind, and the only way to notice it. Nothing declares it, so
+			// there is no version to resolve and nowhere for it to come from.
 			for _, name := range msdeploy.DeployedNames(status) {
 				if manifest.Reserved(name) {
 					continue
@@ -292,9 +342,17 @@ deleted line leaves behind.`,
 						continue
 					}
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, "-", "-", "undeclared", "yes")
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", name, "-", "-", "undeclared", "-", "yes")
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			for _, spec := range uncached {
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"\n%s is declared but nothing is cached for it, so that version cannot deploy.\n"+
+						"Fetch it with:  nsctl artifact pull %s\n", spec, spec)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&envName, "env", "", "Environment to list (default: the default environment)")

@@ -2,6 +2,23 @@
 
 ## 2026-09-15
 
+- feat(nsctl): say where each version came from in `nsctl repo list`
+
+  NERD005 SPEC002's acceptance criterion -- "distinguishes '0.1.4 from an
+  artifact' from '0.1.4 from a working tree'" -- held for the control plane and
+  not for an environment. `nsctl repo list` carried two facts in one SOURCE
+  column: where the *declaration* came from, beside the manifest's *unresolved*
+  version, so an artifact-sourced instance and a checkout of the same version
+  read identically.
+
+  DECLARED keeps the three literals, FROM carries `repoclass.Resolution.Source`,
+  and VERSION is now the resolved version. The listing builds a real resolver the
+  way `env apply` does, so both read the same tiers; resolution is offline by
+  construction and cannot make a listing fail, which `repo list` depends on since
+  it already renders with no control plane running. A declared artifact whose
+  bytes are absent reads `artifact (uncached)` and the listing names the `nsctl
+  artifact pull` that fixes it.
+
 - feat(nsctl): deploy a RepoClass from a versioned artifact
 
   NERD005 SPEC002. `repoclass.Resolver` gains an artifact tier, between the
