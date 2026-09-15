@@ -5,7 +5,7 @@ NERD010 Repo-Rooted Local Environments
 
 .. req:: Stand up a local environment for a repo from the repo itself
     :id: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: partial
 
     A repository shall be able to **declare, in files it checks in, the local
     environment it needs in order to be tested** -- the versioned RepoClass
@@ -23,6 +23,31 @@ NERD010 Repo-Rooted Local Environments
     Optionality shall be expressed as **profiles**, so that one repository can
     be run lean -- itself and nothing else -- or with the companions that make
     an integration test meaningful, without editing a file to switch.
+
+    **Partly implemented 2026-09-15.** SPEC001, SPEC002, SPEC004, SPEC005,
+    SPEC006, SPEC007 and SPEC008 are implemented; SPEC003 is partial, because
+    tier 3 -- resolving a range against a librarian -- is ``NERD011``'s and is
+    deliberately not built here. Tiers 1 and 2 are a usable product on their own,
+    which is why they were built first.
+
+    It stays ``partial`` because three of the eight acceptance criteria have not
+    been run against a live platform. Criteria 2, 3, 4, 7, 8 and 9 were exercised
+    on 2026-09-15 against a scratch ``HMD_HOME`` with no containers, and hold:
+    ``--lean`` deploys the unconditional entries alone and no gated ones;
+    ``--profile`` adds exactly the entries naming it; a second bare ``env apply``
+    reconciles to the same set from the recorded ``profiles`` and ``bindings``,
+    *including* for a lean environment; ``--check`` passes a current lock and
+    fails a stale one without writing; an unknown schema version is refused
+    naming what was found and what is supported; and one lock applied twice under
+    different ``--name`` overrides resolves every role in both.
+
+    What is **not** proven: criterion 1 -- an artifact-sourced environment
+    actually deploying with ``$HMD_REPO_HOME`` pointed at an empty directory --
+    criterion 5's no-network claim against a real apply, and criterion 6,
+    ``nsctl lock --from-env`` against an environment that has really deployed.
+    All three need the platform, and criterion 1 is also ``NERD005`` SPEC008's
+    unrun gate, since the environment apply is the only thing that exercises
+    ``apply.go``'s artifact-paths merge and the runner's mount.
 
 .. note::
 
