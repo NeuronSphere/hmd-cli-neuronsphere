@@ -1,0 +1,2766 @@
+{
+  "source": "hmd_ms_deployment.version.VersionSpecifier",
+  "generator": "internal/versionspec/testdata/generate_golden.py",
+  "cases": [
+    {
+      "spec": "~= 0.1",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~=0.1",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.7",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "1.0.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "1.0.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 1.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1.2.3",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.5",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.0.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "1.0.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "1.0.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "2.0.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "!= 0.1.5",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1,!= 0.1.5",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 0.1, != 0.1.5",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "== 0.1.*,!= 0.1.5",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">=0.1",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.3.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": ">= 0.3.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.6",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.7",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.100",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.225",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.2.3",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.2.5",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.2.9",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.3.1",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.9.99",
+      "outcome": "accept"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "> 0.1.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.2.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "< 0.3.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.0.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.6",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.7",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.100",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.225",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.2.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.2.0",
+      "outcome": "accept"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.2.5",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.2.9",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.3.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.3.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.9.99",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "1.0.0",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "1.0.3",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "2.0.1",
+      "outcome": "reject"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "abc",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "0.1.x",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "<= 0.2.0",
+      "version": "",
+      "outcome": "version_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= 1",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "== *",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "0.1",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "~= a.b",
+      "version": "",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.0.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.6",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.7",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.100",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.225",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.2.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.2.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.2.5",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.2.9",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.3.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.3.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.9.99",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "1.0.0",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "1.0.3",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "2.0.1",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "abc",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "0.1.x",
+      "outcome": "spec_error"
+    },
+    {
+      "spec": "",
+      "version": "",
+      "outcome": "spec_error"
+    }
+  ]
+}
