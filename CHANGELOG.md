@@ -2,6 +2,40 @@
 
 ## 2026-09-15
 
+- feat(nsctl): upload an artifact to the control plane's librarian
+
+  `librarian.Client.Put` is the three-leg exchange `put_file` performs:
+  `/apiop/put` for presigned part URLs, a credential-free `PUT` per part, then
+  `/apiop/close` with the ETags. It is the write direction NERD005 SPEC005 needs
+  so a developer's own `hmd build` output becomes deployable by an
+  artifact-sourced manifest with the cloud involved at no point.
+
+  `librarian.NewLocal` deliberately does not go through `New`, which fails when
+  neither an API key nor a token is configured. That is right for a cloud
+  librarian and would make `register` impossible on the machine `nsctl` exists to
+  serve, since the local librarian is anonymous.
+
+  Multipart is refused loudly rather than implemented. Every artifact in scope is
+  one part under the hundred-megabyte default, and the upstream client sends the
+  content type *only* when there is exactly one part -- so the multipart header
+  contract is unobserved and cannot be ported faithfully. More than one part
+  returns a typed `ErrMultipartRequired` naming the size, because uploading the
+  first part alone stores a corrupt zip that fails to unpack three commands
+  later, with nothing in between to say why.
+
+  Two Go-specific traps on the presigned leg, both discovered rather than
+  designed. The request's content length is set explicitly, or Go sends a chunked
+  body which a presigned PUT rejects -- the signature covers a content length.
+  And no credential header travels, for the same reason `Fetch` sends none.
+
+  Nothing is retried. Both API legs are loopback and the upload is a single
+  buffered part, and a retry cannot be added later without also changing the
+  body: replaying a request built over an `io.Reader` uploads zero bytes on the
+  second attempt and reports success.
+
+  SPEC010's boundary is unchanged -- this writes to the *local* librarian only.
+  Publishing to a shared store remains `hmd build` with `HMD_AUTO_PUBLISH`.
+
 - feat(nsctl): cache an unpacked artifact under `$HMD_HOME`
 
   `internal/artifact` unpacks a versioned librarian artifact to

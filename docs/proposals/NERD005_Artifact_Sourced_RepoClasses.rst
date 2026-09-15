@@ -401,7 +401,7 @@ resolution learns that anything changed.
 .. spec:: ``nsctl artifact register``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: amended
+    :status: partial
 
     ``nsctl artifact register [<path>]`` stores a local ``hmd build`` output
     in the control plane's librarian, so a developer's own build becomes
@@ -459,6 +459,24 @@ resolution learns that anything changed.
     than designed: the request's content length must be set explicitly, or Go
     sends a chunked body which presigned uploads reject; and no credential
     header may be sent, for the same reason ``Fetch`` sends none.
+
+    **Partly implemented 2026-09-15.** The upload leg exists as
+    ``librarian.Client.Put`` and ``librarian.NewLocal``; the ``register`` command
+    that drives it does not yet, so this SPEC stays short of implemented.
+
+    ``NewLocal`` deliberately does not go through ``New``, which fails when
+    neither an API key nor a token is configured. That is correct for a cloud
+    librarian and would make ``register`` impossible on the machine ``nsctl``
+    exists to serve, since the local librarian is anonymous. ``token`` is simply
+    left empty rather than a flag being added for it -- ``headers()`` already
+    omits the header when there is none, so the zero value says "anonymous"
+    without a second thing to keep in step.
+
+    Nothing is retried, which is a decision rather than an omission and is
+    recorded in the doc comment: both API legs are loopback and the upload is a
+    single buffered part, and a retry cannot be added later without also changing
+    the body, because replaying a request built over an ``io.Reader`` uploads zero
+    bytes on the second attempt and reports success.
 
 .. spec:: Pre-build artifacts
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC006

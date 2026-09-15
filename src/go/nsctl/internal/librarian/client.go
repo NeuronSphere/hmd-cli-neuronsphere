@@ -118,7 +118,7 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	c := &Client{
-		BaseURL: strings.TrimRight(base, "/"),
+		BaseURL: trimSlash(base),
 		// Generous: these are multi-megabyte zips over a link that may be a
 		// coffee-shop connection, and the whole fetch happens once per pin.
 		HTTP:   &http.Client{Timeout: 5 * time.Minute},
@@ -131,6 +131,13 @@ func New(cfg Config) (*Client, error) {
 	}
 	return c, nil
 }
+
+// trimSlash normalises a base URL for the concatenation every request does.
+//
+// Shared with NewLocal rather than repeated: the local librarian's URL carries a
+// trailing slash on purpose, and the one place that decides what happens to it
+// should be the one place.
+func trimSlash(base string) string { return strings.TrimRight(base, "/") }
 
 // endpoint resolves the librarian URL, preferring an explicit one and
 // otherwise composing the per-customer admin hostname.

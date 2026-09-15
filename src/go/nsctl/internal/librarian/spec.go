@@ -1,4 +1,4 @@
-// Package librarian fetches build artifacts from an HMD Artifact Librarian.
+// Package librarian reads and writes build artifacts in an HMD Artifact Librarian.
 //
 // It exists so the Go build can obtain the trees nsctl embeds without a
 // committed copy of them. BACON declares those trees as
@@ -7,13 +7,18 @@
 // but `make generate` also runs from GoReleaser's before.hooks on a CI runner
 // with no `hmd` installed, and that is the case this package serves.
 //
-// It is a port of two small Python pieces and deliberately nothing more:
+// It is a port of three small Python pieces and deliberately nothing more:
 // hmd_lib_librarian_client.artifact_tools (the endpoint, the content-path
-// grammar) and hmd_cli_tools.okta_tools.get_auth_token (the credential, which
-// is not an Okta flow -- it is two environment variables and a YAML file that
-// `hmd login` writes). Publishing has no counterpart here on purpose: `hmd
-// build` with HMD_AUTO_PUBLISH is the one way artifacts are written, and
-// NERD005 records the same boundary.
+// grammar), hmd_cli_tools.okta_tools.get_auth_token (the credential, which is
+// not an Okta flow -- it is two environment variables and a YAML file that `hmd
+// login` writes), and HmdLibrarianClient.put_file (the three-leg upload).
+//
+// Publishing to a *cloud* librarian has no counterpart here on purpose: `hmd
+// build` with HMD_AUTO_PUBLISH is the one way a shared store is written, and
+// NERD005 SPEC010 records the same boundary. Put and NewLocal add the other
+// direction only -- writing to the control plane's own librarian on loopback,
+// which is what makes a developer's build deployable without the cloud being
+// involved at any point.
 package librarian
 
 import (
