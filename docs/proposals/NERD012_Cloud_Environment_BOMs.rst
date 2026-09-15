@@ -5,7 +5,7 @@ NERD012 Cloud Environment BOMs
 
 .. req:: Build a local environment from a cloud environment's Bill of Materials
     :id: HMD_CLI_NEURONSPHERE_NERD012
-    :status: partial
+    :status: implemented
 
     ``nsctl`` shall be able to read the **Bill of Materials of an environment
     running in the cloud** -- every deployed repo instance, its concrete repo
@@ -26,14 +26,9 @@ NERD012 Cloud Environment BOMs
 
     .. note::
 
-        ``partial`` as of 2026-09-15. All seven SPECs are implemented and the
-        whole path is exercised against a fake deployment service and a fake
-        librarian. What is outstanding is **acceptance criterion 1**: no
-        response from a real ``hmd-ms-deployment`` has been captured, so the
-        decoder is written from the Python that produces the format rather than
-        from anything observed. Until that is done the wire shape is the one
-        claim in this document that rests on reading source, and it is the claim
-        everything else is built on.
+        ``implemented`` as of 2026-09-15, on a live acceptance run against
+        ``hmdtr1``'s cloud ``dev`` environment. See `The acceptance run`_ --
+        which is also where the one amended acceptance criterion is recorded.
 
 .. note::
 
@@ -71,10 +66,12 @@ Unlike ``NERD011``, whose findings were measured against live services, **this
 document was built by reading source.** No request was made to a cloud
 ``hmd-ms-deployment`` while it was written. That is a real difference in
 confidence and it is recorded here rather than glossed: the wire *shape* below
-is derived from the code that produces it, not from a response that was
+was derived from the code that produces it, not from a response that was
 observed.
 
-Acceptance criterion 1 exists to close that gap before the decoder is trusted.
+Acceptance criterion 1 existed to close that gap before the decoder was
+trusted. It has since been run -- see `The acceptance run`_ -- and every claim
+in the table below held.
 
 .. list-table::
    :header-rows: 1
@@ -601,6 +598,74 @@ configuration keys, and a verb that joins two existing halves together.
     identity provider that have no local counterpart, and the honest thing
     available is to name each one.
 
+The acceptance run
+------------------
+
+Run on 2026-09-15 against ``https://ms-deployment-aaa-reg1.hmdtr1-admin-neuronsphere.io``,
+the tenant's real deployment service, with the token ``hmd login`` had just
+cached. Every step was a read.
+
+``nsctl bom envs`` answered in one request with ``admin``, ``dev`` and
+``dev-eu``. ``nsctl bom show dev`` returned **109 instances**.
+
+**Criterion 1, amended.** It asked for the response to be captured *and checked
+in as a fixture*. It was captured and it is deliberately **not** checked in: a
+real BOM's ``instance_configuration`` carries that tenant's infrastructure --
+``customer_ips``, ``hmd_ips``, ``assume_principals``, ``proxy_secret``,
+``ca_account``, account numbers -- and one instance name contains a person's
+name. None of that belongs in a repository, and the criterion's purpose was to
+stop a decoder written from source being trusted, not to publish a customer's
+network.
+
+So it was satisfied differently: the response was decoded **with
+``DisallowUnknownFields``**, which is a stronger check than a committed fixture
+would have been, since a field the struct lacks fails the whole decode. All 109
+entries decoded. What that proved, now recorded as assertions in
+``cmd/bom_test.go``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Claim
+     - Live result
+   * - The struct carries every field the service emits
+     - **Yes.** 109/109 with ``DisallowUnknownFields``.
+   * - ``auto_deploy`` is a string, not a bool
+     - **Yes**, on all 109 -- ``"false"`` ×106, ``"true"`` ×3. Decoding it as a
+       bool would have failed the entire response.
+   * - Conditional keys really are absent
+     - **Yes.** ``dependencies`` on 69, ``instance_configuration`` on 57,
+       ``hmd_region`` on 3, ``image_only`` on 1.
+   * - An ``image_only`` entry carries neither configuration nor dependencies
+     - **Yes**, on the one that exists.
+   * - Both role spellings occur
+     - **Yes.** 269 roles as a bare string, 5 as a list.
+   * - Every entry carries a concrete version
+     - **Yes.** Zero without one.
+   * - Only DEPLOYED and FAILED appear
+     - **Yes.** 104 DEPLOYED, 5 FAILED.
+
+**What the run found that no fake could have.** Selecting the one
+``hmd-ms-transform`` instance closed over **67 of the 109** -- and two of those
+67 were the substrate. ``dev`` runs ``hmd-inf-eks-cluster`` as an instance
+called ``eks-upg`` and ``hmd-postgres-rds`` as ``core-rds``, while every local
+environment deploys those same classes as ``eks-cluster`` and
+``environment-db``. SPEC005's substrate binding matched on the instance name
+alone, so it recognised neither, and the closure imported both as workloads --
+locally, a second cluster and a second database inside the environment that
+already has them. Fixed by matching the substrate by **repo class** as well,
+and rewriting the role to this environment's name for it; the closure is now 66
+and the run reports ``substrate, as eks-cluster``.
+
+**What the run leaves open.** Sixty-six instances is a faithful closure and a
+large import, and much of it -- ``hmd-inf-acm``, ``hmd-inf-wafv2``,
+``hmd-inf-api-gateway``, ``hmd-inf-neptune``, ``hmd-inf-private-ca``,
+``hmd-inf-karpenter`` -- has no local counterpart at all. Nothing is wrong with
+the closure: those roles are real and ``ms-deployment`` would refuse the
+ChangeSet without them. What is unresolved is whether importing a cloud
+workload into a local environment is *useful* at that size, and that is a
+product question rather than a defect. See `Open questions`_.
+
 Risks
 -----
 
@@ -652,8 +717,10 @@ Acceptance criteria
 -------------------
 
 #. One real ``get_deployment_bom`` response is captured from a cloud
-   ``hmd-ms-deployment`` and checked in as a decoder fixture, including at least
-   one ``image_only`` entry and one role with several targets.
+   ``hmd-ms-deployment`` and the decoder is verified against it, including at
+   least one ``image_only`` entry and one role with several targets. *Amended:
+   the response is verified in place with* ``DisallowUnknownFields`` *and not
+   checked in; see* `The acceptance run`_.
 #. ``nsctl bom envs`` lists a tenant's environments in one request, with no BOM
    fetched.
 #. ``nsctl bom show <env>`` reports every deployed instance with its concrete
@@ -696,3 +763,27 @@ or a cloud bucket name will not mean anything locally, and the honest answer is
 probably to warn on values that look like ARNs or account numbers -- but that is
 a heuristic, and heuristics in this position are how a tool acquires a reputation
 for lying.
+
+The acceptance run gave this one teeth. A real ``instance_configuration``
+carries ``customer_ips``, ``hmd_ips``, ``assume_principals``, ``proxy_secret``
+and ``ca_account``; copying those into a local manifest is at best meaningless
+and at worst a secret written to a file nobody expected to hold one.
+
+**Is a sixty-six-instance closure useful?** Selecting one workload from
+``hmdtr1``'s ``dev`` brings two-thirds of the environment with it, and a large
+part of that -- ACM certificates, WAFv2, API Gateway, Neptune, a private CA,
+Karpenter -- has no local counterpart and will fail at ``env apply`` even
+though it fetched cleanly.
+
+The closure is not wrong: those roles are declared and ``ms-deployment`` refuses
+a ChangeSet without them. But "correct and unusable" is still unusable, and
+there are three plausible answers and no evidence yet for choosing between
+them. Refuse above a threshold and make the user pass a flag. Teach the local
+substrate to *satisfy* more roles, so that cloud-only infrastructure binds the
+way ``eks-cluster`` now does rather than being imported. Or accept that
+importing a cloud workload is a smaller idea than importing a cloud
+environment, and scope the verb to repo classes that have a local deploy path
+at all.
+
+Deciding this needs one attempt at actually applying an imported workload,
+which is the obvious next piece of work and is not in this document.
