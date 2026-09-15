@@ -145,26 +145,10 @@ func Resolve(opts Options) ([]Extension, error) {
 		return nil, err
 	}
 	resolver := repoclass.NewWithHome(opts.RepoHome, opts.Home, lookupOrEmpty(opts.Lookup))
-	for _, r := range m.Repos {
-		// Only an explicitly declared path, never the $HMD_REPO_HOME/<class>
-		// convention. Resolver.Paths means "the manifest asked for this tree"
-		// and is taken without a stat, so seeding it with the convention would
-		// hand back a directory that does not exist -- the distinction
-		// bom.RepoPaths already draws for the environment path.
-		if r.SourceType() == manifest.SourceArtifact {
-			// Tier three, not tier two: Paths means "the manifest named this
-			// working tree", and an artifact resolves through the cache under
-			// Home instead.
-			resolver.Artifacts[r.RepoClassName] = r.Version
-			continue
-		}
-		if r.Source == nil || r.Source.Path == "" {
-			continue
-		}
-		if path := r.RepoPath(lookupOrEmpty(opts.Lookup)); path != "" {
-			resolver.Paths[r.RepoClassName] = path
-		}
-	}
+	// The same seeding an environment apply does, and deliberately the same
+	// code: declared trees into Paths, declared artifacts into Artifacts, and
+	// never the $HMD_REPO_HOME/<class> convention into either.
+	repoclass.Seed(resolver, m.Repos)
 
 	exts := make([]Extension, 0, len(m.Repos))
 	for _, r := range m.Repos {

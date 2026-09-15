@@ -2,6 +2,25 @@
 
 ## 2026-09-15
 
+- refactor(nsctl): seed a resolver from a manifest in one place
+
+  Three call sites built a `repoclass.Resolver` out of a manifest's
+  declarations: `env apply`, the control-plane extension resolver, and now
+  `nsctl repo list`. The load-bearing line in all three is the same and is
+  invisible when it is wrong -- an artifact instance goes into `Artifacts`,
+  never into `Paths`, because an entry in `Paths` is tier two and taken without
+  a stat, so folding them together reports an artifact's version with Source
+  `working-tree`.
+
+  `repoclass.Seed` is that one place, with `repoclass.Paths` (formerly
+  `bom.RepoPaths`) beside it. Unifying them settled a disagreement the two
+  existing sites had about which declared paths count as overrides: the
+  environment path compared the resulting paths and dropped one equal to the
+  `$HMD_REPO_HOME/<class>` convention, the control-plane path asked only whether
+  `source.path` was set. The stricter rule is kept -- a manifest spelling the
+  convention out is still naming the convention -- so a control-plane extension
+  declaring it now resolves through a stat like every other checkout.
+
 - feat(nsctl): say where each version came from in `nsctl repo list`
 
   NERD005 SPEC002's acceptance criterion -- "distinguishes '0.1.4 from an

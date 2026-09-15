@@ -7,7 +7,6 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -285,18 +284,7 @@ deploying 0.1.4 out of a checkout are both declared in the manifest.`,
 			// usable with nothing running.
 			resolver := repoclass.NewWithHome(opts.Lookup("HMD_REPO_HOME"), home, opts.Lookup)
 			if m != nil {
-				for class, path := range bom.RepoPaths(m.Repos, opts.Lookup) {
-					resolver.Paths[class] = path
-				}
-				// Artifacts, never Paths: an entry in Paths means "the manifest
-				// named this working tree" and wins at tier two, while an
-				// artifact is tier three. Folding them together would report an
-				// artifact's version with Source working-tree.
-				for _, r := range m.Repos {
-					if r.SourceType() == manifest.SourceArtifact && r.RepoClassName != "" {
-						resolver.Artifacts[r.RepoClassName] = r.Version
-					}
-				}
+				repoclass.Seed(resolver, m.Repos)
 			}
 
 			var uncached []string

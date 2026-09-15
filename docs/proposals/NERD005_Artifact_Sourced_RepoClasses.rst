@@ -310,6 +310,22 @@ resolution learns that anything changed.
     pull`` that fixes it: this is where a user notices, rather than at the apply
     that refuses.
 
+    That made three call sites seeding a resolver from a manifest, so the
+    seeding is now one helper, ``repoclass.Seed``. The line worth holding in one
+    place is the one above: an artifact instance goes into ``Artifacts``, never
+    into ``Paths``. Unifying them also settled a disagreement the two existing
+    sites had -- the environment path compared the *resulting* paths and dropped
+    one equal to the ``$HMD_REPO_HOME/<class>`` convention, while the
+    control-plane path asked only whether ``source.path`` was set, so a
+    control-plane manifest spelling the convention out got a tier-two, unstat'd
+    answer where an environment manifest got a tier-six one. The stricter rule
+    is the one kept: a manifest naming the convention is naming the convention,
+    however it wrote it down.
+
+    This is the seeding duplication only. The two duplicate *tier*
+    implementations -- ``repoclass.Resolver`` and ``runner.Runner.repoPath`` --
+    remain, and remain out of scope.
+
 .. spec:: Unpack and cache
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD005

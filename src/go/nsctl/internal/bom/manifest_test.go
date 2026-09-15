@@ -1,8 +1,6 @@
 package bom
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -151,35 +149,5 @@ func TestTopoSortOrdersThroughAListDependency(t *testing.T) {
 	}
 	if positionsOf(sorted)[2] != "app" {
 		t.Errorf("order = %v, want app last", positionsOf(sorted))
-	}
-}
-
-func TestRepoPathsOnlyOverridesWhatDiffers(t *testing.T) {
-	t.Parallel()
-
-	repoHome := t.TempDir()
-	elsewhere := filepath.Join(t.TempDir(), "vendored")
-	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	lookup := func(k string) string {
-		if k == "HMD_REPO_HOME" {
-			return repoHome
-		}
-		return ""
-	}
-
-	paths := RepoPaths([]manifest.Repo{
-		// The convention -- the runner finds this one on its own.
-		{InstanceName: "a", RepoClassName: "hmd-ms-a"},
-		// Spelled out, but to the same place. Still not an override.
-		{InstanceName: "b", RepoClassName: "hmd-ms-b", Source: &manifest.Source{Path: filepath.Join(repoHome, "hmd-ms-b")}},
-		// Genuinely elsewhere.
-		{InstanceName: "c", RepoClassName: "hmd-ms-c", Source: &manifest.Source{Path: elsewhere}},
-	}, lookup)
-
-	want := map[string]string{"hmd-ms-c": elsewhere}
-	if !reflect.DeepEqual(paths, want) {
-		t.Errorf("RepoPaths = %v, want %v", paths, want)
 	}
 }

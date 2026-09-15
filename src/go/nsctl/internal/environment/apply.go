@@ -100,7 +100,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	)
 	if declared != nil {
 		declaredRepos = declared.Repos
-		repoPaths = bom.RepoPaths(declaredRepos, opts.Lookup)
+		repoPaths = repoclass.Paths(declaredRepos, opts.Lookup)
 		opts.step("Manifest %s declares %d instance(s)", declared.Path, len(declaredRepos))
 		if unsupported := declared.Unsupported(); len(unsupported) > 0 {
 			// Said rather than ignored: these configure plugin discovery, which
@@ -163,22 +163,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	}
 
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
-	for class, path := range repoPaths {
-		resolver.Paths[class] = path
-	}
-	// Artifact sources are seeded separately and deliberately not into Paths:
-	// an entry there means "the manifest named this working tree" and wins at
-	// tier two, while an artifact is tier three. Folding them together would
-	// report an artifact's version with Source working-tree.
-	for _, r := range declaredRepos {
-		if r.SourceType() == manifest.SourceArtifact && r.RepoClassName != "" {
-			resolver.Artifacts[r.RepoClassName] = r.Version
-		}
-	}
+	repoclass.Seed(resolver, declaredRepos)
 	if err := checkArtifacts(opts, resolver, declaredRepos); err != nil {
 		return err
 	}
-	// Merged after the resolver is seeded, never before: bom.RepoPaths drops
+	// Merged after the resolver is seeded, never before: repoclass.Paths drops
 	// every artifact instance, because manifest.Repo.RepoPath answers "" for a
 	// non-local source. Without this the runner falls through to its own bundled
 	// and any-checkout tiers and deploys whatever tree it finds under the

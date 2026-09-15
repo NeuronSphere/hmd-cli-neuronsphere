@@ -36,24 +36,3 @@ func Declared(env Environment, repos []manifest.Repo) []Entry {
 	}
 	return entries
 }
-
-// RepoPaths maps a repo class to the working tree it deploys from, for the
-// declarations whose path is not the $HMD_REPO_HOME convention.
-//
-// Only the ones that differ: the runner and the version resolver find the rest
-// on their own, and a smaller map keeps the override explicit about what it is
-// actually overriding.
-func RepoPaths(repos []manifest.Repo, lookup manifest.Lookup) map[string]string {
-	paths := map[string]string{}
-	for _, r := range repos {
-		path := r.RepoPath(lookup)
-		if path == "" || r.RepoClassName == "" {
-			continue
-		}
-		if conventional := (manifest.Repo{RepoClassName: r.RepoClassName}).RepoPath(lookup); conventional == path {
-			continue
-		}
-		paths[r.RepoClassName] = path
-	}
-	return paths
-}
