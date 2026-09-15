@@ -147,7 +147,7 @@ resolution learns that anything changed.
 .. spec:: The artifact source kind
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     ``source: {type: artifact}`` becomes valid in a manifest, in both the
     environment manifest and the control-plane manifest.
@@ -179,10 +179,19 @@ resolution learns that anything changed.
     rejected rather than ignored, in the same way ``RepoPath`` already
     returns ``""`` for a non-local source.
 
+    **Amended 2026-09-15.** ``source.artifact_type`` is validated by *shape*
+    (``^[a-z][a-z0-9_-]*$``) rather than against an allowlist of the librarian's
+    content item types. The installer variants' exact strings are not present in
+    this repository, and a wrong allowlist rejects a legitimate manifest with an
+    error the author cannot fix -- whereas a wrong type fails at ``pull`` with
+    ``ErrNotPublished`` naming the exact content path, which is already clear and
+    actionable. This is a deliberate softening of a literal reading of the
+    paragraph above.
+
 .. spec:: The resolution tier, and precedence
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     ``repoclass.Resolver`` gains ``SourceArtifact``. Where it sits is the
     substance of this SPEC, and it is the only decision in this document that
@@ -232,10 +241,34 @@ resolution learns that anything changed.
     from one place. A ``Dir()`` that disagreed with ``ResolveVersion()`` would
     deploy one version's code under another version's name.
 
+    **Amended 2026-09-15.** Reading the code found that **there are two
+    resolution paths, and this SPEC named only one.** ``repoclass.Resolver`` is
+    the one described above; ``runner.Runner.repoPath`` re-implements the same
+    tiers, holds no resolver, and is what a deploy node actually consults. An
+    artifact tree reaches a deploy only through ``runner.Config.RepoPaths``, fed
+    from ``internal/environment/apply.go``.
+
+    Worse, ``bom.RepoPaths`` **silently drops artifact-sourced instances**,
+    because it calls ``manifest.Repo.RepoPath``, which returns an empty string
+    for any non-local source. So an artifact instance contributes nothing to
+    ``repoPaths`` and ``Runner.repoPath`` then falls through to its own bundled
+    and any-checkout tiers. That is the concrete mechanism of this document's
+    High risk row -- "a deploy that reports a version it did not use" -- and it
+    is not hypothetical.
+
+    Consequently ``internal/environment/apply.go`` must seed the resolver's
+    artifact refs **and** merge the artifact paths into ``repoPaths``. It is the
+    single load-bearing integration point in this document, and an
+    implementation that changes only ``repoclass`` will appear to work and
+    deploy the wrong code.
+
+    Collapsing the two duplicate tier implementations is worth doing and is
+    explicitly **not** part of this document.
+
 .. spec:: Unpack and cache
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     A fetched artifact is unpacked to::
 
@@ -262,10 +295,32 @@ resolution learns that anything changed.
     published version is the assumption; a local ``register`` overwriting one
     is the case that breaks it, and SPEC005 addresses it there.
 
+    **Amended 2026-09-15.** "Reuse ``repotree``'s mechanics" means reuse its
+    *control flow*, not its code: ``repotree.Unpack`` reads a gzipped tar, and
+    artifacts are zips. What is mirrored is the sequence -- stat the
+    token-named directory, take a package-level mutex, unpack to a staging
+    directory, rename into place, re-stat on a lost rename race -- which is
+    roughly thirty-five lines.
+
+    A correct, zip-slip-safe zip extractor **already exists** as the unexported
+    ``unzip`` in ``tools/repopack``. Lifting it into the new package and having
+    ``repopack`` call it is a deletion rather than an addition.
+
+    One narrowing of the Medium risk row: validation of an unpacked tree
+    requires ``meta-data/manifest.json`` and ``meta-data/VERSION`` but **not**
+    ``src/``, because SPEC001 permits ``schema`` and ``configuration`` item
+    types, which legitimately have no ``src/``.
+
+    The open question about a shared cache versus ``env purge`` is **already
+    answered by the code**: purge removes an environment's state directory and
+    never touches ``.cache/neuronsphere``. One cache keyed by class and version
+    is correct and needs no purge work, only a test asserting the cache root
+    lies outside any environment state directory.
+
 .. spec:: ``nsctl artifact pull``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     ``nsctl artifact pull <repo_class>@<version>[:<type>]`` downloads a
     versioned artifact from a cloud Artifact Librarian and stores it in the
@@ -310,10 +365,33 @@ resolution learns that anything changed.
     would fetch it. An apply that reaches the internet without being asked is
     an apply that behaves differently on an aeroplane.
 
+    **Amended 2026-09-15.** Two traps named above do not survive the port, and
+    one new constraint replaces them.
+
+    **The temporary file should not exist in Go.** ``librarian.Client.Fetch``
+    already returns the artifact as bytes; writing them to disk in order to read
+    them straight back adds an I/O round trip *and* creates the very
+    left-behind-temp-file hazard this SPEC warns about. Peak memory is one build
+    zip. If streaming ever matters, it belongs inside ``Fetch``, not in a
+    temporary file.
+
+    **The trailing-slash trap is a Python ``urljoin`` bug and does not exist in
+    Go.** The Go client trims the trailing slash and concatenates the path. Keep
+    the slash in the local-URL constant regardless, and pin it with a test, so
+    that a later refactor to ``url.JoinPath`` cannot reintroduce it.
+
+    **Endpoint overrides must not mutate the process environment.** Python saves
+    and restores ``HMD_ARTIFACT_LIBRARIAN_URL`` in a ``finally``; the Go port
+    layers an override over the injected lookup instead, because every test in
+    ``cmd/`` runs in parallel and ``t.Setenv`` panics there.
+
+    Version *ranges* on ``pull`` are out of scope, and the open question about
+    them is transferred to ``NERD010`` SPEC003, which owns version resolution.
+
 .. spec:: ``nsctl artifact register``
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     ``nsctl artifact register [<path>]`` stores a local ``hmd build`` output
     in the control plane's librarian, so a developer's own build becomes
@@ -342,6 +420,35 @@ resolution learns that anything changed.
     This closes the loop that makes an extension developable at all: build
     it, register it, and the manifest that names it by version picks it up --
     without a checkout in ``$HMD_REPO_HOME`` and without a cloud round trip.
+
+    **Amended 2026-09-15.** Two decisions that narrow this SPEC.
+
+    **``register`` does not shell out to ``hmd build``.** The Python
+    ``push_artifact`` does so by default, but ``nsctl``'s premise is that Docker
+    is the only host prerequisite, and a ``register`` that needs the Python CLI
+    installed fails in exactly the environment ``nsctl`` exists to serve. The
+    input is therefore, in order: an explicit zip; a directory zipped on the
+    fly; or the conventional path ``hmd build`` writes under
+    ``$HMD_BUILD_OUTPUT_DIR`` when ``HMD_AUTO_PUBLISH`` is unset. With none of
+    the three, ``register`` fails naming all three and printing the ``hmd
+    build`` invocation that produces the last.
+
+    **Multipart upload is refused loudly rather than implemented.** The put
+    protocol is a three-leg exchange -- ``/apiop/put`` for presigned part URLs,
+    a credential-free ``PUT`` per part, then ``/apiop/close`` with the ETags --
+    and the client chooses the part layout. Every artifact in scope here is a
+    single part under the hundred-megabyte default, and the upstream client
+    sends the content type **only** when there is exactly one part, so the
+    multipart header contract is unobserved and cannot be ported faithfully.
+    The implementation requests one part and, if the service answers with more
+    than one, returns a typed error naming the size. Silently uploading the
+    first part alone would store a corrupt zip that fails to unpack three
+    commands later.
+
+    Two Go-specific requirements on the presigned leg, both discovered rather
+    than designed: the request's content length must be set explicitly, or Go
+    sends a chunked body which presigned uploads reject; and no credential
+    header may be sent, for the same reason ``Fetch`` sends none.
 
 .. spec:: Pre-build artifacts
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC006
@@ -393,7 +500,7 @@ resolution learns that anything changed.
 .. spec:: Offline behaviour and failure messages
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD005
-    :status: proposed
+    :status: amended
 
     With no network, an already-cached artifact deploys. That is the whole
     point of caching it, and it is the acceptance test.
@@ -416,6 +523,26 @@ resolution learns that anything changed.
     In particular: if the local librarian itself is unreachable, say *that*.
     A librarian that is down and a librarian that does not have the artifact
     are one status code apart and a long debugging session apart.
+
+    **Amended 2026-09-15.** There is a **fourth** distinguishable cause, and it
+    is the one most likely to be met first on the local leg.
+
+    The local librarian's ``/apiop/get`` answers with a presigned URL hosted at
+    ``neuronsphere:4566``, which resolves from the host only because of an
+    ``/etc/hosts`` entry plus the nginx stream that fronts it. When a download
+    fails with a name-resolution error, that is neither a missing artifact nor a
+    down librarian, and reporting it as either sends the reader in the wrong
+    direction. ``controlplane.CheckHostsEntries`` is the existing diagnostic and
+    its output is the remedy to print.
+
+    The message for the ordinary case -- resolution found nothing cached -- must
+    also say that **nothing was contacted**, rather than implying a 404 from a
+    librarian it never asked. Resolution is offline by construction, and a
+    message that suggests otherwise invites the reader to debug a network.
+
+    The shape of this message, and its branching on the credential cases, is
+    already implemented as ``unavailable`` in ``tools/repopack`` and should be
+    ported rather than reinvented.
 
 .. spec:: Plugin distribution
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC008
@@ -450,6 +577,14 @@ resolution learns that anything changed.
     SPEC002's precedence is what lets both coexist on one machine, and
     ``nsctl status`` reporting the version *source* is what keeps the reader
     aware of which one is live.
+
+    **Amended 2026-09-15.** The consumer side of this story now has its own
+    document. ``NERD010`` gives a *repository* a way to declare the versioned
+    artifacts it needs in order to be tested locally -- profile-gated companions
+    in its BACON manifest, pinned in a checked-in ``neuronsphere.lock`` -- and
+    one command that creates an environment from them. The end-to-end motion
+    above remains correct for a hand-authored manifest; ``NERD010`` is what
+    makes it reproducible across machines.
 
 .. spec:: Credentials
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC009
