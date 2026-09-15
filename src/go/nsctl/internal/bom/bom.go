@@ -59,6 +59,29 @@ const (
 	EKSClusterRepoClass = "hmd-inf-eks-cluster"
 )
 
+// substrateInstanceByClass maps a substrate repo class to the instance name
+// this environment deploys it as.
+//
+// Needed because the same class is named differently elsewhere. A cloud
+// environment calls its cluster whatever its operators called it -- hmdtr1's
+// dev runs hmd-inf-eks-cluster as "eks-upg" -- while every local environment
+// deploys it as "eks-cluster". Matching on the name alone would treat the cloud
+// instance as something to import, when it is the very thing the substrate
+// already provides.
+var substrateInstanceByClass = map[string]string{
+	CoreRepoClass:       CoreInstanceName,
+	BaseVPCRepoClass:    BaseVPCInstance,
+	EnvDBRepoClass:      EnvDBInstance,
+	EKSClusterRepoClass: EKSClusterInstance,
+}
+
+// SubstrateInstanceFor names the local instance of a substrate repo class, and
+// reports whether that class is substrate at all.
+func SubstrateInstanceFor(repoClass string) (string, bool) {
+	name, ok := substrateInstanceByClass[repoClass]
+	return name, ok
+}
+
 // LocalDBSubnetGroup is the named group the local CDKTF overlay places
 // instances in, working around Floci's per-account VPC seeding bug.
 const LocalDBSubnetGroup = "hmd-local-db-subnets"

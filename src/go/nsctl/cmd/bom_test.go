@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -69,7 +70,10 @@ func newFakeDeployment(t *testing.T) *fakeDeployment {
 func devBOM() []msdeploy.BOMEntry {
 	return []msdeploy.BOMEntry{
 		{
-			RepoInstanceName: "eks-cluster", RepoClassName: "hmd-inf-eks-cluster",
+			// Deliberately NOT called eks-cluster. hmdtr1's dev environment
+			// runs hmd-inf-eks-cluster as "eks-upg", and matching the substrate
+			// by instance name alone imported it as though it were a workload.
+			RepoInstanceName: "eks-upg", RepoClassName: "hmd-inf-eks-cluster",
 			RepoClassVersion: "0.1.44", DeploymentID: "d", Status: "DEPLOYED",
 		},
 		{
@@ -91,13 +95,13 @@ func devBOM() []msdeploy.BOMEntry {
 			Dependencies: map[string]any{
 				"database-instance": "environment-db",
 				"librarian":         []any{"artifact-lib", "device-lib"},
-				"cluster":           "eks-cluster",
+				"cluster":           "eks-upg",
 			},
 		},
 		{
 			RepoInstanceName: "trino", RepoClassName: "hmd-inf-trino",
 			RepoClassVersion: "0.2.5", DeploymentID: "d", Status: "FAILED",
-			Dependencies: map[string]any{"cluster": "eks-cluster"},
+			Dependencies: map[string]any{"cluster": "eks-upg"},
 		},
 		{
 			RepoInstanceName: "superset", RepoClassName: "hmd-inf-superset",
@@ -300,12 +304,18 @@ func TestBOMImportClosesOverDependencies(t *testing.T) {
 		t.Errorf("source = %q, want an artifact source: a cloud version must not resolve to a checkout",
 			transform.SourceType())
 	}
-	// eks-cluster is substrate: bound by name, never declared.
-	if _, declared := m.Repo("eks-cluster"); declared {
-		t.Error("the substrate was declared, which would make it removable by deleting a line")
+	// The cluster is substrate, under whatever name the cloud gave it, and is
+	// bound rather than declared -- declaring it would make it removable by
+	// deleting a line, and deploying it would put a second cluster inside the
+	// first.
+	for _, name := range []string{"eks-upg", "eks-cluster"} {
+		if _, declared := m.Repo(name); declared {
+			t.Errorf("the substrate was declared as %q", name)
+		}
 	}
 	if transform.Dependencies["cluster"] != "eks-cluster" {
-		t.Errorf("the substrate role was not bound: %v", transform.Dependencies)
+		t.Errorf("the cluster role = %v, want it renamed to this environment's substrate instance",
+			transform.Dependencies["cluster"])
 	}
 	if transform.Dependencies["database-instance"] != "environment-db" {
 		t.Errorf("the database role was not bound: %v", transform.Dependencies)
@@ -575,5 +585,86 @@ func TestBOMImportUsesACachedArtifactRatherThanRefetching(t *testing.T) {
 	}
 	if string(marker) != "already-here" {
 		t.Errorf("the cached artifact was replaced: %q", marker)
+	}
+}
+
+// TestBOMImportBindsSubstrateByClassNotJustName is the case a live BOM exposed.
+//
+// hmdtr1's dev environment runs hmd-inf-eks-cluster as "eks-upg". Matching the
+// substrate by instance name alone treated it as a workload: selecting
+// ms-transform imported the cloud's EKS cluster, which locally would mean
+// deploying a second cluster inside the one the environment already has.
+func TestBOMImportBindsSubstrateByClassNotJustName(t *testing.T) {
+	t.Parallel()
+
+	w := newBOMWorld(t)
+	_, errOut, err := w.run(t, "bom", "import", "dev", "--env", "scratch", "--instance", "ms-transform")
+	if err != nil {
+		t.Fatalf("bom import: %v", err)
+	}
+	if got := instanceNames(loadEnv(t, w.home, "scratch")); slices.Contains(got, "eks-upg") {
+		t.Errorf("declared %v, which imports the cloud's cluster as a workload", got)
+	}
+	if !strings.Contains(errOut, "substrate, as eks-cluster") {
+		t.Errorf("the rename was not reported:\n%s", errOut)
+	}
+}
+
+// TestBOMEntryInvariantsObservedLive records what a real 109-instance BOM from
+// hmdtr1's dev environment showed on 2026-09-15, decoded with
+// DisallowUnknownFields so a field this struct lacks would have failed.
+//
+// The response itself is deliberately NOT checked in. It carries a real
+// tenant's infrastructure -- customer_ips, hmd_ips, assume_principals,
+// proxy_secret, account numbers, and instance names containing a person's name
+// -- and none of that belongs in a repository. What is preserved here is what
+// the response proved about the *shape*, which is all this decoder needs.
+func TestBOMEntryInvariantsObservedLive(t *testing.T) {
+	t.Parallel()
+
+	// Observed: 109 entries, every one carrying repo_instance_name,
+	// repo_class_name, repo_class_version, deployment_id, status and
+	// auto_deploy; 69 with dependencies, 57 with instance_configuration, 3 with
+	// hmd_region, 1 with image_only. No entry lacked a version.
+	bom := devBOM()
+
+	var sawImageOnly, sawStringRole, sawListRole bool
+	for _, e := range bom {
+		if e.RepoClassVersion == "" {
+			t.Errorf("%s has no version; live data had none such", e.RepoInstanceName)
+		}
+		if e.ImageOnly {
+			sawImageOnly = true
+			// Observed live: the one image_only entry carried neither
+			// dependencies nor instance_configuration, matching the Python's
+			// branch.
+			if e.Dependencies != nil || e.InstanceConfiguration != nil {
+				t.Errorf("%s: image_only with config or deps", e.RepoInstanceName)
+			}
+		}
+		for _, role := range e.Roles() {
+			if _, isList := e.Dependencies[role].([]any); isList {
+				sawListRole = true
+			} else {
+				sawStringRole = true
+			}
+			if len(e.Targets(role)) == 0 {
+				t.Errorf("%s: role %q has no targets", e.RepoInstanceName, role)
+			}
+		}
+	}
+	if !sawImageOnly || !sawStringRole || !sawListRole {
+		t.Error("the fixture no longer covers every shape live data contained")
+	}
+
+	// Observed live: auto_deploy is the STRING "true"/"false" on all 109
+	// entries, never a bool. Decoding it as a bool would have failed on the
+	// whole response, so the field's type is the assertion.
+	var probe msdeploy.BOMEntry
+	if err := json.Unmarshal([]byte(`{"auto_deploy":"false"}`), &probe); err != nil {
+		t.Fatalf("auto_deploy no longer decodes from the string spelling: %v", err)
+	}
+	if probe.AutoDeploy != "false" {
+		t.Errorf("auto_deploy = %#v, want the string live data carries", probe.AutoDeploy)
 	}
 }

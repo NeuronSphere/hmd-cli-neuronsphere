@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 )
@@ -55,6 +56,10 @@ type bomSelection struct {
 	viaDeps map[string]string
 	// bound maps a dependency target that needs no import to the reason.
 	bound map[string]string
+	// rename maps a cloud instance name to the local name that fills its place.
+	// Identity for everything the closure imports; the interesting entries are
+	// the substrate, whose instance this environment names for itself.
+	rename map[string]string
 	// skipped maps an instance left out to why.
 	skipped map[string]string
 	// unfilled are roles that will be dropped from the declaration.
@@ -90,6 +95,7 @@ func (s *selectionFlags) apply(bom []msdeploy.BOMEntry,
 		viaDeps: map[string]string{},
 		bound:   map[string]string{},
 		skipped: map[string]string{},
+		rename:  map[string]string{},
 	}
 	picked := map[string]bool{}
 	visited := map[string]bool{}
@@ -124,18 +130,32 @@ func (s *selectionFlags) apply(bom []msdeploy.BOMEntry,
 				w.name, w.why)
 		}
 
-		switch {
-		case reserved(w.name):
-			// The substrate is deployed whether or not a manifest names it, so
-			// this role is filled locally by an instance that is already there.
+		// The substrate is deployed whether or not a manifest names it, so a
+		// role pointing at it is filled locally by an instance already there.
+		//
+		// Matched by repo class as well as by name, because the two
+		// environments name the same thing differently: a cloud environment
+		// calls its cluster whatever its operators called it, and every local
+		// one deploys hmd-inf-eks-cluster as `eks-cluster`. Matching on the name
+		// alone imports the cloud's cluster as though it were a workload -- and
+		// then deploys a second cluster inside the first.
+		entry, known := index[w.name]
+		if local, isSubstrate := substrateInstance(entry, known); isSubstrate || reserved(w.name) {
+			if local == "" {
+				local = w.name
+			}
 			out.bound[w.name] = "substrate"
-			continue
-		case declared(w.name):
-			out.bound[w.name] = "already declared"
+			if local != w.name {
+				out.bound[w.name] = "substrate, as " + local
+			}
+			out.rename[w.name] = local
 			continue
 		}
-
-		entry, known := index[w.name]
+		if declared(w.name) {
+			out.bound[w.name] = "already declared"
+			out.rename[w.name] = w.name
+			continue
+		}
 		if !known {
 			// Only reachable from the closure: a seed name that matched nothing
 			// was refused in seed().
@@ -154,6 +174,7 @@ func (s *selectionFlags) apply(bom []msdeploy.BOMEntry,
 		}
 
 		picked[w.name] = true
+		out.rename[w.name] = w.name
 		out.Picked = append(out.Picked, entry)
 		// Recorded here rather than on arrival, so the closure note lists what
 		// was actually imported. A target that turned out to be substrate, or
@@ -256,9 +277,16 @@ func (s bomSelection) resolvedRoles(e msdeploy.BOMEntry) map[string]any {
 	for _, role := range e.Roles() {
 		var kept []string
 		for _, target := range e.Targets(role) {
-			if resolvable[target] {
-				kept = append(kept, target)
+			if !resolvable[target] {
+				continue
 			}
+			// Through the rename, so a role that pointed at the cloud's name
+			// for a substrate instance points at this environment's.
+			if local, ok := s.rename[target]; ok && local != "" {
+				kept = append(kept, local)
+				continue
+			}
+			kept = append(kept, target)
 		}
 		switch len(kept) {
 		case 0:
@@ -302,6 +330,15 @@ func (s bomSelection) report(cmd *cobra.Command) {
 			"warning: %s's %s role wants %s, which is %s; the role will not be declared\n",
 			u.Instance, u.Role, u.Target, u.Why)
 	}
+}
+
+// substrateInstance names the local instance of an entry's repo class, when
+// that class is one the environment substrate deploys itself.
+func substrateInstance(e msdeploy.BOMEntry, known bool) (string, bool) {
+	if !known {
+		return "", false
+	}
+	return bom.SubstrateInstanceFor(e.RepoClassName)
 }
 
 func bomInstanceNames(bom []msdeploy.BOMEntry) []string {

@@ -2,6 +2,23 @@
 
 ## 2026-09-15
 
+- fix(nsctl): bind a cloud BOM's substrate by repo class, not by instance name
+
+  Found by running `nsctl bom show` against a real environment. hmdtr1's cloud
+  `dev` runs `hmd-inf-eks-cluster` as an instance called `eks-upg` and
+  `hmd-postgres-rds` as `core-rds`; every local environment deploys those same
+  classes as `eks-cluster` and `environment-db`. Matching the substrate by
+  instance name alone therefore recognised neither, and the dependency closure
+  imported both as though they were workloads -- which locally would mean
+  declaring a second EKS cluster and a second environment database inside the
+  environment that already has them.
+
+  The substrate is now matched by repo class as well, and a role pointing at the
+  cloud's name for one is rewritten to this environment's name for it, so
+  `ms-transform`'s `cluster` role comes across as `eks-cluster`. The run reports
+  the rename rather than performing it quietly: "substrate, as eks-cluster" is
+  the sort of thing a reader should be able to disagree with.
+
 - feat(nsctl): cherry-pick a cloud environment's BOM into a local one
 
   NERD012 SPEC005, SPEC006 and SPEC007, which completes the document's code.
