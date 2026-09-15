@@ -2,6 +2,40 @@
 
 ## 2026-09-15
 
+- feat(nsctl): read a repository's local section
+
+  NERD010 SPEC001. A repository can now declare, in a file it checks in, the
+  local environment it needs in order to be tested: profile-gated companions
+  that are not dependencies, and profile-gating of the optional dependencies it
+  already declares. `internal/localspec` reads it.
+
+  Two things a BACON manifest cannot express are the whole reason the section
+  exists. A service whose endpoints are called by a Transform which reads from a
+  Librarian depends on neither -- the arrows point the other way -- yet locally
+  they are exactly what is needed to see whether it works, and BACON describes a
+  deployment graph rather than a test fixture. And `required: "false"` is one
+  boolean evaluated the same way every time, where a developer needs lean while
+  iterating and wide before a pull request, from one checkout, without editing
+  anything.
+
+  The semantics are `docker compose`'s and not a second grouping concept: an
+  entry with a `profiles` key starts only when one of them is activated, an
+  entry without one always starts, and **lean therefore needs no declaration at
+  all** -- it is what activating nothing gives you, so no author has to remember
+  to define it. A required dependency named under `local.dependencies` is
+  refused rather than gated: ms-deployment fails the whole ChangeSet on an unmet
+  required role and a SKIPPED status does not mock one, so gating one would
+  produce a failure three layers from its cause.
+
+  SPEC001 says the section is read through NERD009 SPEC006's manifest store.
+  That store does not exist -- NERD009 is entirely proposed, `go-toml/v2` is
+  linked in but `internal/logincfg` is its only importer, and nothing in the
+  module reads a TOML manifest or a repo-root `neuronsphere.toml`. So this reads
+  `meta-data/manifest.json` with `encoding/json`, the way `repoclass.Manifest`
+  and `librarian.PreBuildArtifacts` already do, and the SPEC carries a dated
+  amendment saying so. Implementing the store on the way past would have changed
+  what forty Python packages write and left neither change reviewable.
+
 - refactor(nsctl): seed a resolver from a manifest in one place
 
   Three call sites built a `repoclass.Resolver` out of a manifest's

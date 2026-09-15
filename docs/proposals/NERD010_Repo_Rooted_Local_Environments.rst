@@ -153,7 +153,7 @@ already exist.
 .. spec:: The ``local`` section, and profiles rather than groups
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     A ``local`` section becomes valid at the top level of a BACON manifest,
     read through ``NERD009`` SPEC006's store and therefore available in
@@ -231,6 +231,35 @@ already exist.
     must not model the whole document as a Go struct: the in-memory document is
     an ordered map so that every key ``nsctl`` does not model survives a
     rewrite, because forty Python packages write this file.
+
+    **Amended 2026-09-15.** The section is read out of
+    ``meta-data/manifest.json``, and **not** through ``NERD009`` SPEC006's store,
+    because that store does not exist. ``NERD009`` is entirely ``proposed``;
+    ``go-toml/v2`` is linked into the binary but ``internal/logincfg`` is its
+    only importer, and nothing in the module reads a TOML manifest or a repo-root
+    ``neuronsphere.toml`` at all. ``internal/localspec`` therefore parses the
+    JSON with ``encoding/json``, the way ``repoclass.Manifest``,
+    ``librarian.PreBuildArtifacts`` and ``cmd.repoIdentityFrom`` already do.
+
+    Implementing the store on the way past was rejected deliberately: it is
+    ``NERD009``'s, it changes what forty Python packages write, and folding it in
+    here would leave neither change reviewable. When the store arrives this
+    paragraph is the only thing that moves -- ``localspec`` takes its bytes from
+    somewhere else and parses the same shape.
+
+    The ordered-map requirement in the paragraph above is **not** met, and does
+    not need to be, because this package only *reads*. Every write to the
+    ``local`` section is ``NERD009``'s store per SPEC008, so no key nsctl does
+    not model is at risk here. A writer must not be grown on top of these
+    structs, which model what nsctl understands and would drop the rest.
+
+    **Implemented 2026-09-15** as ``internal/localspec``. Two refusals this
+    document did not predict fell out of writing it, and both are the same bug:
+    two declarations silently claiming one instance. A ``local.repos``
+    ``instance_name`` equal to a dependency **role** is refused, because both
+    would default to that name and which one won would depend on iteration
+    order; and ``local.dependencies`` naming a role no ``deploy.dependencies``
+    entry declares is refused as the typo it is, rather than gating nothing.
 
 .. spec:: ``neuronsphere.lock``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
