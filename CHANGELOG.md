@@ -2,6 +2,42 @@
 
 ## 2026-09-15
 
+- feat(nsctl): read a cloud hmd-ms-deployment
+
+  NERD012 SPEC002, SPEC003 and SPEC004. `internal/msdeploy` gains a second
+  constructor, `NewCloud`, and with it the ability to talk to a tenant's own
+  deployment service rather than only to the one on loopback: `DeploymentBOM`
+  fetches an environment's Bill of Materials in a single request, and
+  `Environments` lists what a service knows.
+
+  A second constructor rather than a second package. The entity names, the
+  filter shape, the base64 collection encoding and the error type are one
+  service's protocol; the only differences between a control-plane client and a
+  cloud one are an address and a credential, and splitting them would create two
+  places for one fact.
+
+  Three mechanical gaps had to close. The client sent no headers at all, and now
+  sends `x-api-key` and a raw `Authorization` with no `Bearer` prefix -- which
+  is not an oversight being copied but what every Python client sends and what
+  the authorizer reads. `Reachable` and `ServiceVersion` build their own
+  requests and were therefore unauthenticated; both now authenticate too, which
+  matters most for `Reachable`, since it accepts anything below 500 and would
+  have treated a 401 as proof the service was up. And `get_deployment_bom` is
+  declared GET and answers with an array, where `APIOp` is POST-only and
+  discards a non-object body into an empty map, so `APIOpGet` returns the body
+  raw.
+
+  `EnvironmentInstances` is untouched and stays the local path's tool. Against a
+  cloud graph it would be the wrong one twice over: ten unfiltered whole-table
+  searches joined on the client, and a different rule for picking an instance's
+  current deployment than the server uses -- newest by `_created` here, the
+  edge's `current` attribute there. The two agree most of the time, which is
+  what makes the disagreement hard to notice.
+
+  The BOM decoder's fixture is synthesised from the Python that emits the
+  format, not captured from a live service. That is NERD012's first acceptance
+  criterion and it is not yet met; the test says so where a reader will find it.
+
 - feat(nsctl): name a tenant's endpoints in nsctl.toml
 
   NERD012 SPEC001. A `[profile.<name>]` table can now carry `customer_code`,

@@ -1,0 +1,44 @@
+[
+  {
+    "repo_instance_name": "base-vpc",
+    "repo_class_name": "hmd-vpc",
+    "repo_class_version": "0.1.204",
+    "deployment_id": "ms-deployment-dev-reg1-acme-1915657225497",
+    "hmd_region": "reg1",
+    "status": "DEPLOYED",
+    "instance_configuration": {},
+    "dependencies": {}
+  },
+  {
+    "repo_instance_name": "transform-image",
+    "repo_class_name": "hmd-img-transform-base",
+    "repo_class_version": "1.0.42",
+    "deployment_id": "ms-deployment-dev-reg1-acme-1915657225498",
+    "status": "DEPLOYED",
+    "image_only": true
+  },
+  {
+    "repo_instance_name": "ms-transform",
+    "repo_class_name": "hmd-ms-transform",
+    "repo_class_version": "0.5.201",
+    "deployment_id": "ms-deployment-dev-reg1-acme-1915657225499",
+    "hmd_region": "reg1",
+    "auto_deploy": "true",
+    "status": "DEPLOYED",
+    "instance_configuration": {"replicas": 2, "profile": "full"},
+    "dependencies": {
+      "database-instance": "environment-db",
+      "librarian": ["artifact-lib", "device-lib"]
+    },
+    "config_artifact_spec": "hmd-config-transform@0.3.1:configuration"
+  },
+  {
+    "repo_instance_name": "trino",
+    "repo_class_name": "hmd-inf-trino",
+    "repo_class_version": "0.2.5",
+    "deployment_id": "ms-deployment-dev-reg1-acme-1915657225500",
+    "status": "FAILED",
+    "instance_configuration": {},
+    "dependencies": {"eks-cluster": "eks-cluster"}
+  }
+]

@@ -17,12 +17,26 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 )
 
 // Client is an ms-deployment connection.
+//
+// One type for two very different services: the control plane's own, reached
+// over loopback with no credential, and a cloud one reached over the internet
+// with an OIDC token. New builds the first and NewCloud the second; everything
+// below that line is the same protocol.
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+
+	// Endpoint records how BaseURL was resolved, for a cloud client. Zero for
+	// New, whose address is configuration rather than a resolution.
+	Endpoint nsconfig.Endpoint
+
+	apiKey string
+	token  string
 }
 
 // New builds a client for the control-plane route.
@@ -118,6 +132,7 @@ func (c *Client) do(ctx context.Context, method, url string, body any, operation
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	c.headers(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", operation, err)
@@ -227,6 +242,7 @@ func (c *Client) Reachable(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
+	c.headers(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return false
@@ -258,6 +274,7 @@ func (c *Client) ServiceVersion(ctx context.Context) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	c.headers(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", false

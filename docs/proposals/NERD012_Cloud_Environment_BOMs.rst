@@ -239,7 +239,7 @@ configuration keys, and a verb that joins two existing halves together.
 .. spec:: Authenticating to a cloud ``hmd-ms-deployment``
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     ``internal/msdeploy`` talks to the control plane's own service over
     loopback and therefore **sends no headers at all**. A cloud client shall be
@@ -281,10 +281,27 @@ configuration keys, and a verb that joins two existing halves together.
       discards into an empty map. That is the failure mode worth naming: it
       does not error, it returns nothing.
 
+    **Implemented 2026-09-15** as ``msdeploy.NewCloud``, ``CloudConfig`` and
+    ``APIOpGet``, with the token read through ``internal/tokenstore`` rather
+    than a second YAML parser.
+
+    Two things writing it settled that the proposal did not state.
+
+    ``Reachable`` and ``ServiceVersion`` build their own requests and were
+    therefore unauthenticated. Both now send the headers too. ``Reachable`` in
+    particular would otherwise have been *accidentally* right against a cloud
+    service -- it accepts anything below 500, and an unauthenticated probe
+    answers ``401`` -- which is the worst way for a check to pass.
+
+    The cloud client's timeout is three minutes rather than the 90 seconds a
+    control-plane client uses. The existing value is sized for a loopback call
+    to a container on this machine; this is a round trip over whatever
+    connection the user has.
+
 .. spec:: Fetching an environment's BOM
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     ``GET /apiop/get_deployment_bom/<environment_type>``, one request. The path
     parameter is ``environment.type`` -- the environment's slug, the same field
@@ -334,10 +351,31 @@ configuration keys, and a verb that joins two existing halves together.
     ``_created`` rule since it was written and nothing has gone wrong; changing
     it is a separate question with its own evidence to gather.
 
+    **Implemented 2026-09-15** as ``msdeploy.BOMEntry`` and ``DeploymentBOM``.
+
+    Two decoding details the proposal did not state, both of which are ways to
+    invent a fact that is not in the response.
+
+    Every conditional key is ``omitempty`` and decodes to a nil rather than an
+    empty value. An ``image_only`` entry that came back with an empty
+    ``dependencies`` map would have turned "this instance deploys an image" into
+    "this instance has no dependencies", which is a different claim about it.
+
+    ``auto_deploy`` is decoded as ``any``. The entity types it as a *string*
+    holding ``"true"``, while the BOM copies whatever is stored; decoding it as
+    a bool fails on the string spelling, and nothing in this document needs its
+    value.
+
+    ``internal/bom.Entry``'s six shared JSON tags are pinned against
+    ``BOMEntry``'s by a test in ``internal/bom``, which is the side that can see
+    both. ``change_set.definition`` sets ``additionalProperties: false``, so a
+    key misspelt on either side is a ``422`` rather than a field quietly
+    ignored.
+
 .. spec:: Listing the environments a deployment service knows
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     ``POST /api/hmd_lang_deployment.environment`` with an empty filter, giving
     ``type``, ``account_number`` and ``hmd_region`` for every environment in one
@@ -349,6 +387,11 @@ configuration keys, and a verb that joins two existing halves together.
     no field carrying one, so it would mean one BOM fetch per environment --
     turning a single cheap request into an N+1 hidden behind a listing, against
     a service whose BOM operation is the expensive one.
+
+    **Implemented 2026-09-15** as ``msdeploy.Environments``. A row carrying no
+    ``type`` is skipped rather than listed as an environment with no name: the
+    slug is the business id every other operation takes, so a row without one is
+    not addressable and listing it would only invite someone to try.
 
 .. spec:: Cherry-picking a BOM into a local environment
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
