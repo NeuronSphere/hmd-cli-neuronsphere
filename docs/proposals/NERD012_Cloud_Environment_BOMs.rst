@@ -151,7 +151,7 @@ configuration keys, and a verb that joins two existing halves together.
 .. spec:: A profile names a tenant, not just an issuer
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD012
-    :status: proposed
+    :status: implemented
 
     ``$HMD_HOME/.config/nsctl.toml``'s ``[profile.<name>]`` table shall carry
     the addresses of the tenant's services alongside the issuer it already
@@ -201,6 +201,40 @@ configuration keys, and a verb that joins two existing halves together.
     both.** Without it, "I passed ``--profile staging`` and reached production"
     is invisible, and it is invisible in precisely the situation -- several
     tenants on one machine -- that profiles exist for.
+
+    **Implemented 2026-09-15** as ``internal/nsconfig``'s ``ResolveEndpoint``,
+    ``Service`` and ``Endpoint``, with ``internal/logincfg`` renamed to
+    ``internal/nsconfig`` first: a package called ``logincfg`` holding the
+    address of an Artifact Librarian is a misnomer that costs the next reader
+    ten minutes.
+
+    Three things writing it settled that the proposal did not state.
+
+    The deployment service's variable is ``HMD_CLOUD_MS_DEPLOYMENT_URL``, not
+    ``HMD_DEPLOYMENT_SERVICE_URL``. That name is taken and means the opposite:
+    ``hmd-cli-deploy`` treats it as the *local* short-circuit, and ``nsctl``
+    sets it on every projectbuilder container to point at the control plane's
+    own service through ``hmd_proxy``. A cloud address under that name would be
+    read as a local one by half the platform.
+
+    ``librarian.endpoint`` is **gone** rather than kept alongside the shared
+    rule, and ``librarian.URLEnv``, ``CustomerCodeEnv`` and ``RegionEnv`` are
+    now aliases of ``nsconfig``'s. Two spellings of one variable name is the
+    kind of drift that shows up only as a client talking to the wrong host.
+    ``librarian.Config`` gained ``Profile`` and ``FlagURL``, and the
+    lookup-shadowing closure ``librarians.cloud`` used for ``--url`` is gone
+    with them: a flag smuggled in as an environment variable cannot be told
+    apart from one that was really set, which is exactly what the shadowing
+    warning has to distinguish.
+
+    ``--profile`` is bound **explicitly**, by ``librarians.bindTenant``, rather
+    than falling out of the shared flag set. ``nsctl env apply`` and
+    ``nsctl env add`` already have a ``--profile`` and it means something else
+    entirely -- ``NERD010``'s local profiles, which select part of a
+    repository's declared environment. The two have never needed to appear on
+    one command; binding the tenant flag by hand is what makes that a decision
+    rather than an accident, since a future command wanting both now fails to
+    start instead of shipping one flag that means two things.
 
 .. spec:: Authenticating to a cloud ``hmd-ms-deployment``
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC002

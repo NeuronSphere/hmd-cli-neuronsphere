@@ -276,6 +276,29 @@ hostname: discovery is fetched from ``{auth_url}/.well-known/...``, and an
 authorization server lives at a path. It names your identity provider's own
 issuer -- an Okta authorization server, an Auth0 tenant, or the local mock.
 
+A profile may also name the tenant's **services**, which is what lets
+``--profile`` select where an artifact is fetched from:
+
+.. code-block:: toml
+
+    [profile.acme]
+    auth_url      = "https://auth-aaa-reg1.acme-admin-neuronsphere.io/oauth2/ns"
+    customer_code = "acme"
+    region        = "reg1"
+
+``customer_code`` and ``region`` are usually all you need: both service
+hostnames are composed from them, the same way the Python tools compose them.
+``artifact_librarian_url`` and ``deployment_url`` name them outright for a
+deployment that does not follow that convention.
+
+Every address resolves by one rule, in order: the command's ``--url``, then the
+service's environment variable (``HMD_ARTIFACT_LIBRARIAN_URL``,
+``HMD_CLOUD_MS_DEPLOYMENT_URL``), then the profile's explicit URL, then
+``customer_code``/``region`` -- the profile's before ``HMD_CUSTOMER_CODE`` and
+``HMD_REGION`` -- and then a refusal naming all four. ``nsctl`` never guesses an
+endpoint. If an environment variable overrides an address the profile you named
+also carries, it still wins and says so.
+
 ``client_id`` is optional here and needed in practice against a real provider,
 which registers its own applications and rejects a client it does not know. It
 is not a secret: the device grant is a public-client flow, and there is no

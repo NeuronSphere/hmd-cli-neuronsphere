@@ -76,6 +76,7 @@ exists to prevent.`,
 		},
 	}
 	libs.bindCloud(cmd)
+	libs.bindTenant(cmd)
 	cmd.Flags().StringVar(&spec, "spec", "",
 		"Report what this version specifier resolves to, as a manifest writes it")
 	cmd.Flags().StringVar(&itemType, "type", "",
@@ -108,7 +109,7 @@ func published(cmd *cobra.Command, opts *Options, libs *librarians,
 		return p, nil
 	}
 
-	cloud, err := libs.cloud(opts)
+	cloud, err := libs.cloud(cmd, opts)
 	if err != nil {
 		return nil, err
 	}

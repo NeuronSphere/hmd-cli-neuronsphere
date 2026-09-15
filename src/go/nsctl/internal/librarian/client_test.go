@@ -10,55 +10,51 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 )
 
 func lookupFrom(vars map[string]string) func(string) string {
 	return func(k string) string { return vars[k] }
 }
 
-func TestEndpointPrefersAnExplicitURL(t *testing.T) {
+// TestNewResolvesThroughTheSharedRule is what is left of this package's own
+// endpoint tests. The precedence rule moved to internal/nsconfig, because two
+// services now share it; what stays librarian's business is that New actually
+// goes through it rather than keeping a second copy.
+func TestNewResolvesThroughTheSharedRule(t *testing.T) {
 	t.Parallel()
 
-	got, err := endpoint(lookupFrom(map[string]string{
-		URLEnv:          "https://librarian.example/",
-		CustomerCodeEnv: "acme",
-		RegionEnv:       "reg9",
-	}))
+	c, err := New(Config{
+		Home:   t.TempDir(),
+		Lookup: lookupFrom(map[string]string{CustomerCodeEnv: "hmdtr1", RegionEnv: "reg1", APIKeyEnv: "k"}),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "https://librarian.example/" {
-		t.Errorf("endpoint() = %q, want the explicit URL", got)
+	if want := "https://artifact-aaa-reg1.hmdtr1-admin-neuronsphere.io"; c.BaseURL != want {
+		t.Errorf("BaseURL = %q, want %q", c.BaseURL, want)
+	}
+	if c.Endpoint.Source == "" {
+		t.Error("Endpoint.Source is empty; a resolved address should say where it came from")
 	}
 }
 
-// TestEndpointComposedFromCustomerAndRegion pins the hostname template against
-// get_artifact_librarian_client. A wrong host does not fail as "wrong host" --
-// it fails as a DNS error that reads like a network problem.
-func TestEndpointComposedFromCustomerAndRegion(t *testing.T) {
+// TestNewTakesTheProfilesURL proves the profile tier is reachable from here,
+// which is the whole point of Config carrying one.
+func TestNewTakesTheProfilesURL(t *testing.T) {
 	t.Parallel()
 
-	got, err := endpoint(lookupFrom(map[string]string{CustomerCodeEnv: "hmdtr1", RegionEnv: "reg1"}))
+	c, err := New(Config{
+		Home:    t.TempDir(),
+		Lookup:  lookupFrom(map[string]string{APIKeyEnv: "k"}),
+		Profile: nsconfig.Profile{Name: "acme", ArtifactLibrarianURL: "https://librarian.example/"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://artifact-aaa-reg1.hmdtr1-admin-neuronsphere.io"
-	if got != want {
-		t.Errorf("endpoint() = %q, want %q", got, want)
-	}
-}
-
-func TestEndpointNeedsSomething(t *testing.T) {
-	t.Parallel()
-
-	for _, vars := range []map[string]string{
-		{},
-		{CustomerCodeEnv: "hmdtr1"},
-		{RegionEnv: "reg1"},
-	} {
-		if _, err := endpoint(lookupFrom(vars)); err == nil {
-			t.Errorf("endpoint(%v) succeeded, want an error naming what to set", vars)
-		}
+	if want := "https://librarian.example"; c.BaseURL != want {
+		t.Errorf("BaseURL = %q, want %q", c.BaseURL, want)
 	}
 }
 

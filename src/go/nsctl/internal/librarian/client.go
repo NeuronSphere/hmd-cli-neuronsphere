@@ -16,17 +16,25 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 )
 
 // Environment variables this package reads. They are the Python ones verbatim,
 // because a developer who has a working `hmd build` must not have to configure
 // anything a second time for `make generate`.
 const (
-	URLEnv          = "HMD_ARTIFACT_LIBRARIAN_URL"
-	APIKeyEnv       = "HMD_ARTIFACT_LIBRARIAN_API_KEY"
-	AuthTokenEnv    = "HMD_AUTH_TOKEN"
-	CustomerCodeEnv = "HMD_CUSTOMER_CODE"
-	RegionEnv       = "HMD_REGION"
+	APIKeyEnv    = "HMD_ARTIFACT_LIBRARIAN_API_KEY"
+	AuthTokenEnv = "HMD_AUTH_TOKEN"
+)
+
+// URLEnv, CustomerCodeEnv and RegionEnv are re-exported from nsconfig rather
+// than spelled again here. They are read by the shared endpoint rule, not by
+// this package, and two spellings of one variable name is the kind of drift
+// that only shows up as a client talking to the wrong host.
+const (
+	URLEnv          = nsconfig.ArtifactLibrarianURLEnv
+	CustomerCodeEnv = nsconfig.CustomerCodeEnv
+	RegionEnv       = nsconfig.RegionEnv
 )
 
 // TokenRelPath is where `hmd login` caches its token, relative to $HMD_HOME --
@@ -77,6 +85,11 @@ type Client struct {
 	BaseURL string
 	HTTP    *http.Client
 
+	// Endpoint records how BaseURL was resolved, so a command can say which
+	// service it is about to send a credential to and why. Zero for NewLocal,
+	// whose address is a constant rather than a resolution.
+	Endpoint nsconfig.Endpoint
+
 	apiKey string
 	token  string
 
@@ -94,6 +107,11 @@ type Config struct {
 	Lookup func(string) string
 	// Home is $HMD_HOME, used to find the cached login token.
 	Home string
+	// Profile is the nsctl.toml profile whose endpoint keys apply. The zero
+	// Profile contributes nothing, which is what "no profile named" means.
+	Profile nsconfig.Profile
+	// FlagURL is a --url the user typed, which beats everything else.
+	FlagURL string
 }
 
 // New builds a client from the environment, resolving the endpoint and the
@@ -116,13 +134,14 @@ func New(cfg Config) (*Client, error) {
 		lookup = hmdenv.Layered(os.Getenv, file)
 	}
 
-	base, err := endpoint(lookup)
+	base, err := nsconfig.ResolveEndpoint(nsconfig.ArtifactLibrarian, cfg.FlagURL, cfg.Profile, lookup)
 	if err != nil {
 		return nil, err
 	}
 
 	c := &Client{
-		BaseURL: trimSlash(base),
+		BaseURL:  trimSlash(base.URL),
+		Endpoint: base,
 		// Generous: these are multi-megabyte zips over a link that may be a
 		// coffee-shop connection, and the whole fetch happens once per pin.
 		HTTP:   &http.Client{Timeout: 5 * time.Minute},
@@ -142,20 +161,6 @@ func New(cfg Config) (*Client, error) {
 // trailing slash on purpose, and the one place that decides what happens to it
 // should be the one place.
 func trimSlash(base string) string { return strings.TrimRight(base, "/") }
-
-// endpoint resolves the librarian URL, preferring an explicit one and
-// otherwise composing the per-customer admin hostname.
-func endpoint(lookup func(string) string) (string, error) {
-	if url := lookup(URLEnv); url != "" {
-		return url, nil
-	}
-	customer, region := lookup(CustomerCodeEnv), lookup(RegionEnv)
-	if customer == "" || region == "" {
-		return "", fmt.Errorf("no artifact librarian endpoint: set %s, or both %s and %s",
-			URLEnv, CustomerCodeEnv, RegionEnv)
-	}
-	return fmt.Sprintf("https://artifact-aaa-%s.%s-admin-neuronsphere.io", region, customer), nil
-}
 
 // authToken is get_auth_token(): the environment first, then the file `hmd
 // login` writes. A missing or malformed file yields no token rather than an

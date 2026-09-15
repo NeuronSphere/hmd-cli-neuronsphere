@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec"
 	"github.com/spf13/cobra"
@@ -56,6 +56,7 @@ cache alone, which is what makes it behave the same on an aeroplane.`,
 type librarians struct {
 	cloudURL string
 	localURL string
+	profile  profileFlag
 }
 
 func (l *librarians) bind(cmd *cobra.Command) {
@@ -64,7 +65,7 @@ func (l *librarians) bind(cmd *cobra.Command) {
 		"the control plane's Artifact Librarian")
 }
 
-// bindCloud binds only the cloud flag, for a verb that reads a cloud librarian
+// bindCloud binds only the cloud URL, for a verb that reads a cloud librarian
 // and never writes to the control plane's. A flag a command cannot act on is a
 // question about what it secretly does with it.
 func (l *librarians) bindCloud(cmd *cobra.Command) {
@@ -72,26 +73,42 @@ func (l *librarians) bindCloud(cmd *cobra.Command) {
 		"cloud Artifact Librarian URL, overriding "+librarian.URLEnv)
 }
 
+// bindTenant adds --profile, and is separate from bind for a reason worth
+// stating: `nsctl env apply` and `nsctl env add` already have a --profile, and
+// it means something else entirely -- NERD010's local profiles, which select
+// part of a repository's declared environment rather than which tenant to
+// reach.
+//
+// The two have never needed to appear on one command, and binding the tenant
+// flag explicitly is what makes that a decision rather than an accident: a
+// future command that wants both will fail to start, loudly, instead of
+// shipping one flag that means two things.
+func (l *librarians) bindTenant(cmd *cobra.Command) {
+	l.profile.bind(cmd)
+}
+
 // cloud builds a client for the cloud librarian.
 //
-// The --url override is layered over the injected lookup rather than exported
-// into the process: Python saves and restores HMD_ARTIFACT_LIBRARIAN_URL in a
-// finally, which is not available here because every test in this package runs
-// in parallel and t.Setenv panics there.
-func (l *librarians) cloud(opts *Options) (*librarian.Client, error) {
-	lookup := opts.Lookup
-	if l.cloudURL != "" {
-		lookup = hmdenv.Lookup(func(key string) string {
-			if key == librarian.URLEnv {
-				return l.cloudURL
-			}
-			return opts.Lookup(key)
-		})
+// --url and the profile are handed to the client rather than layered over the
+// injected lookup, which is what this used to do. Both are inputs to one
+// precedence rule that now lives in internal/nsconfig, and a flag smuggled in
+// as an environment variable cannot be told apart from one that was really set
+// -- which is precisely the distinction the shadowing warning needs.
+func (l *librarians) cloud(cmd *cobra.Command, opts *Options) (*librarian.Client, error) {
+	profile, err := l.profile.resolve(opts)
+	if err != nil {
+		return nil, err
 	}
-	c, err := librarian.New(librarian.Config{Home: opts.Home, Lookup: lookup})
+	c, err := librarian.New(librarian.Config{
+		Home:    opts.Home,
+		Lookup:  opts.Lookup,
+		Profile: profile,
+		FlagURL: l.cloudURL,
+	})
 	if err != nil {
 		return nil, nserr.Wrap(nserr.Usage, err)
 	}
+	reportShadowed(cmd, &l.profile, nsconfig.ArtifactLibrarian, c.Endpoint)
 	return c, nil
 }
 
@@ -133,7 +150,7 @@ is an apply that behaves differently on an aeroplane.`,
 			if err != nil {
 				return err
 			}
-			cloud, err := libs.cloud(opts)
+			cloud, err := libs.cloud(cmd, opts)
 			if err != nil {
 				return err
 			}
@@ -152,6 +169,7 @@ is an apply that behaves differently on an aeroplane.`,
 		},
 	}
 	libs.bind(cmd)
+	libs.bindTenant(cmd)
 	return cmd
 }
 
@@ -217,6 +235,7 @@ apply deploys the build that was just registered rather than the one before it.`
 		},
 	}
 	libs.bind(cmd)
+	libs.bindTenant(cmd)
 	cmd.Flags().StringVar(&itemType, "type", manifest.DefaultArtifactType, "librarian content item type")
 	cmd.Flags().StringVar(&repoDir, "repo", ".", "repo whose meta-data names the build to look for")
 	cmd.Flags().StringVar(&name, "name", "", "repo class, overriding the one in the artifact")
@@ -267,6 +286,7 @@ without rebuilding anything.`,
 		},
 	}
 	libs.bind(cmd)
+	libs.bindTenant(cmd)
 	return cmd
 }
 
@@ -309,7 +329,7 @@ resolves RepoClasses, not schemas.`,
 				fmt.Fprintf(out, "%s declares no build.pre_build_artifacts\n", manifestPath)
 				return nil
 			}
-			cloud, err := libs.cloud(opts)
+			cloud, err := libs.cloud(cmd, opts)
 			if err != nil {
 				return err
 			}
@@ -331,6 +351,7 @@ resolves RepoClasses, not schemas.`,
 		},
 	}
 	libs.bind(cmd)
+	libs.bindTenant(cmd)
 	cmd.Flags().StringVar(&manifestPath, "manifest", "", "BACON manifest to read (default meta-data/manifest.json)")
 	return cmd
 }

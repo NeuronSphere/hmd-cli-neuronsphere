@@ -401,7 +401,7 @@ func pullMissing(cmd *cobra.Command, opts *Options, libs *librarians, home strin
 	if len(missing) == 0 {
 		return nil
 	}
-	cloud, err := libs.cloud(opts)
+	cloud, err := libs.cloud(cmd, opts)
 	if err != nil {
 		return err
 	}

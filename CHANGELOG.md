@@ -2,6 +2,40 @@
 
 ## 2026-09-15
 
+- feat(nsctl): name a tenant's endpoints in nsctl.toml
+
+  NERD012 SPEC001. A `[profile.<name>]` table can now carry `customer_code`,
+  `region`, `artifact_librarian_url` and `deployment_url` beside the `auth_url`
+  it already had, so a profile describes a whole tenant rather than only where
+  to sign in. `--profile` selects one on every `nsctl artifact` verb.
+
+  Usually the two short keys are enough: both service hostnames are composed
+  from a customer code and a region, exactly as `hmd_lib_librarian_client`,
+  `hmd-cli-ns-bootstrap` and `hmd-cli-deploy` all compose them. Spelling out two
+  long URLs that repeat the customer code twice is a worse way to say the same
+  thing, so the explicit keys are there for a deployment that does not follow
+  the convention and are expected to stay unset otherwise.
+
+  One precedence rule now serves both services, in `internal/nsconfig`: `--url`,
+  then the service's environment variable, then the profile's explicit URL, then
+  composition from the profile's customer and region before the environment's,
+  then a refusal that names all four. `librarian.endpoint` is gone rather than
+  kept beside it, because two ladders resolving one address is how a client ends
+  up talking to the wrong host.
+
+  An environment variable still beats the file, which is the convention
+  everywhere else. The case where that misleads gets a guard: if you name a
+  profile and a variable overrides an address that profile also carries, the
+  override wins and says so, naming both. Silently reaching production because
+  of a variable you forgot was exported is the failure a tenant selector exists
+  to prevent.
+
+  Nothing an existing install reads has changed. A file containing only
+  `auth_url` still parses, verbs configured entirely by environment variables
+  keep working, and `--profile` on `nsctl env apply` still means NERD010's local
+  profiles -- a different thing that has never shared a command with this one,
+  and now cannot begin to by accident.
+
 - refactor(nsctl): widen the login config into nsctl's config
 
   `internal/logincfg` becomes `internal/nsconfig`. No behaviour changes: the

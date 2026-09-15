@@ -98,6 +98,23 @@ type Profile struct {
 
 	// Scopes requested. Defaults to DefaultScopes.
 	Scopes []string `toml:"scopes"`
+
+	// CustomerCode and Region identify the tenant, and are what both service
+	// hostnames are composed from when neither is named outright. Naming these
+	// two is the shortest complete description of a tenant there is; see
+	// ResolveEndpoint.
+	CustomerCode string `toml:"customer_code"`
+	Region       string `toml:"region"`
+
+	// DeploymentURL and ArtifactLibrarianURL name the tenant's services
+	// outright, for a deployment that does not follow the composed naming --
+	// and for the local mocks a test points at.
+	//
+	// Optional, and expected to stay unset for an ordinary tenant: two long
+	// URLs that repeat the customer code twice are a worse way to say what
+	// CustomerCode and Region already say.
+	DeploymentURL        string `toml:"deployment_url"`
+	ArtifactLibrarianURL string `toml:"artifact_librarian_url"`
 }
 
 // DefaultClientID is the client id used when a profile names none.
@@ -307,12 +324,31 @@ func (p Profile) Validate() error {
 			"and must be the issuer rather than a bare hostname -- discovery is fetched from "+
 			"%s/.well-known/openid-configuration", p.Name, p.AuthURL, strings.TrimRight(url, "/"))
 	}
+	// The service URLs are optional, so an unset one is not a problem; one that
+	// is set and is not a URL is, and saying so here beats a connection error
+	// naming a host nobody typed.
+	for key, value := range map[string]string{
+		"deployment_url":         p.DeploymentURL,
+		"artifact_librarian_url": p.ArtifactLibrarianURL,
+	} {
+		if value = strings.TrimSpace(value); value == "" {
+			continue
+		}
+		if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+			return fmt.Errorf("profile %q: %s %q must be an http:// or https:// URL",
+				p.Name, key, value)
+		}
+	}
 	return nil
 }
 
 // withDefaults fills in what the file left out.
 func (p Profile) withDefaults() Profile {
 	p.AuthURL = strings.TrimRight(strings.TrimSpace(p.AuthURL), "/")
+	p.DeploymentURL = trimSlash(p.DeploymentURL)
+	p.ArtifactLibrarianURL = trimSlash(p.ArtifactLibrarianURL)
+	p.CustomerCode = strings.TrimSpace(p.CustomerCode)
+	p.Region = strings.TrimSpace(p.Region)
 	if p.ClientID == "" {
 		p.ClientID = DefaultClientID
 	}
