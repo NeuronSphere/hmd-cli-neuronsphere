@@ -466,7 +466,7 @@ already exist.
 .. spec:: ``nsctl env add --from-repo``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: proposed
+    :status: implemented
 
     .. code-block:: bash
 
@@ -496,6 +496,57 @@ already exist.
     would silently fall back to ``default_profiles`` and reconcile away
     instances the user explicitly asked for, which is the worst kind of
     delta-apply: correct according to a file nobody re-read.
+
+    **Amended 2026-09-15: what an instance is called.** Step 4 says what to
+    declare and never says what it is *named*, and the answer turns out to be
+    load bearing. It is acceptable -- expected, even -- for two engineers to
+    deploy the same repo class at the same locked version under **different
+    local instance names**, and both must still resolve the right dependencies
+    from the same checked-in lock. So the name is **defaulted but overridable**,
+    and the lock never carries one.
+
+    The order, most specific first:
+
+    #. **What the environment manifest already binds.** A new ``bindings`` map
+       records, per want, the instance name it was given here. On a re-apply that
+       is authoritative, so an instance somebody renamed stays renamed rather
+       than being duplicated under its default name.
+    #. ``--name <role-or-declared-name>=<instance>``, repeatable, on both this
+       verb and SPEC006's.
+    #. The dependency block's own ``instance_name``, or the companion's.
+    #. The **dependency role**.
+
+    Tier four is the role and never the repo class. Only 9 of the 517 dependency
+    blocks in a full workspace carry an ``instance_name``, the role names already
+    read as instance names (``base-vpc``, ``neptune-db``, ``db-credentials``), and
+    a class-derived default would collide the moment one class fills two roles --
+    which ``hmd-inf-credentials`` does three times in ``hmd-inf-trino``.
+
+    Whatever tier answers, the repository's own declaration carries
+    ``dependencies: {<role>: <resolved instance>}`` for every role it declared.
+    That map is what ``ms-deployment`` resolves against, and it is why a lock
+    naming only classes and roles is sufficient.
+
+    Two refusals follow. A ``--name`` whose *value* is a reserved substrate name
+    is refused, because the substrate creates that instance whatever a manifest
+    says. A ``--name`` addressing a key this repository does not declare is
+    refused rather than ignored: silently dropping one leaves the user believing
+    they renamed something, and the manifest disagreeing several minutes into a
+    deploy.
+
+    **Amended 2026-09-15: the substrate.** A want whose resolved instance name is
+    reserved for the environment scope -- ``base-vpc``, ``eks-cluster``,
+    ``environment-db``, ``local-neuronsphere`` -- is **not declared**, because the
+    substrate deploys it whether or not a manifest names it and
+    ``manifest.Validate`` refuses a declaration that claims the name. It is
+    printed as ``provided by the substrate`` and the repository still binds to
+    it, so the role resolves. Real manifests hit this immediately:
+    ``hmd-ms-transform`` and ``hmd-ms-artifact-lib`` both name ``base-vpc``.
+
+    **Implemented 2026-09-15.** The declaration and the lock are read *before*
+    the registry is written, so a broken manifest or a missing lock costs
+    nothing: an environment registered against a repository that cannot be read
+    is a port slot and an account allocated for nothing.
 
 .. spec:: ``nsctl env apply --from-repo``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC006

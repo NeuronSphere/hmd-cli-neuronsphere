@@ -127,6 +127,27 @@ type Manifest struct {
 	Name    string `yaml:"name" json:"name"`
 	Repos   []Repo `yaml:"repos" json:"repos"`
 
+	// Profiles are the local profiles this environment was created with, when it
+	// was created from a repository (NERD010 SPEC005).
+	//
+	// Recorded rather than recomputed, and that is not bookkeeping: without it a
+	// later bare `nsctl env apply` falls back to the repository's
+	// default_profiles and reconciles away instances the user explicitly asked
+	// for -- a delta-apply that is correct according to a file nobody re-read.
+	Profiles []string `yaml:"profiles,omitempty" json:"profiles,omitempty"`
+
+	// Bindings maps a repository's declared want -- a dependency role, a
+	// companion's declared instance_name, or the repository's own repo class --
+	// to the instance name it was given in this environment.
+	//
+	// It exists because a lock names no instances. Two engineers may deploy one
+	// repo class at one locked version under different local instance names and
+	// must still resolve the same roles, so a role is what travels between
+	// machines and this file is where the local naming lives. On a re-apply this
+	// map is authoritative, which is what stops a renamed instance being
+	// duplicated under its default name.
+	Bindings map[string]string `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+
 	// Extra carries every top-level key nsctl does not model, so writing a
 	// manifest back never drops what the Python front end put there.
 	Extra map[string]any `yaml:",inline" json:"-"`
@@ -401,6 +422,19 @@ func (m *Manifest) Validate(lookup Lookup) []string {
 		}
 		problems = append(problems, r.validateSource(where, lookup, m.Scope)...)
 		problems = append(problems, r.validateDependencies(where)...)
+	}
+
+	keys := make([]string, 0, len(m.Bindings))
+	for k := range m.Bindings {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if strings.TrimSpace(m.Bindings[k]) == "" {
+			problems = append(problems, fmt.Sprintf(
+				"bindings[%q]: an instance name is required -- a binding to nothing would silently"+
+					" re-default on the next apply", k))
+		}
 	}
 	return problems
 }

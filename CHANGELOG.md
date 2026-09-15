@@ -2,6 +2,44 @@
 
 ## 2026-09-15
 
+- feat(nsctl): create an environment from a repository
+
+  NERD010 SPEC005. `nsctl env add <name> --from-repo <path>` reads a
+  repository's `local` section and its checked-in `neuronsphere.lock`, declares
+  every activated entry as an artifact source at its pinned version, and
+  declares the repository itself from its working tree -- which is what makes it
+  the thing under test. `env add` previously wrote only the registry.
+
+  It is the one command that fetches without being asked, and that is justified
+  because this *is* first start: there is no environment yet, so there is no
+  offline expectation to violate. `--no-pull` suppresses it. The lock is never
+  resolved around: absent, it fails naming `nsctl lock`, because the whole point
+  is that a fresh clone gets the same answer as the machine that wrote it.
+
+  The activated profiles are recorded in the environment manifest. Without that
+  a later bare `nsctl env apply` falls back to the repository's
+  `default_profiles` and reconciles away instances the user explicitly asked for
+  -- a delta-apply that is correct according to a file nobody re-read.
+
+  What an instance is *called* turned out to be load bearing, and SPEC005 is
+  amended with it. Two engineers may deploy one repo class at one locked version
+  under different local instance names and must still resolve the same roles, so
+  the name is defaulted but overridable and the lock carries none. The order is:
+  a binding the environment manifest already records, then `--name
+  <role-or-declared-name>=<instance>`, then the declaration's own
+  `instance_name`, then the dependency role. Never the repo class -- one class
+  routinely fills several roles. A new `bindings` map in the manifest is what
+  makes a rename survive a re-apply instead of duplicating the instance.
+
+  A want whose name is reserved for the substrate -- `base-vpc`, `eks-cluster`,
+  `environment-db`, `local-neuronsphere` -- is not declared but is still bound
+  to, printed as "provided by the substrate". Real manifests hit this at once:
+  hmd-ms-transform and hmd-ms-artifact-lib both name base-vpc.
+
+  The declaration and lock are read before the registry is written, so a broken
+  manifest costs nothing rather than leaving an account and a port slot
+  allocated to an environment that was never created.
+
 - feat(nsctl): pin a repo's local environment in `neuronsphere.lock`
 
   NERD010 SPEC002, SPEC003 (tiers one and two), SPEC004 and SPEC007. `nsctl

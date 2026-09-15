@@ -349,7 +349,10 @@ func state(c status.Container) string {
 }
 
 func newEnvAddCommand(opts *Options) *cobra.Command {
-	var makeDefault bool
+	var makeDefault, noPull bool
+	var repo fromRepo
+	var libs librarians
+
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Register a new environment",
@@ -359,11 +362,39 @@ This only writes the registry. The environment's database, cluster and routes
 are created by ` + "`nsctl env start <name>`" + `, which is also what makes it usable.
 
 A new environment is empty: it gets the substrate and nothing else. Declare
-what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.`,
+what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
+
+With --from-repo it is not empty. The repository's ` + "`local`" + ` section and its
+checked-in neuronsphere.lock say what to stand up alongside it, every activated
+entry is declared at its pinned version, and the repository itself is declared
+from its working tree -- which is what makes it the thing under test.
+
+This is the one command that fetches an artifact without being asked, because
+this is first start: there is no environment yet, so there is no offline
+expectation to violate. --no-pull suppresses it.`,
+		Example: `  nsctl env add dev
+  nsctl env add dev --from-repo .
+  nsctl env add dev --from-repo . --profile transforms
+  nsctl env add dev --from-repo . --lean --name neptune-db=my-graph`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Read before the registry is written, so a broken declaration or a
+			// missing lock costs nothing: an environment registered against a
+			// repository that cannot be read is a slot allocated for nothing.
+			var plan *repoPlan
+			if repo.requested() {
+				p, err := planFromRepo(&repo, nil)
+				if err != nil {
+					return err
+				}
+				if err := checkNamesAreUsed(&repo, p); err != nil {
+					return err
+				}
+				plan = p
+			}
+
 			reg, home, err := loadRegistry(opts)
 			if err != nil {
 				return err
@@ -380,11 +411,48 @@ what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
 			}
 
 			renderNewEnvironment(cmd, env)
-			fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
+			if plan == nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
+				return nil
+			}
+
+			missing := plan.missingArtifacts(home)
+			switch {
+			case noPull && len(missing) > 0:
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"warning: %d artifact(s) are not cached and --no-pull was given;"+
+						" `nsctl env start %s` will refuse until they are\n", len(missing), env.Slug)
+			case !noPull:
+				if err := pullMissing(cmd, opts, &libs, home, missing); err != nil {
+					return err
+				}
+			}
+
+			m, err := openManifest(opts, home, env.Slug)
+			if err != nil {
+				return err
+			}
+			plan.apply(m, false)
+			if problems := m.Validate(opts.Lookup); len(problems) > 0 {
+				return nserr.New(nserr.Usage, "the environment this repository describes is not valid:\n  - %s",
+					strings.Join(problems, "\n  - "))
+			}
+			if err := m.Save(m.Path); err != nil {
+				return nserr.Wrap(nserr.Fail, err)
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout())
+			plan.render(cmd, env.Slug)
+			fmt.Fprintf(cmd.OutOrStdout(), "\nDeclared in %s\n", m.Path)
+			fmt.Fprintf(cmd.OutOrStdout(), "Start it with `nsctl env start %s`.\n", env.Slug)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&makeDefault, "default", false, "Make this the default environment")
+	cmd.Flags().BoolVar(&noPull, "no-pull", false,
+		"Do not fetch the artifacts the declaration names")
+	repo.bind(cmd)
+	libs.bind(cmd)
 	return cmd
 }
 
