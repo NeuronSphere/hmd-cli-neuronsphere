@@ -733,7 +733,6 @@ and a deploy node. One service that does both is worth a wrapper image.
 
     .. list-table::
        :header-rows: 1
-       :widths: 18 41 41
 
        * -
          - Artifact Librarian (``NERD005``)

@@ -173,7 +173,6 @@ build``.
 
     .. list-table::
        :header-rows: 1
-       :widths: 30 35 35
 
        * - Noun
          - File
@@ -534,7 +533,6 @@ build``.
 
     .. list-table::
        :header-rows: 1
-       :widths: 40 60
 
        * - Signal
          - Conclusion

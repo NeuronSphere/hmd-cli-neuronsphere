@@ -275,7 +275,6 @@ resolution learns that anything changed.
 
     .. list-table::
        :header-rows: 1
-       :widths: 12 50 38
 
        * -
          - Endpoint

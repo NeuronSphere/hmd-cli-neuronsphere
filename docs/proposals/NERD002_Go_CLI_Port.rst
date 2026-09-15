@@ -776,7 +776,6 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     .. list-table::
        :header-rows: 1
-       :widths: 45 55
 
        * - ``nsctl``
          - Python equivalent today
@@ -985,7 +984,6 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     .. list-table::
        :header-rows: 1
-       :widths: 40 60
 
        * - Cement concept
          - Go equivalent
