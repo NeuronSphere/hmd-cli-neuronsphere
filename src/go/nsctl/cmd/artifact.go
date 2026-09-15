@@ -15,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,7 @@ cache alone, which is what makes it behave the same on an aeroplane.`,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(
+		newArtifactVersionsCommand(opts),
 		newArtifactPullCommand(opts),
 		newArtifactRegisterCommand(opts),
 		newArtifactUnpackCommand(opts),
@@ -57,10 +59,17 @@ type librarians struct {
 }
 
 func (l *librarians) bind(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&l.cloudURL, "url", "",
-		"cloud Artifact Librarian URL, overriding "+librarian.URLEnv)
+	l.bindCloud(cmd)
 	cmd.Flags().StringVar(&l.localURL, "local-url", librarian.LocalBaseURL,
 		"the control plane's Artifact Librarian")
+}
+
+// bindCloud binds only the cloud flag, for a verb that reads a cloud librarian
+// and never writes to the control plane's. A flag a command cannot act on is a
+// question about what it secretly does with it.
+func (l *librarians) bindCloud(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&l.cloudURL, "url", "",
+		"cloud Artifact Librarian URL, overriding "+librarian.URLEnv)
 }
 
 // cloud builds a client for the cloud librarian.
@@ -92,17 +101,25 @@ func newArtifactPullCommand(opts *Options) *cobra.Command {
 	var libs librarians
 
 	cmd := &cobra.Command{
-		Use:   "pull <repo-class>@<version>[:<type>]",
+		Use:   "pull <repo-class>[@<version>][:<type>]",
 		Short: "Copy a published artifact into the control plane",
 		Long: `Downloads a versioned artifact from a cloud Artifact Librarian, stores it in
 the control plane's own, and unpacks it into the cache an apply resolves from.
 
 The item type defaults to ` + "`build`" + `, which is what ` + "`hmd build`" + ` publishes.
 
+With no version, the newest published one is used; with a BACON version
+specifier in its place, the newest that satisfies it. Either way the version
+chosen is printed, because a command that quietly picked one has told you
+nothing you could check. ` + "`nsctl artifact versions`" + ` answers the same question
+without fetching anything.
+
 This is the only command that reaches a cloud librarian on your behalf.
 Resolution never does: an apply that reached the internet without being asked
 is an apply that behaves differently on an aeroplane.`,
 		Example: `  nsctl artifact pull hmd-inf-local-registry@0.1.4
+  nsctl artifact pull hmd-inf-local-registry
+  nsctl artifact pull "hmd-inf-trino@~= 0.1"
   nsctl artifact pull hmd-lang-foo@0.3.1:schema`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
@@ -112,11 +129,15 @@ is an apply that behaves differently on an aeroplane.`,
 			if err != nil {
 				return err
 			}
-			spec, err := parseArtifactRef(args[0])
+			req, err := parseArtifactRequest(args[0])
 			if err != nil {
 				return err
 			}
 			cloud, err := libs.cloud(opts)
+			if err != nil {
+				return err
+			}
+			spec, err := resolveRef(cmd, opts, &libs, cloud, req)
 			if err != nil {
 				return err
 			}
@@ -338,6 +359,73 @@ func storeLocally(cmd *cobra.Command, local *librarian.Client, home string,
 	fmt.Fprintf(cmd.OutOrStdout(), "Stored %s in %s\n", spec, local.BaseURL)
 	fmt.Fprintf(cmd.OutOrStdout(), "Unpacked to %s\n", dir)
 	return nil
+}
+
+// artifactRequest is a reference to an artifact whose version may not be settled
+// yet: a bare repo class, a version, or a specifier standing in for one.
+type artifactRequest struct {
+	Name     string
+	ItemType string
+	// Version is set when the reference already named one, in which case
+	// nothing needs resolving and no librarian is asked.
+	Version string
+	// Spec is the specifier to resolve against what is published. The zero Spec
+	// admits everything, which is what a bare repo class means.
+	Spec versionspec.Spec
+}
+
+// Describe names what was asked for, for the line that reports what it resolved
+// to.
+func (r artifactRequest) Describe() string {
+	if r.Spec.Empty() {
+		return r.Name
+	}
+	return r.Name + " " + r.Spec.String()
+}
+
+// parseArtifactRequest reads <repo-class>[@<version-or-spec>][:<type>].
+//
+// This is parseArtifactRef's grammar with the version made optional, kept apart
+// from it because the two have different rules for a good reason: `unpack` reads
+// the *local* librarian, and resolving a range against that would answer with
+// what this machine happens to hold rather than with what is published -- the
+// right answer for a cache probe and the wrong one for choosing a version.
+func parseArtifactRequest(ref string) (artifactRequest, error) {
+	out := artifactRequest{ItemType: manifest.DefaultArtifactType}
+
+	rest := ref
+	if at := strings.Index(ref, "@"); at > 0 {
+		out.Name, rest = ref[:at], ref[at+1:]
+	} else {
+		out.Name, rest = ref, ""
+		if colon := strings.Index(ref, ":"); colon > 0 {
+			out.Name, rest = ref[:colon], ":"+ref[colon+1:]
+		}
+	}
+	if colon := strings.Index(rest, ":"); colon >= 0 {
+		if itemType := rest[colon+1:]; itemType != "" {
+			out.ItemType = itemType
+		}
+		rest = rest[:colon]
+	}
+	if out.Name == "" {
+		return artifactRequest{}, nserr.New(nserr.Usage,
+			"%q: expected <repo-class>[@<version>][:<type>]", ref)
+	}
+
+	switch {
+	case rest == "":
+		// A bare repo class: the newest published, which the zero Spec admits.
+	case versionspec.IsVersion(rest):
+		out.Version = rest
+	default:
+		spec, err := versionspec.Parse(rest)
+		if err != nil {
+			return artifactRequest{}, specError(out.Name, rest, err)
+		}
+		out.Spec = spec
+	}
+	return out, nil
 }
 
 // parseArtifactRef reads <repo-class>@<version>[:<type>], defaulting the type.

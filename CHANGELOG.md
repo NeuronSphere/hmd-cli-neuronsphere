@@ -2,6 +2,39 @@
 
 ## 2026-09-15
 
+- feat(nsctl): choose a published version from the command line
+
+  NERD011 SPEC005 and SPEC006, which completes the document.
+  `nsctl artifact versions <repo-class>` lists what a repo class has published,
+  newest first, and with `--spec` says what a BACON version specifier resolves
+  to today; `nsctl artifact pull` takes the version optionally, resolving the
+  newest published one -- or the newest satisfying a specifier written in its
+  place -- and printing which it chose, because a command that quietly picked
+  one has told you nothing you could check.
+
+  Those are the consumers, and NERD011 named a different one: `nsctl lock`
+  tier 3, resolving a manifest's ranges. That is the wrong home and the SPEC is
+  amended to say so. `lock` snapshots an environment that has been stood up by
+  hand, and a deployed instance already carries a concrete version -- so in the
+  workflow the command exists to serve there is no range left to resolve by the
+  time anybody runs it. Its existing refusal, naming `--pin` and `--from-env`,
+  is honest advice rather than a missing feature. A version is *chosen* one step
+  earlier, while adding repo classes, and one step later when bumping one, which
+  is exactly what these two verbs answer. NERD010 SPEC003 stays partial, with
+  tier 3 recorded as deliberately not built.
+
+  Three failures are kept apart because their fixes are different: a repo class
+  the librarian has never heard of, one present with no artifacts of the type
+  asked for, and one present whose published versions none satisfy -- the last
+  naming how many exist and which is newest. An ordered specifier is refused
+  before anything is queried.
+
+  `--offline` answers from the cache alone and says how old it is, refusing when
+  nothing has ever asked. That is what makes the recorded query time load
+  bearing: "this was the newest version when somebody last asked" is a different
+  claim from "this is the newest version", and it is never a fresh query in
+  disguise.
+
 - feat(nsctl): enumerate what a repo class has published
 
   NERD011 SPEC001 and SPEC004. `internal/librarian` grows a search surface and

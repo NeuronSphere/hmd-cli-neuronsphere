@@ -480,6 +480,30 @@ already exist.
     ``local.dependencies``") rather than with "this repository does not declare
     it", which would send the reader to correct a spelling that is already right.
 
+    **Tier 3 is not being built here, and this SPEC stays** ``partial``
+    **deliberately rather than pending.** ``NERD011`` built the mechanism
+    -- ``internal/versionspec`` and ``internal/versions`` -- and put its
+    consumers on the ``artifact`` verbs instead, for a reason about what ``lock``
+    is *for*.
+
+    ``lock`` snapshots an environment that has been stood up by hand: repo
+    classes added, dependencies wired, ``env apply`` run until it works. Tier 1
+    reads that environment's instances, and a deployed instance already carries a
+    concrete version -- so in the workflow this command exists to serve there is
+    no range left to resolve by the time anybody runs it. A lock born any other
+    way is a guess that a set of independently-newest versions works together,
+    where a running environment is proof; that is the same asymmetry
+    ``generated_from`` records, taken to its conclusion.
+
+    So the refusal above is the product, not a placeholder for one. A version is
+    *chosen* one step earlier -- while adding repo classes -- and one step later,
+    when bumping one, and ``nsctl artifact versions`` answers both without
+    writing anything. The sequence is: ask what is published, add the version you
+    chose, apply, and lock the result.
+
+    Should something later resolve a whole manifest's ranges at once, ``NERD011``
+    is the mechanism it uses and this SPEC is where the tier is written down.
+
 .. spec:: ``nsctl lock --check``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD010

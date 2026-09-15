@@ -105,6 +105,47 @@ func newFakeLibrarian(t *testing.T) *fakeLibrarian {
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(f.content[r.URL.Query().Get("path")])
 	})
+
+	// The enumeration legs, derived from the content this librarian holds --
+	// which is exactly where a real one derives them from too, since the version
+	// and the item type live in the content path. The path doubles as the
+	// content item's id, so the three requests chain without a second map.
+	mux.HandleFunc("/api/hmd_lang_artifact_librarian.repo", func(w http.ResponseWriter, r *http.Request) {
+		seen := map[string]bool{}
+		repos := []map[string]string{}
+		for path := range f.content {
+			spec, err := librarian.ParseContentPath(path)
+			if err != nil || seen[spec.Name] {
+				continue
+			}
+			seen[spec.Name] = true
+			repos = append(repos, map[string]string{"identifier": spec.Name, "repo_name": spec.Name})
+		}
+		_ = json.NewEncoder(w).Encode(repos)
+	})
+	mux.HandleFunc("/api/hmd_lang_artifact_librarian.content_item_has_repo/to/",
+		func(w http.ResponseWriter, r *http.Request) {
+			repo := strings.TrimPrefix(r.URL.Path,
+				"/api/hmd_lang_artifact_librarian.content_item_has_repo/to/")
+			edges := []map[string]string{}
+			for path := range f.content {
+				if spec, err := librarian.ParseContentPath(path); err == nil && spec.Name == repo {
+					edges = append(edges, map[string]string{"ref_from": path})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(edges)
+		})
+	mux.HandleFunc("/apiop/get_by_nid", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Nids []string `json:"nids"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		items := []map[string]string{}
+		for _, nid := range body.Nids {
+			items = append(items, map[string]string{"nid": nid, "content_item_path": nid})
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	})
 	return f
 }
 

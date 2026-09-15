@@ -5,7 +5,7 @@ NERD011 Librarian Version Resolution
 
 .. req:: Resolve a version specifier to a concrete published version
     :id: HMD_CLI_NEURONSPHERE_NERD011
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall be able to take a BACON ``version_spec`` and a repo class
     and answer with **the concrete published version that satisfies it**, using
@@ -337,7 +337,7 @@ appears to do.
 .. spec:: Where it lives, and who may call it
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD011
-    :status: proposed
+    :status: implemented
 
     Two Go packages, split on the axis that matters -- whether the code touches
     a network:
@@ -357,18 +357,40 @@ appears to do.
 
     Consumers, in the order they are expected:
 
-    #. ``NERD010`` SPEC003 tier 3 -- ``nsctl lock`` resolving a manifest's
-       ranges.
+    #. ``nsctl artifact versions <repo-class>`` -- reporting what is published
+       and what a specifier resolves to today, writing nothing but the cache.
+    #. ``nsctl artifact pull <repo-class>`` -- the same resolution, followed by
+       the fetch that command already did.
     #. ``NERD005`` SPEC006 -- caching ``pre_build_artifacts``, whose specs are
        the same grammar and may carry ranges.
-    #. Reporting: answering "what would this resolve to today" without writing
-       anything, which is ``nsctl lock --check``'s natural extension and is not
-       specified here.
+
+    **Implemented 2026-09-15**, and the consumer list above is an amendment. It
+    previously named ``NERD010`` SPEC003 tier 3 -- ``nsctl lock`` resolving a
+    manifest's ranges -- first, and that is the wrong home for this mechanism.
+
+    ``nsctl lock`` snapshots an environment that has been stood up. Its first
+    tier reads the instances ``ms-deployment`` is running, and those already
+    carry concrete versions, so nothing there has a range to resolve; a lock born
+    any other way is a guess that a set of independently-newest versions works
+    together, where a running environment is proof. Its existing per-entry
+    refusal -- pin it, or take a known-good environment -- is therefore honest
+    advice rather than a missing feature.
+
+    The place a version is actually **chosen** is one step earlier and one step
+    later: adding repo classes while standing an environment up for the first
+    time, and deciding what to move to when bumping one. Both are "ask a
+    librarian what is published", and both are already the ``artifact`` verbs'
+    business -- ``nsctl artifact pull`` is the one command documented as
+    reaching a cloud librarian on the user's behalf, so nothing new is promised
+    by putting this there.
+
+    ``NERD010`` SPEC003 accordingly stays ``partial``, with tier 3 recorded as
+    deliberately not built rather than outstanding.
 
 .. spec:: What this is not
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD011
-    :status: proposed
+    :status: implemented
 
     **Not a change to how the cloud resolves anything.**
     ``hmd-ms-deployment`` keeps validating candidates exactly as it does today.
@@ -384,6 +406,15 @@ appears to do.
     it does not reconcile conflicting requirements across a graph. If two repo
     classes need incompatible versions of a third, that is a conflict a lock
     should report, not silently resolve, and it is not addressed here.
+
+    That stands after implementation, and it is worth stating what it rules out.
+    Two declarations naming one repo class with *different* specifiers, each
+    admitting a different newest version, are to be **reported with both
+    specifiers and what each admits** -- never reconciled by intersecting them
+    and never settled by taking one. Intersecting is resolution across
+    requirements, which is the line this SPEC draws; and ``lock.Build``'s
+    existing refusal of a class pinned at two versions is the right answer rather
+    than a limitation, because a lock pins a class once.
 
     **Not a package index.** Wheels are ``NERD006``.
 
@@ -449,11 +480,20 @@ something does is how an interface acquires an unused parameter.
 **Should ``nsctl`` resolve against the local librarian when one is running?**
 It would be faster and would work offline, but it would answer with what this
 machine happens to hold rather than what is published -- which is the right
-answer for a cache probe and the wrong one for a lock. Probably two different
-verbs rather than one with a flag.
+answer for a cache probe and the wrong one for choosing a version.
+
+*Answered by implementation:* two verbs, as suspected. ``nsctl artifact
+versions`` and ``nsctl artifact pull`` read a **cloud** librarian and resolve;
+``nsctl artifact unpack`` reads the **local** one and requires an exact version,
+which is why ``parseArtifactRequest`` and ``parseArtifactRef`` are separate
+grammars rather than one with a flag. ``--offline`` answers from the version
+cache, which records what was published rather than what is held here.
 
 **What should a conflict look like?** SPEC006 declines to solve cross-graph
-conflicts, but ``nsctl lock`` will encounter them as soon as two declared
-entries need the same repo class. Reporting both specifiers and the versions
-each admits is the obvious minimum; whether the lock can then hold two versions
-of one class is a ``NERD010`` question.
+conflicts, and now records the answer: report both specifiers and what each
+admits, never intersect and never take one. Whether a lock may then hold two
+versions of one class is a ``NERD010`` question and the answer today is no.
+
+This is not yet reachable, because no consumer resolves more than one specifier
+at a time -- ``artifact versions`` and ``artifact pull`` each take one repo
+class. It becomes reachable the day something resolves a whole manifest.
