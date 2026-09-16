@@ -201,6 +201,13 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 		opts.warn("%v", err)
 	}
 
+	// The deployment graph keeps calling every instance DEPLOYED, and a
+	// re-created environment under this name would inherit that. See
+	// PurgedMarkerPath.
+	if err := MarkPurged(opts.Home, env.DeploymentID); err != nil {
+		opts.warn("could not record that %q was purged, so a later apply may skip instances the graph still calls deployed: %v", env.DeploymentID, err)
+	}
+
 	// The state directory carries the Postgres data, the graph data, the
 	// kubeconfig and the reconcile snapshots, so one removal covers all four.
 	if env.StateDir != "" {

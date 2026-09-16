@@ -193,6 +193,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// second, since the graph records that an instance is DEPLOYED but not
 	// what it was deployed *from*.
 	plan := reconcile.Degraded(entries)
+	purged := WasPurged(opts.Home, env.DeploymentID)
 	if opts.ForceRedeploy {
 		opts.step("Redeploying everything, as asked")
 	} else if status, err := client.InstanceStatus(ctx, env.DeploymentID); err != nil {
@@ -200,7 +201,26 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		// is known, so everything is deployed rather than silently skipped.
 		opts.warn("could not read the deployment graph, so nothing is assumed about what is deployed: %v", err)
 	} else {
-		plan = reconcile.Compute(entries, status, reconcile.LoadSnapshot(env.StateDir), opts.redeployInstances)
+		snapshot := reconcile.LoadSnapshot(env.StateDir)
+		if purged {
+			// The graph's DEPLOYED records outlived a purge and describe
+			// nothing that still exists, so an entry with no digest from a
+			// post-purge apply is a fresh deploy, not "no information". Keyed
+			// on the snapshot rather than forcing everything, so a retry after
+			// a partial failure redeploys only what has not come back. See
+			// PurgedMarkerPath.
+			stale := 0
+			for _, entry := range entries {
+				if _, recorded := snapshot[entry.RepoInstanceName]; !recorded {
+					opts.markForRedeploy(entry.RepoInstanceName)
+					stale++
+				}
+			}
+			if stale > 0 {
+				opts.step("%q was purged: %d instance(s) the deployment graph still calls deployed are redeployed", env.DeploymentID, stale)
+			}
+		}
+		plan = reconcile.Compute(entries, status, snapshot, opts.redeployInstances)
 		opts.step("Plan: %s", plan.Summary())
 		for _, name := range plan.Remove {
 			// Reported, never acted on. Removing a line from a manifest is not
@@ -337,6 +357,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(succeeded))
+	if purged {
+		if err := ClearPurged(opts.Home, env.DeploymentID); err != nil {
+			opts.warn("could not clear the purge marker for %q: %v", env.DeploymentID, err)
+		}
+	}
 	return nil
 }
 
