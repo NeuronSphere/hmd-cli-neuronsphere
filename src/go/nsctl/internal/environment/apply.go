@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
@@ -353,6 +354,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil); writeErr != nil {
 		opts.warn("%v", writeErr)
 	}
+	// The database and graph containers are spawned by Floci inside the DAG,
+	// and a Lambda deployed later in the same DAG addresses them by the alias
+	// `env start` attaches -- which it has not had a chance to. Attach them
+	// now, on failure as well as success: a node that failed for want of the
+	// alias succeeds on the retry only if the retry can resolve the name.
+	refreshSpawnedAliases(ctx, opts, reg, env, d, names)
 	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
@@ -609,4 +616,24 @@ func kubeconfigUnusable(path string) bool {
 		return true
 	}
 	return info.IsDir() || info.Size() == 0
+}
+
+// refreshSpawnedAliases attaches the environment's names to the database and
+// graph containers Floci may have spawned during this apply. Idempotent, and
+// each step only warns, so a container that is not there yet costs nothing.
+func refreshSpawnedAliases(ctx context.Context, opts *Options, reg *registry.Registry,
+	env *registry.Environment, d *container.Docker, names floci.Names) {
+
+	if dbContainer, err := floci.EnsureRDSRunning(ctx, d, env.AccountID, floci.EnvDBIdentifier(names),
+		env.DBContainer, reg.ControlPlane.Network, 2*time.Minute, 0); err != nil {
+		opts.warn("%v", err)
+	} else if dbContainer != "" {
+		opts.step("  %s is up and aliased as %s", dbContainer, env.DBContainer)
+	}
+	if graphContainer, err := floci.EnsureNeptuneRunning(ctx, d, env.AccountID, floci.GraphIdentifier(names),
+		env.GraphContainer, reg.ControlPlane.Network); err != nil {
+		opts.warn("%v", err)
+	} else if graphContainer != "" {
+		opts.step("  %s is up and aliased as %s", graphContainer, env.GraphContainer)
+	}
 }
