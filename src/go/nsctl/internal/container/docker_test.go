@@ -199,3 +199,56 @@ func TestRemoveVolumesTreatsAMissingVolumeAsDone(t *testing.T) {
 		t.Errorf("a missing volume must not be an error: %v", err)
 	}
 }
+
+// Adding an Ingress hostname to the proxy must keep the aliases it already
+// carries -- the identity provider's issuer among them -- because Docker only
+// takes aliases at connect time and the reconnect is the whole endpoint.
+func TestEnsureNetworkAliasesKeepsTheExistingOnes(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	log := filepath.Join(dir, "commands")
+	// `inspect` answers with two aliases already on the endpoint; everything
+	// else is recorded and succeeds.
+	script := "#!/bin/sh\n" +
+		"echo \"$*\" >> " + log + "\n" +
+		"if [ \"$1\" = inspect ]; then echo '[\"hmd_proxy\",\"auth.local.neuronsphere.io\"]'; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &Docker{Bin: bin}
+
+	reconnected, err := d.EnsureNetworkAliases(context.Background(), "hmd_proxy", "net",
+		[]string{"argo.local.neuronsphere.io", "auth.local.neuronsphere.io"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reconnected {
+		t.Fatal("a missing alias must reconnect")
+	}
+	commands, _ := os.ReadFile(log)
+	got := string(commands)
+	for _, want := range []string{
+		"network disconnect net hmd_proxy",
+		"--alias hmd_proxy", "--alias auth.local.neuronsphere.io", "--alias argo.local.neuronsphere.io",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("commands do not include %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "--alias auth.local.neuronsphere.io") != 1 {
+		t.Errorf("an alias present on both sides was passed twice:\n%s", got)
+	}
+
+	// Nothing missing: no reconnect, and the endpoint is left alone.
+	os.Remove(log)
+	reconnected, err = d.EnsureNetworkAliases(context.Background(), "hmd_proxy", "net",
+		[]string{"auth.local.neuronsphere.io"})
+	if err != nil || reconnected {
+		t.Fatalf("reconnected=%v err=%v, want an untouched endpoint", reconnected, err)
+	}
+	commands, _ = os.ReadFile(log)
+	if strings.Contains(string(commands), "disconnect") {
+		t.Error("an endpoint that already carries every alias was reconnected")
+	}
+}

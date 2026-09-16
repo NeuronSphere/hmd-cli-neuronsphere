@@ -298,6 +298,51 @@ func (d *Docker) EnsureNetworkAlias(ctx context.Context, name, alias, network st
 	return true, nil
 }
 
+// EnsureNetworkAliases attaches every alias in want to a container on a
+// network, keeping the aliases it already carries, and reports whether it had
+// to reconnect.
+//
+// EnsureNetworkAlias reconnects with the one alias it was given, which is
+// right for a database container that carries exactly one. The proxy carries
+// several -- the identity provider's issuer, and every Ingress hostname a
+// Floci Lambda reaches a UI or API by -- and adding one must not drop the
+// rest. Docker refuses to add an alias to an existing endpoint, so this
+// disconnects and reconnects with the union.
+func (d *Docker) EnsureNetworkAliases(ctx context.Context, name, network string, want []string) (bool, error) {
+	existing := d.NetworkAliases(ctx, name, network)
+	have := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		have[a] = true
+	}
+	missing := false
+	for _, a := range want {
+		if !have[a] {
+			missing = true
+			break
+		}
+	}
+	if !missing {
+		return false, nil
+	}
+	seen := make(map[string]bool, len(existing)+len(want))
+	args := []string{"network", "connect"}
+	for _, a := range append(append([]string{}, existing...), want...) {
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		args = append(args, "--alias", a)
+	}
+	args = append(args, network, name)
+	if _, err := d.capture(ctx, "network", "disconnect", network, name); err != nil {
+		return false, fmt.Errorf("disconnecting %s from %s: %w", name, network, err)
+	}
+	if _, err := d.capture(ctx, args...); err != nil {
+		return false, fmt.Errorf("reconnecting %s to %s with its aliases: %w", name, network, err)
+	}
+	return true, nil
+}
+
 // Restart restarts a container.
 func (d *Docker) Restart(ctx context.Context, name string) error {
 	if name == "" {

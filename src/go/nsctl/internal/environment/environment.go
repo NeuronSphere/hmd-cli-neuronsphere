@@ -470,8 +470,20 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 	// /etc/hosts has no wildcards, so the vhost's *.<slug> server_name cannot
 	// help until each name resolves. Unlike the neuronsphere alias, a missing
 	// UI hostname breaks nothing else, so this warns rather than refusing.
-	if missing := unresolvableHosts(ops.IngressHosts(ctx)); len(missing) > 0 {
+	hosts := ops.IngressHosts(ctx)
+	if missing := unresolvableHosts(hosts); len(missing) > 0 {
 		opts.warn("these UI hostnames do not resolve to loopback, so they are unreachable until /etc/hosts has them:\n\n    127.0.0.1 %s\n", strings.Join(missing, " "))
+	}
+	// A Floci Lambda has no /etc/hosts and no CoreDNS: it reaches an
+	// Ingress-served API -- ms-transform submitting to Argo -- only if the
+	// hostname is a Docker alias of the proxy, the way the identity provider's
+	// issuer already is.
+	if len(hosts) > 0 {
+		if reconnected, err := d.EnsureNetworkAliases(ctx, router.ProxyContainer, network, hosts); err != nil {
+			opts.warn("could not alias the UI hostnames on %s: %v", router.ProxyContainer, err)
+		} else if reconnected {
+			opts.step("  %s answers for %s on the Docker network", router.ProxyContainer, strings.Join(hosts, ", "))
+		}
 	}
 	return nil
 }
