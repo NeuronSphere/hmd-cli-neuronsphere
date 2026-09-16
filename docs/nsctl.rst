@@ -597,7 +597,25 @@ by hand:
 repository but are what make testing it meaningful -- a Transform runtime that
 calls its endpoints, a Librarian that Transform reads from. Its real
 dependencies stay in ``deploy.dependencies`` and are not repeated here;
-``local.dependencies`` only profile-gates the *optional* ones.
+``local.dependencies`` says how a role is filled *here*, in one of three ways:
+
+.. code-block:: json
+
+   "dependencies": {
+     "otel-collector": {"profiles": ["full", "telemetry"]},
+     "compute":        {"bind": "local-neuronsphere"},
+     "db-credentials": {"instance_configuration": {"db_name": "myapi"},
+                        "dependencies": {"database-instance": "environment-db"}}
+   }
+
+``profiles`` gates an *optional* role. ``bind`` fills a role with an instance
+the environment already provides -- the substrate's ``local-neuronsphere``, the
+``ext-secrets`` the control plane deploys -- when the cloud fills it with a
+class nothing local can stand in for; nothing is declared or pinned for it.
+``dependencies`` and ``instance_configuration`` are what the *declared*
+dependency instance itself needs -- a database account's ``database-instance``
+and ``db_name`` -- which ``deploy.dependencies`` has nowhere to say. The last
+two are allowed on a required role; ``profiles`` is not.
 
 Profiles are ``docker compose``'s: an entry with a ``profiles`` key starts only
 when one of them is activated, an entry without one always starts, and **lean

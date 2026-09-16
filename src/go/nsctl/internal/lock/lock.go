@@ -189,6 +189,10 @@ func (l *Lock) AllProfiles() []string {
 // each instead of one per run. A genuine conflict -- one class two wants pin
 // apart -- is the error, because a lock cannot pin a class twice and picking
 // either silently would be a version nobody chose.
+//
+// A bound want (localspec.Want.Bind) is skipped: the role is filled by an
+// instance the environment provides, nothing of that class is deployed for it,
+// and a pin nobody reads would only go stale.
 func Build(repoClass, generatedFrom string, wants []localspec.Want,
 	versionOf func(localspec.Want) string) (*Lock, []localspec.Want, error) {
 
@@ -207,6 +211,9 @@ func Build(repoClass, generatedFrom string, wants []localspec.Want,
 	var unresolved []localspec.Want
 
 	for _, w := range wants {
+		if w.Bind != "" {
+			continue
+		}
 		version := strings.TrimSpace(versionOf(w))
 		if version == "" {
 			unresolved = append(unresolved, w)
@@ -273,6 +280,9 @@ func Check(l *Lock, wants []localspec.Want) (missing, extra []string) {
 	}
 	declared := map[string]bool{}
 	for _, w := range wants {
+		if w.Bind != "" {
+			continue
+		}
 		declared[w.RepoClassName] = true
 		if !pinned[w.RepoClassName] {
 			missing = append(missing, w.RepoClassName)

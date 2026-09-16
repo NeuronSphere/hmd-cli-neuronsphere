@@ -313,3 +313,33 @@ func TestBuildIsDeterministic(t *testing.T) {
 		t.Errorf("entries = %v, want them sorted by class", classes)
 	}
 }
+
+// A bound want is filled by an instance the environment provides. Nothing of
+// its class is deployed for it, so the lock neither pins it nor reports it
+// unresolved -- a pin nobody reads would only go stale -- and Check does not
+// count it as declared.
+func TestBuildAndCheckSkipABoundWant(t *testing.T) {
+	t.Parallel()
+
+	compute := want("compute", "hmd-inf-eks-node-group", "~= 0.1", nil, []string{"compute"})
+	compute.Bind = "local-neuronsphere"
+	wants := []localspec.Want{
+		want("app-store", "hmd-inf-s3bucket", "0.1.13", nil, []string{"app-store"}),
+		compute,
+	}
+
+	l, unresolved, err := Build("hmd-ms-myapi", "pins", wants,
+		pinned(map[string]string{"hmd-inf-s3bucket": "0.1.13"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unresolved) != 0 {
+		t.Errorf("unresolved = %v, want the bound want skipped rather than reported", unresolved)
+	}
+	if _, pinnedIt := l.Entry("hmd-inf-eks-node-group"); pinnedIt {
+		t.Error("the lock pins hmd-inf-eks-node-group, which is bound and never deployed")
+	}
+	if missing, _ := Check(l, wants); len(missing) != 0 {
+		t.Errorf("Check reports %v missing, want a bound want not counted", missing)
+	}
+}

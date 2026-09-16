@@ -670,3 +670,91 @@ func TestEnvApplyFromRepoPullFetchesWhatIsMissing(t *testing.T) {
 		t.Error("--pull did not leave the artifact cached")
 	}
 }
+
+// A repository whose cloud manifest fills `compute` with hmd-inf-eks-node-group
+// and `ext-secrets` with hmd-inf-ext-secrets, neither of which any local
+// artifact could stand in for, and whose db-account needs wiring of its own.
+// The gate binds the first two to what the environment provides and wires the
+// third; the lock pins only what is deployed.
+const wiredManifest = `{
+  "name": "hmd-ms-myapi",
+  "deploy": {"dependencies": {
+    "compute":        {"repo_class_name": "hmd-inf-eks-node-group", "required": "true", "version_spec": "~= 0.1"},
+    "ext-secrets":    {"repo_class_name": "hmd-inf-ext-secrets",    "required": "true", "version_spec": "~= 0.1"},
+    "db-credentials": {"repo_class_name": "hmd-database-account",   "required": "true", "version_spec": "0.1.9"},
+    "app-store":      {"repo_class_name": "hmd-inf-s3bucket",       "required": "true", "version_spec": "0.1.13"}
+  }},
+  "local": {"version": 1, "dependencies": {
+    "compute":        {"bind": "local-neuronsphere"},
+    "ext-secrets":    {"bind": "ext-secrets"},
+    "db-credentials": {"instance_configuration": {"db_name": "myapi"},
+                       "dependencies": {"database-instance": "environment-db", "create-service": "local-neuronsphere"}}
+  }}
+}`
+
+func TestEnvAddFromRepoBindsAndWiresDependencies(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "meta-data", "manifest.json"), wiredManifest)
+	writeFile(t, filepath.Join(dir, "meta-data", "VERSION"), "0.4.2")
+	if _, _, err := run(t, fakeEnv(nil), "lock", dir); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	for _, cv := range [][2]string{{"hmd-database-account", "0.1.9"}, {"hmd-inf-s3bucket", "0.1.13"}} {
+		if _, err := artifact.Store(home, cv[0], cv[1], artifactZip(t, cv[0], cv[1], "cached")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, _, err := run(t, fakeEnv(env), "env", "add", "scratch", "--from-repo", dir, "--no-pull")
+	if err != nil {
+		t.Fatalf("env add --from-repo: %v", err)
+	}
+	m := loadEnv(t, home, "scratch")
+
+	// Neither bound class is declared -- the environment provides both -- and
+	// the output says so.
+	got := instanceNames(m)
+	if !reflect.DeepEqual(got, []string{"app-store", "db-credentials", "ms-myapi"}) {
+		t.Errorf("declared %v, want only the deployed dependencies and the subject", got)
+	}
+	if !strings.Contains(out, "bound: provided by the environment") {
+		t.Errorf("output does not say the bound roles are provided:\n%s", out)
+	}
+
+	// The subject binds every role, the bound ones to the gate's names.
+	deps := subjectDeps(t, m)
+	for role, want := range map[string]string{
+		"compute": "local-neuronsphere", "ext-secrets": "ext-secrets",
+		"db-credentials": "db-credentials", "app-store": "app-store",
+	} {
+		if deps[role] != want {
+			t.Errorf("subject binds %s to %q, want %q", role, deps[role], want)
+		}
+	}
+	if m.Bindings["compute"] != "local-neuronsphere" {
+		t.Errorf("bindings = %v, want the bound role recorded so a re-apply resolves the same way", m.Bindings)
+	}
+
+	// The wired dependency instance carries what the gate said it needs.
+	for _, r := range m.Repos {
+		if r.InstanceName != "db-credentials" {
+			continue
+		}
+		if got := r.Dependencies["database-instance"]; got != "environment-db" {
+			t.Errorf("db-credentials dependencies = %v, want the gate's wiring", r.Dependencies)
+		}
+		if got := r.InstanceConfiguration["db_name"]; got != "myapi" {
+			t.Errorf("db-credentials instance_configuration = %v, want the gate's", r.InstanceConfiguration)
+		}
+	}
+
+	// A bound role cannot be renamed: nsctl does not own that instance.
+	_, _, err = run(t, fakeEnv(env), "env", "apply", "scratch", "--from-repo", dir,
+		"--name", "compute=other")
+	if err == nil || !strings.Contains(err.Error(), "cannot be renamed") {
+		t.Errorf("--name on a bound role: err = %v, want a refusal", err)
+	}
+}

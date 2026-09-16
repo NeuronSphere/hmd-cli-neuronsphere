@@ -339,3 +339,31 @@ func TestLockCheckDoesNotSuggestGeneratingOverAnUnreadableLock(t *testing.T) {
 		t.Errorf("a repository with no lock is not told to generate one: %v", err)
 	}
 }
+
+// A class whose role is bound to what the environment provides is never
+// deployed, so a version for it is a version of nothing.
+func TestLockPinOnABoundRole(t *testing.T) {
+	t.Parallel()
+
+	repo := lockRepo(t, `{
+  "name": "hmd-ms-myapi",
+  "deploy": {"dependencies": {
+    "compute":   {"repo_class_name": "hmd-inf-eks-node-group", "required": "true", "version_spec": "~= 0.1"},
+    "app-store": {"repo_class_name": "hmd-inf-s3bucket",       "required": "true", "version_spec": "0.1.13"}
+  }},
+  "local": {"version": 1, "dependencies": {"compute": {"bind": "local-neuronsphere"}}}
+}`)
+	_, _, err := run(t, fakeEnv(nil), "lock", repo, "--pin", "hmd-inf-eks-node-group@0.1.4")
+	if err == nil {
+		t.Fatal("succeeded, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "bound to") {
+		t.Errorf("error %q does not say the role is bound", err)
+	}
+
+	// Without the pin the range on the bound class is no obstacle: it is
+	// skipped, and the exact specifier settles the rest.
+	if _, _, err := run(t, fakeEnv(nil), "lock", repo); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+}

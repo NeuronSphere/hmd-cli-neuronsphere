@@ -85,10 +85,33 @@ type Repo struct {
 	InstanceConfiguration map[string]any
 }
 
-// Gate profile-gates an *optional* dependency. A required one is a manifest
-// error; see Load.
+// Gate is one entry of local.dependencies: what the `local` section adds to a
+// dependency role beyond what deploy.dependencies already says.
+//
+// Profiles gate an *optional* dependency; gating a required one is a manifest
+// error, see Load. The other three fields say how the role is filled locally,
+// and apply to required and optional roles alike, because BACON has nowhere to
+// say either of these things:
+//
+//   - Bind names an instance the environment already provides -- the substrate's
+//     local-neuronsphere, or the ext-secrets the control plane deploys -- so the
+//     role is bound to it and nothing is declared or pinned for it. A cloud
+//     manifest names hmd-inf-eks-node-group for its compute; locally the k3s node
+//     *is* local-neuronsphere, and no artifact of that class could stand in.
+//   - Dependencies and InstanceConfiguration are what the declared dependency
+//     instance itself needs. deploy.dependencies describes an edge, not the node
+//     at its far end: hmd-database-account cannot deploy without a
+//     database-instance and a db_name, and nothing but the repository that wants
+//     it locally knows which those should be. Companions carry the same two
+//     fields for the same reason.
+//
+// A bound role declares nothing, so Bind with either of the other two is
+// refused rather than one of them silently losing.
 type Gate struct {
-	Profiles []string
+	Profiles              []string
+	Bind                  string
+	Dependencies          map[string]any
+	InstanceConfiguration map[string]any
 }
 
 // Local is the `local` section.
@@ -137,8 +160,12 @@ type Want struct {
 	// Satisfies is the dependency roles this entry fills, and is empty for a
 	// companion. That is what lets a reader tell a real graph edge from a test
 	// fixture, and it is a list because one class can fill several roles.
-	Satisfies             []string
-	Required              bool
+	Satisfies []string
+	Required  bool
+	// Bind is the instance the environment already provides for this role, from
+	// the gate's `bind`. A bound want is neither declared nor pinned: the role
+	// is bound to that name and the lock has nothing to say about it.
+	Bind                  string
 	Dependencies          map[string]any
 	InstanceConfiguration map[string]any
 }
@@ -186,7 +213,10 @@ func Parse(data []byte) (*Manifest, error) {
 				InstanceConfiguration map[string]any `json:"instance_configuration"`
 			} `json:"repos"`
 			Dependencies map[string]struct {
-				Profiles []string `json:"profiles"`
+				Profiles              []string       `json:"profiles"`
+				Bind                  string         `json:"bind"`
+				Dependencies          map[string]any `json:"dependencies"`
+				InstanceConfiguration map[string]any `json:"instance_configuration"`
 			} `json:"dependencies"`
 		} `json:"local"`
 	}
@@ -278,15 +308,18 @@ func Parse(data []byte) (*Manifest, error) {
 		sort.Strings(gated)
 		for _, role := range gated {
 			dep, known := find(m.Dependencies, role)
+			g := l.Dependencies[role]
+			g.Bind = strings.TrimSpace(g.Bind)
 			switch {
 			case !known && isRole[role]:
 				// The block existed but failed its own validation above; the
 				// problem is already reported and repeating it helps nobody.
+				continue
 			case !known:
 				problems = append(problems, fmt.Sprintf(
 					"local.dependencies.%s: no dependency named %q is declared under deploy.dependencies", role, role))
 				continue
-			case dep.Required:
+			case dep.Required && len(g.Profiles) > 0:
 				// ms-deployment fails the whole ChangeSet on an unmet required
 				// role, and a SKIPPED status does not mock one -- so gating this
 				// would produce a failure three layers from its cause.
@@ -295,8 +328,26 @@ func Parse(data []byte) (*Manifest, error) {
 						" profile-gated -- ms-deployment fails the whole ChangeSet on an unmet"+
 						" required role", role, role))
 				continue
+			case g.Bind != "" && (len(g.Dependencies) > 0 || len(g.InstanceConfiguration) > 0):
+				// Nothing is declared for a bound role, so there is nothing for
+				// either of these to configure; one of them would silently lose.
+				problems = append(problems, fmt.Sprintf(
+					"local.dependencies.%s: 'bind' names an instance the environment already provides,"+
+						" so nothing is declared for it -- drop 'dependencies' and 'instance_configuration',"+
+						" or drop 'bind'", role))
+				continue
+			case dep.Required && g.Bind == "" && len(g.Dependencies) == 0 && len(g.InstanceConfiguration) == 0:
+				problems = append(problems, fmt.Sprintf(
+					"local.dependencies.%s: %q is required, so the entry must say something --"+
+						" 'bind', 'dependencies' or 'instance_configuration'", role, role))
+				continue
 			}
-			m.Local.Dependencies[role] = Gate{Profiles: l.Dependencies[role].Profiles}
+			m.Local.Dependencies[role] = Gate{
+				Profiles:              g.Profiles,
+				Bind:                  g.Bind,
+				Dependencies:          g.Dependencies,
+				InstanceConfiguration: g.InstanceConfiguration,
+			}
 		}
 	}
 
@@ -325,6 +376,10 @@ func Parse(data []byte) (*Manifest, error) {
 // behaviour, which is to stay undeclared. Nothing in a manifest distinguishes
 // "optional in the cloud" from "optional for this process to boot", so the safe
 // default is that nsctl changes nothing it was not told to change.
+//
+// Whatever else the gate says -- a binding, or the dependency instance's own
+// dependencies and configuration -- rides on the want, so whoever declares it
+// declares it whole.
 func (m *Manifest) Activate(profiles []string) []Want {
 	active := map[string]bool{}
 	for _, p := range profiles {
@@ -363,6 +418,9 @@ func (m *Manifest) Activate(profiles []string) []Want {
 		}
 		if gated {
 			w.Profiles = gate.Profiles
+			w.Bind = gate.Bind
+			w.Dependencies = gate.Dependencies
+			w.InstanceConfiguration = gate.InstanceConfiguration
 		}
 		wants = append(wants, w)
 	}

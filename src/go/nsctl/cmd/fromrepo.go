@@ -113,6 +113,23 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	roles := map[string]string{}
 
 	for _, w := range spec.Activate(profiles) {
+		if w.Bind != "" {
+			// The role is filled by something the environment already provides,
+			// so there is nothing to declare, nothing to pin, and nothing to
+			// name: a --name for it would rename an instance nsctl does not own.
+			if hasOverride(w.Key, overrides) {
+				return nil, nserr.New(nserr.Usage,
+					"--name %s=%s: %s declares %s bound to %q, which the environment provides;"+
+						" a bound role cannot be renamed", w.Key, overrides[w.Key], spec.Path, w.Key, w.Bind)
+			}
+			plan.Bindings[w.Key] = w.Bind
+			for _, role := range w.Satisfies {
+				roles[role] = w.Bind
+			}
+			plan.Instances = append(plan.Instances, plannedInstance{Want: w, Substrate: true,
+				Repo: manifest.Repo{InstanceName: w.Bind, RepoClassName: w.RepoClassName}})
+			continue
+		}
 		entry, pinned := l.Entry(w.RepoClassName)
 		if !pinned {
 			return nil, nserr.New(nserr.Usage,
@@ -448,6 +465,9 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 		"working tree "+p.Subject.Source.Path)
 	for _, in := range p.Instances {
 		switch {
+		case in.Want.Bind != "":
+			fmt.Fprintf(out, "  %-28s %-34s bound: provided by the environment\n",
+				in.Repo.InstanceName, in.Repo.RepoClassName)
 		case in.Substrate:
 			fmt.Fprintf(out, "  %-28s %-34s provided by the substrate\n",
 				in.Repo.InstanceName, in.Repo.RepoClassName)

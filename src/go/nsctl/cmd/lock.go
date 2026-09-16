@@ -119,7 +119,12 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 
 	wants := m.Wants()
 	wanted := map[string]bool{}
+	bound := map[string]string{}
 	for _, w := range wants {
+		if w.Bind != "" {
+			bound[w.RepoClassName] = w.Bind
+			continue
+		}
 		wanted[w.RepoClassName] = true
 	}
 	// Every class the manifest names at all, which is a larger set: an optional
@@ -134,7 +139,7 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 		declared[r.RepoClassName] = true
 	}
 
-	pinned, err := parsePins(pins, wanted, declared)
+	pinned, err := parsePins(pins, wanted, bound, declared)
 	if err != nil {
 		return err
 	}
@@ -218,12 +223,15 @@ func unresolvedError(unresolved []localspec.Want) error {
 // parsePins reads the --pin flag, refusing a class nothing wants locally rather
 // than writing an entry nothing will ever read.
 //
-// The two ways that happens have different fixes, so they are reported apart. A
-// class the manifest never names is a typo. A class it names only as an optional
-// dependency the `local` section does not gate is a deliberate state -- an
-// ungated optional dependency keeps today's behaviour, which is to stay
-// undeclared -- and the fix is to gate it, not to correct the spelling.
-func parsePins(pins []string, wanted, declared map[string]bool) (map[string]string, error) {
+// The three ways that happens have different fixes, so they are reported apart.
+// A class the manifest never names is a typo. A class it names only as an
+// optional dependency the `local` section does not gate is a deliberate state --
+// an ungated optional dependency keeps today's behaviour, which is to stay
+// undeclared -- and the fix is to gate it, not to correct the spelling. A class
+// whose role is bound to what the environment provides is never deployed, so a
+// version for it is a version of nothing.
+func parsePins(pins []string, wanted map[string]bool, bound map[string]string,
+	declared map[string]bool) (map[string]string, error) {
 	out := map[string]string{}
 	for _, pin := range pins {
 		class, version := splitVersion(pin)
@@ -233,6 +241,10 @@ func parsePins(pins []string, wanted, declared map[string]bool) (map[string]stri
 		}
 		switch {
 		case wanted[class]:
+		case bound[class] != "":
+			return nil, nserr.New(nserr.Usage,
+				"--pin %q: %s is bound to %q, which the environment provides, so nothing of that"+
+					" class is deployed and there is no version to pin", pin, class, bound[class])
 		case declared[class]:
 			return nil, nserr.New(nserr.Usage,
 				"--pin %q: %s is declared, but nothing wants it locally, so pinning it would write"+

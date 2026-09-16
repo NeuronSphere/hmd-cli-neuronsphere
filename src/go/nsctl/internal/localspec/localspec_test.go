@@ -356,3 +356,120 @@ func TestLoadNamesTheFileItCouldNotRead(t *testing.T) {
 		t.Errorf("error %q does not name the file it looked for", err)
 	}
 }
+
+// A required role a cloud manifest fills with a class nothing local can stand in
+// for -- hmd-inf-eks-node-group for compute -- is bound to what the environment
+// provides; one whose instance needs its own wiring -- hmd-database-account --
+// carries that wiring on the want. Both are required, and neither is gated.
+const wiredFixture = `{
+  "name": "hmd-ms-myapi",
+  "deploy": {"dependencies": {
+    "compute":        {"repo_class_name": "hmd-inf-eks-node-group", "required": "true",  "version_spec": "~= 0.1"},
+    "db-credentials": {"repo_class_name": "hmd-database-account",   "required": "true",  "version_spec": "0.1.9"},
+    "otel-collector": {"repo_class_name": "hmd-inf-otel-collector", "required": "false", "version_spec": "0.1.7"}
+  }},
+  "local": {"version": 1, "dependencies": {
+    "compute":        {"bind": "local-neuronsphere"},
+    "db-credentials": {"instance_configuration": {"db_name": "myapi"},
+                       "dependencies": {"database-instance": "environment-db"}},
+    "otel-collector": {"profiles": ["telemetry"], "bind": "local-neuronsphere"}
+  }}
+}`
+
+func TestAGateCanBindOrWireARequiredRole(t *testing.T) {
+	t.Parallel()
+
+	m, err := Load(writeManifest(t, wiredFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[string]Want{}
+	for _, w := range m.Activate([]string{"telemetry"}) {
+		byKey[w.Key] = w
+	}
+
+	compute, ok := byKey["compute"]
+	if !ok {
+		t.Fatal("compute was not activated: a required role always is")
+	}
+	if compute.Bind != "local-neuronsphere" || len(compute.Profiles) != 0 {
+		t.Errorf("compute = %+v, want bound to local-neuronsphere and ungated", compute)
+	}
+
+	db := byKey["db-credentials"]
+	if db.Bind != "" {
+		t.Errorf("db-credentials is bound to %q, want declared", db.Bind)
+	}
+	if got := db.Dependencies["database-instance"]; got != "environment-db" {
+		t.Errorf("db-credentials dependencies = %v, want the gate's wiring", db.Dependencies)
+	}
+	if got := db.InstanceConfiguration["db_name"]; got != "myapi" {
+		t.Errorf("db-credentials instance_configuration = %v, want the gate's", db.InstanceConfiguration)
+	}
+
+	// An optional role may be both gated and bound: it activates under its
+	// profiles and, when it does, is bound rather than deployed.
+	otel := byKey["otel-collector"]
+	if otel.Bind != "local-neuronsphere" || !reflect.DeepEqual(otel.Profiles, []string{"telemetry"}) {
+		t.Errorf("otel-collector = %+v, want gated on telemetry and bound", otel)
+	}
+	if _, on := lookup(m.Activate(nil), "otel-collector"); on {
+		t.Error("otel-collector activated with no profile, want the gate respected")
+	}
+}
+
+func lookup(wants []Want, key string) (Want, bool) {
+	for _, w := range wants {
+		if w.Key == key {
+			return w, true
+		}
+	}
+	return Want{}, false
+}
+
+func TestGateRefusals(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name, body, want string
+	}{
+		{
+			// Nothing is declared for a bound role, so there is nothing for
+			// these to configure and one of them would silently lose.
+			name: "bind with wiring",
+			body: `{"name":"x","deploy":{"dependencies":{
+				"compute":{"repo_class_name":"hmd-inf-eks-node-group","required":"true","version_spec":"0.1.0"}}},
+				"local":{"version":1,"dependencies":{"compute":{"bind":"local-neuronsphere","instance_configuration":{"a":1}}}}}`,
+			want: "drop 'dependencies' and 'instance_configuration'",
+		},
+		{
+			// A required role always activates, so an entry for one that gates
+			// nothing and wires nothing is a no-op the author did not intend.
+			name: "an empty entry on a required role",
+			body: `{"name":"x","deploy":{"dependencies":{
+				"compute":{"repo_class_name":"hmd-inf-eks-node-group","required":"true","version_spec":"0.1.0"}}},
+				"local":{"version":1,"dependencies":{"compute":{}}}}`,
+			want: "must say something",
+		},
+		{
+			// Still refused: profiles on a required role, whatever else is set.
+			name: "profiles beside a bind on a required role",
+			body: `{"name":"x","deploy":{"dependencies":{
+				"compute":{"repo_class_name":"hmd-inf-eks-node-group","required":"true","version_spec":"0.1.0"}}},
+				"local":{"version":1,"dependencies":{"compute":{"bind":"local-neuronsphere","profiles":["full"]}}}}`,
+			want: "cannot be profile-gated",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Load(writeManifest(t, tt.body))
+			if err == nil {
+				t.Fatal("succeeded, want a refusal")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q does not mention %q", err, tt.want)
+			}
+		})
+	}
+}

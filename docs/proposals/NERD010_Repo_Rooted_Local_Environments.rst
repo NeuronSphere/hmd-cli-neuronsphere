@@ -308,6 +308,53 @@ already exist.
     order; and ``local.dependencies`` naming a role no ``deploy.dependencies``
     entry declares is refused as the typo it is, rather than gating nothing.
 
+    **Amended 2026-09-16: a gate may bind a role, or wire the instance that
+    fills it.** The first repository to adopt this section was an application
+    rather than a microservice -- ``ev-app-annotation-review``, a Django app
+    deployed by Helm -- and its cloud manifest showed two things a profile gate
+    cannot say:
+
+    - A **required role filled by a class nothing local can stand in for.**
+      Its ``compute`` is ``hmd-inf-eks-node-group`` and its ``ext-secrets`` is
+      ``hmd-inf-ext-secrets``; locally the k3s node *is* ``local-neuronsphere``
+      and the control plane already deploys ``ext-secrets``. Declaring an
+      artifact of either class would deploy a second thing or fail, and
+      ``--name compute=local-neuronsphere`` is refused as a substrate name.
+    - A **dependency instance that needs wiring of its own.**
+      ``deploy.dependencies`` describes an edge, not the node at its far end:
+      ``hmd-database-account`` cannot deploy without a ``database-instance``
+      and a ``db_name``, and ``hmd-inf-redis`` without a storage class k3s
+      has. Only the repository that wants them locally knows which. Companions
+      under ``local.repos`` already carry ``dependencies`` and
+      ``instance_configuration`` for exactly this reason; dependency wants did
+      not, and ``--from-repo`` re-declared them bare on every apply.
+
+    A ``local.dependencies`` entry may therefore also carry ``bind``, or
+    ``dependencies`` and ``instance_configuration``, and may do so on a
+    **required** role -- what stays refused is ``profiles`` on one:
+
+    .. code-block:: json
+
+        "local": {"version": 1, "dependencies": {
+          "compute":        {"bind": "local-neuronsphere"},
+          "ext-secrets":    {"bind": "ext-secrets"},
+          "db-credentials": {"instance_configuration": {"db_name": "annreview"},
+                             "dependencies": {"database-instance": "environment-db",
+                                              "create-service": "local-neuronsphere"}}
+        }}
+
+    A **bound** role is bound to that instance by the repository and by nothing
+    else: nothing is declared for it, the lock does not pin its class (SPEC002;
+    a pin nobody reads would only go stale, and ``--pin`` on it is refused
+    saying so), ``--name`` cannot rename it, and the plan reports it as
+    ``bound: provided by the environment``. ``bind`` beside ``dependencies`` or
+    ``instance_configuration`` is refused, because nothing is declared for one
+    of them to configure. A **wired** role's ``dependencies`` and
+    ``instance_configuration`` ride on the want and are written onto the
+    declared instance by every ``--from-repo`` run, so the manifest stays the
+    only place they are said. An entry on a required role that says none of
+    these is refused as the no-op it is.
+
 .. spec:: ``neuronsphere.lock``
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD010
