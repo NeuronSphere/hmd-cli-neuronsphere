@@ -89,7 +89,7 @@ func Purge(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
 	}
-	if err := purgeEnvironment(ctx, opts, env); err != nil {
+	if err := purgeEnvironment(ctx, opts, reg, env); err != nil {
 		return err
 	}
 	if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
@@ -104,7 +104,7 @@ func Purge(ctx context.Context, opts *Options, name string) error {
 
 // purgeEnvironment destroys one environment's resources but leaves the registry
 // alone, so PurgeAll can remove the whole file in one go afterwards.
-func purgeEnvironment(ctx context.Context, opts *Options, env *registry.Environment) error {
+func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry, env *registry.Environment) error {
 	// A legacy-layout environment *is* the control plane's Floci, Postgres and
 	// graph -- its database container is the shared hmd_db. Purging it with the
 	// rules below would take the control plane's state with it, and the Python
@@ -184,7 +184,12 @@ func purgeEnvironment(ctx context.Context, opts *Options, env *registry.Environm
 	// and an endpoint on the platform network, so the volume sweep and the
 	// network removal both failed behind it. Swept by account rather than
 	// enumerated by service, so a service Floci adds later needs no change here.
-	for _, name := range d.ContainersWithLabel(ctx, container.LabelFlociAccount, env.AccountID) {
+	//
+	// Scoped to this platform's network, for the reason the control-plane
+	// sweep below gives: every HMD_HOME allocates account 000000000001 to its
+	// first environment, so the account label alone matched another
+	// platform's stopped k3s and database containers and removed them.
+	for _, name := range d.ContainersWithLabelOnNetwork(ctx, container.LabelFlociAccount, env.AccountID, reg.ControlPlane.Network) {
 		removeContainers(ctx, opts, d, "Floci-spawned", name)
 	}
 
@@ -266,7 +271,7 @@ func PurgeAll(ctx context.Context, opts *Options, cp ControlPlaneTeardown) error
 			opts.warn("%v", err)
 			continue
 		}
-		if err := purgeEnvironment(ctx, opts, env); err != nil {
+		if err := purgeEnvironment(ctx, opts, reg, env); err != nil {
 			// A legacy environment refuses; that must not stop the rest.
 			opts.warn("%v", err)
 		}

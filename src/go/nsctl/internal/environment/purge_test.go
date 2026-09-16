@@ -297,8 +297,13 @@ func TestAnEnvironmentPurgeSweepsFlociContainersItDoesNotNameByService(t *testin
 	withFakes(t, rec, &fakeDocker{
 		rec:   rec,
 		floci: map[string]string{},
+		// Keyed by network: the sweep asks only about this platform's. The
+		// same account label on another platform's network -- every HMD_HOME
+		// numbers its first environment 000000000001 -- must be left alone.
 		labelled: map[string][]string{
-			container.LabelFlociAccount + "=" + env.AccountID: {"floci-ecr-registry"},
+			container.LabelFlociAccount + "=" + env.AccountID + "@neuronsphere_default-abc12345": {"floci-ecr-registry"},
+			container.LabelFlociAccount + "=" + env.AccountID + "@neuronsphere_default-other01":  {"floci-eks-000000000001.ns-local-other01"},
+			container.LabelFlociAccount + "=" + env.AccountID:                                    {"floci-ecr-registry", "floci-eks-000000000001.ns-local-other01"},
 		},
 	})
 
@@ -308,6 +313,9 @@ func TestAnEnvironmentPurgeSweepsFlociContainersItDoesNotNameByService(t *testin
 	}
 	if rec.index("rm container floci-ecr-registry") < 0 {
 		t.Errorf("the ECR registry survived the purge; calls were %v", rec.calls)
+	}
+	if rec.index("rm container floci-eks-000000000001.ns-local-other01") >= 0 {
+		t.Errorf("another platform's container, sharing only the account label, was removed; calls were %v", rec.calls)
 	}
 }
 
