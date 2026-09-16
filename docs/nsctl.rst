@@ -230,6 +230,7 @@ Commands
        `Cloud environments`_.
    * - ``nsctl bom import <env>``
      - Copy part of a cloud environment's BOM down and declare it here.
+       ``--apply`` deploys it in the same breath.
    * - ``nsctl lock``
      - Pin what a repository needs locally into a checked-in
        ``neuronsphere.lock``. ``--check`` validates it and writes nothing.
@@ -710,14 +711,84 @@ accepts the same flags, so it is a preview of the ``import`` that follows it:
     Declared 3 instances in ~/hmd/environments/local.yaml
     Run `nsctl env apply local` to deploy it.
 
-**The selection is closed under its dependencies.** ``hmd-ms-deployment`` fails
-a whole ChangeSet on a required role nothing fills, so importing one instance
-without what fills its roles would routinely produce a manifest that cannot
-deploy. Roles filled by the environment substrate -- ``eks-cluster``,
-``environment-db``, ``base-vpc`` -- are bound rather than imported; a target the
-BOM does not contain is named and its role is left undeclared. ``--no-deps``
-takes the selection literally instead, and ``--exclude`` refuses to remove
-something the closure needs.
+**The selection is closed under the roles the repo classes mark required.**
+``hmd-ms-deployment`` fails a whole ChangeSet on a required role nothing fills,
+so importing one instance without what fills those roles would produce a
+manifest that cannot deploy. An **optional** role is not followed, and not
+following one prunes whatever it reached in turn -- which is most of the
+difference between an import you can deploy and one you cannot. Roles filled by
+the environment substrate -- ``eks-cluster``, ``environment-db``, ``base-vpc``
+-- are bound rather than imported, under this environment's name for them.
+
+Whether a role is required is read from the repo class's own manifest, at the
+version the BOM names, and that manifest arrives with the artifact. ``import``
+fetches as it goes, so it knows; ``show`` reads only what is already unpacked
+here unless you pass ``--resolve``, and says how many classes it therefore
+could not read:
+
+.. code-block:: console
+
+    $ nsctl bom show dev --instance ms-transform --resolve
+    dev is running 63 instances; this selects 14 of them.
+    ...
+    note: 19 optional roles not followed, so they were not imported (pass --with <role> to add one):
+      ms-transform:otel              hmd-inf-otel-collector -> otel-main
+      ms-transform:authorizer        hmd-inf-opa-authorizer -> opa
+
+``--with <role>`` follows one anyway, by role name or repo class, and what it
+reaches is then closed over by the ordinary rule. A ``--with`` that matches
+nothing is refused, listing the optional roles there are.
+
+**A required role nothing here fills** is bound to the core instance when only
+its presence is validated, which is what ``hmd-ms-deployment`` checks for a role
+that names a producer rather than a resource type. It is reported, loudly,
+because the core instance does not deploy whatever was stubbed:
+
+.. code-block:: text
+
+    warning: 2 required roles bound to local-neuronsphere because nothing here fills them.
+             Only the role's presence is validated, so the deploy will proceed -- but the
+             instance below is NOT deployed, and anything that needs it at runtime will not find it.
+             Pass --no-stub-roles to refuse instead.
+      api-gateway:acm                wanted acm-main (hmd-inf-acm)
+
+A role that asks for a **resource type** cannot be stubbed -- the producer is
+validated against what it really produces -- so it is named as an error
+instead. ``--no-stub-roles`` refuses in both cases.
+
+``--exclude`` follows the same rule. Excluding an optional closure member is
+ordinary; excluding one that fills a required *name-only* role is allowed, and
+that role is bound as above; excluding one that fills a required resource-typed
+role is refused, naming the type. This is how a cloud-only class that a required
+role reaches -- an ACM certificate, a WAF, a private CA -- is left out on
+purpose. ``--no-deps`` takes the selection literally instead.
+
+**Narrowing a large closure by hand.** Sixty entries is small enough to read and
+too large to narrow by typing flags, so write it out, edit it, and pass it back:
+
+.. code-block:: console
+
+    $ nsctl bom show dev --instance ms-transform --resolve --save-selection sel.toml
+    Wrote sel.toml. Edit it, then: nsctl bom import dev --selection sel.toml
+
+    $ head -12 sel.toml
+    # nsctl bom selection, from the dev environment.
+    # Flip `take` and pass this back with `nsctl bom import dev --selection <file>`.
+
+    [[instance]]
+    take       = true
+    name       = "ms-transform"
+    repo_class = "hmd-ms-transform"
+    version    = "0.5.201"
+    why        = "asked for"
+
+    $ nsctl bom import dev --selection sel.toml
+
+A ``take = true`` is taken as an explicit instance and a ``take = false`` as an
+exclusion, so the ordinary rules apply to an edited file -- including the
+refusal above. The file is parsed strictly: a misspelt key is an error naming
+its line rather than a setting quietly ignored. It cannot be combined with
+``--instance``, ``--class``, ``--all`` or ``--exclude``.
 
 Each instance is declared at the cloud's version as ``source: {type: artifact}``
 -- never from a checkout, because a version that came from a cloud librarian
@@ -728,8 +799,21 @@ instance is not declared. ``--dry-run`` writes and fetches nothing,
 ``--no-pull`` declares and prints the ``nsctl artifact pull`` lines instead.
 
 Declaring is not deploying: ``nsctl env apply`` is still what deploys the
-result. And nothing here writes to a cloud service -- a BOM is an input to a
-local manifest, never an output to a cloud deploy. See ``NERD012``.
+result. ``--apply`` runs it for you, once the selection is declared, so the
+whole round-trip from a cloud BOM to a running local instance is one line:
+
+.. code-block:: console
+
+    $ nsctl bom import dev --instance ms-transform --env scratch --apply -V
+
+It is the same apply ``nsctl env apply scratch`` would run and nothing more. It
+is refused with ``--dry-run`` and ``--no-pull``, and an import that could not
+fetch every artifact is declared but not applied -- the command exits non-zero
+naming what is missing, as it always has, and leaves the apply to you.
+
+Nothing here writes to a cloud service -- a BOM is an input to a local
+manifest, never an output to a cloud deploy. See ``NERD012`` for reading a
+cloud BOM and ``NERD013`` for which of its roles are followed.
 
 The local identity provider
 ---------------------------

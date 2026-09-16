@@ -1,5 +1,118 @@
 # Changelog
 
+## 2026-09-16
+
+- docs: close NERD013 on a live acceptance run against hmdtr1's dev
+
+  Measured against the cloud BOM and applied to a fresh local environment.
+  The closure of `ms-transform` is 24 instances of 109, against NERD012's 66;
+  `private-ca` is never reached and `karpenter` is named as not followed. Two
+  applies, both with the ChangeSet accepted -- the unmet-role failure the
+  document exists to remove did not occur -- and on the second, three
+  cloud-sourced workloads deployed at their cloud versions. Each attempt then
+  stopped on a cloud-only class a required name-only role reaches (`core-acm`:
+  no Route 53 zone; `base-datadog`: no `datadog-url` SSM parameter), which is
+  the residue the document now records by name instead of predicting.
+
+- feat(nsctl): `bom import --apply` deploys what it declared
+
+  The round-trip from a cloud BOM to a running local instance was two
+  commands, `bom import` then `env apply`. `--apply` runs the second from the
+  first -- the same `environment.Apply` that `nsctl env apply` calls, against
+  the same environment -- so NERD013's fourth acceptance criterion is one
+  line. Refused with `--dry-run` and `--no-pull`; a partial import (an artifact
+  that could not be fetched) is declared and deliberately not applied, keeping
+  NERD012 SPEC006's non-zero exit and naming the apply to run by hand.
+
+- fix(nsctl): report an unfollowed optional role whose target is here anyway as kept
+
+  Found on the NERD013 acceptance run. Five of ms-transform's 22 optional roles
+  point at instances the closure reached through someone else's required role
+  or bound as substrate -- `ms-transform:ext-secrets` via airflow,
+  `ms-transform:eks-cluster` as the substrate. The manifest kept those roles
+  (it keeps every role whose target is present), but the report listed them
+  under "not followed, so they were not imported", which was false. Two notes
+  now: targets dropped, and roles kept because the target is here. Also fixes
+  the `--exclude` refusal reading "it is ms-transform needs it for eks-alb".
+
+- feat(nsctl): follow only the dependency roles a repo class marks required
+
+  NERD013. `nsctl bom import` closed a selection under *every* role, because a
+  BOM entry's dependencies are `{role: instance}` with no required flag --
+  NERD012 SPEC005 recorded that and concluded required-only closure was not
+  available. Both halves of that sentence are true and the conclusion does not
+  follow: the flag lives in the repo class's own BACON manifest, which travels
+  inside the artifact `import` already fetches, and which nsctl already reads
+  and registers as the RepoClassVersion's dependencies. It is not merely
+  available but authoritative -- the required set a local `env apply` validates
+  against is the one nsctl itself registered, out of that same file.
+
+  Roughly half of the 517 dependency roles in a full workspace are authored
+  `required: "false"`, and not following one prunes whatever it reached in turn.
+  Measured class-level from checkouts, the closure of `hmd-ms-transform` goes
+  from 56 classes to 25, and `hmd-inf-private-ca` and `hmd-inf-karpenter` are
+  among what goes.
+
+  A class whose manifest cannot be read closes over all of its roles and the run
+  says so, so the degradation is always toward the larger import: a closure that
+  quietly shrank because a file was missing would drop a required role, and the
+  failure would arrive at `env apply` naming the role rather than the read that
+  failed. `bom show` therefore reads only the artifact cache unless `--resolve`
+  is passed, which keeps `--dry-run`'s promise to fetch nothing.
+
+  `--with <role|class>` follows an optional role anyway, and a `--with` that
+  matches nothing is refused -- seed()'s rule, for its reason: a selector that
+  silently contributes nothing has the shape of a successful smaller import.
+
+- feat(nsctl): bind a required role nothing local fills, or refuse to
+
+  NERD013 SPEC003. Required-only closure shrinks an import; it does not make
+  every remaining role fillable, and a cloud-only class is usually reached by a
+  role its consumer marks required. A required role whose target is not picked
+  now resolves by what the role asks for: a **name-only** role binds to the core
+  instance, because presence is the whole of what hmd-ms-deployment validates,
+  and a **resource-typed** one is refused, naming the type, because the producer
+  is validated against what it really produces.
+
+  This generalises what `internal/bom`'s Substrate already did for two
+  hard-coded roles -- `datadog-lambda` and `rds-loggroup` both point at the core
+  instance -- into the rule they were instances of, read out of the manifest
+  rather than from a list. No catalogue of cloud-only classes is introduced; that
+  is what nsctl exists not to carry.
+
+  Binding is a fiction: the core instance deploys no ACM. So it is never silent.
+  Every bound role is reported with the class that was not deployed, and
+  `--no-stub-roles` refuses instead.
+
+  `--exclude` is relaxed to match. It refused anything the closure pulled in;
+  the question is really whether the role can be filled another way once the
+  target is gone, so it now refuses only a required resource-typed role, or one
+  whose declarations this run could not read. That is what makes leaving out a
+  cloud-only class an ordinary thing to do.
+
+- feat(nsctl): narrow a cloud BOM import with a file instead of flags
+
+  NERD013 SPEC004. `nsctl bom show <env> --save-selection <file>` writes what
+  the closure resolved, one TOML block per instance; edit the `take` lines and
+  `nsctl bom import <env> --selection <file>` takes it. A `take = true` becomes
+  an explicit instance and a `take = false` becomes an exclusion, so an edited
+  file needs no rules of its own -- including the refusal above, which is how a
+  hand edit that would break a required role is caught here rather than at
+  `env apply`.
+
+  A file rather than an interactive picker: it is diffable, committable,
+  reusable on another machine and usable from a script, and it needs no
+  dependency. It is parsed strictly, because a file somebody edited by hand is
+  exactly where `takes = true` happens, and a key quietly ignored there is an
+  import smaller than intended.
+
+  NERD013 is `partial`, not `implemented`. All six SPECs are built and the path
+  is exercised by 14 tests against a fake deployment service and a fake
+  librarian, but nothing here has been run against a cloud environment or
+  applied to a local one -- so the claim that this makes an import *deployable*
+  is reasoned rather than observed. The four acceptance criteria that would
+  settle it are recorded as unmet.
+
 ## 2026-09-15
 
 - fix(nsctl): bind a cloud BOM's substrate by repo class, not by instance name

@@ -428,6 +428,22 @@ configuration keys, and a verb that joins two existing halves together.
     unfilled a role would reintroduce exactly the failure the closure exists to
     prevent.
 
+    **Amended 2026-09-16: ``import --apply``.** Declaring is not deploying, and
+    stays that way by default -- ``import`` writes the manifest and names
+    ``nsctl env apply`` as the next thing to run. ``--apply`` runs that apply
+    here, on the same environment, once the selection is declared: the
+    round-trip ``NERD013``'s fourth acceptance criterion asks for becomes one
+    command instead of two. It is the same ``environment.Apply`` that
+    ``nsctl env apply`` calls and nothing else; SPEC007 is untouched, since the
+    apply talks only to the local control plane. It is refused with
+    ``--dry-run``, which deploys nothing, and with ``--no-pull``, since an apply
+    refuses an uncached artifact anyway and the refusal is better here than
+    minutes later. A **partial** import -- one where an artifact could not be
+    fetched -- is declared but *not* applied: SPEC006's rule that the command
+    exits non-zero naming the failures stands, and deploying a knowingly
+    incomplete import on the way out would be the quiet failure that rule
+    exists to prevent.
+
     ``import`` shall proceed in this order, and the order is load-bearing:
     **select, filter, close over dependencies, fetch, declare.** Nothing is
     written to the manifest until the artifact behind it is in the control
@@ -460,6 +476,15 @@ configuration keys, and a verb that joins two existing halves together.
     conservative direction, and it is conservative in the direction that
     matters: importing an instance nobody needed costs a fetch, while omitting
     one costs a deploy.
+
+    **Superseded by NERD013.** Both halves of that sentence are true and the
+    conclusion does not follow. The flag lives on the RepoClassVersion's
+    declared dependencies -- which is ``deploy.dependencies.<role>.required`` in
+    the repo class's own BACON manifest, a file this CLI already reads through
+    ``internal/repoclass`` and already hands to ``add_repo_class_version``. It
+    travels inside the artifact ``import`` fetches. What was missing was not the
+    flag but the observation that the fetch could precede the expansion; see
+    ``NERD013`` SPEC001 and SPEC005.
 
     Each target resolves in one of four ways, and the resolution is reported:
 
@@ -679,9 +704,10 @@ Risks
        the decoder is wrong in a way tests written from the same source cannot
        catch
      - **High**
-     - Acceptance criterion 1: capture one real response and check it in as a
-       fixture before the decoder is trusted. This is the same discipline
-       ``NERD011`` used with its generated golden table.
+     - Acceptance criterion 1, as amended: capture one real response and
+       decode it with ``DisallowUnknownFields`` before the decoder is trusted.
+       Not checked in as a fixture -- it carries the tenant's network; see
+       `The acceptance run`_.
    * - A cherry-pick drops a role the instance actually needs, and the failure
        appears much later as a refused ChangeSet
      - Medium
@@ -769,21 +795,30 @@ carries ``customer_ips``, ``hmd_ips``, ``assume_principals``, ``proxy_secret``
 and ``ca_account``; copying those into a local manifest is at best meaningless
 and at worst a secret written to a file nobody expected to hold one.
 
-**Is a sixty-six-instance closure useful?** Selecting one workload from
-``hmdtr1``'s ``dev`` brings two-thirds of the environment with it, and a large
-part of that -- ACM certificates, WAFv2, API Gateway, Neptune, a private CA,
-Karpenter -- has no local counterpart and will fail at ``env apply`` even
-though it fetched cleanly.
+**Is a sixty-six-instance closure useful?** *Answered by* ``NERD013``.
+Selecting one workload from ``hmdtr1``'s ``dev`` brings two-thirds of the
+environment with it, and a large part of that -- ACM certificates, WAFv2, API
+Gateway, Neptune, a private CA, Karpenter -- has no local counterpart and will
+fail at ``env apply`` even though it fetched cleanly.
 
 The closure is not wrong: those roles are declared and ``ms-deployment`` refuses
-a ChangeSet without them. But "correct and unusable" is still unusable, and
-there are three plausible answers and no evidence yet for choosing between
-them. Refuse above a threshold and make the user pass a flag. Teach the local
-substrate to *satisfy* more roles, so that cloud-only infrastructure binds the
-way ``eks-cluster`` now does rather than being imported. Or accept that
-importing a cloud workload is a smaller idea than importing a cloud
-environment, and scope the verb to repo classes that have a local deploy path
-at all.
+a ChangeSet without them. But "correct and unusable" is still unusable. Three
+answers were plausible here and none was chosen: refuse above a threshold and
+make the user pass a flag; teach the local substrate to *satisfy* more roles, so
+that cloud-only infrastructure binds the way ``eks-cluster`` now does; or scope
+the verb to repo classes that have a local deploy path at all.
 
-Deciding this needs one attempt at actually applying an imported workload,
-which is the obvious next piece of work and is not in this document.
+The answer turned out to be a fourth, and it is a general one rather than
+anything to do with cloud BOMs, so it has its own document. **The closure
+follows every role because it cannot tell a required one from an optional one
+-- and it can.** Roughly half of the dependency roles in the workspace are
+authored ``required: "false"``, and following only the required ones takes
+``hmd-ms-transform`` from 56 classes to 25, pruning the private CA and Karpenter
+among them. ``NERD013`` specifies that, the opt-in for an optional role, and
+what to do with the required roles that remain unfillable.
+
+The threshold idea is rejected there as a louder failure rather than a smaller
+one; the substrate idea survives, narrowed to the two resource-typed classes
+that actually need it. And the remaining piece of work is unchanged: one attempt
+at actually applying an imported workload, which is ``NERD013``'s fourth
+acceptance criterion.

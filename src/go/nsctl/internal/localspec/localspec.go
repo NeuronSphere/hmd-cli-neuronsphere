@@ -46,8 +46,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 // Version is the `local` schema version this package understands. A section
@@ -434,22 +435,10 @@ func find(deps []Dependency, role string) (Dependency, bool) {
 	return Dependency{}, false
 }
 
-// truthy reads BACON's `required`, which every one of the 517 dependency blocks
-// in a full workspace writes as the *string* "true" or "false". A bool is
-// accepted too, because nothing in the schema forbids one.
-func truthy(v any) (bool, error) {
-	switch t := v.(type) {
-	case nil:
-		return false, nil
-	case bool:
-		return t, nil
-	case string:
-		b, err := strconv.ParseBool(strings.TrimSpace(t))
-		if err != nil {
-			return false, fmt.Errorf("'required' is %q, which is neither true nor false", t)
-		}
-		return b, nil
-	default:
-		return false, fmt.Errorf("'required' must be true or false, got %v", v)
-	}
-}
+// truthy reads BACON's `required`.
+//
+// One implementation, in internal/repoclass, which owns deploy.* -- this
+// package owns local.*. Two readings of `required` that disagreed would be a
+// defect nothing could observe until a deploy failed for a role one of them
+// thought optional.
+func truthy(v any) (bool, error) { return repoclass.Truthy(v) }

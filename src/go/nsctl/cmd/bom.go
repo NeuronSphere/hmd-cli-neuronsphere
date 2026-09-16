@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
@@ -110,6 +112,25 @@ func (s *cloudServices) librarianClient(cmd *cobra.Command, opts *Options) (*lib
 	return c, nil
 }
 
+// roleResolver builds the reader the closure asks "is this role required".
+//
+// fetching decides whether it may go and get a manifest it does not have. A
+// resolver that may not fetch is not a degraded one: it answers from the
+// artifact cache, and every class it could not read is reported as such, so the
+// closure over-approximates rather than guesses.
+func (s *cloudServices) roleResolver(cmd *cobra.Command, opts *Options, home string,
+	fetching bool) (*roleResolver, error) {
+
+	if !fetching {
+		return newRoleResolver(cmd.Context(), home, nil, nil), nil
+	}
+	cloud, err := s.librarianClient(cmd, opts)
+	if err != nil {
+		return nil, err
+	}
+	return newRoleResolver(cmd.Context(), home, cloud, librarian.NewLocal(s.localURL)), nil
+}
+
 func newBOMEnvsCommand(opts *Options) *cobra.Command {
 	var svc cloudServices
 
@@ -156,7 +177,8 @@ that looks cheap. ` + "`nsctl bom show <env>`" + ` is where a count comes from.`
 func newBOMShowCommand(opts *Options) *cobra.Command {
 	var svc cloudServices
 	var sel selectionFlags
-	var asJSON bool
+	var asJSON, resolve bool
+	var saveSelection string
 
 	cmd := &cobra.Command{
 		Use:   "show <env>",
@@ -168,6 +190,12 @@ artifact.
 With selection flags it prints exactly what ` + "`nsctl bom import`" + ` would take,
 dependency closure included -- so a show is a preview of the import that
 follows it, and needs no --dry-run of its own.
+
+The closure follows only the roles a repo class marks required, which is read
+from that class's own manifest -- and that manifest arrives with its artifact.
+Without --resolve this reads whatever is already unpacked here and closes over
+every role of everything else, saying how many. With --resolve it fetches what
+it needs, and the preview is exact.
 
 Only instances whose current deployment is DEPLOYED or FAILED appear at all:
 the service builds the BOM from those and drops the rest, so this is not a
@@ -203,7 +231,11 @@ listing of everything the environment declares.`,
 				return reportBOM(out, home, bom, nil)
 			}
 
-			selection, err := sel.apply(bom, alwaysFalse, manifest.Reserved)
+			roles, err := svc.roleResolver(cmd, opts, home, resolve)
+			if err != nil {
+				return err
+			}
+			selection, err := sel.apply(bom, alwaysFalse, manifest.Reserved, roles.facts)
 			if err != nil {
 				return err
 			}
@@ -213,12 +245,16 @@ listing of everything the environment declares.`,
 				return err
 			}
 			selection.report(cmd)
-			return nil
+			return saveSelectionTo(cmd, saveSelection, args[0], selection, bom)
 		},
 	}
-	svc.bindRead(cmd)
+	svc.bindFetch(cmd)
 	sel.bind(cmd)
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the BOM as the service returned it")
+	cmd.Flags().BoolVar(&resolve, "resolve", false,
+		"Fetch the artifacts needed to read which roles are required, making this an exact preview")
+	cmd.Flags().StringVar(&saveSelection, "save-selection", "",
+		"Write this selection to a `file` to edit and pass back to bom import --selection")
 	return cmd
 }
 
@@ -226,7 +262,8 @@ func newBOMImportCommand(opts *Options) *cobra.Command {
 	var svc cloudServices
 	var sel selectionFlags
 	var envName string
-	var dryRun, noPull bool
+	var dryRun, noPull, resolve, apply, verbose bool
+	var selectionPath, saveSelection string
 
 	cmd := &cobra.Command{
 		Use:   "import <env>",
@@ -239,16 +276,29 @@ librarian must not silently resolve to whatever happens to be under
 $HMD_REPO_HOME. The artifacts are fetched into the control plane's Artifact
 Librarian on the way, so what is declared can actually deploy.
 
-The selection is closed under its dependencies. hmd-ms-deployment fails a whole
-ChangeSet on a required role nothing fills, so importing one instance without
-what fills its roles would routinely produce a manifest that cannot deploy --
-and the failure would arrive at ` + "`nsctl env apply`" + ` naming a role rather than
-the import that omitted it. Roles filled by the environment substrate are bound
-rather than imported; a target the BOM does not contain is named. --no-deps
-takes the selection literally instead.
+The selection is closed under the roles the repo classes mark *required*.
+hmd-ms-deployment fails a whole ChangeSet on a required role nothing fills, so
+importing one instance without what fills those roles would produce a manifest
+that cannot deploy -- and the failure would arrive at ` + "`nsctl env apply`" + `
+naming a role rather than the import that omitted it. Optional roles are not
+followed, and are listed; --with <role> follows one anyway.
 
-Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
+Roles filled by the environment substrate are bound rather than imported. A
+required role nothing here fills is bound to the core instance when only its
+presence is validated -- reported, because the core instance does not deploy
+whatever was stubbed -- and refused when the role asks for a resource type,
+which cannot be faked. --no-stub-roles refuses in both cases; --no-deps takes
+the selection literally instead.
+
+To narrow a large closure by hand, write it out with
+` + "`nsctl bom show <env> --save-selection <file>`" + `, edit the take lines, and
+pass it back with --selection. See NERD013.
+
+Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards, or pass
+--apply to run it here once the selection is declared. A partial import -- one
+where an artifact could not be fetched -- is declared but never applied.`,
 		Example: `  nsctl bom import dev --instance ms-transform
+  nsctl bom import dev --instance ms-transform --apply
   nsctl bom import dev --class hmd-inf-trino --dry-run
   nsctl bom import dev --all --exclude superset --env scratch`,
 		Args:          cobra.ExactArgs(1),
@@ -259,13 +309,25 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
 			if err != nil {
 				return err
 			}
-			if !sel.any() {
+			if !sel.any() && selectionPath == "" {
 				return nserr.New(nserr.Usage,
 					"nothing selected. Importing a whole cloud environment is a thing to ask for out loud:\n"+
 						"  one instance:   nsctl bom import %s --instance <name>\n"+
 						"  one repo class: nsctl bom import %s --class <repo-class>\n"+
 						"  all of it:      nsctl bom import %s --all\n"+
-						"`nsctl bom show %s` lists what is there.", args[0], args[0], args[0], args[0])
+						"  from a file:    nsctl bom import %s --selection <file>\n"+
+						"`nsctl bom show %s` lists what is there.",
+					args[0], args[0], args[0], args[0], args[0])
+			}
+			// Refuse the contradictions before anything is fetched. A dry run
+			// deploys nothing by definition, and an apply refuses an uncached
+			// artifact anyway -- better said here than minutes from now.
+			if apply && dryRun {
+				return nserr.New(nserr.Usage, "--apply and --dry-run contradict: a dry run deploys nothing")
+			}
+			if apply && noPull {
+				return nserr.New(nserr.Usage,
+					"--apply needs the artifacts here, and --no-pull leaves them where they are. Drop one")
 			}
 
 			_, _, slug, err := resolveEnvSlug(opts, envName)
@@ -286,8 +348,19 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
 				return err
 			}
 
+			if err := sel.applySelectionFile(selectionPath, bom); err != nil {
+				return err
+			}
+
+			// NERD013 SPEC005. A run that is going to fetch anyway resolves
+			// role declarations as it goes; a --dry-run fetches nothing unless
+			// asked, and says what it therefore could not read.
+			roles, err := svc.roleResolver(cmd, opts, home, resolve || !(dryRun || noPull))
+			if err != nil {
+				return err
+			}
 			declared := func(name string) bool { _, ok := m.Repo(name); return ok }
-			selection, err := sel.apply(bom, declared, manifest.Reserved)
+			selection, err := sel.apply(bom, declared, manifest.Reserved, roles.facts)
 			if err != nil {
 				return err
 			}
@@ -305,8 +378,21 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
 				return err
 			}
 			selection.report(cmd)
+			if err := saveSelectionTo(cmd, saveSelection, args[0], selection, bom); err != nil {
+				return err
+			}
 
 			if dryRun {
+				// --resolve fetched manifests in order to read which roles are
+				// required, so the usual sentence would be false -- and a
+				// --dry-run is worth nothing if you cannot believe it.
+				if resolve {
+					fmt.Fprintf(out,
+						"\n%s would be declared. Nothing was written; artifacts were fetched"+
+							" only to read which roles are required.\n",
+						count(len(selection.Picked), "instance"))
+					return nil
+				}
 				fmt.Fprintf(out, "\n%s would be declared. Nothing was written and nothing was fetched.\n",
 					count(len(selection.Picked), "instance"))
 				return nil
@@ -351,14 +437,33 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
 					fmt.Fprintf(out, "  nsctl artifact pull %s\n", bomSpec(e))
 				}
 			}
-			fmt.Fprintf(out, "Run `nsctl env apply %s` to deploy it.\n", slug)
 
 			if len(failures) > 0 {
-				return nserr.New(nserr.Fail,
-					"%s could not be fetched and %s not declared:\n  %s",
+				// A partial import is declared and never applied. NERD012
+				// SPEC006 has this exit non-zero naming what is missing, and
+				// deploying a knowingly incomplete import on the way out would
+				// be the quiet failure that rule exists to prevent.
+				fmt.Fprintf(out, "Run `nsctl env apply %s` to deploy it.\n", slug)
+				msg := "%s could not be fetched and %s not declared:\n  %s"
+				if apply {
+					msg += "\nNot applied, because the import was partial. Run `nsctl env apply " + slug + "` to deploy what was declared."
+				}
+				return nserr.New(nserr.Fail, msg,
 					count(len(failures), "artifact"), wereOrWas(len(failures)), strings.Join(failures, "\n  "))
 			}
-			return nil
+			if !apply {
+				fmt.Fprintf(out, "Run `nsctl env apply %s` to deploy it.\n", slug)
+				return nil
+			}
+
+			// The same call `nsctl env apply` makes, against the same name the
+			// user gave (empty means the default environment), so the two
+			// forms cannot drift.
+			fmt.Fprintf(out, "Applying %s...\n\n", slug)
+			return environment.Apply(cmd.Context(), &environment.Options{
+				Home: home, Lookup: opts.Lookup, Verbose: verbose,
+				Out: out, Err: cmd.ErrOrStderr(),
+			}, envName)
 		},
 	}
 	svc.bindFetch(cmd)
@@ -366,6 +471,15 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` afterwards.`,
 	cmd.Flags().StringVar(&envName, "env", "", "Local environment to declare into (default: the default environment)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be declared, writing and fetching nothing")
 	cmd.Flags().BoolVar(&noPull, "no-pull", false, "Declare without fetching, naming the pulls to run")
+	cmd.Flags().BoolVar(&resolve, "resolve", false,
+		"With --dry-run or --no-pull, still fetch what is needed to read which roles are required")
+	cmd.Flags().StringVar(&selectionPath, "selection", "",
+		"Take the instances an edited selection `file` marks take = true")
+	cmd.Flags().StringVar(&saveSelection, "save-selection", "",
+		"Write what this run resolved to a `file`, to edit and pass back with --selection")
+	cmd.Flags().BoolVar(&apply, "apply", false,
+		"Run nsctl env apply on the environment once the selection is declared")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "With --apply, show the underlying command output")
 	return cmd
 }
 
@@ -467,10 +581,7 @@ func fetchSelection(cmd *cobra.Command, opts *Options, svc *cloudServices, home 
 	fetchedOK := map[string]bool{}
 	for _, e := range needed {
 		spec := bomSpec(e)
-		data, err := cloud.Fetch(cmd.Context(), spec.ContentPath())
-		if err == nil {
-			_, err = storeArtifact(cmd.Context(), local, home, spec, data)
-		}
+		err := pullArtifact(cmd.Context(), cloud, local, home, spec)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", spec, err))
 			fmt.Fprintf(w, "  %s\t%s\tfailed\n", e.RepoClassName, e.RepoClassVersion)
@@ -490,6 +601,28 @@ func fetchSelection(cmd *cobra.Command, opts *Options, svc *cloudServices, home 
 		}
 	}
 	return kept, failures, nil
+}
+
+// pullArtifact copies one artifact into the control plane, unless it is already
+// unpacked here.
+//
+// The one path both callers take: fetchSelection, which is fetching in order to
+// declare, and roleResolver, which is fetching in order to read which roles are
+// required. What must not differ between them is the already-here check and
+// storeArtifact's invalidate-before-store order, which is why this is one
+// function rather than two loops that happen to agree today.
+func pullArtifact(ctx context.Context, cloud, local *librarian.Client, home string,
+	spec librarian.Spec) error {
+
+	if artifact.Cached(home, spec.Name, spec.Version) {
+		return nil
+	}
+	data, err := cloud.Fetch(ctx, spec.ContentPath())
+	if err != nil {
+		return err
+	}
+	_, err = storeArtifact(ctx, local, home, spec, data)
+	return err
 }
 
 // bomSpec is the artifact address a BOM entry already is: a repo class and a

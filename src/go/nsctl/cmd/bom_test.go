@@ -610,6 +610,94 @@ func TestBOMImportBindsSubstrateByClassNotJustName(t *testing.T) {
 	}
 }
 
+// TestBOMImportApplyDeclaresThenApplies pins the order --apply works in. The
+// world's control plane is unreachable by construction, so the apply fails
+// with the "not answering" refusal -- and the manifest must already hold the
+// declarations by then, because an apply that ran before the declare would
+// deploy nothing new and an import that failed to save would not apply at all.
+func TestBOMImportApplyDeclaresThenApplies(t *testing.T) {
+	t.Parallel()
+
+	w := newBOMWorld(t)
+	out, _, err := w.run(t, "bom", "import", "dev", "--env", "scratch", "--instance", "ms-transform", "--apply")
+	if err == nil {
+		t.Fatal("bom import --apply succeeded with no control plane to apply against")
+	}
+	if !strings.Contains(err.Error(), "not answering") {
+		t.Errorf("error = %v, want the apply's own refusal, so the apply was reached", err)
+	}
+	if !strings.Contains(out, "Applying scratch") {
+		t.Errorf("the apply was not announced:\n%s", out)
+	}
+	if strings.Contains(out, "Run `nsctl env apply") {
+		t.Errorf("--apply still told the user to run the apply themselves:\n%s", out)
+	}
+	got := instanceNames(loadEnv(t, w.home, "scratch"))
+	sort.Strings(got)
+	if want := "artifact-lib,device-lib,ms-transform"; strings.Join(got, ",") != want {
+		t.Errorf("declared %v before applying, want %s", got, want)
+	}
+}
+
+// TestBOMImportApplyRefusesItsContradictions: a dry run deploys nothing and an
+// apply refuses an uncached artifact, so both combinations are usage errors
+// before anything is fetched.
+func TestBOMImportApplyRefusesItsContradictions(t *testing.T) {
+	t.Parallel()
+
+	w := newBOMWorld(t)
+	for _, other := range []string{"--dry-run", "--no-pull"} {
+		_, _, err := w.run(t, "bom", "import", "dev", "--env", "scratch",
+			"--instance", "ms-transform", "--apply", other)
+		if err == nil {
+			t.Errorf("--apply %s was accepted", other)
+			continue
+		}
+		if nserr.CodeOf(err) != nserr.Usage {
+			t.Errorf("--apply %s: exit code = %d, want Usage", other, nserr.CodeOf(err))
+		}
+		if !strings.Contains(err.Error(), "--apply") {
+			t.Errorf("--apply %s: error = %v, want one naming the flags", other, err)
+		}
+	}
+	if w.dep.bomCalls != 0 {
+		t.Errorf("a refused flag combination still fetched %d BOMs", w.dep.bomCalls)
+	}
+}
+
+// TestBOMImportApplySkipsAPartialImport: an import that could not fetch every
+// artifact is declared and exits non-zero naming the failures (NERD012
+// SPEC006); with --apply it additionally does not apply, and says so, because
+// deploying a knowingly incomplete import is the quiet failure that rule
+// exists to prevent.
+func TestBOMImportApplySkipsAPartialImport(t *testing.T) {
+	t.Parallel()
+
+	w := newBOMWorld(t)
+	delete(w.lib.content, librarian.Spec{
+		Name: "hmd-ms-device-lib", Version: "0.4.3", ItemType: "build",
+	}.ContentPath())
+
+	_, _, err := w.run(t, "bom", "import", "dev", "--env", "scratch", "--instance", "ms-transform", "--apply")
+	if err == nil {
+		t.Fatal("bom import --apply succeeded with an artifact that could not be fetched")
+	}
+	if !strings.Contains(err.Error(), "hmd-ms-device-lib") {
+		t.Errorf("error = %v, want one naming what could not be fetched", err)
+	}
+	if !strings.Contains(err.Error(), "Not applied") {
+		t.Errorf("error = %v, want it to say the apply was skipped", err)
+	}
+	if strings.Contains(err.Error(), "not answering") {
+		t.Errorf("error = %v -- the apply ran against a partial import", err)
+	}
+	got := instanceNames(loadEnv(t, w.home, "scratch"))
+	sort.Strings(got)
+	if want := "artifact-lib,ms-transform"; strings.Join(got, ",") != want {
+		t.Errorf("declared %v, want %s -- what was fetched is declared, what was not is not", got, want)
+	}
+}
+
 // TestBOMEntryInvariantsObservedLive records what a real 109-instance BOM from
 // hmdtr1's dev environment showed on 2026-09-15, decoded with
 // DisallowUnknownFields so a field this struct lacks would have failed.
