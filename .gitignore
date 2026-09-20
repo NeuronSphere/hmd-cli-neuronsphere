@@ -149,3 +149,6 @@ src/python/hmd_cli_neuronsphere/external/
 
 # Robot Framework output from `make test-cli`
 test/results/
+
+# Working prompts for a phase of work are not documentation.
+docs/proposals/.phase*-prompt.md
