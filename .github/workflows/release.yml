@@ -91,14 +91,15 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "::notice::releasing $tag"
 
-      # What `hmd version update` and `hmd version tag` do: the full version
-      # in the workspace's VERSION (never committed) and a tag on this commit.
-      # A re-run finds the tag already there and moves on.
+      # What `hmd version tag` does: a tag on this commit. Nothing is written
+      # to the workspace -- GoReleaser reads the version from the tag, and a
+      # modified meta-data/VERSION leaves the checkout dirty, which GoReleaser
+      # refuses to release from. A re-run finds the tag already there and
+      # moves on.
       - name: Tag
         env:
           TAG: ${{ steps.build.outputs.tag }}
         run: |
-          printf '%s' "$TAG" > meta-data/VERSION
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "tag $TAG already exists"
           else
