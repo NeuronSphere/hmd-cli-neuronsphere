@@ -75,6 +75,11 @@ homebrew_casks:
     repository:
       owner: neuronsphere
       name: homebrew-tap
+      # The PAT the workflow exports. Unlike v1 `brews:`, homebrew_casks does
+      # not read HOMEBREW_TAP_GITHUB_TOKEN on its own; without this GoReleaser
+      # uses GITHUB_TOKEN, which cannot write to another repository
+      # ("Resource not accessible by integration").
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/neuronsphere/hmd-cli-neuronsphere
     description: "Run the local NeuronSphere: a control plane and the environment substrate deployments sit on"
     caveats: |
