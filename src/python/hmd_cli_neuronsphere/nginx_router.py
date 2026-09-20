@@ -95,6 +95,22 @@ _TRINO_NODEPORT_SVC = "trino-local-nodeport"
 # date are structural filler, kept constant so the rendered config is stable.
 _SIGV4_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
 
+# Carries the caller's own Authorization past the account selector. An
+# environment route has to spend Authorization on Floci's SigV4 credential
+# scope -- a 12-digit access key *is* the account, and it is the only thing
+# Floci resolves a v1 REST API's owner from -- so a caller's bearer token rides
+# here instead. In the cloud this header does not exist and Authorization is
+# never a credential scope, so nothing there behaves differently.
+_ALT_AUTH_HEADER = "X-NS-Authorization"
+
+
+def _sigv4_credential(account_id: str) -> str:
+    """The credential scope Floci reads the account out of."""
+    return (
+        f"AWS4-HMAC-SHA256 Credential={account_id}/20200101/{_SIGV4_REGION}"
+        "/execute-api/aws4_request, SignedHeaders=host, Signature=x"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -190,23 +206,10 @@ http {{
         default upgrade;
         ''      close;
     }}
-    # Selects the Floci account an API Gateway invocation resolves in. One Floci
-    # serves every account and reads the account out of the SigV4 credential
-    # scope; `proxy_pass` sends an unsigned request, so without this every
-    # environment's API lands in the *default* account and 404s. Floci does not
-    # verify the signature, so the scope alone is enough. A caller that supplies
-    # its own Authorization keeps it -- this only fills an empty one.
-    map $http_authorization $ns_auth {{
-        ''      "AWS4-HMAC-SHA256 Credential=$ns_account/20200101/{_SIGV4_REGION}/execute-api/aws4_request, SignedHeaders=host, Signature=x";
-        default $http_authorization;
-    }}
     include {_NS_DIR}/vhost.d/*.conf;
     server {{
         listen 80 default_server;
         server_name _;
-        # Declared here so `$ns_auth`'s map is valid even with no env fragment;
-        # each environment's locations override it with their own account.
-        set $ns_account "";
         include {_NS_DIR}/http.d/*.conf;
         location / {{
             return 404 '{{"error": "no route defined"}}';
@@ -345,13 +348,18 @@ def _api_location(
     this read as a missing service rather than a missing credential.
 
     Floci parses the account out of the credential scope without verifying the
-    signature, so a static header suffices. It is injected through ``$ns_auth``
-    (see :func:`render_base_config`) rather than set directly, so a caller that
-    supplies its own ``Authorization`` keeps it.
+    signature, so a static header suffices. It is set *unconditionally*,
+    displacing whatever the caller sent. It used to fill only an empty
+    ``Authorization``, which made the two uses of that header mutually
+    exclusive: a request carrying a real JWT kept it, left Floci nothing to
+    resolve the account from, and 404d -- so only the environment whose account
+    happens to be Floci's default could serve an authenticated request at all.
+    The caller's token travels beside it in :data:`_ALT_AUTH_HEADER`, which
+    ``hmd-lib-auth``'s ``auth_token()`` reads back.
     """
     account = (
-        f'\n    set $ns_account "{account_id}";'
-        "\n    proxy_set_header Authorization $ns_auth;"
+        f'\n    proxy_set_header Authorization "{_sigv4_credential(account_id)}";'
+        f"\n    proxy_set_header {_ALT_AUTH_HEADER} $http_authorization;"
         if account_id
         else ""
     )

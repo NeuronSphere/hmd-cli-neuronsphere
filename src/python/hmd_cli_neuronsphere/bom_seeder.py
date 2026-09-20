@@ -998,6 +998,24 @@ def _get_repo_dependencies(
     return manifest.get("deploy", {}).get("dependencies", {})
 
 
+def _get_repo_discovery(
+    repo_class_name: str,
+    repo_path: Optional[str] = None,
+    metadata_root: Optional[str] = None,
+) -> Optional[Dict]:
+    """Read the BACON ``discovery`` block from the repo's manifest.json.
+
+    Returns None when the manifest is unreadable or declares no discovery, so
+    the caller can leave the key off the ``add_repo_class_version`` payload and
+    the service's default applies (NERD0013 SPEC0005 in hmd-ms-deployment).
+    """
+    manifest = _read_repo_manifest(repo_class_name, repo_path, metadata_root)
+    if manifest is None:
+        return None
+    discovery = manifest.get("discovery")
+    return discovery if isinstance(discovery, dict) and discovery else None
+
+
 def _encode_collection(value) -> str:
     """Encode a ``collection``/mapping attribute for the CRUD PUT endpoint.
 
@@ -2514,16 +2532,24 @@ def seed_bom(
         if default_config is None:
             default_config = entry.get("instance_configuration", {})
 
+        # Same tree as the dependencies, so the registered version's discovery
+        # describes the build it came from. Omitted (not sent empty) when the
+        # manifest has none, so the service default applies.
+        discovery = _get_repo_discovery(repo_name, repo_path, metadata_root)
+
         logger.debug(f"Adding repo class version: {repo_name}@{version}")
+        payload = {
+            "repo_class_name": repo_name,
+            "version": version,
+            "dependencies": dependencies,
+            "default_configuration": default_config,
+        }
+        if discovery:
+            payload["discovery"] = discovery
         _post_apiop(
             base_url,
             "add_repo_class_version",
-            {
-                "repo_class_name": repo_name,
-                "version": version,
-                "dependencies": dependencies,
-                "default_configuration": default_config,
-            },
+            payload,
             tolerate_exists=True,
         )
         # Store resolved version back into entry for changeset

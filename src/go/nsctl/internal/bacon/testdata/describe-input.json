@@ -1,0 +1,96 @@
+{
+  "name": "acme-dp-customer-revenue",
+  "description": "Net revenue per customer per month: invoices plus add-on orders net of refunds.",
+  "build": {
+    "mechanism": "external"
+  },
+  "deploy": {
+    "commands": [
+      [
+        "exec",
+        "acme-deploy"
+      ]
+    ],
+    "image": "acme/ci-tools:1",
+    "dependencies": {
+      "warehouse": {
+        "required": "true",
+        "resource": {
+          "resource_namespace": "acme.com",
+          "resource_definition_name": "sql-warehouse",
+          "version": "0.1.0"
+        }
+      },
+      "runner": {
+        "required": "true",
+        "resource": {
+          "resource_namespace": "scheduler.acme.com",
+          "resource_definition_name": "job-runner",
+          "version": "0.1.0"
+        }
+      },
+      "core-models": {
+        "required": "true",
+        "resource": {
+          "resource_namespace": "acme.com",
+          "resource_definition_name": "dbt-models",
+          "version": "0.1.0"
+        }
+      },
+      "legacy": {
+        "repo_class_name": "hmd-ms-legacy",
+        "required": "false",
+        "version_spec": ">=0.2"
+      }
+    },
+    "default_configuration": {
+      "kind": "product",
+      "schema": "analytics_customer_revenue",
+      "schedule": "0 6 * * *"
+    },
+    "resources": {
+      "dataset": {
+        "resource_namespace": "data.acme.com",
+        "resource_definition_name": "dataset",
+        "version": "0.1.0",
+        "produces": true,
+        "description": "The dataset"
+      }
+    }
+  },
+  "test": {
+    "commands": [
+      [
+        "exec",
+        "make",
+        "verify"
+      ]
+    ]
+  },
+  "discovery": {
+    "summary": "Net revenue per customer per month: invoices plus add-on orders net of refunds. Table customer_revenue_monthly in schema analytics_customer_revenue, refreshed on schedule 0 6 * * *.",
+    "entry_points": [
+      {
+        "path": "products/customer-revenue/models/customer_revenue_monthly.sql",
+        "description": "The model"
+      }
+    ],
+    "capabilities": [
+      {
+        "name": "customer_revenue_monthly",
+        "kind": "operation",
+        "description": "Net revenue per customer per month: invoices plus add-on orders net of refunds.",
+        "location": "products/customer-revenue/models/customer_revenue_monthly.sql"
+      }
+    ],
+    "related_docs": [
+      {
+        "title": "Acme data platform README",
+        "path": "README.md"
+      }
+    ]
+  },
+  "project_type": {
+    "kind": "data-product"
+  }
+}

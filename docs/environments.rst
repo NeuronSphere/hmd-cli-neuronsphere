@@ -6,6 +6,14 @@ A local NeuronSphere is one shared **control plane** plus N named
 same machine: previously every container published a fixed host port, so a
 second stack collided immediately.
 
+
+.. note::
+
+   Everything on this page describes the environment registry and manifests as
+   the ``hmd`` CLI uses them. :doc:`nsctl` reads and writes the same registry
+   and the same manifest format, so an environment created by one front end is
+   usable from the other.
+
 Topology
 --------
 
@@ -88,6 +96,36 @@ call, and is threaded through the boto3 client factory, the projectbuilder
 containers that run deploy nodes, and the External Secrets operator's chart
 values. Signing with the wrong key does not fail — it quietly reads and writes
 another account.
+
+A browser or a Robot suite reaching a service through ``hmd_proxy`` never signs
+anything, so nginx supplies the credential scope itself: every environment route
+sets ``Authorization`` to ``AWS4-HMAC-SHA256 Credential=<account>/…`` before
+proxying to Floci. Floci does not verify the signature, so the scope alone is
+enough — but it *is* required, because ``proxy_pass`` issues an unsigned request
+and an unsigned API Gateway invocation resolves in Floci's default account,
+where the environment's REST API does not exist. The 404 that follows is
+indistinguishable from a route that was never wired.
+
+That leaves the caller's own bearer token nowhere to go, so **environment routes
+relocate it to ``X-NS-Authorization``**. ``hmd-lib-auth``'s ``auth_token()``
+reads that header back whenever ``Authorization`` holds a credential scope, and
+``hmd-base-service`` binds it as a route parameter so
+``OperationEvent.access_token`` gets the token rather than the scope. Nothing
+changes in the cloud: the header does not exist there and ``Authorization`` is
+never a credential scope, so neither fallback can fire.
+
+Control-plane routes are the exception, and deliberately untouched — the control
+plane *is* Floci's default account (``000000000000``), so an unsigned call
+already resolves there and a bearer token reaches the service in
+``Authorization`` unchanged.
+
+The account selector has to occupy ``Authorization`` because Floci offers no
+other way to name it for an API Gateway **v1** REST API, which is what
+``hmd-lib-cdktf-factories`` deploys. Floci's ``AccountContextFilter`` reads the
+account from that header alone, and its one credential-free alternative — the
+``{apiId}.execute-api.{region}`` virtual host, which pins the account from the
+API's owner — covers v2 HTTP APIs only. If Floci grows the same owner lookup for
+v1, the relocation can be deleted and the token can stay where it belongs.
 
 Because every environment has its own Postgres, **database and user names are
 identical across environments** (``hmd_ms_transform`` and friends). Nothing is
@@ -518,6 +556,20 @@ to ``hmd-pgbackup-<volume>-pg<major>`` first and **never deleted** — this
 rewrites a database, and a migration that destroys its only copy is not one worth
 offering. That backup deliberately sits outside Floci's ``floci-rds-`` namespace,
 so it is neither rescanned by the check nor mistaken by Floci for a live volume.
+
+``nsctl`` performs the same check, in ``internal/pgcheck``, before compose starts
+Floci. It is the detector alone: it compares the configured image's ``PG_MAJOR``
+against each volume's ``PG_VERSION``, refuses, and names both remedies above.
+Migrating a volume stays here, in ``hmd neuronsphere db upgrade`` — a dump and
+restore belongs in one place, and both front ends address the same ``HMD_HOME``,
+so reaching for the Python CLI costs nothing.
+
+The baseline moved with ``hmd-postgres-base`` 0.3.12, which is the first build to
+ship PostgreSQL **14**. Every earlier tag — including
+``ghcr.io/neuronsphere/hmd-postgres-base:stable``, which every install defaulted
+to — shipped 12.9: the Dockerfile's bump to ``postgres:14-alpine`` was committed
+and then never built. An ``HMD_HOME`` whose environment database predates 0.3.12
+therefore meets exactly the refusal this section describes on its next start.
 
 Upgrading past the single-Floci collapse (breaking)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

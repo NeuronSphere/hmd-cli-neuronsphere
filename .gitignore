@@ -143,3 +143,9 @@ bender/
 .hmd-build-status.json
 .hmd-deploy-status.json
 src/python/hmd_cli_neuronsphere/external/
+
+# GoReleaser output
+/dist/
+
+# Robot Framework output from `make test-cli`
+test/results/

@@ -5,6 +5,15 @@ Operating Modes
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.
 
+.. note::
+
+   Extend mode is also available through :doc:`nsctl`, a Go binary whose only
+   host prerequisite is Docker. It drives the same control plane and the same
+   environments as the commands described here, and the two can be used
+   interchangeably against one ``HMD_HOME`` -- but it ships only the control
+   plane and the environment substrate, leaving workloads to be declared in an
+   environment manifest rather than resolved from installed plugin packages.
+
 Extend Mode (Default)
 ---------------------
 
@@ -128,9 +137,12 @@ ClickHouse, Hive Metastore, OTel/telemetry, MinIO, DynamoDB-standalone — is an
 Deployment GUI
 ~~~~~~~~~~~~~~
 
-``hmd-app-neuronsphere`` is the Django front end to ``hmd-ms-deployment``: the
-same GUI the cloud platform serves, pointed at the local control plane so you can
-browse environment BOMs and apply ChangeSets the way you would in the cloud.
+``hmd-app-neuronsphere`` is the Django front end to ``hmd-ms-deployment``. Since
+NERD0015 it is two images: ``nsctl`` runs the **core** (``hmd-app-neuronsphere-core``
+-- environments, BOMs, ChangeSet drafting and validation, repo classes, the
+resource catalogue) against the deployment service's core; the **premium
+overlay** (``hmd-app-neuronsphere``, ``FROM`` the core) adds the ChangeSetDeployment
+list, timeline, DAG, logs and apply, and is what the cloud serves.
 
 It is the control plane's **own management surface**, not a platform workload, so
 it runs as the ``deployment-gui`` service in the control-plane compose file
@@ -201,22 +213,25 @@ Knobs:
      - Do not start the GUI at all.
    * - ``HMD_LOCAL_GUI_HOST_PORT``
      - Serve it on a different host port (default ``19003``).
-   * - ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE``
-     - Run a different version than the one this CLI pins
-       (``environments.GUI_IMAGE_VERSION``). Set it to ``local`` to take your
-       working tree's ``meta-data/VERSION``, so a local ``hmd build`` in
-       ``hmd-app-neuronsphere`` is what runs.
+   * - ``HMD_LOCAL_VERSION_HMD_APP_NEURONSPHERE_CORE``
+     - Run a different version of the core GUI than the one this CLI pins
+       (``controlplane.GUIImageVersion``). A local ``hmd build`` in
+       ``hmd-app-neuronsphere-core`` at that version is what runs.
+   * - ``HMD_LOCAL_IMAGE_HMD_APP_NEURONSPHERE``
+     - Run a full image reference instead -- the premium overlay
+       (``ghcr.io/hmdlabs/hmd-app-neuronsphere:<version>``), typically together
+       with ``HMD_LOCAL_IMAGE_HMD_MS_DEPLOYMENT`` for the premium service.
    * - ``HMD_LOCAL_GUI_SUPERUSER`` / ``..._PASSWORD`` / ``..._EMAIL``
      - Override the local superuser the container creates.
    * - ``HMD_LOCAL_GUI_MCP_ENABLED=false``
      - Do not serve the MCP endpoint, and mint no API key for it.
 
-Nothing of ``hmd-app-neuronsphere`` is bundled into this CLI -- it is not a
+Nothing of the GUI is bundled into this CLI -- it is not a
 ``pre_build_artifacts`` entry, because the container runs from the app's
 published image rather than from its Helm chart. The version is a pin in
-``environments.GUI_IMAGE_VERSION``, and the image is resolved the same way every
-other NeuronSphere image is: a locally built ``hmd-app-neuronsphere:<version>``
-wins, otherwise ``ghcr.io/hmdlabs/hmd-app-neuronsphere:<version>`` is pulled.
+``controlplane.GUIImageVersion``, and the image is resolved the same way every
+other NeuronSphere image is: a locally built ``hmd-app-neuronsphere-core:<version>``
+wins, otherwise ``ghcr.io/hmdlabs/hmd-app-neuronsphere-core:<version>`` is pulled.
 
 ``environments.MS_DEPLOYMENT_VERSION`` pins ms-deployment the same way, as the
 fallback when neither ``HMD_MS_DEPLOYMENT_VERSION`` nor a checked-out

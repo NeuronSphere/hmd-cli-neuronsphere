@@ -1,0 +1,110 @@
+# Release build for nsctl. Modeled on hmd-cli-bartleby's, which publishes
+# through the same channels, with four deliberate divergences -- each noted
+# below, because copying that file verbatim would be wrong in all four places.
+version: 2
+project_name: nsctl
+
+before:
+  hooks:
+    # Not optional, unlike bartleby's single tidy. internal/bundled embeds
+    # services/*.yml and runner/*.tar.gz, neither of which is committed: the
+    # compose file's one source of truth is the Python package, and the runner
+    # sources are packed from the module itself. Without this hook a clean CI
+    # checkout fails at `go build` with a missing-embed error.
+    - make generate
+    - go mod tidy -C src/go/nsctl
+
+builds:
+  - main: .
+    dir: src/go/nsctl
+    binary: nsctl
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      # -s -w, which bartleby does not pass. Measured on this binary: 34.4 MB
+      # stripped against 49.4 MB unstripped, so dropping them would meet
+      # SPEC013's 50 MB target by 0.6 MB instead of 15.
+      # NSCTL_DEFAULT_AUTH_URL is the endpoint a released binary signs in
+      # against with no configuration, so someone can install nsctl and run
+      # `nsctl login` having set nothing up. Unset until the hosted tenant
+      # exists: an unset value links as the empty string, which is exactly the
+      # "refuse and say what to write" behaviour, so a release built today
+      # behaves as it does now rather than naming a host that cannot answer.
+      - -s -w -X main.version={{ .Version }} -X github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig.DefaultAuthURL={{ .Env.NSCTL_DEFAULT_AUTH_URL }}
+    goos:
+      # No windows. SPEC013 listed windows/amd64 and its amendment records why
+      # it is gone: nsctl shells out to `docker`, mounts /var/run/docker.sock,
+      # and composes host absolute paths that must resolve identically inside
+      # sibling containers (SPEC010). WSL2 users take linux/amd64.
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # Apache 2.0 §4(a) asks that recipients get a copy of the licence, and
+    # this archive is what strangers download.
+    files:
+      - LICENSE.txt
+      - NOTICE
+      - TRADEMARKS.md
+
+checksum:
+  # install.sh verifies the downloaded archive against this file, so its name
+  # is part of that script's contract.
+  name_template: "checksums.txt"
+
+# Release tags are the BACON pipeline tags -- MAJOR.MINOR.BUILD with no "v",
+# the build number issued by hmd-ms-projects -- so this binary carries the
+# same version as every other NeuronSphere artifact. release.yml mints the
+# tag and runs GoReleaser against it in one job; nothing is ignored here.
+
+# A cask, not a formula. bartleby ships `brews:`, which GoReleaser deprecated
+# in favour of homebrew_casks -- `goreleaser check` fails on it. The cost of
+# following the deprecation is that casks are macOS-only, where a formula also
+# served Homebrew on Linux; linux users take install.sh, which is the channel
+# built for them anyway.
+#
+# `brew install neuronsphere/tap/nsctl` is unchanged either way.
+homebrew_casks:
+  - name: nsctl
+    binaries: [nsctl]
+    repository:
+      owner: neuronsphere
+      name: homebrew-tap
+    homepage: https://github.com/neuronsphere/hmd-cli-neuronsphere
+    description: "Run the local NeuronSphere: a control plane and the environment substrate deployments sit on"
+    caveats: |
+      nsctl needs Docker running, and an HMD_HOME. It does not default one --
+      guessing would put its containers, volumes and network under a name no
+      other HMD tool computes -- so export it or pass --home:
+
+        export HMD_HOME=~/hmd
+        nsctl control-plane start
+
+      If you use Colima, make sure it is running:
+        colima start
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nsctl"]
+          end
+
+release:
+  # The neuronsphere org, like bartleby and the Homebrew tap above. The
+  # repository moved here from HMDLabs for its first release; GitHub redirects
+  # the old URL, and the ghcr.io/hmdlabs image org is unrelated to this.
+  github:
+    owner: neuronsphere
+    name: hmd-cli-neuronsphere
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"

@@ -10,9 +10,11 @@ Welcome to hmd-cli-neuronsphere's documentation
    readme
    modes
    environments
+   nsctl
    helm_chart_dev_loop
    plugins/index
    proposals/index
+   licensing
 
 Indices and tables
 ==================

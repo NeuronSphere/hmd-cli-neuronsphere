@@ -142,6 +142,16 @@ GUI_IMAGE_VERSION = "0.1.74"
 # Compose profile guarding the `deployment-gui` service in
 # services/docker-compose.control-plane.yml.
 GUI_COMPOSE_PROFILE = "deployment-gui"
+# The DAG-runner service, which only nsctl starts (controlplane.RunnerProfile).
+# The Python CLI never activates it on `up`, but it MUST activate it on a stop:
+# a profile-gated service compose cannot see is a container `down` leaves
+# running, and this one outlived `hmd neuronsphere down --purge` until it was
+# listed here.
+RUNNER_COMPOSE_PROFILE = "nsrunner"
+# Every profile the control-plane compose file defines. A teardown activates
+# all of them regardless of what this CLI would have started, because what has
+# to be stopped is whatever is *running*, not whatever is currently configured.
+ALL_COMPOSE_PROFILES = (GUI_COMPOSE_PROFILE, RUNNER_COMPOSE_PROFILE)
 
 # The `deployment-gui` service's container_name, which the MCP key bootstrap
 # execs into. `nginx_router.GUI_UPSTREAM` spells the same name with its port.
@@ -196,17 +206,33 @@ def deployment_gui_image() -> str:
     return published
 
 
-def export_control_plane_compose_env() -> None:
+def export_control_plane_compose_env(*, all_profiles: bool = False) -> None:
     """Set the variables the control-plane compose file interpolates.
 
     Called before *every* control-plane compose invocation, not just ``up``:
-    ``COMPOSE_PROFILES`` decides whether ``docker compose stop`` sees the GUI
-    service at all, so a `down`/`stop` that skipped this would leave the
-    container running.
+    ``COMPOSE_PROFILES`` decides whether ``docker compose stop`` sees a
+    profile-gated service at all, so a `down`/`stop` that skipped this would
+    leave the container running.
+
+    ``all_profiles`` is for teardown. Activating only what *this* CLI would
+    start is right for ``up`` and wrong for ``stop``, because the two are not
+    the same set: ``nsctl`` starts the DAG runner under a profile this CLI
+    never activates, and ``hmd neuronsphere down --purge`` consequently left
+    ``hmd_nsrunner`` running. The same asymmetry bites within one front end --
+    start with the GUI on, unset the variable, stop, and its container
+    survives. A teardown therefore names every profile.
     """
     from .bom_seeder import gui_enabled, gui_port
 
     os.environ["HMD_LOCAL_GUI_HOST_PORT"] = str(gui_port())
+
+    if all_profiles:
+        os.environ["COMPOSE_PROFILES"] = ",".join(ALL_COMPOSE_PROFILES)
+        # No image resolution: stopping a container does not need to know what
+        # it would have been started from, and the compose file's defaults
+        # interpolate fine without it.
+        return
+
     if not gui_enabled():
         logger.debug("Deployment GUI disabled by HMD_LOCAL_NEURONSPHERE_ENABLE_GUI")
         return

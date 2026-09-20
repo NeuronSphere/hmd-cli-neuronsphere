@@ -1,0 +1,16 @@
+hmd-cli-neuronsphere
+Copyright 2026 HMD Labs, Inc.
+
+This product is part of the NeuronSphere Data Platform, developed by
+HMD Labs, Inc. (https://github.com/HMDLabs).
+
+The licence grant in LICENSE.txt applies only to the code made available in
+this repository and does not extend to any other component of NeuronSphere
+or any other product or service provided by HMD Labs, Inc.
+
+NeuronSphere, nsctl and the NeuronSphere logo are trademarks of HMD Labs,
+Inc. No licence grant in this repository conveys any right to use them; see
+TRADEMARKS.md in the hmd-cli-neuronsphere repository.
+
+Third-party components included in or pulled by this product remain under
+their own licences.

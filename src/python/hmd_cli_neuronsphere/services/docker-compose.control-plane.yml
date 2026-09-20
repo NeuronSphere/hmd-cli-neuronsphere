@@ -26,7 +26,15 @@ services:
       # restart. See env_registry.env_port_range().
       - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}"
     networks:
-      - neuronsphere_default
+      neuronsphere_default:
+        aliases:
+          # So a container on this network resolves the identity provider's
+          # issuer hostname to the proxy, which is the only thing that answers
+          # for it. The issuer has to be one string from everywhere -- the
+          # browser resolves this through /etc/hosts and cluster pods through a
+          # CoreDNS record, and both land here too. Harmless when the provider
+          # is not enabled: the name resolves and nothing is listening for it.
+          - "${HMD_LOCAL_AUTH_HOST:-auth.local.neuronsphere.io}"
     volumes:
       - "${HMD_HOME}/.cache/nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
       # Directory bind so route fragments added/removed at runtime are visible
@@ -77,6 +85,13 @@ services:
       FLOCI_HOSTNAME: neuronsphere
       FLOCI_SERVICES_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
+      # Every default below names ghcr.io/hmdlabs. That is where these images
+      # are built and tagged; ghcr.io/neuronsphere held only the released subset
+      # and is stale, so two of the refs this file used to default to -- the
+      # gremlin server and the k3s wrapper -- existed under no tag at all. A
+      # machine with no HMD_LOCAL_NS_CONTAINER_REGISTRY set, which is every
+      # fresh install, could not bring up a graph or a cluster.
+      #
       # RDS: Floci runs a real postgres container per DB instance. Pinning the
       # image keeps local parity with what `hmd-postgres-base` provides
       # (extensions, the baked dbs_init.sh) instead of Floci's postgres:16-alpine
@@ -84,25 +99,42 @@ services:
       # the *current* value on every start while reusing the instance's named
       # volume, so changing the postgres major version fails the container with
       # "database files are incompatible" and needs a purge.
-      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+      #
+      # 0.3.12 rather than `stable`: it is the first hmd-postgres-base build to
+      # carry the postgres 14 its Dockerfile has specified since the bump was
+      # committed and never released, and the first published for arm64 at all.
+      # hmdlabs has no `stable` tag and the pipeline cuts no floating `0.3`, so
+      # an exact patch is the only pin available -- the same reason the k3s
+      # wrapper is pinned to 0.3.2. That is a major bump from the 12.9 every
+      # earlier tag shipped, so an existing data directory needs
+      # `hmd neuronsphere db upgrade` or this pinned back; nsctl checks for
+      # exactly that before Floci starts.
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-0.3.12}
       FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       # Floci emulates a Neptune cluster by spawning a real gremlin-server
       # container, and this is the image it spawns. The stock TinkerPop image is
       # unusable as a Neptune backend: it runs TinkerGraph in memory (nothing
       # persists) with a LONG id manager that rejects the string NIDs
-      # hmd-entity-storage writes. hmd-img-gremlin-server 0.3.5 is built on
+      # hmd-entity-storage writes. hmd-img-gremlin-server 0.3.6 is built on
       # TinkerPop with `*IdManager=ANY`, a persisted graphLocation and a
       # shutdown hook that actually writes it -- see that repo's CHANGELOG.
       # Pinned, not floating: Floci recreates the backend container from the
       # current value, and the graph lives in that container's writable layer.
-      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.5}
+      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.6}
       FLOCI_SERVICES_NEPTUNE_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
       # two broken kube-apiserver overrides Floci injects
       # (--kube-apiserver-arg=storage-backend=sqlite3 and etcd-servers=unix:///tmp/kine.sock)
       # that otherwise crash-loop the apiserver ("--storage-backend invalid").
-      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.2}
+      # Pinned to an exact patch rather than the floating `0.3`, for the same
+      # reason as the gremlin pin above and one more: 0.3.2 is the first build
+      # of this image the pipeline ever published (the repo carries no other
+      # tag), and it is what carries `--disable-network-policy`. A machine that
+      # still holds a locally built `0.3` would otherwise keep a wrapper
+      # without it, and k3s dies on a warm start whose recorded node IP has
+      # churned off the default bridge.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-k3s-floci:0.3.4}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:
@@ -124,7 +156,8 @@ services:
           - neuronsphere
           - neuronsphere-workload
 
-  # The Deployment GUI (hmd-app-neuronsphere): the Django front end to
+  # The Deployment GUI (hmd-app-neuronsphere-core, the core half of the NERD0015
+  # split; HMD_LOCAL_IMAGE_HMD_APP_NEURONSPHERE runs the premium overlay): the Django front end to
   # hmd-ms-deployment, pointed at the local control plane so a local user browses
   # environment BOMs and applies ChangeSets the way they would in the cloud.
   #
@@ -144,8 +177,9 @@ services:
     # Always set by environments.export_control_plane_compose_env(), which pins
     # the version (environments.GUI_IMAGE_VERSION) and prefers a locally built
     # image over the published one. The default here only applies when compose is
-    # driven by hand.
-    image: ${HMD_DEPLOYMENT_GUI_IMAGE:-ghcr.io/hmdlabs/hmd-app-neuronsphere:stable}
+    # driven by hand -- which is why it was allowed to go stale at `stable`, a
+    # tag this image has never had.
+    image: ${HMD_DEPLOYMENT_GUI_IMAGE:-ghcr.io/hmdlabs/hmd-app-neuronsphere-core:0.1.1}
     restart: unless-stopped
     # No host port: reached at http://localhost:19003/ through hmd_proxy's
     # control-plane vhost (nginx_router.write_control_plane_vhosts).
@@ -218,6 +252,40 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 5
+    networks:
+      - neuronsphere_default
+
+  # The local mock identity provider: a stand-in for Okta, so authorization can
+  # be tested without one.
+  #
+  # The nsctl binary in a container -- the Dockerfile's ENTRYPOINT is /nsctl.
+  # No registry: this image is not published anywhere. nsctl always sets
+  # HMD_NSCTL_IMAGE explicitly (controlplane.NsctlImageRef), building the image
+  # from sources embedded in the binary if it is absent; this default only
+  # applies when compose is driven by hand after `make image`.
+  authd:
+    container_name: hmd_authd
+    profiles: ["authd"]
+    image: ${HMD_NSCTL_IMAGE:-hmd-img-nsctl:latest}
+    command: ["authd", "serve", "--addr", ":8080"]
+    restart: unless-stopped
+    # No host port. hmd_proxy answers for the issuer's hostname and forwards
+    # here, which is what lets one URL work from the browser, from a pod and
+    # from a Floci container.
+    environment:
+      HMD_HOME: ${HMD_HOME}
+      HMD_LOCAL_AUTH_ISSUER: ${HMD_LOCAL_AUTH_ISSUER:-http://auth.local.neuronsphere.io}
+    volumes:
+      # For the signing key alone. It is persisted so that a restart does not
+      # invalidate every token already issued, which would look like an
+      # authentication bug in a session that was working a moment earlier.
+      - "${HMD_HOME}:${HMD_HOME}"
+    healthcheck:
+      test: ["CMD", "/nsctl", "version"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
     networks:
       - neuronsphere_default
 

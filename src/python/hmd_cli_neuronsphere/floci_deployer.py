@@ -424,7 +424,7 @@ def configured_k3s_wrapper_image() -> str:
     if current:
         return current
     registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
-    return f"{registry}/hmd-img-k3s-floci:0.2"
+    return f"{registry}/hmd-img-k3s-floci:0.3.4"
 
 
 K3S_CONTAINER_PREFIX = "floci-eks-"

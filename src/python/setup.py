@@ -16,7 +16,7 @@ setup(
     long_description=readme,
     author="Adam Stortz",
     author_email="adam.stortz@hmdlabs.io",
-    license="Apache 2.0",
+    license="Apache-2.0",
     packages=find_packages(),
     include_package_data=True,
     package_data={
@@ -32,20 +32,19 @@ setup(
             "services/*",
             "services/**/*",
             "services/**/.*",
-            # External artifacts (populated by pre_build_artifacts during hmd build)
+            # External artifacts (populated by pre_build_artifacts during hmd
+            # build). Recursive for the same reason services/ above is: the
+            # per-directory list this replaced named config/, templates/,
+            # scripts/ and scripts/postgres/ and silently dropped every other
+            # subdirectory an artifact might ship.
             "external/*/src/local/*",
-            "external/*/src/local/config/*",
-            "external/*/src/local/config/**/*",
-            "external/*/src/local/config/.*",
-            "external/*/src/local/templates/*",
-            "external/*/src/local/scripts/*",
-            "external/*/src/local/scripts/postgres/*",
+            "external/*/src/local/.*",
+            "external/*/src/local/**/*",
+            "external/*/src/local/**/.*",
             # Operator/addon Helm charts (installed onto the Floci k3s cluster)
             "external/*/meta-data/*",
             "external/*/src/helm/*",
             "external/*/src/helm/**/*",
-            "external/*/src/local/cdktf/*",
-            "external/*/src/local/cdktf/**/*",
             "external/*/src/cdktf/*",
             "external/*/src/cdktf/**/*",
         ]

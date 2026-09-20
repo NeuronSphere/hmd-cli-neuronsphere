@@ -753,8 +753,40 @@ class ComputeNewBomEntriesTests(unittest.TestCase):
         self.assertEqual(new, bom)
 
 
+class RepoDiscoveryTests(unittest.TestCase):
+    """NERD0013 SPEC0005: the seeder forwards the manifest's ``discovery`` block."""
+
+    def _manifest_dir(self, tmp, manifest):
+        meta = Path(tmp) / "meta-data"
+        meta.mkdir(parents=True)
+        (meta / "manifest.json").write_text(json.dumps(manifest))
+        return tmp
+
+    def test_get_repo_discovery_reads_manifest(self):
+        import tempfile
+
+        discovery = {
+            "summary": "Does things.",
+            "capabilities": [{"name": "x", "kind": "function", "description": "y"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            self._manifest_dir(tmp, {"name": "hmd-x", "discovery": discovery})
+            self.assertEqual(
+                b._get_repo_discovery("hmd-x", metadata_root=tmp), discovery
+            )
+
+    def test_get_repo_discovery_none_without_section_or_manifest(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._manifest_dir(tmp, {"name": "hmd-x", "deploy": {}})
+            self.assertIsNone(b._get_repo_discovery("hmd-x", metadata_root=tmp))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(b._get_repo_discovery("hmd-x", metadata_root=tmp))
+
+
 class SeedBomIdempotencyTests(unittest.TestCase):
-    def _run_seed_bom(self, state, bom):
+    def _run_seed_bom(self, state, bom, discovery=None):
         """Drive seed_bom against a minimal fake in-memory ms-deployment.
 
         ``state`` accumulates deployment_set / change_set rows created via
@@ -790,6 +822,7 @@ class SeedBomIdempotencyTests(unittest.TestCase):
             if op.startswith("generate_local_deployment/"):
                 return {"nodes": []}
             if op == "add_repo_class_version":
+                state.setdefault("add_rcv_payloads", []).append(payload)
                 return {}
             return {}
 
@@ -805,6 +838,8 @@ class SeedBomIdempotencyTests(unittest.TestCase):
             b, "_get_repo_dependencies", return_value={}
         ), mock.patch.object(
             b, "_get_repo_deploy_config", return_value={}
+        ), mock.patch.object(
+            b, "_get_repo_discovery", return_value=discovery
         ), mock.patch.object(
             b, "declare_core_produces"
         ), mock.patch.object(
@@ -829,6 +864,31 @@ class SeedBomIdempotencyTests(unittest.TestCase):
         self._run_seed_bom(state, bom)
         self._run_seed_bom(state, bom)
         self.assertEqual(len(state["deployment_sets"]), 1)
+
+    def test_add_repo_class_version_carries_discovery_when_present(self):
+        state = {"deployment_sets": [], "change_sets": [], "apply_changeset_calls": []}
+        bom = [{"repo_instance_name": "x", "repo_class_name": "hmd-x"}]
+        discovery = {"summary": "Does things.", "capabilities": []}
+
+        self._run_seed_bom(state, bom, discovery=discovery)
+
+        payloads = [
+            p for p in state["add_rcv_payloads"] if p["repo_class_name"] == "hmd-x"
+        ]
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0]["discovery"], discovery)
+
+    def test_add_repo_class_version_omits_discovery_when_absent(self):
+        state = {"deployment_sets": [], "change_sets": [], "apply_changeset_calls": []}
+        bom = [{"repo_instance_name": "x", "repo_class_name": "hmd-x"}]
+
+        self._run_seed_bom(state, bom, discovery=None)
+
+        payloads = [
+            p for p in state["add_rcv_payloads"] if p["repo_class_name"] == "hmd-x"
+        ]
+        self.assertEqual(len(payloads), 1)
+        self.assertNotIn("discovery", payloads[0])
 
     def test_change_set_name_unique_per_call(self):
         state = {

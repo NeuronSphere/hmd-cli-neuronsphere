@@ -4,6 +4,16 @@ hmd-cli-neuronsphere
 =========================
 A CLI tool for controlling the Local NeuronSphere.
 
+.. note::
+
+   This page describes ``hmd neuronsphere``, the Python CLI, which is fully
+   supported and is what you want if your project's workloads come from
+   installed plugin packages.
+
+   For a new install, :doc:`nsctl` is the recommended way to run the local
+   platform: a single Go binary whose only prerequisite is Docker. Both front
+   ends operate on the same ``HMD_HOME`` and can be used interchangeably.
+
 Additional Requirements
 ---------------------------------
 - Docker Compose

@@ -1,0 +1,17 @@
+# Compiled Go binaries produced by `make build`
+/build/
+
+# Staged by `make generate` from src/python/hmd_cli_neuronsphere/services/.
+# Not committed: the Python package is the one source of truth for these.
+/internal/bundled/services/
+
+# Packed by `make generate` from this module's own sources.
+/internal/bundled/image/
+
+# Packed by `make generate` from the repo classes' published `build` artifacts.
+# Not committed: they are fetched, and .artifacts/ below is where they land.
+/internal/bundled/repos/
+
+# Repo trees fetched by tools/repopack, keyed <class>@<version>. Survives
+# `make clean`; `make clean-artifacts` discards it.
+/.artifacts/

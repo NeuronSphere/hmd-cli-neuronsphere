@@ -1,0 +1,147 @@
+# Release on every push to main, the way every other NeuronSphere repository
+# is built: hmd-ms-projects issues the build number, the repository is tagged
+# MAJOR.MINOR.BUILD, and the artifact carries that version. Here the artifact
+# is the nsctl binary and GoReleaser does the publishing, in the same job that
+# minted the tag -- a tag pushed with GITHUB_TOKEN fires no other workflow, so
+# a tag-triggered release would never run.
+#
+# Credentials are minted per run: the librarian and ms-projects accept an Okta
+# service token, obtained exactly as `hmd login service` does, from the
+# long-lived service client in the repository secrets. No token is stored.
+#
+# There is no image job. The nsctl image (the local identity provider, authd,
+# runs from it) is not published anywhere; nsctl builds it from sources
+# embedded in the binary when auth is enabled.
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go/nsctl/go.mod
+
+      # `make generate` fetches the repo trees the binary embeds, keyed on the
+      # pins in manifest.json; only a pin bump costs a download.
+      - uses: actions/cache@v4
+        with:
+          path: src/go/nsctl/.artifacts
+          key: repo-artifacts-${{ hashFiles('meta-data/manifest.json') }}
+
+      # What `hmd login service` does, without installing the Python CLI: a
+      # client-credentials grant from the service client. The token lives for
+      # this run only.
+      - name: Librarian service token
+        env:
+          HMD_SERVICES_ISSUER: ${{ secrets.HMD_SERVICES_ISSUER }}
+          HMD_SERVICE_CLIENT_ID: ${{ secrets.HMD_SERVICE_CLIENT_ID }}
+          HMD_SERVICE_CLIENT_SECRET: ${{ secrets.HMD_SERVICE_CLIENT_SECRET }}
+          HMD_ARTIFACT_LIBRARIAN_URL: ${{ secrets.HMD_ARTIFACT_LIBRARIAN_URL }}
+        run: |
+          for v in HMD_SERVICES_ISSUER HMD_SERVICE_CLIENT_ID HMD_SERVICE_CLIENT_SECRET HMD_ARTIFACT_LIBRARIAN_URL; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is not set"; exit 1; }
+          done
+          token=$(curl -fsS -X POST "${HMD_SERVICES_ISSUER%/}/v1/token" \
+            -d grant_type=client_credentials -d scope=service \
+            -d "client_id=$HMD_SERVICE_CLIENT_ID" -d "client_secret=$HMD_SERVICE_CLIENT_SECRET" \
+            | jq -r '.access_token // empty')
+          [ -n "$token" ] || { echo "::error::the issuer returned no access_token"; exit 1; }
+          echo "::add-mask::$token"
+          echo "HMD_AUTH_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "HMD_ARTIFACT_LIBRARIAN_URL=$HMD_ARTIFACT_LIBRARIAN_URL" >> "$GITHUB_ENV"
+
+      # gofmt, vet, unit tests, the race detector, the binary, and the
+      # Docker-free contract suite. A release never ships an untested build.
+      - run: make check
+      - run: make test-race
+      - run: make build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install robotframework
+      - run: make test-cli
+
+      # The build number, from the same counter every other repository uses.
+      # Keyed on the run id so a re-run of this job gets the same number back
+      # instead of burning a new one.
+      - name: Build number
+        id: build
+        env:
+          HMD_MS_PROJECTS_ENDPOINT: ${{ secrets.HMD_MS_PROJECTS_ENDPOINT }}
+        run: |
+          [ -n "$HMD_MS_PROJECTS_ENDPOINT" ] || { echo "::error::secret HMD_MS_PROJECTS_ENDPOINT is not set"; exit 1; }
+          n=$(curl -fsS -X POST "${HMD_MS_PROJECTS_ENDPOINT%/}/apiop/get_next_build_number/hmd-cli-neuronsphere" \
+            -H "Authorization: $HMD_AUTH_TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"correlation_id\": \"gha-${GITHUB_RUN_ID}\"}" | jq -r '.build_number // empty')
+          [ -n "$n" ] || { echo "::error::ms-projects returned no build_number"; exit 1; }
+          tag="$(cat meta-data/VERSION).$n"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "::notice::releasing $tag"
+
+      # What `hmd version update` and `hmd version tag` do: the full version
+      # in the workspace's VERSION (never committed) and a tag on this commit.
+      # A re-run finds the tag already there and moves on.
+      - name: Tag
+        env:
+          TAG: ${{ steps.build.outputs.tag }}
+        run: |
+          printf '%s' "$TAG" > meta-data/VERSION
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "tag $TAG already exists"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      # Releasing the same tag twice fails, so recognise finished work.
+      - id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.build.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG is already released; nothing to do."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The built-in GITHUB_TOKEN cannot write to the tap, so the cask needs a
+      # PAT. Without it, publish the binaries rather than failing the release.
+      - id: tap
+        if: steps.existing.outputs.published == 'false'
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "skip=" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=--skip=homebrew_casks" >> "$GITHUB_OUTPUT"
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set, so the Homebrew cask was not updated. Users will not see this version from brew until it is."
+          fi
+
+      - if: steps.existing.outputs.published == 'false'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean ${{ steps.tap.outputs.skip }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with write access to neuronsphere/homebrew-tap so GoReleaser can
+          # commit the updated cask.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Unset until the hosted tenant exists; the empty string links as the
+          # "refuse and say what to write" behaviour .goreleaser.yaml describes.
+          NSCTL_DEFAULT_AUTH_URL: ""

@@ -1,0 +1,76 @@
+{
+  "name": "acme-dp-\u00e9t\u00e9",
+  "description": "Net revenue per customer per month: invoices plus add-on orders net of refunds. \"quoted\" & <html> / slash \ud83d\ude00 tab\tnewline\n",
+  "build": {
+    "mechanism": "external"
+  },
+  "deploy": {
+    "commands": [
+      [
+        "exec",
+        "acme-deploy"
+      ],
+      [
+        "helm",
+        {
+          "values": "x.yaml"
+        }
+      ]
+    ],
+    "image": "acme/ci-tools:1",
+    "dependencies": {
+      "warehouse": {
+        "required": "true",
+        "resource": {
+          "resource_namespace": "acme.com",
+          "resource_definition_name": "sql-warehouse",
+          "version": "0.1.0"
+        }
+      },
+      "zeta": {
+        "required": "false"
+      },
+      "alpha": {
+        "required": "true",
+        "repo_class_name": "hmd-ms-alpha"
+      }
+    },
+    "default_configuration": {
+      "kind": "product",
+      "replicas": 2,
+      "ratio": 1.5,
+      "whole": 1.0,
+      "flag": true,
+      "none": null,
+      "empty": {},
+      "list": []
+    }
+  },
+  "unknown_top": {
+    "nested": [
+      1,
+      2,
+      {
+        "deep": "value"
+      }
+    ]
+  },
+  "test": {
+    "commands": [
+      [
+        "exec",
+        "make",
+        "verify"
+      ]
+    ]
+  },
+  "discovery": {
+    "summary": "s",
+    "entry_points": [
+      {
+        "path": "p",
+        "description": "d"
+      }
+    ]
+  }
+}

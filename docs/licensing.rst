@@ -1,0 +1,112 @@
+Licensing
+=========
+
+NeuronSphere is an **open-source CLI on a source-available platform**. The
+words are chosen carefully: ``nsctl`` and everything it embeds are Open
+Source; the three services it runs are not, and become Open Source four years
+after each release. Do not describe the platform as a whole as "open source".
+
+What is licensed how
+--------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 44
+
+   * - Component
+     - Licence
+     - Why
+   * - ``nsctl`` binary, this repository
+     - Apache License 2.0
+     - The free entry point. Permissive, with a patent grant, so it clears
+       enterprise legal review without a conversation.
+   * - Deploy descriptors embedded in the binary (``meta-data/``,
+       ``src/cdktf/``, ``src/helm/``, ``src/local/``, ``src/opa-bundles/`` of
+       every bundled repo class)
+     - Apache License 2.0
+     - Other repo classes depend on them; the format has to be free to copy.
+   * - Platform libraries and images the descriptors need
+       (``hmd-lib-cdktf``, ``hmd-lib-cdktf-factories``, ``hmd-ms-base``,
+       ``hmd-img-projectbuilder``, ``hmd-img-k3s-floci``, ...)
+     - Apache License 2.0
+     - Framework code third parties build their own repo classes on.
+   * - The BACON manifest specification (``hmd-docs-bacon``)
+     - CC-BY-4.0 prose; Apache 2.0 schemas and examples
+     - Adoption of the format is the point. Anyone may implement it.
+   * - **Deployment engine** (``hmd-ms-deployment``), **Artifact Librarian**
+       (``hmd-ms-librarian``), **NeuronSphere GUI** (``hmd-app-neuronsphere``)
+       -- their ``src/python/``, ``src/docker/``, ``src/typescript/``
+     - Business Source License 1.1, Change Licence Apache 2.0
+     - The services that carry the commercial product. See below.
+   * - Third-party components (Floci -- MIT, k3s -- Apache 2.0, PostgreSQL,
+       nginx)
+     - Their own
+     - Redistributed unchanged.
+
+The three BUSL repositories are *path-scoped*: one ``LICENSE.txt`` grants
+Apache 2.0 to the deploy-descriptor paths and BUSL 1.1 to everything else,
+with the full Apache text alongside as ``LICENSE-Apache-2.0.txt``. The repo is
+not split, so the BACON convention that a repo class is one repository holds.
+
+What the Business Source License means for you
+----------------------------------------------
+
+The Additional Use Grant, identical in all three repositories:
+
+* **Any local, evaluation, development or test use is free**, for an
+  organisation of any size -- including every environment
+  ``nsctl env start`` brings up. This is the base BUSL grant plus a sentence
+  making it explicit.
+* **Non-commercial production use is free**: individuals for personal
+  purposes, teaching and academic research, non-profits for their own
+  purposes, and running a project whose source is public under an Open
+  Source licence.
+* **Production use by or on behalf of a business requires a commercial
+  agreement** with HMD Labs, Inc., whatever the size of the business.
+* **Nobody may offer the services to third parties as a hosted or managed
+  service** without an agreement.
+* **Four years after a version is published it becomes Apache 2.0.**
+
+The grant is enforced the way every source-available licence is: legally,
+against organisations. There are no licence keys, no phone-home and no
+feature gates, and ``nsctl`` never checks anything.
+
+Existing customers running the platform in their own AWS accounts are
+governed by their agreement with HMD Labs, not by ``LICENSE.txt``; the grant
+permits their use in any case.
+
+Why not one licence for everything
+----------------------------------
+
+*Apache 2.0 for everything* would make the services free to run at any scale
+and free to offer as a competing hosted product; the code that costs the most
+to build would earn nothing. *BUSL for everything*, including ``nsctl``,
+would put a non-OSI licence on the one artifact whose whole job is
+zero-friction adoption. Splitting by artifact -- open client, protected
+service, Open Source eventually -- is the shape Elastic, HashiCorp, MariaDB
+and CockroachDB settled on for the same reason.
+
+``hmd-cli-bartleby`` is also BUSL 1.1. That predates this policy and differs
+deliberately: bartleby is a documentation toolchain adjacent to paid work,
+not the funnel entry point.
+
+Keeping the binary single-licence
+---------------------------------
+
+``nsctl`` is Apache 2.0 only if nothing BUSL-licensed is compiled or embedded
+into it. ``tools/repopack`` therefore never packs ``src/python/``,
+``src/typescript/`` or ``src/docker/`` from any repo class, and
+``internal/bundled`` has a test that fails the build if a shipped archive
+contains them. The services themselves reach the local platform as container
+images ``nsctl`` pulls at runtime -- a dependency like PostgreSQL, not part of
+the binary. Every NeuronSphere image carries an
+``org.opencontainers.image.licenses`` label, and the three BUSL images also
+ship their licence texts under ``/licenses/<repo>/``.
+
+Trademarks and contributions
+----------------------------
+
+Neither licence grants rights to the NeuronSphere, nsctl or HMD Labs names or
+logo; see ``TRADEMARKS.md``. Contributions to Apache-licensed repositories
+are accepted under the Developer Certificate of Origin (``git commit -s``);
+see ``CONTRIBUTING.md``.

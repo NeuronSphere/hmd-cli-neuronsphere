@@ -1,0 +1,33 @@
+{
+  "control_plane": {
+    "bootstrapped": true,
+    "compose_project": "local_neuronsphere-57aa833c",
+    "floci_data_dir": "/Users/aburg/hmdtr1/floci/data",
+    "network": "neuronsphere_default-57aa833c"
+  },
+  "default_env": "local",
+  "environments": {
+    "local": {
+      "account_id": "000000000001",
+      "bootstrap": {
+        "csd_nid": "ms-deployment-local-reg1-hmdtr1-335625477841",
+        "k3s_uid": "a3db9972-f83c-4f0a-b147-8f7e73422eec",
+        "mode": "extend"
+      },
+      "compose_project": "ns-57aa833c-env-local",
+      "core_instance_name": "local-neuronsphere",
+      "db_container": "hmd_db-local",
+      "deployment_id": "local",
+      "graph_container": "global-graph-local",
+      "k3s_cluster": "ns-local-57aa833c",
+      "kubeconfig": "/Users/aburg/hmdtr1/.cache/environments/local/k3s/kubeconfig",
+      "legacy_layout": false,
+      "name": "local",
+      "port_base": 19000,
+      "port_slot": 8,
+      "slug": "local",
+      "state_dir": "/Users/aburg/hmdtr1/.cache/environments/local"
+    }
+  },
+  "version": 1
+}

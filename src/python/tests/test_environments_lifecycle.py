@@ -511,6 +511,43 @@ class ControlPlaneComposeEnvTests(unittest.TestCase):
         self.assertNotIn("COMPOSE_PROFILES", os.environ)
         self.assertNotIn("HMD_DEPLOYMENT_GUI_IMAGE", os.environ)
 
+    def test_a_teardown_activates_every_profile(self):
+        """`hmd neuronsphere down --purge` left hmd_nsrunner running because
+        COMPOSE_PROFILES named the GUI alone. A container compose cannot see is
+        a container a stop does not stop."""
+        envs.export_control_plane_compose_env(all_profiles=True)
+        active = os.environ["COMPOSE_PROFILES"].split(",")
+        self.assertIn(envs.GUI_COMPOSE_PROFILE, active)
+        self.assertIn(envs.RUNNER_COMPOSE_PROFILE, active)
+
+    def test_a_teardown_ignores_the_enable_flags(self):
+        """Start with the GUI on, unset the variable, stop -- the container has
+        to be stopped anyway, so a teardown does not consult what is enabled."""
+        os.environ["HMD_LOCAL_NEURONSPHERE_ENABLE_GUI"] = "false"
+        envs.export_control_plane_compose_env(all_profiles=True)
+        self.assertIn(envs.GUI_COMPOSE_PROFILE, os.environ["COMPOSE_PROFILES"])
+
+    def test_the_runner_profile_matches_the_compose_file(self):
+        """The name is nsctl's (controlplane.RunnerProfile) and lives in the
+        shared compose file; a typo here silently reinstates the bug."""
+        path = (
+            Path(hmd_cli_neuronsphere.__file__).parent
+            / "services"
+            / "docker-compose.control-plane.yml"
+        )
+        service = yaml.safe_load(path.read_text())["services"]["nsrunner"]
+        self.assertEqual(service["profiles"], [envs.RUNNER_COMPOSE_PROFILE])
+
+    def test_starting_up_does_not_activate_the_runner(self):
+        """nsctl owns that decision, and the image may not exist yet."""
+        with mock.patch.object(
+            envs, "deployment_gui_image", return_value="some/ref:0.1"
+        ):
+            envs.export_control_plane_compose_env()
+        self.assertNotIn(
+            envs.RUNNER_COMPOSE_PROFILE, os.environ.get("COMPOSE_PROFILES", "")
+        )
+
     def test_an_unresolvable_image_does_not_fail_the_export(self):
         """The compose file's own default still applies; a missing image is not a
         reason to abort `up`."""

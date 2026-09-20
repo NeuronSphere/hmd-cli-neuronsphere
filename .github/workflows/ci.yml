@@ -1,0 +1,77 @@
+# What NERD002's Phase 0 entry claimed had landed. `make check` existed and was
+# commented "the CI target"; nothing ran it. This does.
+#
+# main is not listed: release.yml runs the same checks there before it tags
+# and publishes, and running them twice per push buys nothing.
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go/nsctl/go.mod
+
+      # Keyed on the pins, so only a version bump costs a download. The cache
+      # is what repopack writes: src/go/nsctl/.artifacts/<class>@<version>.
+      - uses: actions/cache@v4
+        with:
+          path: src/go/nsctl/.artifacts
+          key: repo-artifacts-${{ hashFiles('meta-data/manifest.json') }}
+
+      # `make generate` fetches the repo trees the binary embeds from the
+      # artifact librarian -- pinned in meta-data/manifest.json as
+      # pre_build_artifacts, not committed. The librarian takes an Okta service
+      # token, minted here per run the way `hmd login service` does it.
+      #
+      # A pull request from a fork has no secrets; it rides the cache and fails
+      # at go:embed if the pins moved, which is the honest outcome.
+      - name: Librarian service token
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          HMD_SERVICES_ISSUER: ${{ secrets.HMD_SERVICES_ISSUER }}
+          HMD_SERVICE_CLIENT_ID: ${{ secrets.HMD_SERVICE_CLIENT_ID }}
+          HMD_SERVICE_CLIENT_SECRET: ${{ secrets.HMD_SERVICE_CLIENT_SECRET }}
+          HMD_ARTIFACT_LIBRARIAN_URL: ${{ secrets.HMD_ARTIFACT_LIBRARIAN_URL }}
+        run: |
+          for v in HMD_SERVICES_ISSUER HMD_SERVICE_CLIENT_ID HMD_SERVICE_CLIENT_SECRET HMD_ARTIFACT_LIBRARIAN_URL; do
+            [ -n "${!v}" ] || { echo "::error::secret $v is not set"; exit 1; }
+          done
+          token=$(curl -fsS -X POST "${HMD_SERVICES_ISSUER%/}/v1/token" \
+            -d grant_type=client_credentials -d scope=service \
+            -d "client_id=$HMD_SERVICE_CLIENT_ID" -d "client_secret=$HMD_SERVICE_CLIENT_SECRET" \
+            | jq -r '.access_token // empty')
+          [ -n "$token" ] || { echo "::error::the issuer returned no access_token"; exit 1; }
+          echo "::add-mask::$token"
+          echo "HMD_AUTH_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "HMD_ARTIFACT_LIBRARIAN_URL=$HMD_ARTIFACT_LIBRARIAN_URL" >> "$GITHUB_ENV"
+
+      # gofmt, vet and the unit tests. `generate` runs first as a dependency of
+      # every one of these targets: the embedded compose file, nsctl sources
+      # and repo trees are not committed.
+      - run: make check
+
+      - run: make test-race
+
+      - run: make build
+
+      # The contract suite: what nsctl must do on a machine with no Docker, no
+      # control plane and no HMD_HOME. Robot Framework is not a Go dependency,
+      # so it is installed here rather than assumed.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install robotframework
+
+      - run: make test-cli

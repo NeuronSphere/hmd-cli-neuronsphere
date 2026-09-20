@@ -40,7 +40,7 @@ from hmd_cli_neuronsphere import floci_deployer as fd
 # that never reaches os.environ, so reconstructing the expectation from the
 # environment alone produced a permanent mismatch against a perfectly healthy
 # container -- see `configured_k3s_wrapper_image`.
-_EXPECTED = "ghcr.io/hmdlabs/hmd-img-k3s-floci:0.2"
+_EXPECTED = "ghcr.io/hmdlabs/hmd-img-k3s-floci:0.3.4"
 
 
 class _ResourceNotFoundException(Exception):
@@ -370,5 +370,5 @@ class ConfiguredK3sWrapperImageTests(unittest.TestCase):
         ):
             self.assertEqual(
                 fd.configured_k3s_wrapper_image(),
-                "ghcr.io/example/hmd-img-k3s-floci:0.2",
+                "ghcr.io/example/hmd-img-k3s-floci:0.3.4",
             )

@@ -16,22 +16,123 @@
         "src/python/hmd_cli_neuronsphere/external/telemetry-debug"
       ],
       [
-        "hmd-inf-ext-secrets-crds@0.1.3:build",
+        "hmd-inf-ext-secrets-crds@0.1.8:build",
         "src/python/hmd_cli_neuronsphere/external/ext-secrets-crds"
       ],
       [
-        "hmd-inf-ext-secrets@0.2.54:build",
+        "hmd-inf-ext-secrets@0.2.56:build",
         "src/python/hmd_cli_neuronsphere/external/ext-secrets"
       ],
       [
         "hmd-inf-s3bucket@0.1.13:build",
         "src/python/hmd_cli_neuronsphere/external/s3bucket"
+      ],
+      [
+        "hmd-inf-neptune@0.3.38:build",
+        "src/python/hmd_cli_neuronsphere/external/neptune"
+      ],
+      [
+        "hmd-vpc@0.2.43:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-vpc"
+      ],
+      [
+        "hmd-postgres-rds@0.8.53:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-postgres-rds"
+      ],
+      [
+        "hmd-inf-eks-cluster@0.7.119:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-inf-eks-cluster"
+      ],
+      [
+        "hmd-ms-naming@0.1.60:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-naming"
+      ],
+      [
+        "hmd-ms-artifact-lib@0.1.96:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-artifact-lib"
+      ],
+      [
+        "hmd-ms-deployment-core@0.1.1:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-deployment-core"
+      ],
+      [
+        "hmd-ms-dbaccount@0.1.46:build",
+        "src/python/hmd_cli_neuronsphere/external/hmd-ms-dbaccount"
       ]
     ],
-    "commands": [
-      [
-        "python"
-      ]
+    "commands": []
+  },
+  "discovery": {
+    "summary": "Local NeuronSphere control plane and environment substrate, runnable on a workstation with Docker as the only prerequisite. Ships two front ends against the same HMD_HOME environment registry: nsctl, a standalone Go binary (src/go/nsctl) that is the preferred entry point for env start/stop/status/purge and the control-plane lifecycle; and the legacy hmd_cli_neuronsphere Python plugin (neuronsphere/neuronsphere_env Cement controllers) which additionally covers repo-scoped operations (DB provisioning, artifact registration, plugin config, DAG-deployed service routing) that nsctl does not yet implement. Plugins under src/python/hmd_cli_neuronsphere/plugins/ (graph, floci, trino, airflow, argo, transform, apache_superset, hive_metastore, dynamodb, jupyter, minio) each contribute enable/prepare_hmd_home hooks for one platform component.",
+    "entry_points": [
+      {
+        "path": "README.md",
+        "description": "Front-door doc: explains the nsctl vs hmd_cli_neuronsphere split, what nsctl covers today vs not yet, and quickstart for both."
+      },
+      {
+        "path": "docs/nsctl.rst",
+        "description": "Full guide to the nsctl Go CLI (env lifecycle, control plane, registry)."
+      },
+      {
+        "path": "src/go/nsctl/main.go",
+        "description": "Entry point of the nsctl Go binary; delegates to cmd.Execute()."
+      },
+      {
+        "path": "src/go/nsctl/cmd/root.go",
+        "description": "Root Cobra command wiring for nsctl's subcommands (env, repo, controlplane, artifact, login, version)."
+      },
+      {
+        "path": "src/python/hmd_cli_neuronsphere/controller.py",
+        "description": "Cement Controller (LocalController) defining the legacy hmd neuronsphere/hmd neuronsphere_env CLI commands (up/down/restart, env create/list/stop, db provisioning, plugin config, artifact registration)."
+      },
+      {
+        "path": "src/python/hmd_cli_neuronsphere/plugins/main.py",
+        "description": "Plugin registration point other platform-component plugins (trino, airflow, argo, graph, floci, ...) hook into via enabled/prepare_hmd_home entry points."
+      }
+    ],
+    "capabilities": [
+      {
+        "name": "nsctl env start",
+        "kind": "cli_command",
+        "description": "Bring up the control plane if needed and start (or auto-register/start) a named local environment; the recommended way to start local NeuronSphere.",
+        "location": "src/go/nsctl/cmd/env.go"
+      },
+      {
+        "name": "hmd neuronsphere up",
+        "kind": "cli_command",
+        "description": "Legacy Python-CLI equivalent of full local platform startup, including DAG-deployed default BOM; slower than nsctl env start but covers verbs nsctl doesn't yet.",
+        "location": "src/python/hmd_cli_neuronsphere/controller.py"
+      },
+      {
+        "name": "hmd neuronsphere run",
+        "kind": "cli_command",
+        "description": "Run a NeuronSphere microservice instance locally against the local environment.",
+        "location": "src/python/hmd_cli_neuronsphere/controller.py:216"
+      },
+      {
+        "name": "hmd neuronsphere db-provision",
+        "kind": "cli_command",
+        "description": "Provision a local Postgres DB via hmd-ms-dbaccount and register it as a NERD Resource for hmd deploy --local dependency resolution.",
+        "location": "src/python/hmd_cli_neuronsphere/controller.py:808"
+      }
+    ],
+    "related_docs": [
+      {
+        "title": "nsctl guide",
+        "path": "docs/nsctl.rst"
+      },
+      {
+        "title": "Local environments",
+        "path": "docs/environments.rst"
+      },
+      {
+        "title": "Local NeuronSphere modes (Extend vs Platform)",
+        "path": "docs/modes.rst"
+      },
+      {
+        "title": "Helm chart dev loop",
+        "path": "docs/helm_chart_dev_loop.rst"
+      }
     ]
   }
 }
