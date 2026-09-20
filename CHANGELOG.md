@@ -2,6 +2,10 @@
 
 ## 2026-09-20
 
+- fix: `--home` is authoritative for the control plane's compose interpolation.
+  With `HMD_HOME` exported for another home in the same shell, `control-plane
+  start --home X` mounted that other home's Floci data dir and joined its
+  network, so a "fresh" control plane silently ran the other home's Floci.
 - feat: `env start` orders and runs deploys client-side (NERD0015): entries are
   registered as DEPLOY_NEXT plans with `register_deployed_instance`, configured
   through `get_deployment_config`, and executed by the in-process runner, which

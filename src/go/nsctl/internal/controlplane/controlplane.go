@@ -712,6 +712,14 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	}
 	overlay["HMD_REPO_HOME"] = repoHome
 	return func(key string) string {
+		// A value the user set wins over the overlay -- except HMD_HOME, which
+		// is the home this control plane is *for*: --home (or the HMD_HOME the
+		// command resolved) is the statement, and an HMD_HOME exported for
+		// another home in the same shell must not redirect Floci's data dir
+		// and network to that other home.
+		if key == "HMD_HOME" {
+			return opts.Home
+		}
 		if v := opts.lookup(key); v != "" {
 			return v
 		}

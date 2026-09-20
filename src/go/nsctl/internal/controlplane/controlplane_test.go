@@ -190,6 +190,19 @@ func TestComposeEnvLetsTheProcessEnvironmentWin(t *testing.T) {
 	}
 }
 
+// Except HMD_HOME: `--home nsdemo` with HMD_HOME=hmdtr1 exported in the same
+// shell used to hand compose hmdtr1's Floci data dir and network, so the
+// "fresh" control plane silently ran the other home's Floci.
+func TestComposeEnvHomeIsTheCommandsNotTheShells(t *testing.T) {
+	t.Parallel()
+
+	reg := &registry.Registry{ControlPlane: registry.ControlPlane{Network: "n"}}
+	opts := testOptions("/home/nsdemo", map[string]string{"HMD_HOME": "/home/hmdtr1"})
+	if got := ComposeEnv(opts, reg, "")("HMD_HOME"); got != "/home/nsdemo" {
+		t.Errorf("HMD_HOME = %q, want the command's home, not the shell's", got)
+	}
+}
+
 // An empty GUI image leaves the compose file's own :stable default in play,
 // which is degraded but not a reason to fail a start.
 func TestComposeEnvOmitsAnEmptyGUIImage(t *testing.T) {
