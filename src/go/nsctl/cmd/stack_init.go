@@ -229,7 +229,7 @@ func loadGraph(cmd *cobra.Command, opts *Options, fromEnv, fromBOM, envName stri
 		return stack.Graph{}, nil, nil, nserr.Wrap(nserr.Fail, err)
 	}
 	loadManifest(fromEnv)
-	entries := stack.BOMFromInstances(instances)
+	entries := stack.BOMFromInstances(instances, envManifest)
 	bomJSON, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return stack.Graph{}, nil, nil, err

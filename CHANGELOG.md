@@ -2,6 +2,12 @@
 
 ## 2026-09-21
 
+- fix(stack): the reference BOM `stack init --from-env` writes carries each
+  instance's declared `instance_configuration` (from the environment
+  manifest, never the live instance's) and `--from-bom` reads it back, so
+  CI's offline re-derive reproduces the checked-in local section instead of
+  stripping every configuration; `--diff` now passes on a freshly derived
+  stack.
 - feat(stack): a bare stack or plugin name expands to `ghcr.io/neuronsphere/…`
   (`repoclass.DistributionRegistry`, the public org `nsctl` is released under
   and a stack repository's `GITHUB_TOKEN` can push to) rather than the image

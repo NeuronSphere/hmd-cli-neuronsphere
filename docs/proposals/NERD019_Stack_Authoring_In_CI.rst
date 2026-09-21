@@ -165,7 +165,13 @@ the one manual, one-time act, and the workflow says so).
     ``nsctl bom show --json`` writes it. With ``--from-env``, the live graph
     is read through ``msdeploy.EnvironmentInstances`` and converted to the
     same shape, and is also written beside the manifest as
-    ``meta-data/reference-bom.json`` so CI has what the laptop had.
+    ``meta-data/reference-bom.json`` so CI has what the laptop had. Each
+    entry of that file carries the environment manifest's *declared*
+    ``instance_configuration`` for the instance -- never the live
+    instance's, the rule the derivation itself follows -- because CI's
+    ``--from-bom`` re-derive has no environment manifest to overlay and
+    would otherwise strip every instance's configuration (amended
+    2026-09-21, found by the first ``--diff`` against a checked-in stack).
 
     ``--select`` names the roots. The walk follows each root's dependency
     roles to the instances filling them, transitively, and classifies every

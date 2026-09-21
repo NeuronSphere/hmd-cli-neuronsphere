@@ -2,6 +2,7 @@ package stack
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -218,8 +219,41 @@ func TestBOMFromInstancesRoundTrips(t *testing.T) {
 	entries := BOMFromInstances([]msdeploy.DeployedInstance{
 		{Name: "b", RepoClassName: "c", RepoClassVersion: "1", Dependencies: map[string][]string{"r": {"a"}, "s": {"x", "y"}}},
 		{Name: "a", RepoClassName: "c", RepoClassVersion: "1"},
-	})
+	}, nil)
 	if entries[0].RepoInstanceName != "a" || entries[1].Targets("s")[1] != "y" || entries[1].Targets("r")[0] != "a" {
 		t.Errorf("entries = %+v", entries)
+	}
+}
+
+// The reference BOM carries the manifest's declared configuration -- and
+// only that, never the live instance's -- so a --from-bom re-derive with no
+// manifest to overlay reproduces what --from-env derived.
+func TestBOMFromInstancesCarriesDeclaredConfiguration(t *testing.T) {
+	t.Parallel()
+	live := map[string]any{"replicaCount": float64(3), "resolved": "by-the-platform"}
+	declared := map[string]any{"replicaCount": float64(1)}
+	m := &manifest.Manifest{Repos: []manifest.Repo{
+		{InstanceName: "superset", RepoClassName: "hmd-inf-superset", Version: "0.5", InstanceConfiguration: declared},
+	}}
+	entries := BOMFromInstances([]msdeploy.DeployedInstance{
+		{Name: "superset", RepoClassName: "hmd-inf-superset", RepoClassVersion: "0.5", InstanceConfiguration: live},
+		{Name: "redis", RepoClassName: "hmd-inf-redis", RepoClassVersion: "0.1", InstanceConfiguration: live},
+	}, m)
+	if got := entries[1].InstanceConfiguration; !reflect.DeepEqual(got, declared) {
+		t.Errorf("superset carries %v, want the declared %v", got, declared)
+	}
+	if entries[0].InstanceConfiguration != nil {
+		t.Errorf("redis is not declared in the manifest yet carries %v", entries[0].InstanceConfiguration)
+	}
+	// Round trip: the manifest-less re-derive sees the declared config.
+	n, _ := GraphFromBOM(entries, nil).Node("superset")
+	if !reflect.DeepEqual(n.Config, declared) {
+		t.Errorf("re-derived config = %v, want %v", n.Config, declared)
+	}
+	// And the manifest still wins when it is there.
+	m.Repos[0].InstanceConfiguration = map[string]any{"replicaCount": float64(2)}
+	n, _ = GraphFromBOM(entries, m).Node("superset")
+	if n.Config["replicaCount"] != float64(2) {
+		t.Errorf("manifest overlay lost: config = %v", n.Config)
 	}
 }

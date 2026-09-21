@@ -21,8 +21,9 @@ type Node struct {
 	Class        string
 	Version      string
 	Dependencies map[string][]string
-	// Config is the environment manifest's declared instance_configuration
-	// -- never the live instance's -- or nil.
+	// Config is the declared instance_configuration -- the environment
+	// manifest's, or the copy of it the reference BOM carries so an offline
+	// re-derive keeps it -- never the live instance's. Nil when none.
 	Config map[string]any
 	// Local marks an instance deployed from a working tree: it has no
 	// published artifact.
@@ -38,8 +39,10 @@ type Graph struct {
 	nodes map[string]Node
 }
 
-// GraphFromBOM builds a graph from a BOM export (`nsctl bom show --json`)
-// and, when present, the environment manifest.
+// GraphFromBOM builds a graph from a BOM export (`nsctl bom show --json`, or
+// the reference BOM --from-env wrote) and, when present, the environment
+// manifest. An entry's instance_configuration is the declared one the
+// reference BOM carries; the manifest, when given, still wins.
 func GraphFromBOM(entries []msdeploy.BOMEntry, m *manifest.Manifest) Graph {
 	g := Graph{nodes: map[string]Node{}}
 	for _, e := range entries {
@@ -47,7 +50,11 @@ func GraphFromBOM(entries []msdeploy.BOMEntry, m *manifest.Manifest) Graph {
 		for _, role := range e.Roles() {
 			deps[role] = e.Targets(role)
 		}
-		g.nodes[e.RepoInstanceName] = Node{Name: e.RepoInstanceName, Class: e.RepoClassName, Version: e.RepoClassVersion, Dependencies: deps}
+		n := Node{Name: e.RepoInstanceName, Class: e.RepoClassName, Version: e.RepoClassVersion, Dependencies: deps}
+		if len(e.InstanceConfiguration) > 0 {
+			n.Config = e.InstanceConfiguration
+		}
+		g.nodes[e.RepoInstanceName] = n
 	}
 	g.overlay(m)
 	return g
@@ -69,9 +76,21 @@ func GraphFromInstances(instances []msdeploy.DeployedInstance, m *manifest.Manif
 
 // BOMFromInstances converts the live graph to the export shape, so
 // --from-env can write the reference BOM CI will read.
-func BOMFromInstances(instances []msdeploy.DeployedInstance) []msdeploy.BOMEntry {
+//
+// Each entry carries the environment manifest's declared
+// instance_configuration for that instance -- not the live instance's, which
+// is the same rule Node.Config follows -- so CI's `--from-bom` re-derive,
+// which has no environment manifest to overlay, reproduces what `--from-env`
+// wrote instead of silently stripping every instance's configuration.
+func BOMFromInstances(instances []msdeploy.DeployedInstance, m *manifest.Manifest) []msdeploy.BOMEntry {
 	out := make([]msdeploy.BOMEntry, 0, len(instances))
 	for _, i := range instances {
+		var config map[string]any
+		if m != nil {
+			if r, ok := m.Repo(i.Name); ok && len(r.InstanceConfiguration) > 0 {
+				config = r.InstanceConfiguration
+			}
+		}
 		deps := map[string]any{}
 		for role, targets := range i.Dependencies {
 			switch len(targets) {
@@ -88,7 +107,7 @@ func BOMFromInstances(instances []msdeploy.DeployedInstance) []msdeploy.BOMEntry
 		}
 		out = append(out, msdeploy.BOMEntry{
 			RepoInstanceName: i.Name, RepoClassName: i.RepoClassName, RepoClassVersion: i.RepoClassVersion,
-			Status: i.Status, Dependencies: deps,
+			Status: i.Status, InstanceConfiguration: config, Dependencies: deps,
 		})
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].RepoInstanceName < out[b].RepoInstanceName })

@@ -120,7 +120,9 @@ no published artifact and is refused unless ``--bundle-local`` names it.
 Configuration is copied only from the environment manifest's declarations,
 and values that look tied to your machine are listed for review. Drop
 ``--dry-run`` to write the repository: the manifest, ``neuronsphere.lock``,
-``meta-data/reference-bom.json`` (what CI re-derives from) and the workflow.
+``meta-data/reference-bom.json`` (what CI re-derives from; it carries the
+declared configuration too, so the offline re-derive keeps it) and the
+workflow.
 
 **Or author it by hand**::
 
