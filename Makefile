@@ -80,16 +80,19 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSCTL_IMAGE ?= hmd-img-nsctl:$(VERSION)
 
-.PHONY: test-parity all build generate generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check help
+.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check ensure-repos-embed help
 
 all: build
 
-## generate: stage the bundled compose files, nsctl sources and repo trees
-generate:
+## generate-local: stage the bundled compose file and nsctl sources -- no network
+generate-local:
 	@mkdir -p $(EMBED_DIR)
 	@cp $(SERVICES_SRC)/docker-compose.control-plane.yml $(EMBED_DIR)/
 	@mkdir -p $(IMAGE_EMBED_DIR)
 	@cd $(GO_DIR) && $(GO) run ./tools/nsctlsrc . >/dev/null
+
+## generate: generate-local, plus the repo trees fetched from the artifact librarian
+generate: generate-local
 	@mkdir -p $(REPOS_EMBED_DIR)
 	@cd $(GO_DIR) && $(GO) run ./tools/repopack \
 	  -out internal/bundled/repos \
@@ -97,6 +100,7 @@ generate:
 	  -artifacts ../../../$(ARTIFACTS_DIR) \
 	  -cache $(ARTIFACT_CACHE) \
 	  $(BUNDLED_REPOS) >/dev/null
+	@rm -f $(REPOS_EMBED_DIR)/placeholder.tar.gz
 
 ## generate-verbose: the same, printing where each bundled repo tree came from
 generate-verbose:
@@ -165,12 +169,23 @@ fmt-check:
 ## check: fmt-check, vet and test -- the CI target
 check: fmt-check vet test
 
+# docref only walks the Cobra command tree's static Use/Short/Long/flag text --
+# it never invokes a command's RunE, so it never reads the embedded repo trees.
+# It still needs one file under repos/ for //go:embed to compile, so stage a
+# placeholder rather than pulling the real repo trees over the network; this is
+# a no-op once `generate` has already staged real ones (e.g. after `make
+# check` in ci.yml).
+ensure-repos-embed:
+	@mkdir -p $(REPOS_EMBED_DIR)
+	@ls $(REPOS_EMBED_DIR)/*.tar.gz >/dev/null 2>&1 || \
+	  { : | gzip -n > $(REPOS_EMBED_DIR)/placeholder.tar.gz; }
+
 ## docs-reference: regenerate the Cobra command reference
-docs-reference:
+docs-reference: generate-local ensure-repos-embed
 	cd $(GO_DIR) && $(GO) run ./tools/docref -out ../../../docs/reference/commands.rst
 
 ## docs-reference-check: fail when the checked-in command reference is stale
-docs-reference-check:
+docs-reference-check: generate-local ensure-repos-embed
 	@tmp=$$(mktemp); \
 	cd $(GO_DIR) && $(GO) run ./tools/docref -out "$$tmp" && \
 	diff -u ../../../docs/reference/commands.rst "$$tmp"; \
