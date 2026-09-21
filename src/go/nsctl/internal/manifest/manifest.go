@@ -161,6 +161,14 @@ type Manifest struct {
 	// duplicated under its default name.
 	Bindings map[string]string `yaml:"bindings,omitempty" json:"bindings,omitempty"`
 
+	// Stacks records every stack added to this environment (NERD017
+	// SPEC009): what was installed, from where, at which digest, and the
+	// bindings its planner chose. A stack's bindings live here and not in
+	// Bindings so a stack and a --from-repo subject can share an environment
+	// without one apply overwriting the other's naming. Optional; the schema
+	// version is unchanged.
+	Stacks []StackRecord `yaml:"stacks,omitempty" json:"stacks,omitempty"`
+
 	// Extra carries every top-level key nsctl does not model, so writing a
 	// manifest back never drops what the Python front end put there.
 	Extra map[string]any `yaml:",inline" json:"-"`
@@ -175,6 +183,49 @@ type Manifest struct {
 	// an environment's or the control plane's, not anything it says about
 	// itself. Not serialised.
 	Scope Scope `yaml:"-" json:"-"`
+}
+
+// StackRecord is one added stack.
+type StackRecord struct {
+	Name    string `yaml:"name" json:"name"`
+	Version string `yaml:"version" json:"version"`
+	// Ref is the source reference without a version; Digest is the manifest
+	// digest that was installed.
+	Ref    string `yaml:"ref" json:"ref"`
+	Digest string `yaml:"digest,omitempty" json:"digest,omitempty"`
+	// Profiles and Bindings are what the stack's planner recorded, with the
+	// meanings Manifest.Profiles and Manifest.Bindings have.
+	Profiles []string          `yaml:"profiles,omitempty" json:"profiles,omitempty"`
+	Bindings map[string]string `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+}
+
+// Stack returns the record for a stack name.
+func (m *Manifest) Stack(name string) (StackRecord, int, bool) {
+	for i, s := range m.Stacks {
+		if s.Name == name {
+			return s, i, true
+		}
+	}
+	return StackRecord{}, -1, false
+}
+
+// SetStack adds or replaces a record by name.
+func (m *Manifest) SetStack(rec StackRecord) {
+	if _, i, ok := m.Stack(rec.Name); ok {
+		m.Stacks[i] = rec
+		return
+	}
+	m.Stacks = append(m.Stacks, rec)
+}
+
+// RemoveStack drops a record, reporting whether there was one.
+func (m *Manifest) RemoveStack(name string) bool {
+	_, i, ok := m.Stack(name)
+	if !ok {
+		return false
+	}
+	m.Stacks = append(m.Stacks[:i], m.Stacks[i+1:]...)
+	return true
 }
 
 // Unsupported names the keys present in this manifest that nsctl ignores.
@@ -450,6 +501,30 @@ func (m *Manifest) Validate(lookup Lookup) []string {
 			problems = append(problems, fmt.Sprintf(
 				"bindings[%q]: an instance name is required -- a binding to nothing would silently"+
 					" re-default on the next apply", k))
+		}
+	}
+
+	stackNames := map[string]bool{}
+	for i, st := range m.Stacks {
+		where := fmt.Sprintf("stacks[%d]", i)
+		switch {
+		case st.Name == "":
+			problems = append(problems, where+": 'name' is required")
+		case stackNames[st.Name]:
+			problems = append(problems, fmt.Sprintf("%s: duplicate stack %q", where, st.Name))
+		default:
+			stackNames[st.Name] = true
+		}
+		if st.Version == "" {
+			problems = append(problems, where+": 'version' is required")
+		}
+		if st.Ref == "" {
+			problems = append(problems, where+": 'ref' is required")
+		}
+		for k, v := range st.Bindings {
+			if strings.TrimSpace(v) == "" {
+				problems = append(problems, fmt.Sprintf("%s bindings[%q]: an instance name is required", where, k))
+			}
 		}
 	}
 	return problems

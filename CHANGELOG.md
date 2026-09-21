@@ -2,6 +2,17 @@
 
 ## 2026-09-21
 
+- feat: stacks (NERD017): `nsctl stack add|pull|list|remove|versions|push`.
+  A stack is a RepoClass with a `local` section and a `neuronsphere.lock`,
+  published as one OCI artifact (the lock as config, one layer per build zip).
+  `stack add` fetches it anonymously from a public namespace (a bare name
+  expands to `ghcr.io/hmdlabs/stacks`), verifies and caches every zip, and
+  declares the instances through the `--from-repo` planner with the stack
+  itself as `source: artifact`; its bindings live in a new `stacks:` record
+  of the environment manifest. `stack push` publishes from a repository,
+  taking companion zips from `--artifacts` or the cloud librarian and
+  writing their digests into the lock. `nsctl lock` now records digests for
+  cached artifacts.
 - feat: CLI plugins (NERD018): `nsctl plugin install|remove|list|update|push`
   install a published plugin from an OCI registry (a bare name expands to
   `ghcr.io/hmdlabs/plugins`) into `$HMD_HOME/.cache/neuronsphere/plugins/`

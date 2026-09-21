@@ -157,6 +157,7 @@ above that is a RepoClass you add.`,
 		newWhoamiCommand(opts),
 		newVersionCommand(opts),
 		newPluginCommand(opts),
+		newStackCommand(opts),
 	)
 
 	return root, opts, process

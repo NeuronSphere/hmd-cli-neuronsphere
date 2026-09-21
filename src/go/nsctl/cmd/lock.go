@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
@@ -177,6 +178,22 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 	}
 	if len(unresolved) > 0 {
 		return unresolvedError(unresolved)
+	}
+	// Digests come from the cache when the bytes have been seen (NERD017
+	// SPEC007); nothing is fetched to find one, and an entry stays without
+	// one until a pull or a push sees the zip. Also kept when the previous
+	// lock had one for the same version, so a regenerate does not lose it.
+	if previous, err := lock.Read(repoDir); err == nil {
+		for _, e := range previous.Resolved {
+			if cur, ok := l.Entry(e.RepoClassName); ok && cur.Version == e.Version && e.Digest != "" {
+				l.SetDigest(e.RepoClassName, e.Digest)
+			}
+		}
+	}
+	for _, e := range l.Resolved {
+		if d, ok := artifact.Digest(opts.Home, e.RepoClassName, e.Version); ok {
+			l.SetDigest(e.RepoClassName, d)
+		}
 	}
 	if err := lock.Write(repoDir, l); err != nil {
 		return nserr.Wrap(nserr.Fail, err)

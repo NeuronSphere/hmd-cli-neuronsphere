@@ -149,11 +149,21 @@ func Parse(data []byte) (*Lock, error) {
 // or a CI job may be reading at the same moment, and a plain truncate-and-write
 // leaves a window in which they see half of one.
 func Write(repoDir string, l *Lock) error {
-	data, err := toml.Marshal(l)
+	data, err := Marshal(l)
 	if err != nil {
-		return fmt.Errorf("serialising the lock: %w", err)
+		return err
 	}
 	return atomicfile.Write(Path(repoDir), data, 0o644, 0o755)
+}
+
+// Marshal is the lock's bytes, as Write would put them on disk. A stack
+// artifact carries exactly these as its config blob (NERD017 SPEC002).
+func Marshal(l *Lock) ([]byte, error) {
+	data, err := toml.Marshal(l)
+	if err != nil {
+		return nil, fmt.Errorf("serialising the lock: %w", err)
+	}
+	return data, nil
 }
 
 // Entry returns the pin for a repo class.

@@ -24,6 +24,23 @@ type fromRepo struct {
 	allProfiles bool
 	lean        bool
 	names       []string
+
+	// subject, when set, is how the repository itself is declared instead of
+	// as its working tree: a stack is deployed from its own artifact (NERD017
+	// SPEC003). subjectVersion goes with it.
+	subject        *manifest.Source
+	subjectVersion string
+	// recorded, when set, is the prior bindings and profiles to honour in place
+	// of the environment manifest's own. A stack keeps its record apart from
+	// the manifest's --from-repo bindings so two can share one environment
+	// (NERD017 SPEC008 and SPEC009).
+	recorded *recordedPlan
+}
+
+// recordedPlan is what a previous run of the same planner recorded.
+type recordedPlan struct {
+	Bindings map[string]string
+	Profiles []string
 }
 
 // bind registers the flags common to both verbs. Each verb adds its own
@@ -102,11 +119,18 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 		return nil, err
 	}
 
-	var bound map[string]string
-	if existing != nil {
-		bound = existing.Bindings
+	var record *recordedPlan
+	switch {
+	case f.recorded != nil:
+		record = f.recorded
+	case existing != nil:
+		record = &recordedPlan{Bindings: existing.Bindings, Profiles: existing.Profiles}
 	}
-	profiles := activeProfiles(f, spec, l, existing)
+	var bound map[string]string
+	if record != nil {
+		bound = record.Bindings
+	}
+	profiles := activeProfiles(f, spec, l, record)
 
 	plan := &repoPlan{Spec: spec, Lock: l, Profiles: profiles, Bindings: map[string]string{}}
 	taken := map[string]bool{}
@@ -183,10 +207,16 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 		plan.Renamed = append(plan.Renamed, previous)
 	}
 	plan.Bindings[spec.RepoClassName] = subject
+	source := &manifest.Source{Type: manifest.SourceLocal, Path: repoDir}
+	version := ""
+	if f.subject != nil {
+		source, version = f.subject, f.subjectVersion
+	}
 	plan.Subject = manifest.Repo{
 		InstanceName:  subject,
 		RepoClassName: spec.RepoClassName,
-		Source:        &manifest.Source{Type: manifest.SourceLocal, Path: repoDir},
+		Version:       version,
+		Source:        source,
 	}
 	if len(roles) > 0 {
 		deps := make(map[string]any, len(roles))
@@ -212,7 +242,7 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 // Bindings answer the question the profile list cannot, because a --from-repo
 // run always binds at least the repository itself.
 func activeProfiles(f *fromRepo, spec *localspec.Manifest, l *lock.Lock,
-	existing *manifest.Manifest) []string {
+	record *recordedPlan) []string {
 
 	switch {
 	case f.lean:
@@ -221,9 +251,9 @@ func activeProfiles(f *fromRepo, spec *localspec.Manifest, l *lock.Lock,
 		return l.AllProfiles()
 	case len(f.profiles) > 0:
 		return f.profiles
-	case existing != nil && len(existing.Bindings) > 0:
+	case record != nil && len(record.Bindings) > 0:
 		// Possibly empty, and that is the point: it means lean.
-		return existing.Profiles
+		return record.Profiles
 	default:
 		return spec.Local.DefaultProfiles
 	}
@@ -338,8 +368,18 @@ func checkNamesAreUsed(f *fromRepo, plan *repoPlan) error {
 // Neither is ever torn down. These verbs edit a manifest, which is the promise
 // `nsctl repo remove` already makes.
 func (p *repoPlan) apply(m *manifest.Manifest, prune bool) (added, kept []string) {
+	added, kept = p.applyInto(m, prune, &m.Bindings)
+	m.Profiles = p.Profiles
+	return added, kept
+}
+
+// applyInto is apply with the bindings kept somewhere other than the
+// manifest's own -- a stack record's -- and the manifest's profiles left
+// alone. *bindings holds the previous run's bindings on entry and this run's
+// on return.
+func (p *repoPlan) applyInto(m *manifest.Manifest, prune bool, bindings *map[string]string) (added, kept []string) {
 	owned := map[string]bool{}
-	for _, previous := range m.Bindings {
+	for _, previous := range *bindings {
 		owned[previous] = true
 	}
 	renamed := map[string]bool{}
@@ -381,8 +421,7 @@ func (p *repoPlan) apply(m *manifest.Manifest, prune bool) (added, kept []string
 	}
 
 	m.Repos = repos
-	m.Profiles = p.Profiles
-	m.Bindings = p.Bindings
+	*bindings = p.Bindings
 	sort.Strings(kept)
 	return added, kept
 }
@@ -397,6 +436,10 @@ func (p *repoPlan) missingArtifacts(home string) []plannedInstance {
 		if !artifact.Cached(home, in.Repo.RepoClassName, in.Repo.Version) {
 			missing = append(missing, in)
 		}
+	}
+	if p.Subject.Source != nil && p.Subject.Source.Type == manifest.SourceArtifact &&
+		!artifact.Cached(home, p.Subject.RepoClassName, p.Subject.Version) {
+		missing = append(missing, plannedInstance{Repo: p.Subject})
 	}
 	return missing
 }
@@ -461,8 +504,11 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 	} else {
 		fmt.Fprintf(out, "Profiles: %s\n", strings.Join(p.Profiles, ", "))
 	}
-	fmt.Fprintf(out, "  %-28s %-34s %s\n", p.Subject.InstanceName, p.Subject.RepoClassName,
-		"working tree "+p.Subject.Source.Path)
+	from := "working tree " + p.Subject.Source.Path
+	if p.Subject.Source.Type == manifest.SourceArtifact {
+		from = "artifact " + p.Subject.Version
+	}
+	fmt.Fprintf(out, "  %-28s %-34s %s\n", p.Subject.InstanceName, p.Subject.RepoClassName, from)
 	for _, in := range p.Instances {
 		switch {
 		case in.Want.Bind != "":

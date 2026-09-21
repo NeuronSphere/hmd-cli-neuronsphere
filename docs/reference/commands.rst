@@ -2349,6 +2349,226 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--path`` — The repo class's root directory (default: ``.``)
 
+nsctl stack
+-----------
+
+A stack is a RepoClass whose repository declares the companions it needs (a
+"local" section and a neuronsphere.lock) published as one artifact in an OCI
+registry, holding the build zip of every RepoClass the lock pins. "stack add"
+fetches it -- anonymously from a public namespace, no tenant needed -- unpacks
+every zip into the artifact cache, and declares the instances in an
+environment manifest the way "env add --from-repo" would from a checkout.
+
+Declaring is not deploying: run "nsctl env apply" afterwards, or pass --apply.
+nsctl carries no list of stacks; a bare name expands to
+ghcr.io/hmdlabs/stacks/<name> and the expansion is printed.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack add
+---------------
+
+Fetch a stack from an OCI registry, verify and cache every RepoClass it
+pins, and declare them -- and the stack itself -- in the environment manifest
+with the same rules "env add --from-repo" applies to a checkout: --profile,
+--all-profiles, --lean and --name mean what they mean there. The stack keeps
+its own bindings in the manifest's "stacks" record, so it can share an
+environment with a --from-repo repository or another stack.
+
+<ref> is <host>/<repository>[:<version>]; a bare name expands to
+ghcr.io/hmdlabs/stacks/<name>. No version means the newest, which is
+printed. A public namespace needs no credential.
+
+Nothing is deployed until "nsctl env apply <env>"; --apply runs it.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack add <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl stack add observability
+     nsctl stack add observability --env dev --apply
+     nsctl stack add ghcr.io/acme/stacks/warehouse:0.4.0 --profile full --name warehouse-db=db
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — Activate every profile the stack's lock mentions
+* ``--apply`` — Run `nsctl env apply` afterwards
+* ``--env`` — Environment to declare it in (default: the default environment)
+* ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
+* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 0.1")
+* ``-V, --verbose`` — With --apply, show the underlying command output
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack list
+----------------
+
+Read the "stacks" records of the environment manifest: name, version, reference, digest and the instances each bound.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to list (default: the default environment)
+* ``--json`` — Print JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack pull
+----------------
+
+The fetch half of "stack add": verify and cache every RepoClass the stack
+pins, and nothing else. For preparing a machine that will be offline, or a CI
+job warming a cache.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack pull <ref> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--spec`` — a BACON version spec to choose the version by
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack push
+----------------
+
+Build the stack artifact from a repository that has a "local" section and a
+neuronsphere.lock, and push it to an OCI registry. The stack's own zip is the
+repository tree; each pinned companion's zip comes from --artifacts <dir>
+(the "hmd build" output layout, <class>_<version>_build.zip) or else from the
+cloud Artifact Librarian by the lock's content path -- the publisher is a paid
+user; the consumer is not. Every zip's digest is written into the lock inside
+the artifact; --update-lock writes them into the repository's lock too.
+
+The tag is meta-data/VERSION unless <ref> names one. A credential is
+required: --token, HMD_REGISTRY_TOKEN, or a profile whose registry_url
+matches the host after "nsctl login".
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack push [<repo-dir>] <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
+     nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock
+
+Local flags
+~~~~~~~~~~~
+
+* ``--artifacts`` — directory holding <class>_<version>_build.zip for every pinned companion
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
+* ``--update-lock`` — write the zips' digests back into the repository's lock
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack remove
+------------------
+
+Remove the instances a stack bound -- and only those; an instance provided
+by the substrate, or declared by another stack or by hand, is not the stack's
+to remove -- and delete its record from the environment manifest. Nothing is
+torn down: the next "nsctl env apply" reconciles. The artifact cache is kept
+unless --prune-cache.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack remove <name> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to edit (default: the default environment)
+* ``--prune-cache`` — Also delete the stack's artifacts from the cache
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl stack versions
+--------------------
+
+List the version-shaped tags a registry holds for a stack, newest first, and
+with --spec the one a BACON version spec would choose. Results are cached
+under $HMD_HOME/.cache/neuronsphere/versions/; --offline reads the cache only.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack versions <ref> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--offline`` — read the cache only
+* ``--spec`` — report which version a BACON version spec would choose
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl version
 -------------
 
