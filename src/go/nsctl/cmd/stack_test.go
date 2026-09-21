@@ -17,6 +17,8 @@ import (
 // unconditional companion, one profile-gated companion. NERD017 SPEC001.
 const stackManifest = `{
   "name": "hmd-stack-obs",
+  "description": "otel with an optional clickhouse",
+  "build": {},
   "deploy": {"commands": [["exec", "true"]]},
   "local": {"version": 1, "default_profiles": [], "repos": [
     {"instance_name": "otel",       "repo_class_name": "hmd-inf-otel",       "version_spec": "0.1.5"},

@@ -13,6 +13,8 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bacon"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 )
@@ -126,6 +128,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
 		newRepoClassValidateCommand(path),
 		newRepoClassBuildCommand(path),
 		newRepoClassDeployCommand(path),
+		newRepoClassLocalCommand(path),
 		newRepoClassTestCommand(path),
 		newRepoClassDiscoveryCommand(path),
 	)
@@ -356,6 +359,7 @@ promotes warnings to errors. Never rewrites the file.`,
 				BundledClasses: bundled.RepoClasses(),
 				ReservedNames:  manifest.ReservedNames(),
 			})
+			findings = append(findings, stackFindings(s.Dir)...)
 			errs, warns, notes := bacon.Summary(findings)
 			failed := errs > 0 || (strict && warns > 0)
 			if asJSON {
@@ -557,4 +561,52 @@ were there are replaced, and named.`,
 			return nil
 		},
 	}
+}
+
+// stackFindings is NERD019 SPEC006: for a manifest with a `local` section
+// that names companions, the lock must cover every want and every role must
+// be bound, external, or pinned. A manifest with no local section, or an
+// empty one, is not a stack and gets nothing here.
+func stackFindings(dir string) []bacon.Finding {
+	spec, err := localspec.Load(dir)
+	if err != nil || spec.Local.Version == 0 {
+		// No `local` section at all: an ordinary RepoClass, not a stack.
+		return nil
+	}
+	var out []bacon.Finding
+	if len(spec.Local.Repos) == 0 {
+		out = append(out, bacon.Finding{Severity: bacon.Error, Path: "local.repos",
+			Message: "a stack declares at least one companion; this manifest declares none"})
+	}
+	l, err := lock.Read(dir)
+	if err != nil {
+		out = append(out, bacon.Finding{Severity: bacon.Error, Path: lock.FileName,
+			Message: withLockRemedy(err).Error()})
+		return out
+	}
+	missing, extra := lock.Check(l, spec.Wants())
+	if len(missing) > 0 {
+		out = append(out, bacon.Finding{Severity: bacon.Error, Path: lock.FileName,
+			Message: "stale: declared but not pinned: " + strings.Join(missing, ", ") + " -- run `nsctl lock`"})
+	}
+	if len(extra) > 0 {
+		out = append(out, bacon.Finding{Severity: bacon.Warning, Path: lock.FileName,
+			Message: "pins " + strings.Join(extra, ", ") + ", which the manifest no longer declares -- run `nsctl lock`"})
+	}
+	for _, w := range spec.Wants() {
+		if len(w.Satisfies) == 0 || w.Bind != "" || w.External {
+			continue
+		}
+		if _, ok := l.Entry(w.RepoClassName); !ok {
+			out = append(out, bacon.Finding{Severity: bacon.Error, Path: "deploy.dependencies." + w.Key,
+				Message: "neither bound, external, nor pinned: `stack add` would refuse it; add `bind`, `external: true`, or pin " + w.RepoClassName})
+		}
+	}
+	for _, e := range l.Resolved {
+		if e.Digest == "" {
+			out = append(out, bacon.Finding{Severity: bacon.Note, Path: lock.FileName,
+				Message: e.RepoClassName + "@" + e.Version + " has no digest yet; `stack build` records one when it sees the bytes"})
+		}
+	}
+	return out
 }

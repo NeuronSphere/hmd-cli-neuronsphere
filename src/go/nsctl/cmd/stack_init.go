@@ -163,7 +163,7 @@ look tied to this machine are listed for review.
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
-			return runLockWrite(cmd, opts, dir, spec, "", nil)
+			return runLockWrite(cmd, opts, dir, spec, "", nil, nil)
 		},
 	}
 	cmd.Flags().StringVar(&path, "path", "", "directory to write into (default: ./<name>)")
@@ -280,6 +280,7 @@ func scaffoldStack(cmd *cobra.Command, dir, name, description string, d *stack.D
 		manifestJSON, err = json.MarshalIndent(map[string]any{
 			"name":        name,
 			"description": description,
+			"build":       map[string]any{},
 			"deploy":      map[string]any{"commands": []any{[]any{"exec", "true"}}},
 			"local":       map[string]any{"version": 1, "default_profiles": []any{}, "repos": []any{}},
 		}, "", "  ")
@@ -318,6 +319,9 @@ func rewriteLocal(path string, existing []byte, d *stack.Derivation) error {
 		return err
 	}
 	doc["local"] = d.Local
+	if _, ok := doc["build"]; !ok {
+		doc["build"] = map[string]any{}
+	}
 	deploy, _ := doc["deploy"].(map[string]any)
 	if deploy == nil {
 		deploy = map[string]any{"commands": []any{[]any{"exec", "true"}}}

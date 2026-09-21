@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci/ocitest"
@@ -191,5 +192,203 @@ func TestArtifactPushRefusals(t *testing.T) {
 	_, _, err = run(t, pub, "--home", t.TempDir(), "artifact", "push", t.TempDir(), reg.Host()+"/x/y")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "not a RepoClass tree") {
 		t.Errorf("empty dir: %v", err)
+	}
+}
+
+// NERD019 SPEC005: lock --resolve settles ranges from the OCI source first,
+// then the librarian, and keeps sources across regenerates.
+func TestLockResolvePinsRangesFromTheOCISource(t *testing.T) {
+	t.Parallel()
+	reg := ocitest.New(t)
+	repoDir := t.TempDir()
+	writeFile(t, filepath.Join(repoDir, "meta-data", "manifest.json"), `{
+  "name": "hmd-stack-obs",
+  "deploy": {"commands": [["exec", "true"]]},
+  "local": {"version": 1, "default_profiles": [], "repos": [
+    {"instance_name": "otel", "repo_class_name": "hmd-inf-otel", "version_spec": "== 0.1.*"}
+  ]}
+}`)
+	writeFile(t, filepath.Join(repoDir, "meta-data", "VERSION"), "0.1")
+	home := t.TempDir()
+
+	// A range with nowhere to look is refused, naming the remedy.
+	_, _, err := run(t, fakeEnv(nil), "--home", home, "lock", repoDir, "--resolve")
+	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(err.Error(), "nsctl artifact push") {
+		t.Fatalf("no sources: %v", err)
+	}
+	// Without --resolve a range is still refused as before.
+	_, _, err = run(t, fakeEnv(nil), "--home", home, "lock", repoDir)
+	if nserr.CodeOf(err) != nserr.Usage {
+		t.Errorf("range without --resolve: %v", err)
+	}
+
+	// Publish two versions of the class and name the source in the lock.
+	pub := fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"})
+	for _, v := range []string{"0.1.5", "0.1.9", "0.2.0"} {
+		zip := filepath.Join(t.TempDir(), "hmd-inf-otel_"+v+"_build.zip")
+		if err := os.WriteFile(zip, artifactZip(t, "hmd-inf-otel", v, "x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := run(t, pub, "--home", home, "artifact", "push", zip, reg.Host()+"/acme/classes/hmd-inf-otel"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(repoDir, "neuronsphere.lock"), `version = 1
+repo_class_name = "hmd-stack-obs"
+generated_from = "pins"
+
+[[resolved]]
+repo_class_name = "hmd-inf-otel"
+version = "0.1.5"
+profiles = []
+content_path = "repository:/hmd-inf-otel/0.1.5/hmd-inf-otel_0.1.5_build.zip"
+source = "oci://`+reg.Host()+`/acme/classes/hmd-inf-otel"
+`)
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "lock", repoDir, "--resolve")
+	if err != nil {
+		t.Fatalf("resolve: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `Resolved hmd-inf-otel "== 0.1.*" to 0.1.9 (source oci://`) {
+		t.Errorf("out = %q", out)
+	}
+	l, err := lock.Read(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, _ := l.Entry("hmd-inf-otel")
+	if e.Version != "0.1.9" || e.Source != "oci://"+reg.Host()+"/acme/classes/hmd-inf-otel" || l.GeneratedFrom != "resolve" {
+		t.Errorf("entry = %+v (from %s)", e, l.GeneratedFrom)
+	}
+	// A plain regenerate keeps the source too.
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "lock", repoDir, "--pin", "hmd-inf-otel@0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	l, _ = lock.Read(repoDir)
+	if e, _ := l.Entry("hmd-inf-otel"); e.Source == "" || e.Version != "0.2.0" {
+		t.Errorf("source lost on regenerate: %+v", e)
+	}
+}
+
+// NERD019 SPEC006: validate knows a stack.
+func TestRepoclassValidateChecksAStack(t *testing.T) {
+	t.Parallel()
+	repoDir, _ := stackRepo(t)
+	out, _, err := run(t, fakeEnv(nil), "repoclass", "--path", repoDir, "validate")
+	if err != nil {
+		t.Fatalf("a fresh stack must validate: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "has no digest yet") {
+		t.Errorf("expected the digest note: %q", out)
+	}
+	// Remove the lock: an error naming `nsctl lock`.
+	if err := os.Remove(filepath.Join(repoDir, "neuronsphere.lock")); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = run(t, fakeEnv(nil), "repoclass", "--path", repoDir, "validate")
+	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(out, "nsctl lock") {
+		t.Errorf("no lock: %v\n%s", err, out)
+	}
+	// An unbound, unpinned role.
+	writeFile(t, filepath.Join(repoDir, "meta-data", "manifest.json"), `{
+  "name": "hmd-stack-obs",
+  "description": "d", "build": {},
+  "deploy": {"commands": [["exec", "true"]], "dependencies": {
+    "sink": {"repo_class_name": "hmd-inf-s3bucket", "required": "true", "version_spec": "0.1.13"}}},
+  "local": {"version": 1, "default_profiles": [], "dependencies": {"sink": {"instance_configuration": {"x": "y"}}},
+    "repos": [{"instance_name": "otel", "repo_class_name": "hmd-inf-otel", "version_spec": "0.1.5"}]}
+}`)
+	writeFile(t, filepath.Join(repoDir, "neuronsphere.lock"), "version = 1\nrepo_class_name = \"hmd-stack-obs\"\ngenerated_from = \"pins\"\n\n[[resolved]]\nrepo_class_name = \"hmd-inf-otel\"\nversion = \"0.1.5\"\nprofiles = []\ncontent_path = \"x\"\n")
+	out, _, err = run(t, fakeEnv(nil), "repoclass", "--path", repoDir, "validate")
+	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(out, "deploy.dependencies.sink") || !strings.Contains(out, "declared but not pinned") {
+		t.Errorf("unbound role: %v\n%s", err, out)
+	}
+	// A plain RepoClass is untouched by any of this.
+	plain := t.TempDir()
+	writeFile(t, filepath.Join(plain, "meta-data", "manifest.json"), `{"name":"hmd-ms-x","description":"d","build":{},"deploy":{"commands":[["exec","true"]]}}`)
+	writeFile(t, filepath.Join(plain, "meta-data", "VERSION"), "0.1")
+	if _, _, err := run(t, fakeEnv(nil), "repoclass", "--path", plain, "validate"); err != nil {
+		t.Errorf("plain repo: %v", err)
+	}
+}
+
+// NERD019 SPEC008: the local section is authored by verbs, and what they
+// write is what stack build and stack add read.
+func TestRepoclassLocalVerbsAuthorAStack(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rcl := func(args ...string) (string, error) {
+		out, _, err := run(t, fakeEnv(nil), append([]string{"repoclass", "--path", dir}, args...)...)
+		return out, err
+	}
+	if _, err := rcl("init", "hmd-stack-obs", "--description", "obs"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("deploy", "set-command", "exec", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := rcl("local", "add", "hmd-inf-otel", "--spec", "== 0.1.5", "--name", "otel", "--depends", "sink=sink"); err != nil || !strings.Contains(out, "wrote meta-data/manifest.json local.repos.otel") {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	if _, err := rcl("local", "add", "hmd-inf-clickhouse", "--spec", "== 0.3.0", "--profile", "full"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("deploy", "add-dependency", "sink", "--repo-class-name", "hmd-inf-s3bucket", "--version-spec", "0.1.13",
+		"--resource-namespace", "storage.neuronsphere.io", "--resource-definition-name", "bucket", "--resource-version", "0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("deploy", "add-dependency", "compute", "--repo-class-name", "hmd-inf-eks-node-group"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("local", "bind", "compute", "local-neuronsphere"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("local", "require", "sink", "--suggest", "storage"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rcl("local", "set-default-profiles", "full"); err != nil {
+		t.Fatal(err)
+	}
+	// A role nobody declared is refused with the remedy.
+	if _, err := rcl("local", "bind", "nope", "x"); nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "deploy add-dependency nope") {
+		t.Errorf("unknown role: %v", err)
+	}
+
+	out, err := rcl("local", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"otel", "companion", "inf-clickhouse", "full", "compute", "bound -> local-neuronsphere", "sink", "external (suggest storage)", "default profiles: full"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list lacks %q:\n%s", want, out)
+		}
+	}
+	// The result parses, validates the way a stack does, locks with no
+	// network (exact specs, external and bound roles unpinned)...
+	spec, err := localspec.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spec.Local.Repos) != 2 || spec.Local.Dependencies["sink"].Suggest != "storage" || !spec.Local.Dependencies["sink"].External {
+		t.Errorf("spec = %+v", spec.Local)
+	}
+	if _, _, err := run(t, fakeEnv(nil), "lock", dir); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	l, _ := lock.Read(dir)
+	if _, ok := l.Entry("hmd-inf-s3bucket"); ok {
+		t.Error("an external role must not be pinned")
+	}
+	if _, ok := l.Entry("hmd-inf-eks-node-group"); ok {
+		t.Error("a bound role must not be pinned")
+	}
+	if out, _, err := run(t, fakeEnv(nil), "repoclass", "--path", dir, "validate"); err != nil {
+		t.Errorf("validate: %v\n%s", err, out)
+	}
+	if _, err := rcl("local", "remove", "inf-clickhouse"); err != nil {
+		t.Fatal(err)
+	}
+	spec, _ = localspec.Load(dir)
+	if len(spec.Local.Repos) != 1 {
+		t.Errorf("remove left %d companions", len(spec.Local.Repos))
 	}
 }

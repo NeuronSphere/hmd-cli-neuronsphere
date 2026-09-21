@@ -437,6 +437,7 @@ func (d *Derivation) ManifestJSON(name, description string) ([]byte, error) {
 	doc := map[string]any{
 		"name":        name,
 		"description": description,
+		"build":       map[string]any{},
 		"deploy": map[string]any{
 			"commands": []any{[]any{"exec", "true"}},
 		},

@@ -13,8 +13,12 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versions"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec"
 )
 
 // exactVersion matches a version rather than a range. Every manifest in a real
@@ -24,6 +28,8 @@ var exactVersion = regexp.MustCompile(`^\d+(\.\d+)*$`)
 
 func newLockCommand(opts *Options) *cobra.Command {
 	var fromEnv string
+	var resolve bool
+	var libs librarians
 	var pins []string
 	var check bool
 
@@ -72,9 +78,17 @@ differently share one checked-in lock.`,
 			if check {
 				return runLockCheck(cmd, repoDir, m)
 			}
-			return runLockWrite(cmd, opts, repoDir, m, fromEnv, pins)
+			var r *lockResolver
+			if resolve {
+				r = &lockResolver{libs: &libs}
+			}
+			return runLockWrite(cmd, opts, repoDir, m, fromEnv, pins, r)
 		},
 	}
+	cmd.Flags().BoolVar(&resolve, "resolve", false,
+		"Pin each range to the newest published version: from the lock entry's OCI source, else the cloud librarian (NERD019 SPEC005)")
+	libs.bindCloud(cmd)
+	libs.bindTenant(cmd)
 	cmd.Flags().StringVar(&fromEnv, "from-env", "",
 		"Pin the versions an environment is actually running")
 	cmd.Flags().StringArrayVar(&pins, "pin", nil,
@@ -115,8 +129,56 @@ func runLockCheck(cmd *cobra.Command, repoDir string, m *localspec.Manifest) err
 	return nil
 }
 
+// lockResolver is --resolve: the published-version sources a range is
+// settled against, in order. NERD019 SPEC005.
+type lockResolver struct {
+	libs *librarians
+}
+
+// resolveRange pins one ranged want: the previous lock entry's OCI source
+// first (free), then the cloud librarian (paid, only with a credential).
+func (r *lockResolver) resolveRange(cmd *cobra.Command, opts *Options, w localspec.Want, previous *lock.Lock) (string, string, error) {
+	spec, err := versionspec.Parse(w.VersionSpec)
+	if err != nil {
+		return "", "", err
+	}
+	var tried []string
+	if previous != nil {
+		if e, ok := previous.Entry(w.RepoClassName); ok && e.Source != "" {
+			ref, err := oci.ParseRef(e.Source)
+			if err == nil {
+				client := oci.New(registryCredential(opts, ref.Host, ""))
+				tags, err := client.Tags(cmd.Context(), ref)
+				if err == nil {
+					if v, ok := spec.Highest(tags); ok {
+						return v, "source " + e.Source, nil
+					}
+					tried = append(tried, fmt.Sprintf("source %s (published: %s)", e.Source, orNone(tags)))
+				} else {
+					tried = append(tried, fmt.Sprintf("source %s (%v)", e.Source, err))
+				}
+			}
+		}
+	}
+	cloud, err := r.libs.cloud(cmd, opts)
+	if err != nil {
+		tried = append(tried, "cloud librarian ("+strings.SplitN(err.Error(), "\n", 2)[0]+")")
+	} else {
+		published, err := versions.Enumerate(cmd.Context(), cloud, w.RepoClassName, nil)
+		if err != nil {
+			tried = append(tried, fmt.Sprintf("librarian %s (%v)", cloud.BaseURL, err))
+		} else {
+			if v, ok := spec.Highest(published.Versions(manifest.DefaultArtifactType)); ok {
+				return v, "librarian " + cloud.BaseURL, nil
+			}
+			tried = append(tried, fmt.Sprintf("librarian %s (nothing satisfies)", cloud.BaseURL))
+		}
+	}
+	return "", "", fmt.Errorf("%s %q: %s", w.RepoClassName, w.VersionSpec, strings.Join(tried, "; "))
+}
+
 func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
-	m *localspec.Manifest, fromEnv string, pins []string) error {
+	m *localspec.Manifest, fromEnv string, pins []string, resolver *lockResolver) error {
 
 	wants := m.Wants()
 	wanted := map[string]bool{}
@@ -156,6 +218,43 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 		generatedFrom = "env:" + slug
 	}
 
+	previous, _ := lock.Read(repoDir)
+
+	// --resolve settles every range up front, so the report can name where
+	// each answer came from and a failure lists them all at once.
+	resolved := map[string]string{}
+	if resolver != nil {
+		var failures []string
+		for _, w := range wants {
+			if w.Bind != "" || w.External {
+				continue
+			}
+			if _, ok := pinned[w.RepoClassName]; ok {
+				continue
+			}
+			if _, ok := deployed[w.RepoClassName]; ok {
+				continue
+			}
+			if v := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(w.VersionSpec), "==")); exactVersion.MatchString(v) {
+				continue
+			}
+			if _, done := resolved[w.RepoClassName]; done {
+				continue
+			}
+			v, from, err := resolver.resolveRange(cmd, opts, w, previous)
+			if err != nil {
+				failures = append(failures, err.Error())
+				continue
+			}
+			resolved[w.RepoClassName] = v
+			fmt.Fprintf(cmd.OutOrStdout(), "Resolved %s %q to %s (%s)\n", w.RepoClassName, w.VersionSpec, v, from)
+		}
+		if len(failures) > 0 {
+			return nserr.New(nserr.Fail, "--resolve could not settle:\n  - %s\nPublish the class with `nsctl artifact push` and name it as the lock entry's `source`, or pin it", strings.Join(failures, "\n  - "))
+		}
+		generatedFrom = "resolve"
+	}
+
 	// --pin beats --from-env: one is a version the user typed for this run and
 	// the other is whatever happens to be deployed, and an explicit answer
 	// should never lose to an ambient one.
@@ -164,6 +263,9 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 			return v
 		}
 		if v, ok := deployed[w.RepoClassName]; ok {
+			return v
+		}
+		if v, ok := resolved[w.RepoClassName]; ok {
 			return v
 		}
 		if v := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(w.VersionSpec), "==")); exactVersion.MatchString(v) {
@@ -183,10 +285,19 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 	// SPEC007); nothing is fetched to find one, and an entry stays without
 	// one until a pull or a push sees the zip. Also kept when the previous
 	// lock had one for the same version, so a regenerate does not lose it.
-	if previous, err := lock.Read(repoDir); err == nil {
+	if previous != nil {
 		for _, e := range previous.Resolved {
-			if cur, ok := l.Entry(e.RepoClassName); ok && cur.Version == e.Version && e.Digest != "" {
+			cur, ok := l.Entry(e.RepoClassName)
+			if !ok {
+				continue
+			}
+			if cur.Version == e.Version && e.Digest != "" {
 				l.SetDigest(e.RepoClassName, e.Digest)
+			}
+			// A source outlives a version change: it names where the class
+			// is published, not which version.
+			if e.Source != "" {
+				l.SetSource(e.RepoClassName, e.Source)
 			}
 		}
 	}

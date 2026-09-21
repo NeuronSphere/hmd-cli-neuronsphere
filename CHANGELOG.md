@@ -2,6 +2,12 @@
 
 ## 2026-09-21
 
+- feat: `nsctl lock --resolve` pins ranges to the newest published version,
+  from the lock entry's OCI `source` first and the cloud librarian second,
+  and a regenerate keeps each entry's `source`; `nsctl repoclass validate`
+  checks a stack's lock coverage and that every role is bound, external or
+  pinned; `nsctl repoclass local add|remove|bind|require|set-default-profiles|list`
+  author the `local` section by verb (NERD019 SPEC005/006/008).
 - feat: `nsctl stack init <name>` scaffolds a stack RepoClass with its CI
   workflow, and with `--from-env <env>` or `--from-bom <export>` plus
   `--select a,b` derives the `local` section and lock from a running

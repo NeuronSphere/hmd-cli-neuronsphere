@@ -1377,6 +1377,9 @@ Local flags
 * ``--check`` — Report whether the lock still covers the manifest, writing nothing
 * ``--from-env`` — Pin the versions an environment is actually running
 * ``--pin`` — Pin one repo class, as <repo-class>@<version>. Repeatable (default: ``[]``)
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--resolve`` — Pin each range to the newest published version: from the lock entry's OCI source, else the cloud librarian (NERD019 SPEC005)
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2278,6 +2281,179 @@ Local flags
 * ``--at`` — Where to put it: meta-data (root not implemented yet) (default: ``meta-data``)
 * ``--description`` — The repo class's one-line description
 * ``--format`` — Manifest format: json (toml not implemented yet) (default: ``json``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local
+---------------------
+
+The "local" section (NERD010) declares what a repository -- or a stack --
+wants beside it locally: companions to start, and how each dependency role
+under deploy.dependencies is filled. "add" declares a companion; "bind" fills
+a role with an instance the environment substrate provides; "require" marks a
+role external, to be filled by another stack's instance and matched by
+resource; "set-default-profiles" chooses what is on by default. Run
+"nsctl lock" afterwards to pin what was declared.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local add
+-------------------------
+
+Declare a companion to start alongside this repository
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local add <repo-class> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass local add hmd-inf-otel-collector --spec "~= 0.1" --name otel
+     nsctl repoclass local add hmd-inf-clickhouse --spec "== 0.3.12" --name clickhouse --profile full --depends sink=bucket
+
+Local flags
+~~~~~~~~~~~
+
+* ``--depends`` — role=instance the companion depends on (repeatable) (default: ``[]``)
+* ``--name`` — instance name (default: the class without its hmd- prefix)
+* ``--profile`` — profiles that activate it (none = unconditional) (default: ``[]``)
+* ``--spec`` — BACON version spec, e.g. "~= 0.1" or "== 0.1.5"
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local bind
+--------------------------
+
+Writes local.dependencies.<role>.bind. The substrate's instances --
+local-neuronsphere for compute, environment-db for a database -- are the
+usual targets. Nothing is declared or pinned for a bound role.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local bind <role> <instance>
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass local bind compute local-neuronsphere
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local list
+--------------------------
+
+Show every want the local section declares and how it is filled
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local remove
+----------------------------
+
+Remove a companion
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local remove <instance>
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local require
+-----------------------------
+
+Writes local.dependencies.<role> with external: true. Nothing is pinned or
+bundled for the role; "nsctl stack add" binds it to an instance in the
+environment that produces the role's resource type, or refuses naming
+--suggest. Declare the role first with "deploy add-dependency", with a
+resource type, so the match is by what is needed rather than by name.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local require <role> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass local require warehouse-bucket --suggest ghcr.io/hmdlabs/stacks/storage
+
+Local flags
+~~~~~~~~~~~
+
+* ``--suggest`` — a stack reference that would satisfy the role
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass local set-default-profiles
+------------------------------------------
+
+Set which profiles are on by default (none for lean)
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass local set-default-profiles [<profile>,...]
 
 Inherited flags
 ~~~~~~~~~~~~~~~

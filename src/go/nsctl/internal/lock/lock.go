@@ -193,6 +193,17 @@ func (l *Lock) SetDigest(repoClass, digest string) bool {
 	return false
 }
 
+// SetSource records where a class is published (NERD016 SPEC009).
+func (l *Lock) SetSource(repoClass, source string) bool {
+	for i := range l.Resolved {
+		if l.Resolved[i].RepoClassName == repoClass {
+			l.Resolved[i].Source = source
+			return true
+		}
+	}
+	return false
+}
+
 // VerifyDigest refuses bytes whose digest disagrees with the entry's. An
 // entry with no recorded digest cannot disagree: nothing was promised.
 func (e Entry) VerifyDigest(digest string) error {
