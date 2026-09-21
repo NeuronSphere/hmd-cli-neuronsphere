@@ -89,7 +89,7 @@ func ParseLicence(manifestJSON []byte) (Licence, error) {
 		if !ok {
 			return Licence{}, fmt.Errorf("license.exclude: %v is not a string", e)
 		}
-		cleaned, err := cleanExclude(s)
+		cleaned, err := CleanExclude(s)
 		if err != nil {
 			return Licence{}, err
 		}
@@ -98,10 +98,11 @@ func ParseLicence(manifestJSON []byte) (Licence, error) {
 	return l, nil
 }
 
-// cleanExclude normalises one exclude entry to a slash-separated relative
+// CleanExclude normalises one exclude entry to a slash-separated relative
 // prefix and refuses the ones that would name something outside the tree
-// or the tree itself.
-func cleanExclude(s string) (string, error) {
+// or the tree itself. The authoring verb and the validator apply the same
+// rule, so what they accept is exactly what Zip will honour.
+func CleanExclude(s string) (string, error) {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" || strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "\\") || filepath.IsAbs(trimmed) {
 		return "", fmt.Errorf("license.exclude: %q must be a path relative to the repository root", s)

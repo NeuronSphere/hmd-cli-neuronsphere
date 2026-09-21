@@ -89,6 +89,13 @@ func TestValidateRules(t *testing.T) {
 		{"bundled collision", `{"name":"hmd-vpc","description":"d","build":{}}`, map[string]string{"meta-data/VERSION": "0.1\n"}, Known{BundledClasses: []string{"hmd-vpc"}}, Warning, "bundled"},
 		{"reserved collision", `{"name":"environment-db","description":"d","build":{}}`, map[string]string{"meta-data/VERSION": "0.1\n"}, Known{ReservedNames: []string{"environment-db"}}, Warning, "reserved"},
 		{"inert mechanism", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"mechanism":"external"}}`, nil, Known{}, Note, "deploy.mechanism"},
+		// NERD017 SPEC011: the license declaration's shape, and only its shape.
+		{"license wrong type", `{"name":"n","description":"d","build":{},"license":7}`, nil, Known{}, Error, "license must be"},
+		{"license empty string", `{"name":"n","description":"d","build":{},"license":""}`, nil, Known{}, Error, "license"},
+		{"license object without spdx", `{"name":"n","description":"d","build":{},"license":{"exclude":["src/python"]}}`, nil, Known{}, Error, "license.spdx"},
+		{"license exclude not a list", `{"name":"n","description":"d","build":{},"license":{"spdx":"MIT","exclude":"src/python"}}`, nil, Known{}, Error, "license.exclude"},
+		{"license exclude escapes", `{"name":"n","description":"d","build":{},"license":{"spdx":"MIT","exclude":["../x"]}}`, nil, Known{}, Error, "license.exclude[0]"},
+		{"license unknown key", `{"name":"n","description":"d","build":{},"license":{"spdx":"MIT","paths":["src/python"]}}`, nil, Known{}, Warning, "license.paths"},
 	}
 	for _, c := range cases {
 		c := c
@@ -100,6 +107,24 @@ func TestValidateRules(t *testing.T) {
 				t.Errorf("%s findings lack %q:\n%s\nall: %v", c.severity, c.want, got, Validate(s, c.known))
 			}
 		})
+	}
+}
+
+// A well-formed declaration produces nothing, in either form, and an
+// exclude that covers a tool's source directory is the author's business:
+// the deploy re-tags an image it never builds (docs/licensing).
+func TestValidateAcceptsADeclaredLicence(t *testing.T) {
+	t.Parallel()
+	for _, manifest := range []string{
+		`{"name":"n","description":"d","build":{},"license":"MIT"}`,
+		`{"name":"n","description":"d","build":{},"license":{"spdx":"Apache-2.0","exclude":["src/python/","src/docker","src/typescript"]}}`,
+	} {
+		s := classDir(t, manifest, map[string]string{"meta-data/VERSION": "0.1\n"})
+		for _, f := range Validate(s, Known{}) {
+			if strings.HasPrefix(f.Path, "license") {
+				t.Errorf("%s: unexpected finding %s", manifest, f)
+			}
+		}
 	}
 }
 

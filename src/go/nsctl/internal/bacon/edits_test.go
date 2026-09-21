@@ -23,6 +23,60 @@ func encoded(t *testing.T, doc *Object) string {
 	return string(data)
 }
 
+// SetLicence writes the declaration whole -- the object form, or the string
+// shorthand when there is nothing to exclude -- and ClearLicence removes it;
+// every other key keeps its place. NERD017 SPEC011.
+func TestSetAndClearLicence(t *testing.T) {
+	t.Parallel()
+	doc := base()
+	doc.Set("deploy", NewObject())
+
+	key, err := SetLicence(doc, "Apache-2.0", []string{"src/python/", "src/docker"})
+	if err != nil || key != "license" {
+		t.Fatalf("SetLicence = %q, %v", key, err)
+	}
+	if !strings.Contains(encoded(t, doc), `"license": {
+    "spdx": "Apache-2.0",
+    "exclude": [
+      "src/python",
+      "src/docker"
+    ]
+  }`) {
+		t.Errorf("object form not written:\n%s", encoded(t, doc))
+	}
+	if strings.Index(encoded(t, doc), `"deploy"`) > strings.Index(encoded(t, doc), `"license"`) {
+		t.Error("license was not appended after the existing keys")
+	}
+
+	// Set again replaces, and the shorthand is used when nothing is excluded.
+	if _, err := SetLicence(doc, "MIT", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(encoded(t, doc), `"license": "MIT"`) || strings.Contains(encoded(t, doc), "exclude") {
+		t.Errorf("shorthand not written:\n%s", encoded(t, doc))
+	}
+
+	for _, bad := range [][]string{{"", ""}, {"MIT", "/abs"}, {"MIT", "../x"}, {"MIT", "."}} {
+		var ex []string
+		if bad[1] != "" {
+			ex = []string{bad[1]}
+		}
+		if _, err := SetLicence(doc, bad[0], ex); err == nil {
+			t.Errorf("SetLicence(%q, %v) accepted", bad[0], ex)
+		}
+	}
+
+	if key, ok := ClearLicence(doc); !ok || key != "license" {
+		t.Errorf("ClearLicence = %q, %v", key, ok)
+	}
+	if strings.Contains(encoded(t, doc), "license") {
+		t.Error("license survived ClearLicence")
+	}
+	if _, ok := ClearLicence(doc); ok {
+		t.Error("clearing twice reported a change")
+	}
+}
+
 // Every add-* is idempotent by key: run twice, one entry, same bytes.
 func TestAddVerbsAreIdempotent(t *testing.T) {
 	t.Parallel()

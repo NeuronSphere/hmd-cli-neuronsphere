@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 )
 
 // Severity is how much a finding predicts (SPEC011): an error will fail a
@@ -178,6 +180,54 @@ func (v *validator) structure() {
 		v.dependencyMap("test.targets", test, "targets")
 	}
 	v.discovery()
+	v.licence()
+}
+
+// licence checks the shape of the `license` declaration (NERD017 SPEC011)
+// and nothing more: which paths an author keeps out of what they publish
+// is theirs to decide, and an exclude that covers a tool's source directory
+// is deliberate in the repos that do it (the deploy re-tags an image it
+// never builds).
+func (v *validator) licence() {
+	raw, ok := v.doc.Get("license")
+	if !ok {
+		return
+	}
+	switch l := raw.(type) {
+	case string:
+		if strings.TrimSpace(l) == "" {
+			v.add(Error, "license", "must be a non-empty SPDX expression")
+		}
+	case *Object:
+		if s, ok := l.String("spdx"); !ok || strings.TrimSpace(s) == "" {
+			v.add(Error, "license.spdx", "is required: the SPDX expression of what is published")
+		}
+		if rawEx, ok := l.Get("exclude"); ok {
+			list, ok := rawEx.([]any)
+			if !ok {
+				v.add(Error, "license.exclude", "must be a list of paths relative to the repository root")
+			} else {
+				for i, e := range list {
+					path := fmt.Sprintf("license.exclude[%d]", i)
+					s, ok := e.(string)
+					if !ok {
+						v.add(Error, path, "must be a string")
+						continue
+					}
+					if _, err := artifact.CleanExclude(s); err != nil {
+						v.add(Error, path, "%v", err)
+					}
+				}
+			}
+		}
+		for _, key := range l.Keys() {
+			if key != "spdx" && key != "exclude" {
+				v.add(Warning, "license."+key, "is not part of the declaration and is ignored")
+			}
+		}
+	default:
+		v.add(Error, "license", "must be an SPDX string or an object with spdx and exclude")
+	}
 }
 
 func (v *validator) commands(section string, obj *Object) {

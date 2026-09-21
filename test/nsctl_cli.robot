@@ -214,6 +214,26 @@ Repoclass Validate Fails On An Error
     Should Be Equal As Integers    ${v.rc}    1
     Should Contain    ${v.stdout}    validate: failed
 
+Repoclass License Declares And Validates
+    [Documentation]    NERD017 SPEC011: the author declares the licence of what
+    ...                is published and the paths kept out of it; the verb
+    ...                prints one line, validate accepts the shape, and a bad
+    ...                exclude is a usage error. Nothing is inferred.
+    [Tags]    contract    nerd017
+    ${dir}=       Create Scratch Repo
+    Run nsctl    repoclass    --path    ${dir}    init    acme-api    --description    The Acme API
+    ${w}=         Run nsctl    repoclass    --path    ${dir}    license    set    Apache-2.0    --exclude    src/python/
+    Should Be Equal As Integers    ${w.rc}    0
+    Should Be Equal    ${w.stdout.strip()}    wrote meta-data/manifest.json license
+    ${manifest}=    Get File    ${dir}${/}meta-data${/}manifest.json
+    Should Contain    ${manifest}    "spdx": "Apache-2.0"
+    Should Contain    ${manifest}    "src/python"
+    ${v}=         Run nsctl    repoclass    --path    ${dir}    validate
+    Should Be Equal As Integers    ${v.rc}    0
+    ${bad}=       Run nsctl    repoclass    --path    ${dir}    license    set    MIT    --exclude    ../secrets
+    Should Be Equal As Integers    ${bad.rc}    2
+    Should Contain    ${bad.stderr}    license.exclude
+
 Plugin List With No Config Reports None
     [Documentation]    NERD018 SPEC001: no nsctl.toml means no plugins, and
     ...                saying so is exit 0, not an error.

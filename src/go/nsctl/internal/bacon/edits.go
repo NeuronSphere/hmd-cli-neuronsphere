@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 )
 
 // The write verbs (SPEC008), each returning the dotted key it changed so the
@@ -101,6 +103,43 @@ func SetImage(doc *Object, ref string) (string, error) {
 		return "", err
 	}
 	return "deploy.image", nil
+}
+
+// SetLicence writes the top-level `license` declaration (NERD017 SPEC011):
+// the string shorthand when nothing is excluded, else the object form with
+// spdx and the cleaned exclude list. It replaces whatever was there; a
+// declaration is one statement, not a list to add to.
+func SetLicence(doc *Object, spdx string, exclude []string) (string, error) {
+	spdx = strings.TrimSpace(spdx)
+	if spdx == "" {
+		return "", fmt.Errorf("an SPDX licence expression is required")
+	}
+	var cleaned []any
+	seen := map[string]bool{}
+	for _, e := range exclude {
+		c, err := artifact.CleanExclude(e)
+		if err != nil {
+			return "", err
+		}
+		if !seen[c] {
+			seen[c] = true
+			cleaned = append(cleaned, c)
+		}
+	}
+	if len(cleaned) == 0 {
+		doc.Set("license", spdx)
+		return "license", nil
+	}
+	obj := NewObject()
+	obj.Set("spdx", spdx)
+	obj.Set("exclude", cleaned)
+	doc.Set("license", obj)
+	return "license", nil
+}
+
+// ClearLicence removes the declaration; ok reports whether there was one.
+func ClearLicence(doc *Object) (key string, ok bool) {
+	return "license", doc.Delete("license")
 }
 
 // Dependency is what add-dependency writes for a role.

@@ -344,3 +344,53 @@ func TestRepoClassSetCommandToleratesTheGlobalHomeFlag(t *testing.T) {
 		t.Errorf("deploy.commands = %v, want the exec argv", cmds)
 	}
 }
+
+// NERD017 SPEC011: `repoclass license` writes the declaration nsctl's
+// publishing verbs read, validate accepts it, and the tree then zips as
+// declared.
+func TestRepoClassLicenseSetAndValidate(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	mustRepoclass(t, dir, "init", "acme-api", "--description", "d")
+	out := mustRepoclass(t, dir, "license", "set", "Apache-2.0", "--exclude", "src/python/", "--exclude", "src/docker")
+	if strings.TrimSpace(out) != "wrote meta-data/manifest.json license" {
+		t.Errorf("set printed %q", out)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json"))
+	for _, want := range []string{`"spdx": "Apache-2.0"`, `"src/python"`, `"src/docker"`} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("manifest lacks %s:\n%s", want, got)
+		}
+	}
+	if _, _, err := rc(t, dir, "validate"); err != nil {
+		t.Errorf("validate: %v", err)
+	}
+	if out := mustRepoclass(t, dir, "describe"); !strings.Contains(out, "Apache-2.0") {
+		t.Errorf("describe does not show the licence:\n%s", out)
+	}
+
+	// The shorthand when nothing is excluded; a bad exclude is a usage error.
+	mustRepoclass(t, dir, "license", "set", "MIT")
+	got, _ = os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json"))
+	if !strings.Contains(string(got), `"license": "MIT"`) {
+		t.Errorf("shorthand not written:\n%s", got)
+	}
+	if _, _, err := rc(t, dir, "license", "set", "MIT", "--exclude", "../x"); nserr.CodeOf(err) != nserr.Usage {
+		t.Errorf("escaping exclude = %v, want a usage error", err)
+	}
+
+	out = mustRepoclass(t, dir, "license", "clear")
+	if strings.TrimSpace(out) != "wrote meta-data/manifest.json license" {
+		t.Errorf("clear printed %q", out)
+	}
+	got, _ = os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json"))
+	if strings.Contains(string(got), "license") {
+		t.Errorf("license survived clear:\n%s", got)
+	}
+	// Clearing what is not there changes nothing and says so.
+	out = mustRepoclass(t, dir, "license", "clear")
+	if strings.Contains(out, "wrote") {
+		t.Errorf("a no-op clear printed %q", out)
+	}
+}

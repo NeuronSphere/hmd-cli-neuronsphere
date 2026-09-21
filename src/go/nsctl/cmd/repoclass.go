@@ -114,6 +114,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
   nsctl repoclass deploy set-command exec make deploy
   nsctl repoclass deploy set-image acme/ci-tools:1
   nsctl repoclass deploy add-dependency warehouse --resource-namespace acme.com --resource-definition-name sql-warehouse --resource-version 0.1.0
+  nsctl repoclass license set Apache-2.0 --exclude src/python
   nsctl repoclass validate
   nsctl repoclass describe --json`,
 		Args:          noArgs,
@@ -131,6 +132,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
 		newRepoClassLocalCommand(path),
 		newRepoClassTestCommand(path),
 		newRepoClassDiscoveryCommand(path),
+		newRepoClassLicenseCommand(path),
 	)
 	return group
 }
@@ -243,6 +245,23 @@ func renderDescribe(out io.Writer, s *bacon.Store, summary *bacon.Object) {
 	if test, ok := summary.Object("test"); ok {
 		if cmds, ok := test.Array("commands"); ok {
 			fmt.Fprintf(w, "test\t%s\n", joinCommands(cmds))
+		}
+	}
+	if raw, ok := s.Doc.Get("license"); ok {
+		switch l := raw.(type) {
+		case string:
+			fmt.Fprintf(w, "license\t%s\n", l)
+		case *bacon.Object:
+			spdx, _ := l.String("spdx")
+			line := spdx
+			if ex, ok := l.Array("exclude"); ok && len(ex) > 0 {
+				parts := make([]string, 0, len(ex))
+				for _, e := range ex {
+					parts = append(parts, fmt.Sprint(e))
+				}
+				line += "  (excludes " + strings.Join(parts, ", ") + ")"
+			}
+			fmt.Fprintf(w, "license\t%s\n", line)
 		}
 	}
 	w.Flush()

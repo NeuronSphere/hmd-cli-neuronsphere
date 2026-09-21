@@ -287,10 +287,12 @@ nsctl artifact push
 
 Publish one RepoClass's build artifact to an OCI registry, where a
 neuronsphere.lock entry can name it as its "source" and anyone -- with no
-tenant -- can fetch it. A directory is zipped as the librarian would receive
-it; a zip is pushed as is. The tag is meta-data/VERSION unless --tag or the
-reference names one. A credential is required (--token, HMD_REGISTRY_TOKEN,
-or a profile's registry_url after "nsctl login").
+tenant -- can fetch it. A directory is zipped as its manifest declares: the
+paths under "license.exclude" stay out, and the "license" SPDX expression
+annotates the artifact (org.opencontainers.image.licenses); a zip is pushed
+as is and annotated from the manifest inside it. The tag is meta-data/VERSION
+unless --tag or the reference names one. A credential is required (--token,
+HMD_REGISTRY_TOKEN, or a profile's registry_url after "nsctl login").
 
 Usage
 ~~~~~
@@ -1792,6 +1794,7 @@ Examples
      nsctl repoclass deploy set-command exec make deploy
      nsctl repoclass deploy set-image acme/ci-tools:1
      nsctl repoclass deploy add-dependency warehouse --resource-namespace acme.com --resource-definition-name sql-warehouse --resource-version 0.1.0
+     nsctl repoclass license set Apache-2.0 --exclude src/python
      nsctl repoclass validate
      nsctl repoclass describe --json
 
@@ -2288,6 +2291,83 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--path`` — The repo class's root directory (default: ``.``)
 
+nsctl repoclass license
+-----------------------
+
+Write or remove the manifest's "license": the SPDX expression of what nsctl
+publishes from this tree, and the root-relative paths that stay out of every
+zip it makes from it ("nsctl artifact push <dir>", "nsctl stack build/push",
+"nsctl stack init --bundle-local", "nsctl artifact register <dir>"). Every
+published layer is annotated org.opencontainers.image.licenses with the
+expression. A repo class that declares nothing is published whole and
+unannotated; nsctl never infers a licence and never refuses one.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass license
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass license set MIT
+     nsctl repoclass license set Apache-2.0 --exclude src/python --exclude src/docker --exclude src/typescript
+     nsctl repoclass license clear
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass license clear
+-----------------------------
+
+Remove the declaration
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass license clear
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass license set
+---------------------------
+
+Replace the declaration. With no --exclude the shorthand form is written
+("license": "<spdx>"); with one or more, the object form with the cleaned
+list. An exclude is a path relative to the repository root, matched on whole
+segments (src/python covers src/python/app.py, not src/pythonic).
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass license set <spdx> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--exclude`` — a root-relative path kept out of every published zip (repeatable) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
 nsctl repoclass local
 ---------------------
 
@@ -2651,7 +2731,9 @@ Each pinned zip comes from the first of: --artifacts <dir>; the artifact
 cache (what an environment this stack was derived from deployed from); the
 lock entry's "source", an OCI reference published with "nsctl artifact push"
 (no tenant needed); the cloud Artifact Librarian (paid, only with a
-credential). The tier that served each entry is printed.
+credential). The tier that served each entry is printed, and so is the
+licence each layer's manifest declares (NERD017 SPEC011): nsctl records
+what an author declared and refuses nothing on its account.
 
 Usage
 ~~~~~
