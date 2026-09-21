@@ -52,8 +52,9 @@ Scope and terminology
   declared under; its **binary** is ``nsctl-<noun>``.
 * A **declaration** is a ``[plugin.<noun>]`` table in ``nsctl.toml``.
 * A **published plugin** is an OCI artifact (SPEC002) in some namespace; the
-  canonical one is ``ghcr.io/hmdlabs/plugins``, a default expansion for a
-  bare name and nothing more.
+  canonical one is ``ghcr.io/neuronsphere/plugins`` (amended 2026-09-21 from
+  ``ghcr.io/hmdlabs/plugins``, together with NERD017's stacks namespace), a
+  default expansion for a bare name and nothing more.
 * A **dev build** is a declaration with a ``path`` and no ``source``.
 
 Out of scope: a plugin adding a verb *under* an existing noun (``nsctl env
@@ -71,7 +72,7 @@ and plugin-to-plugin dependencies.
     .. code-block:: toml
 
         [plugin.hello]
-        source  = "oci://ghcr.io/hmdlabs/plugins/hello"
+        source  = "oci://ghcr.io/neuronsphere/plugins/hello"
         version = "1.2.0"
         digest  = "sha256:..."        # manifest digest that was installed
 

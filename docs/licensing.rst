@@ -24,7 +24,7 @@ starting a local control plane does not create a paid tenant or grant access.
 
 Stacks and CLI plugins (:doc:`how-to/use-stacks`,
 :doc:`how-to/install-cli-plugins`) are free to install from a public
-registry namespace such as ``ghcr.io/hmdlabs``: an anonymous pull needs no
+registry namespace such as ``ghcr.io/neuronsphere``: an anonymous pull needs no
 tenant and no token. A stack's descriptor files -- its lock, its OCI
 manifest, a plugin's descriptor -- are Apache 2.0; the RepoClass zips inside
 a stack carry their own licences, declared by each repository in its

@@ -473,3 +473,10 @@ func (r *Resolver) resolveManifest(repoClass, declared string) (Resolution, *Man
 // second copy is a second place to miss when it moves, which is how the old
 // default came to name tags that existed nowhere.
 const PublishedRegistry = "ghcr.io/hmdlabs"
+
+// DistributionRegistry is where stacks and plugins are distributed from: the
+// public org nsctl itself is released under, and the one a stack repository's
+// own GITHUB_TOKEN can push to from its workflow. It is deliberately not
+// PublishedRegistry -- a stack's layers name images by full reference, so the
+// stack artifact and the images it points at need not share an org.
+const DistributionRegistry = "ghcr.io/neuronsphere"

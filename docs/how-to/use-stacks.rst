@@ -20,7 +20,7 @@ With an environment started (:doc:`manage-environments`)::
 
    nsctl stack add observability --env dev
 
-A bare name expands to ``ghcr.io/hmdlabs/stacks/<name>`` and the expansion is
+A bare name expands to ``ghcr.io/neuronsphere/stacks/<name>`` and the expansion is
 printed; a full reference works anywhere::
 
    nsctl stack add ghcr.io/acme/stacks/warehouse:0.4.0 --env dev
@@ -172,6 +172,7 @@ authors made them and annotated from their own manifests. A class that
 declares nothing is published whole and unannotated; ``nsctl`` infers
 nothing and refuses nothing -- the declaration is yours.
 
-The stack's images must be pullable too: ``ghcr.io/hmdlabs`` is, and a stack
+The stack's images must be pullable too. Images are named by full reference
+inside the stack and stay on ``ghcr.io/hmdlabs``, which is pullable; a stack
 whose images live elsewhere needs its consumers to set
 ``HMD_LOCAL_IMAGE_PULL_REGISTRIES`` in ``hmd.env``.

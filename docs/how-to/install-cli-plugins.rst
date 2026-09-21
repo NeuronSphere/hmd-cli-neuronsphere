@@ -16,14 +16,14 @@ Install a published plugin
    nsctl plugin install ghcr.io/acme/plugins/deploy:1.4.0
    nsctl plugin install hello --spec "~= 1.2"
 
-A bare name expands to ``ghcr.io/hmdlabs/plugins/<name>`` and the expansion
+A bare name expands to ``ghcr.io/neuronsphere/plugins/<name>`` and the expansion
 is printed. Without a version the newest published one is chosen and
 printed. The binary for this platform is unpacked under
 ``$HMD_HOME/.cache/neuronsphere/plugins/<name>@<version>/`` and the
 declaration is written::
 
    [plugin.hello]
-   source  = "oci://ghcr.io/hmdlabs/plugins/hello"
+   source  = "oci://ghcr.io/neuronsphere/plugins/hello"
    version = "1.2.0"
    digest  = "sha256:..."
 

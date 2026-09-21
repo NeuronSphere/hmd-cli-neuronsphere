@@ -65,9 +65,16 @@ Scope and terminology
   ``--from-repo`` declares the subject ``source: local``; a stack declares it
   ``source: artifact``. That is the one difference in the planner.
 * The **canonical namespace** for stacks published by the platform is
-  ``ghcr.io/hmdlabs/stacks``, derived from ``repoclass.PublishedRegistry``.
-  A stack may live anywhere; the namespace is a *default expansion* for a bare
-  name, not a registry of known stacks.
+  ``ghcr.io/neuronsphere/stacks``, derived from
+  ``repoclass.DistributionRegistry``. A stack may live anywhere; the namespace
+  is a *default expansion* for a bare name, not a registry of known stacks.
+
+  .. note:: Amended 2026-09-21. The namespace was first specified as
+     ``ghcr.io/hmdlabs/stacks``, derived from ``repoclass.PublishedRegistry``
+     (the image registry). Stacks and plugins are distributed from the public
+     ``neuronsphere`` org instead -- where ``nsctl`` is released and where a
+     stack repository's ``GITHUB_TOKEN`` can push -- while images stay on
+     ``ghcr.io/hmdlabs`` and are named by full reference inside the stack.
 
 Out of scope: composing one lock from another (still ``NERD010``'s open
 question), a stack that carries images rather than referencing them, and any
@@ -308,7 +315,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
         stacks:
           - name: observability
             version: 0.1.0
-            ref: oci://ghcr.io/hmdlabs/stacks/observability
+            ref: oci://ghcr.io/neuronsphere/stacks/observability
             digest: sha256:...          # the manifest digest that was installed
             bindings:                   # role or class -> instance, as NERD010 SPEC005
               compute: local-neuronsphere

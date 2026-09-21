@@ -145,7 +145,7 @@ bundled for the role; "nsctl stack add" binds it to an instance in the
 environment that produces the role's resource type, or refuses naming
 --suggest. Declare the role first with "deploy add-dependency", with a
 resource type, so the match is by what is needed rather than by name.`,
-		Example:       `  nsctl repoclass local require warehouse-bucket --suggest ghcr.io/hmdlabs/stacks/storage`,
+		Example:       `  nsctl repoclass local require warehouse-bucket --suggest ghcr.io/neuronsphere/stacks/storage`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,

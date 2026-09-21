@@ -105,7 +105,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
     **This package never guesses a host.** A reference without one is refused
     with ``ErrNoHost``. A consuming *verb* may expand a bare name against a
     namespace compiled into that verb -- ``NERD017`` expands ``analytics`` to
-    ``ghcr.io/hmdlabs/stacks/analytics`` -- and when it does, it prints the
+    ``ghcr.io/neuronsphere/stacks/analytics`` -- and when it does, it prints the
     expansion before fetching. The argument is the one ``nsconfig.DefaultAuthURL``
     makes: a default that is a *build identity* is fine, and one that is an
     inference from the environment is not.

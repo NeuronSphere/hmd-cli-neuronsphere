@@ -86,11 +86,11 @@ func ParseRef(s string) (Ref, error) {
 
 	host, rest, ok := strings.Cut(s, "/")
 	if !ok || rest == "" {
-		return Ref{}, fmt.Errorf("%w: %q. A reference is <host>/<repository>[:<tag>], e.g. ghcr.io/hmdlabs/stacks/analytics:0.3", ErrNoHost, s)
+		return Ref{}, fmt.Errorf("%w: %q. A reference is <host>/<repository>[:<tag>], e.g. ghcr.io/neuronsphere/stacks/analytics:0.3", ErrNoHost, s)
 	}
 	if !isHost(host) {
 		return Ref{}, fmt.Errorf("%w: %q looks like a repository path with no registry in front of it. "+
-			"A reference is <host>/<repository>[:<tag>], e.g. ghcr.io/hmdlabs/stacks/analytics:0.3", ErrNoHost, s)
+			"A reference is <host>/<repository>[:<tag>], e.g. ghcr.io/neuronsphere/stacks/analytics:0.3", ErrNoHost, s)
 	}
 	if strings.EqualFold(host, "github.com") {
 		return Ref{}, fmt.Errorf("%w: github.com/<owner>/<repo> is a GitHub Releases source, which NERD016 SPEC008 defers; "+

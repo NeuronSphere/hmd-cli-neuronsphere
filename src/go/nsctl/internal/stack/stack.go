@@ -58,9 +58,10 @@ const (
 )
 
 // DefaultNamespace is where a bare stack name expands to. Derived from the
-// published image registry, since a stack's images must be pullable from the
-// same place for it to be usable at all.
-var DefaultNamespace = repoclass.PublishedRegistry + "/stacks"
+// distribution registry, not the image one: images stay on ghcr.io/hmdlabs
+// and are named by full reference inside the stack, while the stack artifact
+// itself is published from the public org.
+var DefaultNamespace = repoclass.DistributionRegistry + "/stacks"
 
 // Layer is one build zip in a stack artifact.
 type Layer struct {

@@ -2,6 +2,12 @@
 
 ## 2026-09-21
 
+- feat(stack): a bare stack or plugin name expands to `ghcr.io/neuronsphere/…`
+  (`repoclass.DistributionRegistry`, the public org `nsctl` is released under
+  and a stack repository's `GITHUB_TOKEN` can push to) rather than the image
+  registry `ghcr.io/hmdlabs`, which stays `repoclass.PublishedRegistry` for
+  images. `nsctl stack add analytics` now resolves the platform's published
+  stacks without a full reference. Amends NERD017/NERD018.
 - feat: a BACON manifest's `license` (an SPDX string, or `{spdx, exclude}`)
   declares what `nsctl` publishes from a tree. `artifact.Zip` leaves the
   declared `exclude` paths out, so the stack subject, the cache re-zip,

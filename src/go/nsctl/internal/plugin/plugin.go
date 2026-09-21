@@ -36,9 +36,9 @@ const (
 )
 
 // DefaultNamespace is where a bare plugin name expands to. Derived from the
-// published image registry so the two cannot drift; a verb prints the
-// expansion before fetching (NERD016 SPEC001).
-var DefaultNamespace = repoclass.PublishedRegistry + "/plugins"
+// distribution registry, the same org stacks expand into, so the two cannot
+// drift; a verb prints the expansion before fetching (NERD016 SPEC001).
+var DefaultNamespace = repoclass.DistributionRegistry + "/plugins"
 
 // Platform is one published binary.
 type Platform struct {

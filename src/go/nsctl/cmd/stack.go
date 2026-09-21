@@ -606,7 +606,7 @@ refused: a published version is immutable. A credential is required:
 --token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
 repository's owner), or a profile's registry_url after "nsctl login".`,
 		Example: `  nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
-  nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
+  nsctl stack push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
   nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock`,
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,

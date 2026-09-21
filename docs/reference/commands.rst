@@ -1462,7 +1462,7 @@ A CLI plugin is an executable that adds one top-level noun to nsctl:
 A plugin runs because $HMD_HOME/.config/nsctl.toml declares it under
 [plugin.<name>], and for no other reason; nothing on PATH or under the cache
 is scanned. "install" fetches a published plugin from an OCI registry (a bare
-name expands to ghcr.io/hmdlabs/plugins), unpacks this platform's
+name expands to ghcr.io/neuronsphere/plugins), unpacks this platform's
 binary under $HMD_HOME/.cache/neuronsphere/plugins/, and writes the
 declaration. A local build is declared by hand with "path = ..." instead.
 
@@ -1483,7 +1483,7 @@ nsctl plugin install
 
 Fetch a plugin from an OCI registry and declare it. <ref> is
 <host>/<repository>[:<version>]; a bare name expands to
-ghcr.io/hmdlabs/plugins/<name>. Without a version the newest published
+ghcr.io/neuronsphere/plugins/<name>. Without a version the newest published
 one is installed and printed. Public namespaces need no credential; a private
 one takes HMD_REGISTRY_TOKEN, or a profile whose registry_url matches the
 host after "nsctl login".
@@ -2508,7 +2508,7 @@ Examples
 
 .. code-block:: shell
 
-   nsctl repoclass local require warehouse-bucket --suggest ghcr.io/hmdlabs/stacks/storage
+   nsctl repoclass local require warehouse-bucket --suggest ghcr.io/neuronsphere/stacks/storage
 
 Local flags
 ~~~~~~~~~~~
@@ -2653,7 +2653,7 @@ environment manifest the way "env add --from-repo" would from a checkout.
 
 Declaring is not deploying: run "nsctl env apply" afterwards, or pass --apply.
 nsctl carries no list of stacks; a bare name expands to
-ghcr.io/hmdlabs/stacks/<name> and the expansion is printed.
+ghcr.io/neuronsphere/stacks/<name> and the expansion is printed.
 
 Usage
 ~~~~~
@@ -2678,7 +2678,7 @@ its own bindings in the manifest's "stacks" record, so it can share an
 environment with a --from-repo repository or another stack.
 
 <ref> is <host>/<repository>[:<version>]; a bare name expands to
-ghcr.io/hmdlabs/stacks/<name>. No version means the newest, which is
+ghcr.io/neuronsphere/stacks/<name>. No version means the newest, which is
 printed. A public namespace needs no credential.
 
 Nothing is deployed until "nsctl env apply <env>"; --apply runs it.
@@ -2899,7 +2899,7 @@ Examples
 .. code-block:: shell
 
    nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
-     nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
+     nsctl stack push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
      nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock
 
 Local flags

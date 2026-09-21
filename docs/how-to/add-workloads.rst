@@ -66,7 +66,7 @@ tenant or token for a public namespace::
    nsctl stack list --env local
    nsctl env apply local
 
-A bare name expands to ``ghcr.io/hmdlabs/stacks/<name>``; a full reference
+A bare name expands to ``ghcr.io/neuronsphere/stacks/<name>``; a full reference
 with a version works anywhere. ``stack add`` reuses an instance the
 environment already provides for a role the stack needs (the substrate's
 cluster or database, an instance another stack declared) and declares only
