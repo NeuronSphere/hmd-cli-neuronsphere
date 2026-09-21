@@ -285,3 +285,44 @@ Stack Versions Against A Closed Port Fails Cleanly
     Should Be Equal As Integers    ${result.rc}    1
     Should Contain    ${result.stderr}    127.0.0.1:1
     Should Not Contain    ${result.stderr}    panic
+
+Stack Init Scaffolds A Stack That Validates
+    [Documentation]    NERD019 SPEC004/SPEC006/SPEC007: the scaffold is a
+    ...                RepoClass that validates, with the CI workflow beside it.
+    [Tags]    contract    nerd019
+    ${dir}=       Create Scratch Repo
+    ${r}=         Run nsctl    stack    init    hmd-stack-x    --path    ${dir}${/}hmd-stack-x    --description    x
+    Should Be Equal As Integers    ${r.rc}    0
+    File Should Exist    ${dir}${/}hmd-stack-x${/}.github${/}workflows${/}stack.yml
+    File Should Exist    ${dir}${/}hmd-stack-x${/}meta-data${/}manifest.json
+    ${wf}=        Get File    ${dir}${/}hmd-stack-x${/}.github${/}workflows${/}stack.yml
+    Should Contain    ${wf}    nsctl stack push
+    Should Contain    ${wf}    secrets.GITHUB_TOKEN
+    ${a}=         Run nsctl    repoclass    --path    ${dir}${/}hmd-stack-x    local    add    hmd-inf-redis    --spec    == 0.1.47
+    Should Be Equal As Integers    ${a.rc}    0
+    ${l}=         Run nsctl    lock    ${dir}${/}hmd-stack-x
+    Should Be Equal As Integers    ${l.rc}    0
+    ${v}=         Run nsctl    repoclass    --path    ${dir}${/}hmd-stack-x    validate
+    Should Be Equal As Integers    ${v.rc}    0
+    Should Contain    ${v.stdout}    validate: ok
+
+Stack Build Refuses With Every Tier Named
+    [Documentation]    NERD019 SPEC002: a pin nothing can serve is refused
+    ...                naming the tiers and the artifact push remedy.
+    [Tags]    contract    nerd019
+    ${home}=      Create Scratch Home
+    ${dir}=       Create Scratch Repo
+    Run nsctl    stack    init    hmd-stack-y    --path    ${dir}${/}hmd-stack-y
+    Run nsctl    repoclass    --path    ${dir}${/}hmd-stack-y    local    add    hmd-inf-redis    --spec    == 0.1.47
+    Run nsctl    lock    ${dir}${/}hmd-stack-y
+    ${b}=         Run nsctl In Home    ${home}    stack    build    ${dir}${/}hmd-stack-y
+    Should Be Equal As Integers    ${b.rc}    2
+    Should Contain    ${b.stderr}    artifact cache (not cached)
+    Should Contain    ${b.stderr}    nsctl artifact push
+
+Stack Push Refuses Anonymous
+    [Tags]    contract    nerd019
+    ${home}=      Create Scratch Home
+    ${r}=         Run nsctl In Home    ${home}    stack    push    ghcr.io/acme/stacks/x    --from    ${home}
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    --token

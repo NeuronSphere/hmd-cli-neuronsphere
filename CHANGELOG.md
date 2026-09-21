@@ -2,6 +2,8 @@
 
 ## 2026-09-21
 
+- test: `test/nsctl_cli.robot` gains NERD019 contract cases (scaffold
+  validates, build names every tier, push refuses anonymous).
 - feat: `nsctl lock --resolve` pins ranges to the newest published version,
   from the lock entry's OCI `source` first and the cloud librarian second,
   and a regenerate keeps each entry's `source`; `nsctl repoclass validate`

@@ -295,6 +295,8 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
             bindings:                   # role or class -> instance, as NERD010 SPEC005
               compute: local-neuronsphere
               otel-collector: otel
+            declared: [otel, stack-observability]   # what the stack itself declared (SPEC010);
+                                                    # a bound instance is not in it
 
     ``stacks`` is optional and the manifest schema version is unchanged; a
     manifest without it is every manifest that exists today. ``Validate``

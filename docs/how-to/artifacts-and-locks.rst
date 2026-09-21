@@ -120,6 +120,19 @@ fill it when they see the bytes. It is optional, the schema stays at
 ``version = 1``, and ``lock --check`` does not verify it -- but ``stack add``
 refuses a zip whose digest disagrees with the lock inside the stack.
 
+An entry may also carry a ``source``: an OCI reference (no version) that
+serves the class's build zip as an artifact, published with ``nsctl artifact
+push``. It is where a stack build fetches the zip with no tenant, and where
+``nsctl lock --resolve`` enumerates versions first. ``artifact pull`` accepts
+the same reference form. A regenerate keeps every entry's ``source``.
+
+To pin ranges from what is published rather than by hand::
+
+   nsctl lock --resolve
+
+which asks each entry's ``source`` first and the cloud librarian second (only
+with a credential), and reports where each answer came from.
+
 Apply a changed lock
 --------------------
 

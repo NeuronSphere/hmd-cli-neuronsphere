@@ -99,10 +99,12 @@ the one manual, one-time act, and the workflow says so).
 
     1. ``--artifacts <dir>`` by the librarian file name
        (``<class>_<version>_build.zip``).
-    2. The artifact cache, re-zipped from the unpacked tree: what a stack
-       derived from a running environment finds, since the environment
-       deployed from those trees. Verified only by digest when the lock has
-       one, since re-zipping does not reproduce the original bytes.
+    2. The artifact cache, which from this NERD on keeps the original zip
+       beside each unpacked tree: what a stack derived from a running
+       environment finds, since the environment deployed from those zips.
+       A tree cached before that -- no zip kept -- is re-zipped, and only a
+       lock entry with no digest can accept that, since re-zipping never
+       reproduces the original bytes.
     3. The entry's ``source`` when it is an OCI reference (``NERD016``
        SPEC009): anonymous or credentialed, by tag and then digest.
     4. The cloud Artifact Librarian by ``content_path`` -- the paid path,
@@ -165,8 +167,8 @@ the one manual, one-time act, and the workflow says so).
     ====================================== ==============================================================
     The instance is…                       …and becomes
     ====================================== ==============================================================
-    a substrate instance                   a **bound role**: ``local.dependencies.<role>.bind`` to the
-    (``bom.IsSubstrate``)                  substrate's reserved name; nothing bundled
+    a substrate instance, or one of a      a **bound role**: ``local.dependencies.<role>.bind`` to the
+    class ``nsctl`` bundles                instance every environment has; nothing bundled
     declared by another stack in the       a **cross-stack role**: ``local.dependencies.<role>`` with the
     environment (a ``stacks`` record       resource type from the class's manifest and ``suggest`` naming
     binds it)                              that stack's ``ref``; nothing bundled unless ``--include-provided``
@@ -183,8 +185,10 @@ the one manual, one-time act, and the workflow says so).
     references. A copied value that looks host-specific (an absolute path,
     a loopback address, a port) is listed for the author to review.
 
-    An instance deployed from a working tree (``source: local`` in the
-    environment manifest) has no published artifact and is refused, naming
+    An instance deployed from a working tree (an explicit
+    ``source: {type: local}`` in the environment manifest; one with no source
+    block resolves through the tier chain at the published version the graph
+    records) has no published artifact and is refused, naming
     ``--bundle-local <instance>`` which zips its tree as the subject is
     zipped. ``--dry-run`` prints the classification table and writes
     nothing. ``--diff`` (with ``--from-bom``, for the refresh job) reports
@@ -251,15 +255,23 @@ the one manual, one-time act, and the workflow says so).
 
     .. code-block:: text
 
-        nsctl repoclass local add <repo-class> --spec "~= 0.3" [--name <instance>] [--profile p]... [--depends role=instance]... [--satisfies role]...
+        nsctl repoclass local add <repo-class> --spec "~= 0.3" [--name <instance>] [--profile p]... [--depends role=instance]...
         nsctl repoclass local remove <instance>
         nsctl repoclass local bind <role> <substrate-instance>
-        nsctl repoclass local require <role> --resource <ns>/<name>[@<version>] [--suggest <stack-ref>]
+        nsctl repoclass local require <role> [--suggest <stack-ref>]
         nsctl repoclass local set-default-profiles p,q
         nsctl repoclass local list
 
-    The same manifest-verb shape as ``repoclass deploy``. Last in the build
-    order: once derivation exists these are for adjusting what it wrote.
+    The same manifest-verb shape as ``repoclass deploy``. A role the stack
+    needs is declared with ``deploy add-dependency`` (with a resource type,
+    so ``NERD017`` SPEC010 matches by what is needed) and then gated:
+    ``bind`` for one the substrate provides, ``require`` for one another
+    stack provides -- written as ``local.dependencies.<role>.external: true``,
+    which ``nsctl lock`` never pins and ``stack add`` resolves or refuses. A
+    companion never "satisfies" a role: under ``NERD010`` the role's own
+    dependency want is the instance, and a companion is something else
+    started beside it. Last in the build order: once derivation exists these
+    are for adjusting what it wrote.
 
 Testing
 -------

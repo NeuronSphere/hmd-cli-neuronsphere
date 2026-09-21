@@ -96,34 +96,63 @@ Publish your own
 ----------------
 
 A stack repository is an ordinary RepoClass repository with three things: a
-``local`` section naming its companions with version specs, a lock generated
-from it, and a deploy phase -- which for a stack that carries nothing of its
-own is a NERD009 no-op::
+``local`` section naming its companions, a lock generated from it, and a
+deploy phase -- a NERD009 no-op for a stack that carries nothing of its own.
+The primary way to make and publish one is **from a running environment,
+through CI**.
 
-   {
-     "name": "hmd-stack-observability",
-     "deploy": {"commands": [["exec", "true"]]},
-     "local": {"version": 1, "default_profiles": [], "repos": [
-       {"instance_name": "otel",       "repo_class_name": "hmd-inf-otel-collector", "version_spec": "0.1.188"},
-       {"instance_name": "clickhouse", "repo_class_name": "hmd-inf-clickhouse",     "version_spec": "0.3.12",
-        "profiles": ["full"]}
-     ]}
-   }
+**Derive it from what you are running.** Pick the instances a consumer should
+get; their required dependencies follow::
 
-Generate the lock and push::
+   nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
 
-   nsctl lock
-   nsctl stack push . ghcr.io/acme/stacks/observability --token $GHCR_PAT --update-lock
+The table says what each instance reached becomes: a selected root is a
+companion in its own profile; anything else reached is a companion pinned to
+its running version; the substrate and the classes ``nsctl`` bundles are bound
+roles the consumer's environment provides; an instance another stack declared
+becomes an *external* role with that stack suggested (``--include-provided``
+bundles it instead); an instance deployed from an explicit working tree has
+no published artifact and is refused unless ``--bundle-local`` names it.
+Configuration is copied only from the environment manifest's declarations,
+and values that look tied to your machine are listed for review. Drop
+``--dry-run`` to write the repository: the manifest, ``neuronsphere.lock``,
+``meta-data/reference-bom.json`` (what CI re-derives from) and the workflow.
 
-The tag is ``meta-data/VERSION`` unless the reference names one. Each
-companion's zip comes from ``--artifacts <dir>`` (the ``hmd build`` output
-layout, ``<class>_<version>_build.zip``) or, without it, from the cloud
-Artifact Librarian by the lock's content path -- so the *publisher* is a paid
-user, and the consumer is not. ``--update-lock`` writes every zip's digest
-back into the repository's lock so the next commit carries them.
+**Or author it by hand**::
 
-On ``ghcr.io`` a newly pushed package is **private by default**; make it
-public in the package's settings before telling anyone to ``stack add`` it.
+   nsctl stack init hmd-stack-observability
+   cd hmd-stack-observability
+   nsctl repoclass local add hmd-inf-otel-collector --spec "~= 0.1" --name otel
+   nsctl repoclass local add hmd-inf-clickhouse --spec "~= 0.3" --name clickhouse --profile full
+   nsctl repoclass deploy add-dependency sink --repo-class-name hmd-inf-s3bucket \
+       --resource-namespace storage.neuronsphere.io --resource-definition-name bucket --resource-version 0.1.0
+   nsctl repoclass local require sink --suggest storage      # another stack provides it
+   nsctl lock --resolve                                      # ranges -> newest published
+
+**Commit, and let CI publish.** ``stack init`` wrote
+``.github/workflows/stack.yml`` with three jobs. ``verify`` runs on every
+pull request: ``nsctl repoclass validate`` (the lock covers every want, every
+role is bound, external or pinned) and ``nsctl stack build``, which writes the
+artifact as an OCI image layout under ``build/stack`` and keeps it as a
+workflow artifact. ``release`` runs on the default branch::
+
+   nsctl stack push ghcr.io/<owner>/stacks/analytics --from build/stack --bump
+
+with ``HMD_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}`` -- no PAT, no
+tenant. ``--bump`` tags the push with the next patch of the newest version the
+registry holds; a published version is never overwritten. ``refresh`` runs
+weekly: ``nsctl lock --resolve`` and a re-derivation from the reference BOM,
+opening a pull request when either moved. The one manual step is making the
+``ghcr.io`` package public after the first release; the workflow's header
+says where.
+
+``stack build`` gets each pinned zip from the first source that has it:
+``--artifacts <dir>``, the artifact cache (an environment you derived from
+deployed from it), the lock entry's ``source`` -- a RepoClass published as an
+OCI artifact with ``nsctl artifact push``, which is how a third party's own
+classes reach CI with no tenant -- and, with a credential, the cloud Artifact
+Librarian. The tier that served each entry is printed.
+
 The stack's images must be pullable too: ``ghcr.io/hmdlabs`` is, and a stack
 whose images live elsewhere needs its consumers to set
 ``HMD_LOCAL_IMAGE_PULL_REGISTRIES`` in ``hmd.env``.
