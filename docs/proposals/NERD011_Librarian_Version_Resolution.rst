@@ -3,8 +3,6 @@
 NERD011 Librarian Version Resolution
 ====================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Resolve a version specifier to a concrete published version
     :id: HMD_CLI_NEURONSPHERE_NERD011
     :status: implemented

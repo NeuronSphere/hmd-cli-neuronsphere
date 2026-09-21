@@ -1,8 +1,6 @@
 BACON configuration
 ===================
 
-.. include:: ../_includes/paid-cloud.txt
-
 BACON metadata describes a RepoClass: its identity, build and deploy commands,
 configuration, dependencies, and resource contracts. The repository's
 ``local`` section adds development companions and local bindings.

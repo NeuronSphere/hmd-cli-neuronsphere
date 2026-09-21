@@ -1,8 +1,6 @@
 Operating Modes
 ===============
 
-.. include:: _includes/paid-cloud.txt
-
 ``hmd neuronsphere up`` supports two operating modes, controlled by the
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.

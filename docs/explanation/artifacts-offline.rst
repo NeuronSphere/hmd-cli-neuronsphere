@@ -1,8 +1,6 @@
 Artifacts and offline operation
 ===============================
 
-.. include:: ../_includes/paid-cloud.txt
-
 A deployment needs a repository tree as well as configuration. That tree can
 come from a local checkout or from a versioned build artifact. Selecting the
 source explicitly determines whether you are testing your edits or a

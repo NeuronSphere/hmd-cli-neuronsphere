@@ -2,11 +2,9 @@ Create a BACON manifest and add your repository
 ===============================================
 
 This tutorial starts with a repository that has no NeuronSphere metadata and
-ends with that checkout declared in a local environment. It uses the free local
-workflow: no paid NeuronSphere tenant, cloud login, or published artifact is
-required. Docker may still need to download the public example image.
-
-.. include:: ../_includes/paid-cloud.txt
+ends with that checkout declared in a local environment. Everything here runs
+locally: no account, login, or published artifact is needed. Docker may still
+need to download the public example image.
 
 The example deploy writes a small result file. It proves that nsctl can run
 your repository's command in its chosen image; it does not start an application
@@ -134,7 +132,7 @@ register a new environment instead::
 
 The sample has no dependencies or companions, so its lock has no dependency
 pins. The subject itself runs from the checkout. ``--no-pull`` makes explicit
-that this example does not fetch paid cloud artifacts. The script needs no
+that this example fetches nothing from a cloud tenant. The script needs no
 database or Kubernetes cluster, so ``none`` is sufficient. The shared local
 control plane still runs.
 
@@ -174,8 +172,9 @@ This sample intentionally has no dependency roles. For a real workload:
   substrate already supplies that role, and ``local.repos`` for extra testing
   companions. A bound substrate role does not need a published-artifact pin.
 * Use ``nsctl lock`` and local build registration for companion artifacts you
-  produce yourself. Cloud Artifact Librarian access and cloud BOM import
-  require paid NeuronSphere; they are optional to local onboarding.
+  produce yourself. If your organisation has a NeuronSphere cloud tenant, its
+  Artifact Librarian and cloud BOM import are available too; neither is
+  needed for local onboarding.
 * Once the repository declares companions in ``local.repos`` and carries a
   lock, it is also a **stack**: ``nsctl stack build`` packages it and every
   pinned zip as one OCI artifact, and ``nsctl stack push`` publishes it so

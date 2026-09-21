@@ -89,11 +89,12 @@ Make sure the local control plane is available before fetching artifacts::
    nsctl env add dev --from-repo .
 
 The add command registers ``dev``, writes its environment manifest, and fetches
-missing artifacts into the local librarian. Fetching from the cloud requires
-paid NeuronSphere and tenant access; configure its endpoint and sign in as
-described in :doc:`../how-to/artifacts-and-locks`. For local-only adoption,
-register your own companion builds first and pass ``--no-pull`` to ``env add``.
-A repository without companions needs no cloud artifacts.
+any missing companion artifacts into the local librarian. A repository without
+companions needs no artifacts at all; for local-only adoption, register your
+own companion builds first and pass ``--no-pull`` to ``env add``. If your
+organisation has a NeuronSphere cloud tenant, ``env add`` can fetch companions
+from its Artifact Librarian instead -- configure its endpoint and sign in as
+described in :doc:`../how-to/artifacts-and-locks`.
 
 Registration does not start the environment. The running control plane is
 enough to request a plan of the substrate and workloads before first startup.

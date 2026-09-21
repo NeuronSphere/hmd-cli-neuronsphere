@@ -1,7 +1,7 @@
 Add workloads
 =============
 
-Use this guide to add a checkout, a pinned artifact, or a published stack to
+Use this guide to add a checkout, a published stack, or a pinned artifact to
 an existing local environment. Start it first, for example with
 ``nsctl env start local``. ``repo`` and ``stack`` commands edit environment
 declarations; ``repoclass`` commands inspect or author metadata in a
@@ -55,15 +55,32 @@ location. Applying performs the deployment. A dependency validation error
 usually means a role is missing, names an absent instance, or points to an
 instance that does not produce the required resource type.
 
+Add a published stack
+---------------------
+
+A stack declares several instances at once -- every RepoClass its lock pins,
+at versions known to work together -- from one published artifact, with no
+tenant or token for a public namespace::
+
+   nsctl stack add observability --env local
+   nsctl stack list --env local
+   nsctl env apply local
+
+A bare name expands to ``ghcr.io/hmdlabs/stacks/<name>``; a full reference
+with a version works anywhere. ``stack add`` reuses an instance the
+environment already provides for a role the stack needs (the substrate's
+cluster or database, an instance another stack declared) and declares only
+what is missing. ``nsctl stack remove observability --env local``
+undeclares exactly what it added. Profiles, versions, private namespaces and
+publishing your own are in :doc:`use-stacks`.
+
 Deploy a published artifact
 ---------------------------
 
 For your own build, register it with the local librarian using
-``nsctl artifact register /path/to/build.zip``. This local workflow does not
-require paid NeuronSphere.
-
-Alternatively, **paid NeuronSphere customers** can pull a concrete version
-from their cloud Artifact Librarian::
+``nsctl artifact register /path/to/build.zip``. If your organisation has a
+NeuronSphere cloud tenant, you can also pull a concrete version from its
+Artifact Librarian::
 
    nsctl artifact pull hmd-inf-local-registry@0.1.4
 
@@ -88,25 +105,6 @@ Merge the entry into the existing ``repos`` list rather than replacing other
 declarations. A ``version`` on a ``repo add`` command alone does not select
 ``source.type: artifact``; specify the source in the manifest or use the
 repository-adoption or BOM-import workflow, which writes it for you.
-
-Add a published stack
----------------------
-
-A stack declares several instances at once -- every RepoClass its lock pins,
-at versions known to work together -- from one published artifact, with no
-tenant or token for a public namespace::
-
-   nsctl stack add observability --env local
-   nsctl stack list --env local
-   nsctl env apply local
-
-A bare name expands to ``ghcr.io/hmdlabs/stacks/<name>``; a full reference
-with a version works anywhere. ``stack add`` reuses an instance the
-environment already provides for a role the stack needs (the substrate's
-cluster or database, an instance another stack declared) and declares only
-what is missing. ``nsctl stack remove observability --env local``
-undeclares exactly what it added. Profiles, versions, private namespaces and
-publishing your own are in :doc:`use-stacks`.
 
 Update and remove a declaration
 -------------------------------

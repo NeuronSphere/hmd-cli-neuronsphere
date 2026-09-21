@@ -5,9 +5,10 @@ nsctl documentation
 
 .. include:: _includes/paid-cloud.txt
 
-Run local NeuronSphere environments reproducibly with ``nsctl``. Start with a
-tutorial, use the how-to guides for focused tasks, and use the reference for
-the exact current CLI contract.
+Run local NeuronSphere environments reproducibly with ``nsctl``. Docker is
+the only prerequisite: every tutorial runs end to end on your machine. Start
+with a tutorial, use the how-to guides for focused tasks, and use the
+reference for the exact current CLI contract.
 
 .. toctree::
    :maxdepth: 2
@@ -24,7 +25,7 @@ the exact current CLI contract.
    how-to/manage-environments
    how-to/add-workloads
    how-to/artifacts-and-locks
-   Import a cloud BOM (paid NeuronSphere) <how-to/import-cloud-bom>
+   Import a cloud BOM (cloud tenants) <how-to/import-cloud-bom>
    how-to/test-local-authorization
    how-to/use-agent-skills
    how-to/use-stacks

@@ -3,8 +3,6 @@
 NERD014 Selectable Environment Substrate
 ========================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Let an environment choose how much substrate it runs: none, core, or full
     :id: HMD_CLI_NEURONSPHERE_NERD014
     :status: implemented

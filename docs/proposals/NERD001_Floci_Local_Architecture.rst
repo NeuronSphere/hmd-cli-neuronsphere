@@ -3,8 +3,6 @@
 NERD001 Floci-Based Local NeuronSphere Architecture
 ====================================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Close the local/cloud deployment gap using Floci
     :id: HMD_CLI_NEURONSPHERE_NERD001
     :status: proposed

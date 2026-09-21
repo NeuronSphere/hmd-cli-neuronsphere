@@ -3,8 +3,6 @@ nsctl command reference
 
 This page is generated from the Cobra command tree. Do not edit it by hand; run ``make docs-reference``.
 
-.. include:: ../_includes/paid-cloud.txt
-
 nsctl
 =====
 
@@ -2730,10 +2728,10 @@ so a build in CI reproduces a build on a laptop, and nothing is pushed.
 Each pinned zip comes from the first of: --artifacts <dir>; the artifact
 cache (what an environment this stack was derived from deployed from); the
 lock entry's "source", an OCI reference published with "nsctl artifact push"
-(no tenant needed); the cloud Artifact Librarian (paid, only with a
-credential). The tier that served each entry is printed, and so is the
-licence each layer's manifest declares (NERD017 SPEC011): nsctl records
-what an author declared and refuses nothing on its account.
+(no tenant needed); your organisation's cloud Artifact Librarian (only
+with a tenant credential). The tier that served each entry is printed, and
+so is the licence each layer's manifest declares (NERD017 SPEC011): nsctl
+records what an author declared and refuses nothing on its account.
 
 Usage
 ~~~~~

@@ -3,8 +3,6 @@
 Extension Development
 ==========================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 The local NeuronSphere is extended by **adding RepoClasses to a manifest**.
 There is no plugin discovery: nothing is scanned, enumerated or
 auto-registered, and an extension runs because a manifest names it and for no

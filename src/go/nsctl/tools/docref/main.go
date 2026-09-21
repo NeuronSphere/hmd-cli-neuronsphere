@@ -32,7 +32,6 @@ func render() []byte {
 	var b bytes.Buffer
 	b.WriteString("nsctl command reference\n=======================\n\n")
 	b.WriteString("This page is generated from the Cobra command tree. Do not edit it by hand; run ``make docs-reference``.\n\n")
-	b.WriteString(".. include:: ../_includes/paid-cloud.txt\n\n")
 	writeCommand(&b, cmd.NewRootCommand("v1.0.207", nil), 1)
 	return b.Bytes()
 }

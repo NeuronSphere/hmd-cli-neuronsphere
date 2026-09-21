@@ -3,8 +3,6 @@
 NERD003 Customer-Derived Librarians on Local NeuronSphere
 =========================================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Run customer-derived librarians as first-class HMDMS plugins on the local stack
     :id: HMD_CLI_NEURONSPHERE_NERD003
     :status: proposed

@@ -6,16 +6,17 @@ Import a cloud BOM
 A bill of materials (BOM) records the instances and versions deployed in a cloud
 environment. Import a selection to reproduce that workload locally. The cloud
 environment is read as an input; the import writes local declarations and
-fetches artifacts.
+fetches artifacts. To install a curated set of workloads without a tenant,
+use a stack instead (:doc:`use-stacks`).
 
 Prepare the local destination
 -----------------------------
 
-This entire workflow requires paid NeuronSphere and access to an existing
-tenant. Obtain its deployment and librarian endpoints and account access from
-your organisation's NeuronSphere administrator. Configure a tenant profile and sign
-in, as described in :doc:`artifacts-and-locks`. Then register and start a local
-destination if it does not already exist::
+This workflow reads a cloud environment, so it needs an account on your
+organisation's NeuronSphere cloud tenant. Obtain its deployment and librarian
+endpoints and account access from your NeuronSphere administrator. Configure
+a tenant profile and sign in, as described in :doc:`artifacts-and-locks`.
+Then register and start a local destination if it does not already exist::
 
    nsctl env add scratch
    nsctl env start scratch

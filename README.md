@@ -4,11 +4,11 @@
 
 ## Prerequisites
 
-Local development with `nsctl` is free. **All NeuronSphere cloud features
-require paid NeuronSphere**, including cloud Artifact Librarian access,
-published-version queries, and cloud BOM inspection or import. These features
-also need access to your organisation's tenant; installing the CLI does not
-provide it. See [product availability and licensing](docs/licensing.rst).
+`nsctl` and local development with it are free and need only Docker. Commands
+that talk to a hosted NeuronSphere (the cloud Artifact Librarian,
+published-version queries, cloud BOM inspection or import) connect to your
+organisation's NeuronSphere cloud tenant; see
+[product availability and licensing](docs/licensing.rst).
 
 Docker must be running. On macOS or Linux (including WSL2), add the local host names once:
 
@@ -54,7 +54,7 @@ New environments contain a cluster, database, and required operators. Add applic
 To add your own checkout, follow
 [Create a BACON manifest and add your repository](docs/tutorials/create-repository-manifest.rst).
 It includes a complete manifest, deploy script, validation commands, and both
-ways to register the repository locally. No paid cloud account is needed.
+ways to register the repository locally. No account is needed.
 
 To add a published set of RepoClasses in one go, add a stack -- free from a
 public registry namespace, no tenant or token needed:

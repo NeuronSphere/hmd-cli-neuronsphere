@@ -3,8 +3,6 @@
 NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 ===============================================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Deliver the local NeuronSphere as a single Go binary requiring only Docker
     :id: HMD_CLI_NERD002
     :status: implemented

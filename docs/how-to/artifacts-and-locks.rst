@@ -10,27 +10,28 @@ These are separate steps: a valid lock does not mean its artifacts are cached.
 Local-only use
 --------------
 
-Local build registration, unpacking locally available artifacts, creating a
-lock from explicit pins, and ``lock --check`` do not require paid NeuronSphere.
-Neither do stacks: a published set of RepoClasses in a public registry
-namespace installs with ``nsctl stack add`` and no tenant, and a RepoClass
-build zip published with ``nsctl artifact push`` is fetched the same way
-(:doc:`use-stacks`, :doc:`../explanation/oci-distribution`).
-You can use a checkout directly as shown in
-:doc:`../tutorials/create-repository-manifest`. Skip the next two sections
-unless you have paid NeuronSphere tenant access.
+Everything in this guide works with no account: register your own builds,
+unpack locally available artifacts, create a lock from explicit pins, and
+run ``lock --check``. Stacks are free too: a published set of RepoClasses in
+a public registry namespace installs with ``nsctl stack add`` and no tenant,
+and a RepoClass build zip published with ``nsctl artifact push`` is fetched
+the same way (:doc:`use-stacks`, :doc:`../explanation/oci-distribution`).
+You can also use a checkout directly, as shown in
+:doc:`../tutorials/create-repository-manifest`. The next two sections apply
+when your organisation has a NeuronSphere cloud tenant; otherwise skip to
+*Register your own build*.
 
-Configure cloud access (paid NeuronSphere)
-------------------------------------------
+Connect to your organisation's cloud tenant
+-------------------------------------------
 
 Start the local control plane before pulling into its librarian::
 
    nsctl control-plane start
 
-Cloud access requires paid NeuronSphere and an authorised tenant account.
-Configure a profile in
-``$HMD_HOME/.config/nsctl.toml``. Replace these illustrative endpoints with
-your tenant's actual issuer and service addresses::
+These commands need an account on your organisation's NeuronSphere cloud
+tenant. Configure a profile in ``$HMD_HOME/.config/nsctl.toml``, replacing
+these illustrative endpoints with your tenant's actual issuer and service
+addresses::
 
    default_profile = "acme"
 
@@ -54,8 +55,8 @@ variables, which take precedence over profile addresses. For example,
 ``HMD_ARTIFACT_LIBRARIAN_URL`` overrides a profile's librarian URL. Check
 these variables when a command contacts an unexpected tenant.
 
-Choose and fetch a cloud version (paid NeuronSphere)
-----------------------------------------------------
+Choose and fetch a version from your cloud tenant
+-------------------------------------------------
 
 List published versions, optionally evaluating a BACON range::
 
@@ -155,9 +156,9 @@ To reread the repository declaration and lock into an existing environment::
    nsctl env apply dev --from-repo .
 
 Missing artifacts cause a refusal with a suggested pull command. For a
-local-only workflow, register your own builds. With paid NeuronSphere, fetch
-them separately from your cloud librarian, or explicitly allow cloud fetching
-in the same operation::
+local-only workflow, register your own builds. With a cloud tenant, fetch
+them separately from its librarian, or explicitly allow cloud fetching in
+the same operation::
 
    nsctl env apply dev --from-repo . --pull
 
@@ -171,9 +172,9 @@ Before disconnecting, fetch and unpack the versions you need, and complete a
 successful start and apply while Docker images and build dependencies are
 available. ``nsctl stack pull <name>:<version>`` fills the cache with every
 zip a stack pins without declaring anything, and ``nsctl stack versions
-<name> --offline`` answers from the version cache. With paid NeuronSphere,
+<name> --offline`` answers from the version cache. With a cloud tenant,
 ``nsctl artifact cache`` can also prefetch the current repository's BACON
-``build.pre_build_artifacts`` from its cloud librarian.
+``build.pre_build_artifacts`` from its librarian.
 
 The version-query cache, the local librarian's content, unpacked repository
 trees, and Docker's image cache are different stores. An offline version listing

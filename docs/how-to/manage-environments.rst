@@ -1,8 +1,6 @@
 Manage environments and substrates
 ==================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 Use named environments to keep separate development or review workloads under
 one control plane. These examples assume ``HMD_HOME`` is set and the host is
 prepared as in :doc:`../tutorials/first-environment`.

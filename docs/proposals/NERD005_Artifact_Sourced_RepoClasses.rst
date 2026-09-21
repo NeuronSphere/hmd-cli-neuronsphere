@@ -3,8 +3,6 @@
 NERD005 Artifact-Sourced RepoClasses
 ====================================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Deploy a RepoClass from a versioned artifact in the local Artifact Librarian
     :id: HMD_CLI_NEURONSPHERE_NERD005
     :status: partial

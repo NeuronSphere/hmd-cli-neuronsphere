@@ -3,8 +3,6 @@
 NERD009 Foreign Toolset Deploys
 ===============================
 
-.. include:: ../_includes/paid-cloud.txt
-
 .. req:: Deploy a repo that was never a NeuronSphere repo, using its own toolset
     :id: HMD_CLI_NEURONSPHERE_NERD009
     :status: proposed

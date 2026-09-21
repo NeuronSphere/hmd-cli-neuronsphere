@@ -1,8 +1,6 @@
 Manifests and configuration
 ===========================
 
-.. include:: ../_includes/paid-cloud.txt
-
 Three files describe different kinds of intent: a repository's BACON manifest,
 its generated lock, and a local environment manifest. The repository files are
 portable. The environment manifest supplies machine-specific names and paths.

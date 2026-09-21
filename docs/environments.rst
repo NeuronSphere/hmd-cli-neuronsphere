@@ -1,8 +1,6 @@
 Control Plane and Named Environments
 =====================================
 
-.. include:: _includes/paid-cloud.txt
-
 A local NeuronSphere is one shared **control plane** plus N named
 **environments**. This is what allows several local NeuronSpheres to run on the
 same machine: previously every container published a fixed host port, so a
