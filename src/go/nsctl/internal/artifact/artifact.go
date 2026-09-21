@@ -55,9 +55,11 @@ const maxEntry = 32 << 20
 var mu sync.Mutex
 
 // SkipDirs are build outputs and VCS state, excluded from a tree this package
-// zips and from the tarballs tools/repopack writes. Everything else travels:
-// guessing which files a repo's deploy reads is how a packaged tree deploys
-// differently from a checkout.
+// zips and from the tarballs tools/repopack writes. Everything else travels
+// unless the tree's own manifest declares otherwise (Licence.Exclude, which
+// Zip reads): guessing which files a repo's deploy reads is how a packaged
+// tree deploys differently from a checkout, so the one other exclusion is the
+// author's, never this package's.
 var SkipDirs = map[string]bool{
 	".git": true, "build": true, "target": true, "dist": true,
 	"node_modules": true, "__pycache__": true, ".terraform": true,
@@ -342,7 +344,10 @@ func UnzipInto(data []byte, dest string) error {
 	return os.Rename(staging, dest)
 }
 
-// Zip packs a working tree into an artifact zip.
+// Zip packs a working tree into an artifact zip, leaving out SkipDirs and
+// whatever the tree's manifest declares under license.exclude (NERD017
+// SPEC011). Reading the declaration here, rather than at each caller, is what
+// makes every verb that zips a tree honour it with no way to forget.
 //
 // Written deterministically -- sorted entries, fixed mode, no mtime, no uid/gid
 // -- for the same reason repopack writes its tarballs that way: a zip that
@@ -350,7 +355,11 @@ func UnzipInto(data []byte, dest string) error {
 // contents move under it is exactly what SPEC003's immutability assumption
 // cannot survive.
 func Zip(root string) ([]byte, error) {
-	files, err := collect(root)
+	licence, err := LicenceOf(root)
+	if err != nil {
+		return nil, err
+	}
+	files, err := collect(root, licence)
 	if err != nil {
 		return nil, err
 	}
@@ -385,30 +394,31 @@ func Zip(root string) ([]byte, error) {
 }
 
 // collect lists the files to pack, as sorted slash-separated relative paths.
-func collect(root string) ([]string, error) {
+func collect(root string, licence Licence) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		name := d.Name()
-		if d.IsDir() {
-			if path == root {
-				return nil
-			}
-			if SkipDirs[name] || strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".egg-info") {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(name, ".") {
+		if path == root {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		files = append(files, filepath.ToSlash(rel))
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if SkipDirs[name] || strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".egg-info") || licence.Excludes(rel) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") || licence.Excludes(rel) {
+			return nil
+		}
+		files = append(files, rel)
 		return nil
 	})
 	if err != nil {
