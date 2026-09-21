@@ -3,6 +3,8 @@
 NERD013 Role Activation on Import
 =================================
 
+.. include:: ../_includes/paid-cloud.txt
+
 .. req:: Follow only the dependency roles a repo class marks required
     :id: HMD_CLI_NEURONSPHERE_NERD013
     :status: implemented

@@ -61,6 +61,8 @@ jobs:
       # and repo trees are not committed.
       - run: make check
 
+      - run: make docs-reference-check
+
       - run: make test-race
 
       - run: make build

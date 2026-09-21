@@ -6,6 +6,27 @@ words are chosen carefully: ``nsctl`` and everything it embeds are Open
 Source; the three services it runs are not, and become Open Source four years
 after each release. Do not describe the platform as a whole as "open source".
 
+Local features and paid cloud features
+--------------------------------------
+
+**All NeuronSphere cloud features in this documentation require paid
+NeuronSphere.** This includes cloud Artifact Librarian access, querying its
+published versions, fetching its artifacts, and inspecting or importing a cloud
+environment's BOM. These workflows require an authorised account and endpoints
+for your organisation's NeuronSphere tenant. Installing the free CLI or
+starting a local control plane does not create a paid tenant or grant access.
+
+Local development remains available without a paid cloud tenant: create BACON
+manifests, deploy your own checkouts, run local Docker environments, register
+your own build artifacts with the local librarian, and create or check locks
+from local inputs. See :doc:`tutorials/create-repository-manifest` for a
+complete local-only example.
+
+Product access and source-code licences are separate. The requirement for paid
+cloud features does not change the component licence grants described below,
+and the presence of a cloud command in the open-source CLI does not include
+the corresponding paid service.
+
 What is licensed how
 --------------------
 

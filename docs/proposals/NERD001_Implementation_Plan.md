@@ -1,5 +1,10 @@
 # NERD001 Floci Local Architecture — Implementation Plan
 
+> **Paid NeuronSphere required for cloud features.** References to cloud
+> services and cloud workflows in this design require paid NeuronSphere and
+> access to your organisation's tenant. Local Docker development does not
+> require a paid cloud tenant. See [product availability and licensing](../licensing.rst).
+
 **Status**: IN PROGRESS (Phase 0 done, Phase 1A–1F code complete pending live validation)  
 **Created**: 2026-04-22  
 **Last Updated**: 2026-04-27  

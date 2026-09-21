@@ -80,7 +80,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSCTL_IMAGE ?= hmd-img-nsctl:$(VERSION)
 
-.PHONY: test-parity all build generate generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli help
+.PHONY: test-parity all build generate generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check help
 
 all: build
 
@@ -164,6 +164,17 @@ fmt-check:
 
 ## check: fmt-check, vet and test -- the CI target
 check: fmt-check vet test
+
+## docs-reference: regenerate the Cobra command reference
+docs-reference:
+	cd $(GO_DIR) && $(GO) run ./tools/docref -out ../../../docs/reference/commands.rst
+
+## docs-reference-check: fail when the checked-in command reference is stale
+docs-reference-check:
+	@tmp=$$(mktemp); \
+	cd $(GO_DIR) && $(GO) run ./tools/docref -out "$$tmp" && \
+	diff -u ../../../docs/reference/commands.rst "$$tmp"; \
+	status=$$?; rm -f "$$tmp"; exit $$status
 
 ## tidy: tidy and verify go modules
 tidy:

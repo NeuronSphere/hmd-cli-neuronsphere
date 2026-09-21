@@ -70,8 +70,8 @@
         "description": "Front-door doc: explains the nsctl vs hmd_cli_neuronsphere split, what nsctl covers today vs not yet, and quickstart for both."
       },
       {
-        "path": "docs/nsctl.rst",
-        "description": "Full guide to the nsctl Go CLI (env lifecycle, control plane, registry)."
+        "path": "docs/tutorials/first-environment.rst",
+        "description": "Getting started with the nsctl Go CLI and a first local environment."
       },
       {
         "path": "src/go/nsctl/main.go",
@@ -118,8 +118,8 @@
     ],
     "related_docs": [
       {
-        "title": "nsctl guide",
-        "path": "docs/nsctl.rst"
+        "title": "nsctl command reference",
+        "path": "docs/reference/commands.rst"
       },
       {
         "title": "Local environments",

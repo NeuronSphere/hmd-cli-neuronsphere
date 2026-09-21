@@ -1,6 +1,8 @@
 Control Plane and Named Environments
 =====================================
 
+.. include:: _includes/paid-cloud.txt
+
 A local NeuronSphere is one shared **control plane** plus N named
 **environments**. This is what allows several local NeuronSpheres to run on the
 same machine: previously every container published a fixed host port, so a
@@ -10,7 +12,7 @@ second stack collided immediately.
 .. note::
 
    Everything on this page describes the environment registry and manifests as
-   the ``hmd`` CLI uses them. :doc:`nsctl` reads and writes the same registry
+   the ``hmd`` CLI uses them. :doc:`reference/commands` reads and writes the same registry
    and the same manifest format, so an environment created by one front end is
    usable from the other.
 

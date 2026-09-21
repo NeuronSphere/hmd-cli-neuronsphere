@@ -1,13 +1,15 @@
 Operating Modes
 ===============
 
+.. include:: _includes/paid-cloud.txt
+
 ``hmd neuronsphere up`` supports two operating modes, controlled by the
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.
 
 .. note::
 
-   Extend mode is also available through :doc:`nsctl`, a Go binary whose only
+   Extend mode is also available through :doc:`reference/commands`, a Go binary whose only
    host prerequisite is Docker. It drives the same control plane and the same
    environments as the commands described here, and the two can be used
    interchangeably against one ``HMD_HOME`` -- but it ships only the control

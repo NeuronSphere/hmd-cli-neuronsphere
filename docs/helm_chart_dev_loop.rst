@@ -1,6 +1,8 @@
 Developing Helm Chart Repos Against Local k3s
 =============================================
 
+.. include:: _includes/paid-cloud.txt
+
 NeuronSphere "Helm repo class" projects (``hmd-inf-*``, ``hmd-app-*``) deploy a
 chart from ``src/helm`` onto an EKS cluster. Locally, **Floci** runs a real k3s
 cluster (its EKS service with ``FLOCI_SERVICES_EKS_MOCK=false`` spawns a

@@ -3,6 +3,8 @@
 NERD012 Cloud Environment BOMs
 ==============================
 
+.. include:: ../_includes/paid-cloud.txt
+
 .. req:: Build a local environment from a cloud environment's Bill of Materials
     :id: HMD_CLI_NEURONSPHERE_NERD012
     :status: implemented

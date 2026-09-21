@@ -1,0 +1,17 @@
+{
+  "name": "acme-local-demo",
+  "description": "A local repository onboarding example",
+  "build": {
+    "mechanism": "external"
+  },
+  "deploy": {
+    "commands": [
+      [
+        "exec",
+        "sh",
+        "scripts/deploy-local.sh"
+      ]
+    ],
+    "image": "alpine:3.20"
+  }
+}

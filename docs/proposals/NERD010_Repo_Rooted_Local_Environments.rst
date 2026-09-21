@@ -3,6 +3,8 @@
 NERD010 Repo-Rooted Local Environments
 ======================================
 
+.. include:: ../_includes/paid-cloud.txt
+
 .. req:: Stand up a local environment for a repo from the repo itself
     :id: HMD_CLI_NEURONSPHERE_NERD010
     :status: implemented

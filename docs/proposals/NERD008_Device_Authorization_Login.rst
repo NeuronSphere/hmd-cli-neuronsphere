@@ -3,6 +3,8 @@
 NERD008 Device Authorization Login
 ==================================
 
+.. include:: ../_includes/paid-cloud.txt
+
 .. req:: Sign in from the CLI with nothing pre-configured but one URL
     :id: HMD_CLI_NEURONSPHERE_NERD008
     :status: in_progress

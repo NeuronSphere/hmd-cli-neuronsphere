@@ -3,6 +3,8 @@
 NERD006 A Local Package Registry
 ================================
 
+.. include:: ../_includes/paid-cloud.txt
+
 .. req:: Run a local package registry that hosts internal packages, caches upstream, and is the build-time index
     :id: HMD_CLI_NEURONSPHERE_NERD006
     :status: proposed

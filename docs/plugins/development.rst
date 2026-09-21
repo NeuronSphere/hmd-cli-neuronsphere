@@ -3,6 +3,8 @@
 Extension Development
 ==========================================
 
+.. include:: ../_includes/paid-cloud.txt
+
 The local NeuronSphere is extended by **adding RepoClasses to a manifest**.
 There is no plugin discovery: nothing is scanned, enumerated or
 auto-registered, and an extension runs because a manifest names it and for no
@@ -47,7 +49,7 @@ Where an extension is declared decides its lifetime, not just its location.
      - ``nsctl repo …`` / ``nsctl env apply``
      - ``nsctl control-plane repo …`` / ``control-plane apply``
    * - Specified by
-     - ``docs/nsctl.rst``
+     - ``docs/reference/commands.rst``
      - ``NERD004``
 
 Most things are workloads and belong to an environment. Choose the control

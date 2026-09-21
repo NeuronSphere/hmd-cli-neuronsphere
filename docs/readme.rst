@@ -10,7 +10,7 @@ A CLI tool for controlling the Local NeuronSphere.
    supported and is what you want if your project's workloads come from
    installed plugin packages.
 
-   For a new install, :doc:`nsctl` is the recommended way to run the local
+   For a new install, :doc:`reference/commands` is the recommended way to run the local
    platform: a single Go binary whose only prerequisite is Docker. Both front
    ends operate on the same ``HMD_HOME`` and can be used interchangeably.
 
@@ -30,12 +30,11 @@ loopback address so presigned S3/API URLs returned by in-network
 services work from ``hmd build``, ``push-artifact``, and other CLI
 commands running on your machine.
 
-Run this once (any platform - Mac, Linux, Windows-with-WSL)::
+Run this once on macOS, Linux, or WSL2::
 
     sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'
 
-On native Windows, the equivalent is appending the same line to
-``C:\Windows\System32\drivers\etc\hosts`` from an Administrator shell.
+Native Windows is not supported. Use WSL2 instead.
 
 ``hmd neuronsphere up`` runs a pre-flight check on every invocation and
 will print this exact instruction (and abort) if the entry is missing.
