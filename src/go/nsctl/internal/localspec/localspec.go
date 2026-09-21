@@ -116,9 +116,12 @@ type Gate struct {
 	Bind                  string
 	Dependencies          map[string]any
 	InstanceConfiguration map[string]any
+	// External marks a role the environment must fill -- another stack's
+	// instance, matched by resource -- so nothing is pinned or bundled for
+	// it and `stack add` refuses when nothing provides it (NERD017 SPEC010).
+	External bool
 	// Suggest is a stack reference that would satisfy the role, named in the
-	// refusal when nothing in the environment does (NERD017 SPEC010). Never
-	// acted on.
+	// refusal when nothing in the environment does. Never acted on.
 	Suggest string
 }
 
@@ -176,9 +179,11 @@ type Want struct {
 	Bind                  string
 	Dependencies          map[string]any
 	InstanceConfiguration map[string]any
-	// Resource and Suggest are the dependency's resource type and the gate's
-	// suggestion, for a dependency want; empty for a companion.
+	// Resource, External and Suggest are the dependency's resource type and
+	// the gate's external flag and suggestion, for a dependency want; empty
+	// for a companion.
 	Resource string
+	External bool
 	Suggest  string
 }
 
@@ -234,6 +239,7 @@ func Parse(data []byte) (*Manifest, error) {
 				Dependencies          map[string]any `json:"dependencies"`
 				InstanceConfiguration map[string]any `json:"instance_configuration"`
 				Suggest               string         `json:"suggest"`
+				External              any            `json:"external"`
 			} `json:"dependencies"`
 		} `json:"local"`
 	}
@@ -357,13 +363,23 @@ func Parse(data []byte) (*Manifest, error) {
 						" so nothing is declared for it -- drop 'dependencies' and 'instance_configuration',"+
 						" or drop 'bind'", role))
 				continue
-			case dep.Required && g.Bind == "" && len(g.Dependencies) == 0 && len(g.InstanceConfiguration) == 0 && strings.TrimSpace(g.Suggest) == "":
+			case dep.Required && g.Bind == "" && len(g.Dependencies) == 0 && len(g.InstanceConfiguration) == 0 && strings.TrimSpace(g.Suggest) == "" && g.External == nil:
 				problems = append(problems, fmt.Sprintf(
 					"local.dependencies.%s: %q is required, so the entry must say something --"+
 						" 'bind', 'dependencies' or 'instance_configuration'", role, role))
 				continue
 			}
+			external, err := truthy(g.External)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("local.dependencies.%s: external: %v", role, err))
+				continue
+			}
+			if external && g.Bind != "" {
+				problems = append(problems, fmt.Sprintf("local.dependencies.%s: 'external' and 'bind' both say the environment fills it; keep one", role))
+				continue
+			}
 			m.Local.Dependencies[role] = Gate{
+				External:              external,
 				Suggest:               strings.TrimSpace(g.Suggest),
 				Profiles:              g.Profiles,
 				Bind:                  g.Bind,
@@ -443,6 +459,7 @@ func (m *Manifest) Activate(profiles []string) []Want {
 			w.Profiles = gate.Profiles
 			w.Bind = gate.Bind
 			w.Suggest = gate.Suggest
+			w.External = gate.External
 			w.Dependencies = gate.Dependencies
 			w.InstanceConfiguration = gate.InstanceConfiguration
 		}

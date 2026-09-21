@@ -66,17 +66,25 @@ func (z zipSources) fetch(ctx context.Context, e lock.Entry) ([]byte, error) {
 		}
 		tried = append(tried, "--artifacts "+z.artifactsDir+" (no "+name+")")
 	}
-	// 2. The artifact cache, re-zipped. Bytes differ from the original zip,
-	// so only a digest the lock carries can vouch for them; without one the
-	// tree is what the environment deployed from, and that is the vouch.
+	// 2. The artifact cache: the zip it kept when the tree was unpacked, or
+	// -- for a tree unpacked before the cache kept zips -- the tree re-zipped,
+	// which only a lock with no digest can accept, since re-zipping never
+	// reproduces the original bytes.
 	if z.home != "" && artifact.Cached(z.home, e.RepoClassName, e.Version) {
 		dir := artifact.Dir(z.home, e.RepoClassName, e.Version)
-		if data, err := artifact.Zip(dir); err == nil {
-			if e.Digest == "" || e.Digest == digest.FromBytes(data).String() {
+		if data, ok := artifact.Zipped(z.home, e.RepoClassName, e.Version); ok {
+			if err := e.VerifyDigest(digest.FromBytes(data).String()); err == nil {
 				say("artifact cache " + dir)
 				return data, nil
 			}
-			tried = append(tried, "artifact cache (digest differs from the lock's)")
+			tried = append(tried, "artifact cache (its zip's digest differs from the lock's)")
+		} else if e.Digest == "" {
+			if data, err := artifact.Zip(dir); err == nil {
+				say("artifact cache " + dir + " (re-zipped; the lock carries no digest)")
+				return data, nil
+			}
+		} else {
+			tried = append(tried, "artifact cache (tree only, no zip to match the lock's digest against)")
 		}
 	} else if z.home != "" {
 		tried = append(tried, "artifact cache (not cached)")

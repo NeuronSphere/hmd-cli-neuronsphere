@@ -51,3 +51,22 @@ func TestDigestIsAbsentForATreeStoredWithoutOne(t *testing.T) {
 		t.Error("digest must be absent")
 	}
 }
+
+func TestStoreKeepsTheOriginalZip(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	data := zipOf(t, map[string]string{"meta-data/manifest.json": "{}", "meta-data/VERSION": "0.1"})
+	if _, err := Store(home, "hmd-inf-a", "0.1.0", data); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := Zipped(home, "hmd-inf-a", "0.1.0")
+	if !ok || digest.FromBytes(got) != digest.FromBytes(data) {
+		t.Errorf("Zipped = %v, ok %v", len(got), ok)
+	}
+	if err := removeSidecar(home, "hmd-inf-a", "0.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Zipped(home, "hmd-inf-a", "0.1.0"); ok {
+		t.Error("an older cache has no zip")
+	}
+}

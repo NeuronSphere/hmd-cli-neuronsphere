@@ -47,6 +47,7 @@ nsctl carries no list of stacks; a bare name expands to
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 	group.AddCommand(
+		newStackInitCommand(opts),
 		newStackAddCommand(opts),
 		newStackPullCommand(opts),
 		newStackListCommand(opts),

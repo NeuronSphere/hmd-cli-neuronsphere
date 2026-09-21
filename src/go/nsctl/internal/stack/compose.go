@@ -93,6 +93,16 @@ func producedBy(r *repoclass.Resolver, class string) []string {
 	return keys
 }
 
+// FirstProduced is the first resource type a class declares it produces, in
+// sorted order, or "": what a derived external role is matched by.
+func FirstProduced(r *repoclass.Resolver, class string) string {
+	keys := producedBy(r, class)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
 // For lists the instances producing a resource type.
 func (p Providers) For(resource string) []string { return p.byResource[resource] }
 
@@ -156,7 +166,7 @@ func Compose(wants []localspec.Want, p Providers, owned map[string]bool, pinned 
 				binds[w.Key] = w.DefaultName
 				continue
 			}
-			if !pinned(w.RepoClassName) {
+			if w.External || !pinned(w.RepoClassName) {
 				unsatisfied = append(unsatisfied, Unsatisfied{Role: w.Key, Resource: w.Resource, Class: w.RepoClassName, Suggest: w.Suggest})
 			}
 			continue

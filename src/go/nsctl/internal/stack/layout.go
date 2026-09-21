@@ -3,6 +3,7 @@ package stack
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,12 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec"
 )
+
+// WorkflowTemplate is the CI workflow `stack init` writes (NERD019 SPEC007);
+// {{.Name}} is the stack's short name.
+//
+//go:embed templates/stack.yml
+var WorkflowTemplate string
 
 // DefaultLayoutDir is where `stack build` writes, under the repository.
 // artifact.SkipDirs already excludes build/, so the subject's zip never

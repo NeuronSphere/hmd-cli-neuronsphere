@@ -2506,6 +2506,66 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl stack init
+----------------
+
+Write a stack RepoClass: meta-data/manifest.json with a no-op deploy and a
+"local" section, meta-data/VERSION, and the CI workflow that builds and
+publishes it (.github/workflows/stack.yml).
+
+With --from-env <env> or --from-bom <file> (a "nsctl bom show --json" export),
+the "local" section is derived: the walk starts at the --select instances and
+follows their dependencies, classifying each instance reached. The substrate
+becomes a bound role; an instance another stack declared becomes an external
+role with a suggestion (unless --include-provided); everything else is
+bundled as a companion pinned to its running version, each selected root in
+its own profile. An instance deployed from a working tree has no published
+artifact and is refused unless --bundle-local names it. Configuration is
+copied from the environment manifest's declarations only, and values that
+look tied to this machine are listed for review.
+
+--dry-run prints the classification and writes nothing. --update rewrites the
+"local" section and dependencies of an existing manifest (the refresh job);
+--diff only reports whether they would change, exiting 1 when they would.
+--from-env also writes meta-data/reference-bom.json so CI can re-derive.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack init <name> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl stack init hmd-stack-analytics
+     nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
+     nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow
+     nsctl stack init hmd-stack-analytics --from-bom meta-data/reference-bom.json --select trino --update
+
+Local flags
+~~~~~~~~~~~
+
+* ``--bundle-local`` — working-tree instances to bundle rather than refuse (default: ``[]``)
+* ``--description`` — manifest description
+* ``--diff`` — report whether an existing manifest's local section would change; exit 1 when it would
+* ``--dry-run`` — print the classification and write nothing
+* ``--env`` — with --from-bom, the environment whose manifest supplies sources, configuration and stack records
+* ``--from-bom`` — derive from a BOM export (nsctl bom show --json)
+* ``--from-env`` — derive from a running environment's graph (writes the reference BOM)
+* ``--include-provided`` — bundle instances other stacks declared rather than referencing those stacks
+* ``--path`` — directory to write into (default: ./<name>)
+* ``--select`` — instances to derive from; their dependencies follow. Repeatable, or comma-separated (default: ``[]``)
+* ``--update`` — rewrite an existing manifest's local section and dependencies
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl stack list
 ----------------
 

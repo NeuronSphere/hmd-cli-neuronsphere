@@ -157,8 +157,32 @@ func Store(home, class, version string, data []byte) (string, error) {
 	// SPEC007.
 	if err := os.MkdirAll(filepath.Dir(sidecar(dir)), 0o755); err == nil {
 		_ = os.WriteFile(sidecar(dir), []byte(digest.FromBytes(data).String()+"\n"), 0o644)
+		// The bytes themselves, too: a stack built from this cache must
+		// carry the zip a lock's digest names, and re-zipping a tree never
+		// reproduces it. Cache, so best effort, and Invalidate drops it.
+		_ = os.WriteFile(zipped(dir), data, 0o644)
 	}
 	return dir, nil
+}
+
+// zipped is where the original zip is kept beside its digest.
+func zipped(dir string) string { return sidecar(dir) + ".zip" }
+
+// Zipped returns the zip a cached tree was unpacked from, when the cache
+// kept it (trees unpacked before this existed have none).
+func Zipped(home, class, version string) ([]byte, bool) {
+	dir := Dir(home, class, version)
+	if dir == "" || !Cached(home, class, version) {
+		return nil, false
+	}
+	data, err := os.ReadFile(zipped(dir))
+	if err != nil {
+		return nil, false
+	}
+	if d, ok := Digest(home, class, version); ok && d != digest.FromBytes(data).String() {
+		return nil, false
+	}
+	return data, true
 }
 
 // sidecar is the file holding the zip's digest for an unpacked tree. It lives
@@ -190,7 +214,11 @@ func Digest(home, class, version string) (string, bool) {
 // removeSidecar drops the digest and keeps the tree, for a test that models
 // an older cache.
 func removeSidecar(home, class, version string) error {
-	return os.RemoveAll(sidecar(Dir(home, class, version)))
+	dir := Dir(home, class, version)
+	if err := os.RemoveAll(zipped(dir)); err != nil {
+		return err
+	}
+	return os.RemoveAll(sidecar(dir))
 }
 
 // Invalidate drops the unpacked tree for a version, so the next Store re-unpacks.
@@ -211,6 +239,9 @@ func Invalidate(home, class, version string) error {
 		return err
 	}
 	if err := os.RemoveAll(sidecar(dir)); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(zipped(dir)); err != nil {
 		return err
 	}
 	return os.RemoveAll(dir + ".unpacking")

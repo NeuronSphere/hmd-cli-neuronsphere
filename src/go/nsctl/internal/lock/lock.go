@@ -256,7 +256,9 @@ func Build(repoClass, generatedFrom string, wants []localspec.Want,
 	var unresolved []localspec.Want
 
 	for _, w := range wants {
-		if w.Bind != "" {
+		if w.Bind != "" || w.External {
+			// Bound and external roles are the environment's; nothing is
+			// pinned for them (NERD017 SPEC010).
 			continue
 		}
 		version := strings.TrimSpace(versionOf(w))
@@ -325,7 +327,9 @@ func Check(l *Lock, wants []localspec.Want) (missing, extra []string) {
 	}
 	declared := map[string]bool{}
 	for _, w := range wants {
-		if w.Bind != "" {
+		if w.Bind != "" || w.External {
+			// Bound and external roles are the environment's; nothing is
+			// pinned for them (NERD017 SPEC010).
 			continue
 		}
 		declared[w.RepoClassName] = true

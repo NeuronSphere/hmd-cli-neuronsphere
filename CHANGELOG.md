@@ -2,6 +2,18 @@
 
 ## 2026-09-21
 
+- feat: `nsctl stack init <name>` scaffolds a stack RepoClass with its CI
+  workflow, and with `--from-env <env>` or `--from-bom <export>` plus
+  `--select a,b` derives the `local` section and lock from a running
+  environment's graph: the substrate becomes bound roles, instances other
+  stacks declared become `external` roles with a suggestion, the rest are
+  bundled at their running versions with each root in its own profile;
+  working-tree instances are refused unless `--bundle-local`; `--dry-run`,
+  `--diff` and `--update` serve the CI refresh loop. `--from-env` writes
+  `meta-data/reference-bom.json`. The artifact cache now keeps each zip's
+  original bytes so a derived stack builds offline byte-for-byte (NERD019).
+- feat: a reusable `.github/actions/setup-nsctl` composite action installs
+  a pinned or latest `nsctl` release in a workflow.
 - feat: `nsctl stack add` composes with what the environment already has
   (NERD017 SPEC010): a dependency role is bound to an existing instance that
   produces its resource type, a companion already declared under the same

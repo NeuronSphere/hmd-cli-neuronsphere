@@ -1,0 +1,29 @@
+name: Set up nsctl
+description: >-
+  Install the nsctl binary from its GitHub release (via install.sh, checksum
+  verified) and put it on PATH. NERD019 SPEC007.
+inputs:
+  version:
+    description: nsctl release to install, e.g. 1.0.203. Default is the latest release.
+    required: false
+    default: ""
+  prefix:
+    description: Directory to install into.
+    required: false
+    default: ${{ github.workspace }}/.nsctl/bin
+runs:
+  using: composite
+  steps:
+    - name: Install nsctl
+      shell: bash
+      env:
+        NSCTL_VERSION: ${{ inputs.version }}
+        PREFIX: ${{ inputs.prefix }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$PREFIX"
+        curl -fsSL https://raw.githubusercontent.com/neuronsphere/hmd-cli-neuronsphere/main/install.sh | sh
+        echo "$PREFIX" >> "$GITHUB_PATH"
+    - name: Report
+      shell: bash
+      run: nsctl version
