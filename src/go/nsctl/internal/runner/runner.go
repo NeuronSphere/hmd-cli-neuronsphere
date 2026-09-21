@@ -55,6 +55,16 @@ const (
 	InstanceLabel    = "io.neuronsphere.nsctl.instance"
 )
 
+// LocalArtifactLibrarianURL is the control plane's Artifact Librarian as seen
+// from a container on the Docker network -- the in-network spelling of
+// librarian.LocalBaseURL, which is the host's. The key is whatever non-empty
+// string satisfies the client library's pre-flight; the local librarian does
+// not check it.
+const (
+	LocalArtifactLibrarianURL    = "http://hmd_proxy/hmd_ms_artifact_lib/"
+	LocalArtifactLibrarianAPIKey = "local-dummy"
+)
+
 // Config is everything a node's container needs to know.
 type Config struct {
 	// Network is the Docker network the container joins.
@@ -82,6 +92,11 @@ type Config struct {
 	// K3sCluster scopes hmd-cli-helm's in-container image import to this
 	// HMD_HOME's node rather than the unscoped default.
 	K3sCluster string
+	// K3sContainer is that node as a Docker container name. It is how a deploy
+	// on the Docker network addresses a LoadBalancer or NodePort service inside
+	// the cluster -- a Lambda's Redis or AMQP host, which in the cloud is an
+	// external-dns hostname for an NLB and here is the node itself.
+	K3sContainer string
 	// Kubeconfig is the host path to mount, already rewritten for in-container
 	// use.
 	Kubeconfig string
@@ -139,6 +154,11 @@ type Runner struct {
 	// means DefaultParallelism, one makes a run sequential again (what someone
 	// bisecting a deploy that only misbehaves under concurrency needs).
 	Parallelism int
+
+	// LogDir, when set, is where a failed node's complete stdout and stderr
+	// are written (<LogDir>/<instance>.log), since the report below keeps
+	// only the tail and a provider crash names its cause well above it.
+	LogDir string
 
 	// Succeeded is the instance names the most recent Run settled successfully.
 	// A partial run is normal -- the DAG stops at the first failure -- and a
@@ -258,10 +278,17 @@ func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath 
 		"HMD_DEPLOYMENT_SERVICE_URL": r.Config.DeploymentServiceURL,
 		"NS_LOCAL_PROXY":             r.Config.LocalProxy,
 		"HMD_LOCAL_K3S_CLUSTER_NAME": r.Config.K3sCluster,
-		"HMD_CUSTOMER_CODE":          orDefault(r.Config.CustomerCode, "none"),
-		"HMD_DID":                    r.Config.DeploymentID,
-		"HMD_REGION":                 orDefault(r.Config.Region, "reg1"),
-		"HMD_HOSTNAME":               "localhost",
+		"HMD_LOCAL_K3S_CONTAINER":    r.Config.K3sContainer,
+		// The control plane's Artifact Librarian, as a Lambda or a pod on the
+		// network reaches it. A service whose cloud stack pulls artifacts
+		// (transform configs, content-item types) otherwise falls back to the
+		// library's cloud default URL and fails on the first pull.
+		"HMD_ARTIFACT_LIBRARIAN_URL":     LocalArtifactLibrarianURL,
+		"HMD_ARTIFACT_LIBRARIAN_API_KEY": LocalArtifactLibrarianAPIKey,
+		"HMD_CUSTOMER_CODE":              orDefault(r.Config.CustomerCode, "none"),
+		"HMD_DID":                        r.Config.DeploymentID,
+		"HMD_REGION":                     orDefault(r.Config.Region, "reg1"),
+		"HMD_HOSTNAME":                   "localhost",
 		// The node's own identity and resolved configuration. `hmd deploy` gets
 		// these on its command line, but a deploy_local.sh override replaces
 		// that command entirely -- without them it cannot derive the resource
@@ -529,6 +556,23 @@ func (r *Runner) printFailure(res Result) {
 	if out := strings.TrimSpace(string(res.Stderr)); out != "" {
 		fmt.Fprintf(r.Err, "--- stderr ---\n%s\n", tail(out, 60))
 	}
+	if r.LogDir != "" {
+		if path, err := writeNodeLog(r.LogDir, res); err == nil {
+			fmt.Fprintf(r.Err, "full output: %s\n", path)
+		}
+	}
+}
+
+// writeNodeLog saves a failed node's complete output under dir.
+func writeNodeLog(dir string, res Result) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, res.Node.InstanceName+".log")
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s failed: %v\n\n--- stdout ---\n%s\n\n--- stderr ---\n%s\n",
+		res.Node.InstanceName, res.Err, res.Stdout, res.Stderr)
+	return path, os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 // tail keeps the last n lines, which is where a deploy says why it failed.

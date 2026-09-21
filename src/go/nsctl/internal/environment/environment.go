@@ -739,6 +739,16 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
 			opts.warn("%v", err)
 		}
+		// A deploy may have added an Ingress (Airflow, Argo, a UI). The
+		// proxy's hostname aliases are what let a Floci Lambda reach it (see
+		// startCluster), and they were computed before this deploy ran.
+		if hosts := ops.IngressHosts(ctx); len(hosts) > 0 {
+			if reconnected, err := d.EnsureNetworkAliases(ctx, router.ProxyContainer, reg.ControlPlane.Network, hosts); err != nil {
+				opts.warn("could not alias the UI hostnames on %s: %v", router.ProxyContainer, err)
+			} else if reconnected {
+				opts.step("  %s answers for %s on the Docker network", router.ProxyContainer, strings.Join(hosts, ", "))
+			}
+		}
 	}
 
 	if err := refreshRoutes(ctx, opts, r, routerEnv, target); err != nil {

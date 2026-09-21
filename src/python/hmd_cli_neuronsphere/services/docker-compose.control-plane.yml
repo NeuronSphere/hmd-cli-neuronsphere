@@ -56,7 +56,11 @@ services:
       # cache (see floci_deployer._ensure_local_image), so nothing ever
       # pushes to or reads from Floci's ECR sidecar -- omitting the service
       # here stops Floci from spawning it (`floci-ecr-registry`) at all.
-      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,eks,secretsmanager,rds
+      # `eventbridge`: hmd-ms-transform (and any other service whose cloud
+      # stack drives itself through scheduled EventBridge rules) keeps those
+      # rules in its local overlay, pointed at an in-network API destination
+      # instead of the Okta-authenticated cloud one.
+      FLOCI_SERVICES: s3,dynamodb,sqs,lambda,apigateway,iam,eks,secretsmanager,rds,eventbridge
       # Persistent state lives in ${HMD_HOME}/floci/data. Caveat: Floci writes
       # every API Gateway *v1* entity (apigateway-*.json) with all-null fields
       # and, as of 1.5.34, rehydrates those records on start -- so a restart

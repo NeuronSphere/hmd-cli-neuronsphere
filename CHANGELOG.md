@@ -2,6 +2,13 @@
 
 ## 2026-09-21
 
+- fix: deploy containers get an in-network kubeconfig (the host file names a
+  published localhost port a container cannot reach), the k3s node's
+  container name (`HMD_LOCAL_K3S_CONTAINER`) and the control plane's
+  Artifact Librarian URL/key, so a cloud stack that pulls artifacts or
+  drives a kubernetes provider deploys locally; a failed node's complete
+  output is written under the environment's `logs/`; the proxy is re-aliased
+  for Ingress hostnames a deploy added; Floci gains `eventbridge`.
 - test: `test/nsctl_cli.robot` gains NERD019 contract cases (scaffold
   validates, build names every tier, push refuses anonymous).
 - feat: `nsctl lock --resolve` pins ranges to the newest published version,

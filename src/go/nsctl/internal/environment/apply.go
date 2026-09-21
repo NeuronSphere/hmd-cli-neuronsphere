@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
@@ -288,6 +290,22 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// and only then is everything above it seeded.
 	phaseA, phaseB := splitSubstrate(entries)
 
+	// The kubeconfig a deploy container mounts has to name the in-network
+	// k3s server: the host file points at a published localhost port that a
+	// container cannot reach, which a CDKTF kubernetes provider (transform's
+	// Argo ServiceAccount, its PriorityClasses) reports as "connection
+	// refused" on every resource.
+	k3sContainer := clusterFor(steps, floci.K3sContainerName(env.K3sCluster, env.AccountID, d.ContainerNames(ctx)))
+	kubeconfig := clusterFor(steps, env.Kubeconfig)
+	if kubeconfig != "" && k3sContainer != "" {
+		kube := &k3s.Kube{Cluster: env.K3sCluster, Container: k3sContainer, Kubeconfig: kubeconfig}
+		path, cleanup, err := kube.KubeconfigForContainer()
+		if err == nil {
+			kubeconfig = path
+			defer cleanup()
+		}
+	}
+
 	run := &runner.Runner{
 		Docker: d,
 		Client: client,
@@ -299,7 +317,8 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			DeploymentServiceURL: "http://hmd_proxy/hmd_ms_deployment",
 			LocalProxy:           "http://hmd_proxy/" + env.Slug,
 			K3sCluster:           clusterFor(steps, env.K3sCluster),
-			Kubeconfig:           clusterFor(steps, env.Kubeconfig),
+			K3sContainer:         k3sContainer,
+			Kubeconfig:           kubeconfig,
 			Environment:          env.Slug,
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
 			Home:                 opts.Home,
@@ -314,6 +333,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		},
 		Out: opts.Out, Err: opts.Err,
 		Parallelism: RunnerParallelism(opts.lookup),
+		LogDir:      filepath.Join(env.StatePath(), "logs"),
 	}
 
 	// Phase A: the substrate.
