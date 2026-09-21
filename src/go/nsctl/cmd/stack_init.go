@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -103,6 +104,7 @@ look tied to this machine are listed for review.
 			d, err := stack.Derive(graph, stack.Options{
 				Roots: splitList(selectList), BundleLocal: splitList(bundleLocal), IncludeProvided: includeProvided,
 				ResourceOf: func(class string) string { return stack.FirstProduced(resolver, class) },
+				Bundled:    isBundledClass,
 			})
 			if d != nil {
 				renderRows(cmd, d)
@@ -246,6 +248,8 @@ func renderRows(cmd *cobra.Command, d *stack.Derivation) {
 			becomes = "companion (profile " + r.Instance + ")"
 		case stack.KindSubstrate:
 			becomes = "bound role (the environment provides it)"
+		case stack.KindBundled:
+			becomes = "bound role (nsctl bundles it)"
 		case stack.KindCrossStack:
 			becomes = "external role (stack " + r.Stack + ")"
 		case stack.KindLocal:
@@ -398,4 +402,14 @@ func bundleLocalTrees(cmd *cobra.Command, opts *Options, envManifest *manifest.M
 		fmt.Fprintf(cmd.OutOrStdout(), "Bundled %s (%s@%s) from %s into the artifact cache\n", r.Instance, r.Class, r.Version, path)
 	}
 	return nil
+}
+
+// isBundledClass reports a class nsctl ships in every environment.
+func isBundledClass(class string) bool {
+	for _, c := range bundled.RepoClasses() {
+		if c == class {
+			return true
+		}
+	}
+	return false
 }

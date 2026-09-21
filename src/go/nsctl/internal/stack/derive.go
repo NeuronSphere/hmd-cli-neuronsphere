@@ -124,7 +124,11 @@ func (g *Graph) overlay(m *manifest.Manifest) {
 				}
 			}
 		}
-		if r.SourceType() == manifest.SourceLocal {
+		// Only an explicit checkout is a working tree. An instance with no
+		// source block resolves through the tier chain and was deployed at
+		// the version the graph records, which is a published one; a stack
+		// bundles it at that version and `stack build` finds the bytes.
+		if r.Source != nil && r.Source.Type == manifest.SourceLocal {
 			n.Local = true
 		}
 		if len(r.InstanceConfiguration) > 0 {
@@ -160,6 +164,7 @@ const (
 	KindRoot       Kind = "root"         // a selected instance: a companion in its own profile
 	KindCompanion  Kind = "companion"    // bundled, unconditional
 	KindSubstrate  Kind = "substrate"    // bound to the reserved name; nothing bundled
+	KindBundled    Kind = "bundled"      // a class nsctl ships: bound to the instance every environment has
 	KindCrossStack Kind = "cross-stack"  // a role another stack fills; nothing bundled
 	KindLocal      Kind = "working-tree" // no published artifact: refused unless bundled
 )
@@ -197,6 +202,10 @@ type Options struct {
 	ResourceOf func(class string) string
 	// Substrate reports a name the environment substrate provides.
 	Substrate func(name string) bool
+	// Bundled reports a class nsctl ships and every environment already
+	// runs (ext-secrets, the graph); an instance of one is the
+	// environment's, not the stack's.
+	Bundled func(class string) bool
 }
 
 // Derivation is what Derive settles on.
@@ -261,6 +270,10 @@ func Derive(g Graph, opts Options) (*Derivation, error) {
 			row.Kind = KindSubstrate
 			rows = append(rows, row)
 			continue // the substrate's own dependencies are the environment's
+		case opts.Bundled != nil && opts.Bundled(n.Class) && !isRoot[n.Name]:
+			row.Kind = KindBundled
+			rows = append(rows, row)
+			continue
 		case n.Stack != "" && !opts.IncludeProvided && !isRoot[n.Name]:
 			row.Kind = KindCrossStack
 			row.Stack, row.Suggest, row.Resource = n.Stack, n.StackRef, resourceOf(n.Class)
@@ -305,7 +318,7 @@ func render(g Graph, rows []Row, isRoot map[string]bool) (map[string]any, map[st
 
 	for _, r := range rows {
 		switch r.Kind {
-		case KindSubstrate:
+		case KindSubstrate, KindBundled:
 			bound[r.Instance] = r.Instance
 			role := r.Role
 			if role == "" {
