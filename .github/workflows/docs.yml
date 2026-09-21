@@ -25,11 +25,15 @@ jobs:
           go-version-file: src/go/nsctl/go.mod
       - run: make docs-reference-check
       - uses: actions/configure-pages@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Install Bartleby
-        run: pip install bartleby==2.1.0
+        # bartleby is a Go CLI (hmd-cli-bartleby), not a PyPI package: its
+        # Homebrew cask is macOS-only, so Linux runners take the release
+        # tarball directly.
+        run: |
+          VERSION=2.1.0
+          curl -fsSL "https://github.com/neuronsphere/hmd-cli-bartleby/releases/download/v${VERSION}/bartleby_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /tmp bartleby
+          sudo install -m 755 /tmp/bartleby /usr/local/bin/bartleby
       - name: Render documentation
         run: bartleby html
       - name: Validate rendered site
