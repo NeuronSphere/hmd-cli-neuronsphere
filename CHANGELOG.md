@@ -2,6 +2,11 @@
 
 ## 2026-09-21
 
+- test(cli): the contract suite clears `HMD_AUTH_TOKEN` and
+  `HMD_ARTIFACT_LIBRARIAN_URL` for the binary under test -- the release job
+  exports a real service token for the whole run, which let the cloud tier
+  serve the pin "Stack Build Refuses With Every Tier Named" expects nothing
+  to serve, failing the first release after the stacks feature.
 - fix(stack): the reference BOM `stack init --from-env` writes carries each
   instance's declared `instance_configuration` (from the environment
   manifest, never the live instance's) and `--from-bom` reads it back, so

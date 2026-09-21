@@ -15,13 +15,18 @@ ${BINARY}         ${EMPTY}
 
 *** Keywords ***
 Run nsctl
-    [Documentation]    Runs the binary under test with no HMD_HOME and no
-    ...                control plane, so nothing here depends on the machine.
+    [Documentation]    Runs the binary under test with no HMD_HOME, no
+    ...                control plane and no cloud librarian credential, so
+    ...                nothing here depends on the machine -- a CI runner
+    ...                exports HMD_AUTH_TOKEN for the release job, and a
+    ...                tier that quietly answers turns a refusal test green.
     [Arguments]    @{args}
     Should Not Be Empty    ${BINARY}    msg=Pass --variable BINARY:<path>; `make test-cli` does.
     ${result}=    Run Process    ${BINARY}    @{args}
     ...    env:HMD_HOME=${EMPTY}
     ...    env:HMD_LOCAL_MS_DEPLOYMENT_URL=http://127.0.0.1:1
+    ...    env:HMD_AUTH_TOKEN=${EMPTY}
+    ...    env:HMD_ARTIFACT_LIBRARIAN_URL=${EMPTY}
     RETURN    ${result}
 
 Create Scratch Home
@@ -48,6 +53,8 @@ Run nsctl In Home
     ${result}=    Run Process    ${BINARY}    @{args}
     ...    env:HMD_HOME=${home}
     ...    env:HMD_LOCAL_MS_DEPLOYMENT_URL=http://127.0.0.1:1
+    ...    env:HMD_AUTH_TOKEN=${EMPTY}
+    ...    env:HMD_ARTIFACT_LIBRARIAN_URL=${EMPTY}
     ...    stdin=${None}
     RETURN    ${result}
 
