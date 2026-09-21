@@ -62,7 +62,7 @@ var DefaultScopes = []string{"openid", "email", "profile", "groups", "offline_ac
 type Config struct {
 	// DefaultProfile is the profile used when none is named. Optional when
 	// the file defines exactly one.
-	DefaultProfile string `toml:"default_profile"`
+	DefaultProfile string `toml:"default_profile,omitempty"`
 	// Profiles are the [profile.<name>] tables.
 	Profiles map[string]Profile `toml:"profile"`
 	// Plugins are the [plugin.<noun>] tables: the CLI plugins this

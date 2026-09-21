@@ -2,6 +2,8 @@
 
 ## 2026-09-21
 
+- fix: `nsctl.toml` written by `plugin install` no longer carries an empty
+  `default_profile`.
 - test: `test/nsctl_cli.robot` gains the NERD017/NERD018 contract cases
   (path plugins run with argv and exit status, missing binaries name the
   install verb, reserved names warn, the GitHub scheme is refused, a closed
