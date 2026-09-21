@@ -35,6 +35,12 @@ type fromRepo struct {
 	// the manifest's --from-repo bindings so two can share one environment
 	// (NERD017 SPEC008 and SPEC009).
 	recorded *recordedPlan
+	// compose, when set, decides which activated wants the environment
+	// already fills (NERD017 SPEC010). It returns want key -> existing
+	// instance; each such want is bound rather than declared, and every
+	// dependency naming the want's default name is rewritten to the bound
+	// instance.
+	compose func(spec *localspec.Manifest, wants []localspec.Want, l *lock.Lock, overrides map[string]string) (map[string]string, error)
 }
 
 // recordedPlan is what a previous run of the same planner recorded.
@@ -86,6 +92,9 @@ type repoPlan struct {
 	// Renamed names the instances an override moved away from, which are left
 	// deployed rather than torn down.
 	Renamed []string
+	// Composed is what the environment already provided for this plan's
+	// wants (NERD017 SPEC010), for the report.
+	Composed map[string]string
 }
 
 // planFromRepo reads a repository's declaration and lock and works out what the
@@ -136,7 +145,28 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	taken := map[string]bool{}
 	roles := map[string]string{}
 
-	for _, w := range spec.Activate(profiles) {
+	wants := spec.Activate(profiles)
+	renames := map[string]string{}
+	if f.compose != nil {
+		binds, err := f.compose(spec, wants, l, overrides)
+		if err != nil {
+			return nil, err
+		}
+		for i := range wants {
+			if b, ok := binds[wants[i].Key]; ok && wants[i].Bind == "" {
+				wants[i].Bind = b
+				if wants[i].DefaultName != b {
+					renames[wants[i].DefaultName] = b
+				}
+			}
+		}
+		plan.Composed = binds
+	}
+	for i := range wants {
+		wants[i].Dependencies = rewriteTargets(wants[i].Dependencies, renames)
+	}
+
+	for _, w := range wants {
 		if w.Bind != "" {
 			// The role is filled by something the environment already provides,
 			// so there is nothing to declare, nothing to pin, and nothing to
@@ -290,6 +320,36 @@ func resolveSubjectName(repoClass string, overrides, bound map[string]string) st
 		return name
 	}
 	return defaultInstanceName(repoClass)
+}
+
+// rewriteTargets replaces dependency targets that name a renamed want.
+func rewriteTargets(deps map[string]any, renames map[string]string) map[string]any {
+	if len(deps) == 0 || len(renames) == 0 {
+		return deps
+	}
+	out := make(map[string]any, len(deps))
+	for role, target := range deps {
+		switch v := target.(type) {
+		case string:
+			if r, ok := renames[v]; ok {
+				target = r
+			}
+		case []any:
+			list := make([]any, len(v))
+			for i, item := range v {
+				if str, ok := item.(string); ok {
+					if r, ok := renames[str]; ok {
+						list[i] = r
+						continue
+					}
+				}
+				list[i] = item
+			}
+			target = list
+		}
+		out[role] = target
+	}
+	return out
 }
 
 func hasOverride(key string, overrides map[string]string) bool {
@@ -511,6 +571,9 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 	fmt.Fprintf(out, "  %-28s %-34s %s\n", p.Subject.InstanceName, p.Subject.RepoClassName, from)
 	for _, in := range p.Instances {
 		switch {
+		case in.Want.Bind != "" && p.Composed[in.Want.Key] != "":
+			fmt.Fprintf(out, "  %-28s %-34s shared: already in the environment\n",
+				in.Repo.InstanceName, in.Repo.RepoClassName)
 		case in.Want.Bind != "":
 			fmt.Fprintf(out, "  %-28s %-34s bound: provided by the environment\n",
 				in.Repo.InstanceName, in.Repo.RepoClassName)

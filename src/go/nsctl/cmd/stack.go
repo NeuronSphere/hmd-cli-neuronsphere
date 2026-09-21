@@ -16,9 +16,12 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/stack"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versions"
 )
@@ -166,6 +169,7 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 			repo.subject = &manifest.Source{Type: manifest.SourceArtifact}
 			repo.subjectVersion = s.Version
 			repo.recorded = &recordedPlan{Bindings: record.Bindings, Profiles: record.Profiles}
+			repo.compose = composeAgainst(opts, home, m, record)
 			plan, err := planFromRepo(&repo, m)
 			if err != nil {
 				return err
@@ -180,9 +184,11 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 			}
 			bindings := record.Bindings
 			added, kept := plan.applyInto(m, false, &bindings)
+			declared := append([]string(nil), added...)
+			sort.Strings(declared)
 			m.SetStack(manifest.StackRecord{
 				Name: s.Name, Version: s.Version, Ref: ref.WithTag("").String(), Digest: s.Digest.String(),
-				Profiles: plan.Profiles, Bindings: bindings,
+				Profiles: plan.Profiles, Bindings: bindings, Declared: declared,
 			})
 			if problems := m.Validate(opts.Lookup); len(problems) > 0 {
 				return nserr.New(nserr.Usage, "the environment this stack describes is not valid:\n  - %s",
@@ -193,6 +199,9 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 			}
 
 			plan.render(cmd, slug)
+			if len(plan.Composed) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Shared with the environment: %s\n", stack.DescribeBinds(plan.Composed))
+			}
 			if len(kept) > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "note: %s %s no longer asked for by this stack, left declared\n",
 					strings.Join(kept, ", "), plural(len(kept), "is", "are"))
@@ -219,6 +228,35 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 	cmd.Flags().BoolVar(&repo.lean, "lean", false, "Activate no profiles: the stack and its unconditional entries alone")
 	cmd.Flags().StringArrayVar(&repo.names, "name", nil, "Name one instance, as <role-or-declared-name>=<instance>. Repeatable")
 	return cmd
+}
+
+// composeAgainst is NERD017 SPEC010 wired for one environment: index what
+// it provides, and let the planner bind rather than declare.
+func composeAgainst(opts *Options, home string, m *manifest.Manifest, record manifest.StackRecord) func(
+	*localspec.Manifest, []localspec.Want, *lock.Lock, map[string]string) (map[string]string, error) {
+
+	return func(_ *localspec.Manifest, wants []localspec.Want, l *lock.Lock, overrides map[string]string) (map[string]string, error) {
+		resolver := repoclass.NewWithHome(opts.Lookup("HMD_REPO_HOME"), home, opts.Lookup)
+		repoclass.Seed(resolver, m.Repos)
+		providers := stack.IndexProviders(m, resolver)
+		owned := map[string]bool{}
+		for _, instance := range record.Bindings {
+			owned[instance] = true
+		}
+		pinned := func(class string) bool { _, ok := l.Entry(class); return ok }
+		binds, unsatisfied, conflicts := stack.Compose(wants, providers, owned, pinned, overrides)
+		if len(unsatisfied) > 0 {
+			lines := make([]string, 0, len(unsatisfied))
+			for _, u := range unsatisfied {
+				lines = append(lines, u.Error())
+			}
+			return nil, nserr.New(nserr.Usage, "this stack needs something the environment does not have:\n  - %s", strings.Join(lines, "\n  - "))
+		}
+		if len(conflicts) > 0 {
+			return nil, nserr.New(nserr.Usage, "this stack's instance names collide with the environment's:\n  - %s", strings.Join(conflicts, "\n  - "))
+		}
+		return binds, nil
+	}
 }
 
 func newStackPullCommand(opts *Options) *cobra.Command {
@@ -294,12 +332,7 @@ func newStackListCommand(opts *Options) *cobra.Command {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tVERSION\tINSTANCES\tFROM")
 			for _, s := range m.Stacks {
-				instances := make([]string, 0, len(s.Bindings))
-				for _, in := range s.Bindings {
-					instances = append(instances, in)
-				}
-				sort.Strings(instances)
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Version, strings.Join(instances, ","), s.Ref)
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Version, strings.Join(s.Owned(), ","), s.Ref)
 			}
 			return tw.Flush()
 		},
@@ -355,7 +388,7 @@ unless --prune-cache.`,
 				shared[in] = true
 			}
 			owned := map[string]bool{}
-			for _, in := range record.Bindings {
+			for _, in := range record.Owned() {
 				if !shared[in] && !manifest.ScopeEnvironment.Reserved(in) {
 					owned[in] = true
 				}

@@ -68,6 +68,10 @@ type Dependency struct {
 	// naming order when present.
 	InstanceName string
 	Required     bool
+	// Resource is the dependency's resource type as "<namespace>/<name>",
+	// from the block's `resource`, or "" for a name-only dependency. What
+	// NERD017 SPEC010 matches an environment's producers against.
+	Resource string
 }
 
 // Repo is one entry of local.repos: a companion to start alongside the
@@ -112,6 +116,10 @@ type Gate struct {
 	Bind                  string
 	Dependencies          map[string]any
 	InstanceConfiguration map[string]any
+	// Suggest is a stack reference that would satisfy the role, named in the
+	// refusal when nothing in the environment does (NERD017 SPEC010). Never
+	// acted on.
+	Suggest string
 }
 
 // Local is the `local` section.
@@ -168,6 +176,10 @@ type Want struct {
 	Bind                  string
 	Dependencies          map[string]any
 	InstanceConfiguration map[string]any
+	// Resource and Suggest are the dependency's resource type and the gate's
+	// suggestion, for a dependency want; empty for a companion.
+	Resource string
+	Suggest  string
 }
 
 // Load reads repoDir/meta-data/manifest.json.
@@ -199,6 +211,10 @@ func Parse(data []byte) (*Manifest, error) {
 				VersionSpec   string `json:"version_spec"`
 				InstanceName  string `json:"instance_name"`
 				Required      any    `json:"required"`
+				Resource      *struct {
+					Namespace string `json:"resource_namespace"`
+					Name      string `json:"resource_definition_name"`
+				} `json:"resource"`
 			} `json:"dependencies"`
 		} `json:"deploy"`
 		Local *struct {
@@ -217,6 +233,7 @@ func Parse(data []byte) (*Manifest, error) {
 				Bind                  string         `json:"bind"`
 				Dependencies          map[string]any `json:"dependencies"`
 				InstanceConfiguration map[string]any `json:"instance_configuration"`
+				Suggest               string         `json:"suggest"`
 			} `json:"dependencies"`
 		} `json:"local"`
 	}
@@ -246,13 +263,17 @@ func Parse(data []byte) (*Manifest, error) {
 			problems = append(problems, fmt.Sprintf("deploy.dependencies.%s: %v", role, err))
 			continue
 		}
-		m.Dependencies = append(m.Dependencies, Dependency{
+		d := Dependency{
 			Role:          role,
 			RepoClassName: block.RepoClassName,
 			VersionSpec:   strings.TrimSpace(block.VersionSpec),
 			InstanceName:  block.InstanceName,
 			Required:      required,
-		})
+		}
+		if block.Resource != nil && block.Resource.Namespace != "" && block.Resource.Name != "" {
+			d.Resource = block.Resource.Namespace + "/" + block.Resource.Name
+		}
+		m.Dependencies = append(m.Dependencies, d)
 	}
 
 	if doc.Local != nil {
@@ -336,13 +357,14 @@ func Parse(data []byte) (*Manifest, error) {
 						" so nothing is declared for it -- drop 'dependencies' and 'instance_configuration',"+
 						" or drop 'bind'", role))
 				continue
-			case dep.Required && g.Bind == "" && len(g.Dependencies) == 0 && len(g.InstanceConfiguration) == 0:
+			case dep.Required && g.Bind == "" && len(g.Dependencies) == 0 && len(g.InstanceConfiguration) == 0 && strings.TrimSpace(g.Suggest) == "":
 				problems = append(problems, fmt.Sprintf(
 					"local.dependencies.%s: %q is required, so the entry must say something --"+
 						" 'bind', 'dependencies' or 'instance_configuration'", role, role))
 				continue
 			}
 			m.Local.Dependencies[role] = Gate{
+				Suggest:               strings.TrimSpace(g.Suggest),
 				Profiles:              g.Profiles,
 				Bind:                  g.Bind,
 				Dependencies:          g.Dependencies,
@@ -415,10 +437,12 @@ func (m *Manifest) Activate(profiles []string) []Want {
 			DefaultName:   name,
 			Satisfies:     []string{d.Role},
 			Required:      d.Required,
+			Resource:      d.Resource,
 		}
 		if gated {
 			w.Profiles = gate.Profiles
 			w.Bind = gate.Bind
+			w.Suggest = gate.Suggest
 			w.Dependencies = gate.Dependencies
 			w.InstanceConfiguration = gate.InstanceConfiguration
 		}

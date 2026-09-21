@@ -2,6 +2,13 @@
 
 ## 2026-09-21
 
+- feat: `nsctl stack add` composes with what the environment already has
+  (NERD017 SPEC010): a dependency role is bound to an existing instance that
+  produces its resource type, a companion already declared under the same
+  name is shared, an unsatisfied role refuses naming the resource, the
+  stack's `suggest`, and the `--name` remedy; a same-name class clash is
+  refused. Records keep `declared` apart from bound, so `stack remove`
+  never takes an instance the stack only used.
 - feat: `nsctl stack build` writes the stack artifact as an OCI image layout
   under `build/stack`, offline and deterministically, taking each pinned zip
   from `--artifacts`, the artifact cache, the lock entry's OCI `source`, or

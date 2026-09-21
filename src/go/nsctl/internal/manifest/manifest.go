@@ -197,6 +197,25 @@ type StackRecord struct {
 	// meanings Manifest.Profiles and Manifest.Bindings have.
 	Profiles []string          `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 	Bindings map[string]string `yaml:"bindings,omitempty" json:"bindings,omitempty"`
+	// Declared is the instances the stack itself declared, as opposed to
+	// those it only bound because the environment already provided them
+	// (NERD017 SPEC010). What `stack remove` undeclares. A record written
+	// before this key existed has none, and every binding is then treated
+	// as declared, which is what it was.
+	Declared []string `yaml:"declared,omitempty" json:"declared,omitempty"`
+}
+
+// Owned is the instances a stack record is entitled to undeclare.
+func (s StackRecord) Owned() []string {
+	if s.Declared != nil {
+		return append([]string(nil), s.Declared...)
+	}
+	out := make([]string, 0, len(s.Bindings))
+	for _, in := range s.Bindings {
+		out = append(out, in)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Stack returns the record for a stack name.
