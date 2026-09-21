@@ -1,0 +1,350 @@
+.. NERD017 Stacks
+
+NERD017 Stacks
+==============
+
+.. req:: Install a published set of RepoClasses into a local environment with one command
+    :id: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    A **stack** is a RepoClass whose repository carries a ``local`` section
+    (``NERD010`` SPEC001) and a checked-in ``neuronsphere.lock``, published as
+    **one** artifact that holds the build zip of every RepoClass the lock pins.
+
+    A user with **no credential of any kind** shall be able to add a stack to
+    a local environment with one command, naming only the stack and a version
+    or range, and deploy it with ``nsctl env apply``. After the one fetch the
+    environment shall be as offline as any other.
+
+    ``nsctl`` shall carry **no list of stacks**. A stack exists because a
+    registry serves it under a name the user typed, and for no other reason.
+
+Motivation
+----------
+
+The most common thing a plugin will be is not code. It is "the three
+RepoClasses that make up observability", or "the four that make a warehouse
+you can query", pinned to versions that are known to work together, and
+wanted by someone who has just installed ``nsctl`` and does not have a
+tenant. Everything needed to *describe* that already exists:
+
+* ``NERD010`` gave a repository a ``local`` section to declare the companions
+  it wants, profiles to make some of them optional, and a generated
+  ``neuronsphere.lock`` at the repository root pinning each to a version and a
+  content path. Its own open question asked whether "a platform team could
+  publish a 'standard local stack' lock". This is that.
+* ``nsctl env add --from-repo`` (``cmd/fromrepo.go``) already turns a lock into
+  an environment: it activates profiles, resolves instance names through the
+  four-tier naming order, declares every companion as
+  ``source: {type: artifact}``, records ``bindings``, and hands off to
+  ``env apply``.
+* ``NERD005`` gave ``source: {type: artifact}`` a cache to resolve from, and
+  made resolution offline by construction.
+
+What does not exist is a way to *obtain* the artifacts without a tenant. That
+is ``NERD016``'s job. This document is what sits between the two: what a
+published stack looks like, and the verbs that move it from a registry into
+an environment.
+
+The lock is the pivot. It already names every class, every version, and the
+roles each fills, and it is already the thing a reader knows to look for. A
+stack's OCI artifact therefore carries the lock as its config blob and a
+layer per zip, and installing a stack is: fetch, verify, unpack into the
+cache, then run the ``--from-repo`` planner over the cached stack tree as if
+the user had cloned it. No second planner, no second naming order, no second
+manifest shape.
+
+Scope and terminology
+---------------------
+
+* A **stack** is the RepoClass; a **stack artifact** is its published OCI
+  form; a **stack record** is what an environment manifest keeps about one it
+  has added.
+* A **companion** is a RepoClass the lock pins (the ``NERD010`` word).
+* The **subject** is the stack RepoClass itself, deployed from its own zip.
+  ``--from-repo`` declares the subject ``source: local``; a stack declares it
+  ``source: artifact``. That is the one difference in the planner.
+* The **canonical namespace** for stacks published by the platform is
+  ``ghcr.io/hmdlabs/stacks``, derived from ``repoclass.PublishedRegistry``.
+  A stack may live anywhere; the namespace is a *default expansion* for a bare
+  name, not a registry of known stacks.
+
+Out of scope: composing one lock from another (still ``NERD010``'s open
+question), a stack that carries images rather than referencing them, and any
+account of what a stack costs or who may publish under the canonical
+namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
+
+.. spec:: What a stack is
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC001
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    A stack repository is an ordinary RepoClass repository with three
+    properties: a ``local`` section in ``meta-data/manifest.json`` (or
+    ``.toml``) naming its companions, a ``neuronsphere.lock`` generated from
+    it, and a deploy phase. Nothing else marks it; there is no ``stack: true``
+    key, because the two files are the declaration.
+
+    The stack RepoClass is itself one instance of the environment, deployed
+    from its own build zip, so that ``env status`` shows it, ``stack remove``
+    has a subject to undeclare, and a stack that *does* carry something --
+    a dashboard, a seed job, an ``hmd.env`` handback -- deploys it the normal
+    way. A stack that carries nothing declares a ``NERD009`` exec no-op
+    (``deploy.commands: [["exec", "true"]]``).
+
+    The lock is authoritative over the manifest's version specs: what is
+    installed is what is pinned, and a range in the ``local`` section is
+    advice to ``nsctl lock``, not to ``stack add``.
+
+.. spec:: The stack artifact
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC002
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    A stack is published as one OCI image manifest:
+
+    ================================ ======================================================
+    Field                            Value
+    ================================ ======================================================
+    ``artifactType``                 ``application/vnd.neuronsphere.stack.v1+toml``
+    ``config``                       the ``neuronsphere.lock`` bytes,
+                                     ``mediaType: application/vnd.neuronsphere.lock.v1+toml``
+    ``layers[]``                     one per pinned RepoClass **and** one for the stack
+                                     itself, ``mediaType:
+                                     application/vnd.neuronsphere.repoclass.build.v1+zip``
+    ================================ ======================================================
+
+    Each layer is annotated ``io.neuronsphere.repoclass.name``,
+    ``io.neuronsphere.repoclass.version``, ``io.neuronsphere.repoclass.item_type``
+    (``build``) and ``org.opencontainers.image.title`` with the zip's librarian
+    file name (``<class>_<version>_<type>.zip``), so that a registry UI shows
+    something legible and a reader with ``curl`` can see what is inside
+    without ``nsctl``. The manifest is annotated ``io.neuronsphere.stack.name``,
+    ``io.neuronsphere.stack.version``, ``org.opencontainers.image.version``,
+    ``org.opencontainers.image.source`` (the repository URL when known) and
+    ``org.opencontainers.image.licenses`` (``Apache-2.0``: a stack's descriptor
+    files are Apache, per :doc:`/licensing`; the zips inside carry their own).
+
+    The tag is the stack's version. Lock entries and layers must correspond
+    one to one (plus the subject's layer); an artifact with a layer no entry
+    names, or an entry no layer carries, is refused at install rather than
+    half-applied, for the same reason ``lock.Parse`` refuses an unknown
+    schema.
+
+.. spec:: nsctl stack add
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC003
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    .. code-block:: text
+
+        nsctl stack add <ref> [--env <name>] [--profile p,q | --all-profiles | --lean]
+                              [--name <role-or-class>=<instance>]... [--apply]
+
+    ``<ref>`` is a ``NERD016`` reference, or a bare name, which is expanded
+    against the canonical namespace and the expansion printed. A missing
+    version means the newest (``NERD016`` SPEC004); a range is resolved the
+    same way and the result printed.
+
+    The verb, in order:
+
+    1. Resolve a credential (``NERD016`` SPEC006); anonymous is the expected
+       case and is not a warning.
+    2. Fetch and verify the manifest and every layer.
+    3. For each layer, ``artifact.Invalidate`` then ``artifact.Store`` into
+       ``$HMD_HOME/.cache/neuronsphere/artifacts/<class>@<version>/``. The
+       subject's tree additionally receives the lock at its root, so that the
+       cached stack tree is indistinguishable from a checkout to everything
+       downstream.
+    4. Best-effort ``Put`` of each zip into the local Artifact Librarian.
+       This keeps ``nsctl artifact unpack`` and in-container
+       ``pre_build_artifacts`` (``NERD005`` SPEC006) working for those
+       classes, but the **cache is authoritative**: resolution never reads
+       the librarian, so a control plane that is down makes this a warning
+       naming the remedy, never a failure.
+    5. Plan through the ``--from-repo`` rules (``NERD010`` SPEC004-SPEC006)
+       with the subject declared ``source: {type: artifact}`` at the stack's
+       version, and every companion likewise. ``--profile``,
+       ``--all-profiles``, ``--lean`` and ``--name`` mean exactly what they
+       mean on ``env add --from-repo``.
+    6. Record a stack record in the environment manifest (SPEC009), save, and
+       print the declared instances and ``Run: nsctl env apply <env>``.
+
+    **Declaring is not deploying.** ``stack add`` mutates the manifest and
+    the cache and nothing running. ``--apply`` runs ``env apply`` afterwards
+    for the user who wants one command; it is a convenience, not a change of
+    rule. Adding a stack already recorded at the same version is idempotent;
+    at a different version it replaces the record and re-plans, and the
+    previous version's cache directories are left for ``env apply`` to stop
+    using.
+
+.. spec:: nsctl stack list and stack remove
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC004
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    ``stack list [--env]`` prints each stack record: name, version, reference,
+    manifest digest, and the instances it bound. It reads the manifest and
+    nothing else.
+
+    ``stack remove <name> [--env] [--prune-cache]`` undeclares the instances
+    the stack record bound -- and only those; an instance bound to a
+    substrate reserved name or declared by another stack or by hand is not
+    the stack's to remove -- deletes the record, and saves. It tears nothing
+    down: the next ``env apply`` reconciles, as with any undeclaration. The
+    cache is kept, because it is cache (``NERD005`` SPEC004); ``--prune-cache``
+    deletes the stack's own directories when the user wants the disk back.
+
+.. spec:: nsctl stack versions and stack pull
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC005
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    ``stack versions <ref> [--spec "~= 0.1"] [--offline]`` lists the
+    published versions (``NERD016`` SPEC004) and, with ``--spec``, the one
+    that would be chosen. Results are cached under
+    ``$HMD_HOME/.cache/neuronsphere/versions/`` in ``internal/versions``'s
+    record with a key of the form ``stack~<host>~<path>.json``; ``--offline``
+    reads only the cache, as ``artifact versions --offline`` does.
+
+    ``stack pull <ref>`` performs steps 1-4 of SPEC003 and stops: it fills the
+    cache without declaring anything, for a user preparing a machine that
+    will later be offline, or a CI job warming a cache.
+
+.. spec:: nsctl stack push
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC006
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    .. code-block:: text
+
+        nsctl stack push [<repo-dir>] <ref> [--artifacts <dir>] [--token <t>]
+                         [--profile <tenant>] [--update-lock]
+
+    From a repository with a ``local`` section and a lock, build the artifact
+    of SPEC002 and push it (``NERD016`` SPEC005). The subject's zip is
+    ``artifact.Zip(repoDir)`` -- deterministic, honours ``SkipDirs``, and
+    always contains ``meta-data/`` and the lock. Each companion's zip comes
+    from ``--artifacts <dir>`` (the ``hmd build`` output layout, for a
+    publisher who built them) or else from the cloud Artifact Librarian by
+    the lock's ``content_path``: **the publisher is a paid user**, and that is
+    the asymmetry this feature exists to create. The consumer is not.
+
+    Every zip's digest is written into the lock embedded in the artifact
+    (SPEC007). ``--update-lock`` writes those digests back into the
+    repository's own lock so the next commit carries them.
+
+    The tag is the repository's version (``meta-data/VERSION``, with the
+    build number the way ``hmd build`` computes it) unless ``<ref>`` names
+    one. Push requires a credential and says so before any request.
+
+.. spec:: The lock gains a digest
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC007
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    Each ``[[resolved]]`` entry may carry ``digest = "sha256:<hex>"``, the
+    digest of the build zip the ``content_path`` names. The schema version
+    stays ``1``: ``lock.Parse`` is a non-strict decode, so an older ``nsctl``
+    ignores the key, and the key is ``omitempty`` so an older lock is
+    byte-identical on rewrite when nothing is known.
+
+    ``nsctl lock`` fills it when the class is already cached (the cache keeps
+    a digest sidecar beside each unpacked tree from this NERD on);
+    ``artifact pull``, ``stack pull`` and ``stack add`` fill it when they have
+    just seen the bytes. ``stack add`` **refuses** a layer whose digest
+    disagrees with its lock entry's, because the lock is the publisher's
+    statement of what they tested. ``nsctl lock --check`` does not verify
+    digests: it runs on an aeroplane.
+
+.. spec:: Coexistence with the existing resolution tiers
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC008
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    A stack changes nothing about how a class resolves. A working tree under
+    ``HMD_REPO_HOME`` still pre-empts a cached artifact and is still reported
+    (``repoclass.PreemptedArtifact``); ``env apply`` is still offline; two
+    stacks, or a stack and a ``--from-repo`` subject, in one environment each
+    keep their own bindings and refuse an instance-name collision with the
+    ``--name`` remedy.
+
+    **Images are the v1 limitation.** A companion's image resolves through
+    ``ImageCandidates`` (``internal/controlplane/images.go``): the local
+    registries, then ``ghcr.io/hmdlabs``. A stack published by the platform
+    therefore works with nothing set. A third-party stack whose images live
+    elsewhere needs ``HMD_LOCAL_IMAGE_PULL_REGISTRIES`` to name their prefix.
+    This NERD proposes, and does not build, a manifest annotation
+    ``io.neuronsphere.stack.image_registries`` that ``stack add`` would
+    surface as a line the user must add to ``hmd.env`` -- surfaced, not
+    written, for the ``NERD004`` handback reason: an artifact must not edit a
+    user's environment file silently.
+
+.. spec:: The stack record in the environment manifest
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC009
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    .. code-block:: yaml
+
+        stacks:
+          - name: observability
+            version: 0.1.0
+            ref: oci://ghcr.io/hmdlabs/stacks/observability
+            digest: sha256:...          # the manifest digest that was installed
+            bindings:                   # role or class -> instance, as NERD010 SPEC005
+              compute: local-neuronsphere
+              otel-collector: otel
+
+    ``stacks`` is optional and the manifest schema version is unchanged; a
+    manifest without it is every manifest that exists today. ``Validate``
+    checks that every bound instance is declared. The record exists so that
+    ``stack remove`` knows what is the stack's, ``stack list`` has something
+    to read, and a second ``stack add`` can tell "same again" from "upgrade".
+
+Testing
+-------
+
+Unit tests build stack artifacts in memory and serve them from the ``NERD016``
+fake registry. They prove: ``Read`` refuses a missing layer, an extra layer and
+a lock-digest mismatch; ``Build`` is deterministic; ``Install`` into a
+temporary ``HMD_HOME`` leaves ``artifact.Cached`` true for every class and the
+lock at the subject's root; ``stack add`` in a fresh home with no credential
+writes a manifest whose subject is ``source.type: artifact``, whose
+``stacks[0]`` record and bindings are as SPEC009, and whose output names
+``env apply``; a local-librarian ``Put`` against a closed port is a warning and
+exit 0; a second ``add`` is idempotent; ``remove`` undeclares only the stack's
+instances and keeps the cache; ``versions`` sorts and filters; and
+``push`` from a fixture repository followed by ``add`` from the same fake
+round-trips byte for byte. ``test/nsctl_cli.robot`` gains the no-Docker
+contract cases: ``stack add`` without ``HMD_HOME`` names both ways to supply
+it, a ``github.com`` reference is refused naming ``NERD016``, and
+``stack versions`` against a closed port fails cleanly with the host in the
+message.
+
+The acceptance run publishes a real stack (the observability pair,
+``hmd-inf-otel-collector`` and ``hmd-inf-clickhouse``, under a small stack
+repository) to the canonical namespace, flips the package public, and in a
+scratch ``HMD_HOME`` with no ``nsctl.toml``, no ``tokens.yaml`` and no
+librarian variables runs ``env start``, ``stack versions``, ``stack add``,
+``env apply`` and ``env status``, then ``stack remove``.
+
+Alternatives considered
+-----------------------
+
+**A tarball of zips over HTTPS.** No digests unless we invent a checksum
+format, no version enumeration, no private-namespace story, and a second
+hosting decision for something the images already settled.
+
+**A Helm-style chart bundle.** The unit is wrong. A stack is RepoClasses,
+which are what ``ms-deployment`` plans, ``hmd deploy`` deploys and ``env
+status`` reports; a chart is one of the things a RepoClass may contain.
+
+**Librarian only.** It is the paid path and stays the paid path for a
+tenant's private artifacts. The point of this NERD is the user who has no
+tenant.
+
+**A catalogue in ``nsctl``.** Rejected in ``NERD004`` and rejected here for the
+same reason: a list of known stacks inside the binary is a second BOM seeder
+with a release cadence, and a stack a user cannot install without an ``nsctl``
+release is a stack that does not exist yet.
