@@ -2,6 +2,16 @@
 
 ## 2026-09-21
 
+- feat: `nsctl stack build` writes the stack artifact as an OCI image layout
+  under `build/stack`, offline and deterministically, taking each pinned zip
+  from `--artifacts`, the artifact cache, the lock entry's OCI `source`, or
+  the cloud librarian, in that order; `nsctl stack push --from <layout>
+  [--bump]` publishes it, `--bump` choosing the next version from the
+  registry's own tags and refusing to overwrite a published one (NERD019).
+- feat: `nsctl artifact push <dir|zip> <ref>` publishes one RepoClass build
+  zip as an OCI artifact, `nsctl artifact pull <oci-ref>` fetches one with no
+  tenant, and a `neuronsphere.lock` entry may name such a `source`
+  (NERD016 SPEC009).
 - fix: `nsctl.toml` written by `plugin install` no longer carries an empty
   `default_profile`.
 - test: `test/nsctl_cli.robot` gains the NERD017/NERD018 contract cases

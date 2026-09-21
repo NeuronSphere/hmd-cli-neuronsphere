@@ -28,6 +28,7 @@ package artifact
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -437,4 +438,53 @@ func or(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// Inspect reads meta-data/manifest.json and meta-data/VERSION out of a build
+// zip without unpacking it: what a publisher's verb needs to name an
+// artifact from its bytes rather than its file name. NERD016 SPEC009.
+func Inspect(data []byte) (manifestJSON []byte, version string, err error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, "", fmt.Errorf("not a zip: %w", err)
+	}
+	var versionBytes []byte
+	for _, f := range zr.File {
+		var target *[]byte
+		switch filepath.ToSlash(filepath.Clean(f.Name)) {
+		case "meta-data/manifest.json":
+			target = &manifestJSON
+		case "meta-data/VERSION":
+			target = &versionBytes
+		default:
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, "", err
+		}
+		*target, err = io.ReadAll(io.LimitReader(rc, maxEntry))
+		rc.Close()
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if manifestJSON == nil || versionBytes == nil {
+		return nil, "", errors.New("the artifact carries no meta-data/manifest.json and meta-data/VERSION")
+	}
+	return manifestJSON, strings.TrimSpace(string(versionBytes)), nil
+}
+
+// NameOf is the repo class a BACON manifest names.
+func NameOf(manifestJSON []byte) (string, error) {
+	var m struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(manifestJSON, &m); err != nil {
+		return "", fmt.Errorf("parsing meta-data/manifest.json: %w", err)
+	}
+	if strings.TrimSpace(m.Name) == "" {
+		return "", errors.New("meta-data/manifest.json names no repo class")
+	}
+	return m.Name, nil
 }

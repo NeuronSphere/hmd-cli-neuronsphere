@@ -267,13 +267,51 @@ Examples
      nsctl artifact pull hmd-inf-local-registry
      nsctl artifact pull "hmd-inf-trino@~= 0.1"
      nsctl artifact pull hmd-lang-foo@0.3.1:schema
+     nsctl artifact pull ghcr.io/acme/classes/hmd-inf-otel-collector:0.1.188   # an OCI artifact, no tenant
 
 Local flags
 ~~~~~~~~~~~
 
 * ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--spec`` — with an OCI reference, choose the version by a BACON version spec
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl artifact push
+-------------------
+
+Publish one RepoClass's build artifact to an OCI registry, where a
+neuronsphere.lock entry can name it as its "source" and anyone -- with no
+tenant -- can fetch it. A directory is zipped as the librarian would receive
+it; a zip is pushed as is. The tag is meta-data/VERSION unless --tag or the
+reference names one. A credential is required (--token, HMD_REGISTRY_TOKEN,
+or a profile's registry_url after "nsctl login").
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl artifact push <repo-dir | zip> <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl artifact push . ghcr.io/acme/classes/hmd-inf-otel-collector --token $GHCR_PAT
+     nsctl artifact push dist/hmd-inf-otel-collector_0.1.188_build.zip ghcr.io/acme/classes/hmd-inf-otel-collector
+
+Local flags
+~~~~~~~~~~~
+
+* ``--tag`` — tag to publish under (default: meta-data/VERSION)
+* ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2425,6 +2463,49 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl stack build
+-----------------
+
+Read the repository's "local" section and neuronsphere.lock, obtain every
+pinned build zip, and write the stack artifact as an OCI image layout under
+--out (default build/stack). The same lock and bytes produce the same layout,
+so a build in CI reproduces a build on a laptop, and nothing is pushed.
+
+Each pinned zip comes from the first of: --artifacts <dir>; the artifact
+cache (what an environment this stack was derived from deployed from); the
+lock entry's "source", an OCI reference published with "nsctl artifact push"
+(no tenant needed); the cloud Artifact Librarian (paid, only with a
+credential). The tier that served each entry is printed.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl stack build [<repo-dir>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl stack build
+     nsctl stack build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release
+
+Local flags
+~~~~~~~~~~~
+
+* ``--artifacts`` — directory holding <class>_<version>_build.zip for pinned companions
+* ``--out`` — where to write the OCI image layout (relative to the repository) (default: ``build/stack``)
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--tag`` — the stack version to record (default: meta-data/VERSION)
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl stack list
 ----------------
 
@@ -2476,38 +2557,43 @@ Inherited flags
 nsctl stack push
 ----------------
 
-Build the stack artifact from a repository that has a "local" section and a
-neuronsphere.lock, and push it to an OCI registry. The stack's own zip is the
-repository tree; each pinned companion's zip comes from --artifacts <dir>
-(the "hmd build" output layout, <class>_<version>_build.zip) or else from the
-cloud Artifact Librarian by the lock's content path -- the publisher is a paid
-user; the consumer is not. Every zip's digest is written into the lock inside
-the artifact; --update-lock writes them into the repository's lock too.
+Push a stack artifact to an OCI registry. With --from, push the OCI image
+layout "nsctl stack build" wrote -- the CI path: build, inspect, then push.
+Without it, build from the repository first (the laptop path), taking pinned
+zips from --artifacts, the artifact cache, each lock entry's "source", or the
+cloud Artifact Librarian, in that order.
 
-The tag is meta-data/VERSION unless <ref> names one. A credential is
-required: --token, HMD_REGISTRY_TOKEN, or a profile whose registry_url
-matches the host after "nsctl login".
+The tag is the reference's, or --tag, or with --bump the next patch of the
+newest version the registry already holds (meta-data/VERSION.0 when it holds
+none or VERSION is a newer major.minor). A tag the registry already has is
+refused: a published version is immutable. A credential is required:
+--token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
+repository's owner), or a profile's registry_url after "nsctl login".
 
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl stack push [<repo-dir>] <ref> [flags]
+   nsctl stack push [<repo-dir>] <ref> [--from build/stack] [--bump] [flags]
 
 Examples
 ~~~~~~~~
 
 .. code-block:: shell
 
-   nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
+   nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
+     nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
      nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock
 
 Local flags
 ~~~~~~~~~~~
 
 * ``--artifacts`` — directory holding <class>_<version>_build.zip for every pinned companion
+* ``--bump`` — tag with the next patch of the newest published version
+* ``--from`` — push the OCI image layout `nsctl stack build` wrote at this path
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--tag`` — tag to publish under
 * ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
 * ``--update-lock`` — write the zips' digests back into the repository's lock
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL

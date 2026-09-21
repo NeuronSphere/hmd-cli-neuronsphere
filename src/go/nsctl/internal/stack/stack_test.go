@@ -75,11 +75,11 @@ func TestBuildIsDeterministicAndFillsDigests(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
 	zips := fixtureZips(t)
-	m1, blobs1, pinned, err := Build(ref, "0.1.0", fixtureLock(), zips)
+	m1, blobs1, pinned, err := Build(ShortName(ref), "0.1.0", fixtureLock(), zips)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m2, _, _, err := Build(ref, "0.1.0", fixtureLock(), zips)
+	m2, _, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), zips)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,18 +115,18 @@ func TestBuildRefusals(t *testing.T) {
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
 	zips := fixtureZips(t)
 	delete(zips, "hmd-inf-clickhouse")
-	if _, _, _, err := Build(ref, "0.1.0", fixtureLock(), zips); err == nil || !strings.Contains(err.Error(), "hmd-inf-clickhouse@0.3.0") {
+	if _, _, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), zips); err == nil || !strings.Contains(err.Error(), "hmd-inf-clickhouse@0.3.0") {
 		t.Errorf("missing companion: %v", err)
 	}
 	zips = fixtureZips(t)
 	zips["hmd-inf-extra"] = zipOf(t, "hmd-inf-extra", "1", nil)
-	if _, _, _, err := Build(ref, "0.1.0", fixtureLock(), zips); err == nil || !strings.Contains(err.Error(), "hmd-inf-extra") {
+	if _, _, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), zips); err == nil || !strings.Contains(err.Error(), "hmd-inf-extra") {
 		t.Errorf("unpinned zip: %v", err)
 	}
 	// A lock that already pins a digest the bytes disagree with.
 	l := fixtureLock()
 	l.SetDigest("hmd-inf-otel", "sha256:"+strings.Repeat("0", 64))
-	if _, _, _, err := Build(ref, "0.1.0", l, fixtureZips(t)); err == nil || !strings.Contains(err.Error(), "disagree") {
+	if _, _, _, err := Build(ShortName(ref), "0.1.0", l, fixtureZips(t)); err == nil || !strings.Contains(err.Error(), "disagree") {
 		t.Errorf("digest disagreement: %v", err)
 	}
 }
@@ -135,7 +135,7 @@ func TestReadPairsLayersWithTheLock(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
 	ref := refTo(t, reg, "hmdlabs/stacks/obs")
-	m, blobs, _, err := Build(ref, "0.1.0", fixtureLock(), fixtureZips(t))
+	m, blobs, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), fixtureZips(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestInstallFillsTheCacheAndWritesTheLock(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
 	ref := refTo(t, reg, "hmdlabs/stacks/obs")
-	m, blobs, _, err := Build(ref, "0.1.0", fixtureLock(), fixtureZips(t))
+	m, blobs, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), fixtureZips(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestPushThenInstallRoundTrip(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.RequireToken("ci", "pat"))
 	ref := refTo(t, reg, "acme/stacks/obs:0.1.0")
-	m, blobs, _, err := Build(ref, "0.1.0", fixtureLock(), fixtureZips(t))
+	m, blobs, _, err := Build(ShortName(ref), "0.1.0", fixtureLock(), fixtureZips(t))
 	if err != nil {
 		t.Fatal(err)
 	}

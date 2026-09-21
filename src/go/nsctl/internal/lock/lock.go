@@ -89,6 +89,11 @@ type Entry struct {
 	// is a non-strict decode and an older nsctl simply ignores the key.
 	// NERD017 SPEC007.
 	Digest string `toml:"digest,omitempty"`
+	// Source is an OCI reference, without a version, that serves this
+	// class's build zip as an artifact (NERD016 SPEC009): where a consumer
+	// with no tenant fetches it. Optional; content_path stays the
+	// librarian's address for the paid path.
+	Source string `toml:"source,omitempty"`
 }
 
 // Lock is a parsed neuronsphere.lock.

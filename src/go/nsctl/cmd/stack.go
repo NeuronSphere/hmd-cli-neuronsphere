@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -46,6 +49,7 @@ nsctl carries no list of stacks; a bare name expands to
 		newStackListCommand(opts),
 		newStackRemoveCommand(opts),
 		newStackVersionsCommand(opts),
+		newStackBuildCommand(opts),
 		newStackPushCommand(opts),
 	)
 	return group
@@ -476,27 +480,97 @@ under $HMD_HOME/.cache/neuronsphere/versions/; --offline reads the cache only.`,
 	return cmd
 }
 
-func newStackPushCommand(opts *Options) *cobra.Command {
+// stackSources wires the four zip tiers for a build or a laptop push.
+func stackSources(cmd *cobra.Command, opts *Options, libs *librarians, artifactsDir string) zipSources {
+	return zipSources{
+		artifactsDir: artifactsDir,
+		home:         opts.Home,
+		registry:     func(host string) *oci.Client { return oci.New(registryCredential(opts, host, "")) },
+		cloud:        func() (*librarian.Client, error) { return libs.cloud(cmd, opts) },
+		report:       func(line string) { fmt.Fprintln(cmd.OutOrStdout(), line) },
+	}
+}
+
+func newStackBuildCommand(opts *Options) *cobra.Command {
 	var (
-		token, artifactsDir string
-		updateLock          bool
-		libs                librarians
+		out, artifactsDir, tag string
+		libs                   librarians
 	)
 	cmd := &cobra.Command{
-		Use:   "push [<repo-dir>] <ref>",
-		Short: "Publish a stack from a repository with a lock",
-		Long: `Build the stack artifact from a repository that has a "local" section and a
-neuronsphere.lock, and push it to an OCI registry. The stack's own zip is the
-repository tree; each pinned companion's zip comes from --artifacts <dir>
-(the "hmd build" output layout, <class>_<version>_build.zip) or else from the
-cloud Artifact Librarian by the lock's content path -- the publisher is a paid
-user; the consumer is not. Every zip's digest is written into the lock inside
-the artifact; --update-lock writes them into the repository's lock too.
+		Use:   "build [<repo-dir>]",
+		Short: "Build the stack artifact into an OCI image layout, offline",
+		Long: `Read the repository's "local" section and neuronsphere.lock, obtain every
+pinned build zip, and write the stack artifact as an OCI image layout under
+--out (default build/stack). The same lock and bytes produce the same layout,
+so a build in CI reproduces a build on a laptop, and nothing is pushed.
 
-The tag is meta-data/VERSION unless <ref> names one. A credential is
-required: --token, HMD_REGISTRY_TOKEN, or a profile whose registry_url
-matches the host after "nsctl login".`,
-		Example: `  nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
+Each pinned zip comes from the first of: --artifacts <dir>; the artifact
+cache (what an environment this stack was derived from deployed from); the
+lock entry's "source", an OCI reference published with "nsctl artifact push"
+(no tenant needed); the cloud Artifact Librarian (paid, only with a
+credential). The tier that served each entry is printed.`,
+		Example: `  nsctl stack build
+  nsctl stack build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release`,
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoDir := "."
+			if len(args) == 1 {
+				repoDir = args[0]
+			}
+			// The layout is pushed to whatever reference push is given, so
+			// the artifact carries no stack name; a consumer names it after
+			// the reference it pulls from.
+			ref := oci.Ref{Host: layoutHost, Repository: "stack"}
+			m, blobs, _, tagged, err := buildStackFromRepo(cmd.Context(), repoDir, ref, tag, stackSources(cmd, opts, &libs, artifactsDir))
+			if err != nil {
+				return err
+			}
+			dir := out
+			if !filepath.IsAbs(dir) {
+				dir = filepath.Join(repoDir, dir)
+			}
+			d, err := stack.WriteLayout(dir, m, blobs, tagged.Tag)
+			if err != nil {
+				return nserr.Wrap(nserr.Fail, err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Built stack %s (%d layer(s), %s) -> %s\nPush it with: nsctl stack push <ref> --from %s --bump\n",
+				tagged.Tag, len(m.Layers), d, dir, out)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", stack.DefaultLayoutDir, "where to write the OCI image layout (relative to the repository)")
+	cmd.Flags().StringVar(&artifactsDir, "artifacts", "", "directory holding <class>_<version>_build.zip for pinned companions")
+	cmd.Flags().StringVar(&tag, "tag", "", "the stack version to record (default: meta-data/VERSION)")
+	libs.bindCloud(cmd)
+	libs.bindTenant(cmd)
+	return cmd
+}
+
+func newStackPushCommand(opts *Options) *cobra.Command {
+	var (
+		token, artifactsDir, from, tag string
+		updateLock, bump               bool
+		libs                           librarians
+	)
+	cmd := &cobra.Command{
+		Use:   "push [<repo-dir>] <ref> [--from build/stack] [--bump]",
+		Short: "Publish a stack to an OCI registry",
+		Long: `Push a stack artifact to an OCI registry. With --from, push the OCI image
+layout "nsctl stack build" wrote -- the CI path: build, inspect, then push.
+Without it, build from the repository first (the laptop path), taking pinned
+zips from --artifacts, the artifact cache, each lock entry's "source", or the
+cloud Artifact Librarian, in that order.
+
+The tag is the reference's, or --tag, or with --bump the next patch of the
+newest version the registry already holds (meta-data/VERSION.0 when it holds
+none or VERSION is a newer major.minor). A tag the registry already has is
+refused: a published version is immutable. A credential is required:
+--token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
+repository's owner), or a profile's registry_url after "nsctl login".`,
+		Example: `  nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
+  nsctl stack push . ghcr.io/hmdlabs/stacks/observability:0.1.0 --token $GHCR_PAT
   nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock`,
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
@@ -510,28 +584,79 @@ matches the host after "nsctl login".`,
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
+			if ref.Digest != "" {
+				return nserr.New(nserr.Usage, "push needs a tag, not a digest: %s", ref)
+			}
+			if tag != "" {
+				ref = ref.WithTag(tag)
+			}
 			cred := registryCredential(opts, ref.Host, token)
 			if cred.Anonymous() {
 				return nserr.Wrap(nserr.Usage, oci.ErrNoCredential)
 			}
-			var fetch func(contentPath string) ([]byte, error)
-			if artifactsDir == "" {
-				// Lazily built: a publisher whose --artifacts holds everything
-				// never needs a tenant.
-				fetch = func(contentPath string) ([]byte, error) {
-					cloud, err := libs.cloud(cmd, opts)
-					if err != nil {
-						return nil, err
-					}
-					return cloud.Fetch(cmd.Context(), contentPath)
-				}
+			client := oci.New(cred)
+
+			// The version: --bump asks the registry, a bare reference asks
+			// the layout or meta-data/VERSION.
+			versionFile := func() string {
+				v, _ := os.ReadFile(filepath.Join(repoDir, "meta-data", "VERSION"))
+				return strings.TrimSpace(string(v))
 			}
-			m, blobs, pinned, tagged, err := buildStackFromRepo(repoDir, ref, artifactsDir, fetch)
+			if bump {
+				if ref.Tag != "" {
+					return nserr.New(nserr.Usage, "--bump chooses the tag; %s names one already", ref)
+				}
+				published, err := client.Tags(cmd.Context(), ref)
+				if err != nil {
+					var oe *oci.Error
+					if !errors.As(err, &oe) || !oe.NotFound() {
+						return classifyRegistryError(err)
+					}
+					published = nil // a repository that does not exist yet
+				}
+				base := versionFile()
+				if from != "" {
+					if _, _, layoutTag, err := stack.ReadLayout(from); err == nil && layoutTag != "" {
+						base = layoutTag
+					}
+				}
+				next, err := stack.NextVersion(published, base)
+				if err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Version: %s (--bump; published: %s)\n", next, orNone(published))
+				ref = ref.WithTag(next)
+			}
+
+			if from != "" {
+				if ref.Tag == "" {
+					_, _, layoutTag, err := stack.ReadLayout(from)
+					if err != nil {
+						return nserr.Wrap(nserr.Usage, err)
+					}
+					ref = ref.WithTag(layoutTag)
+				}
+				if err := refuseIfPublished(cmd, client, ref); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Pushing %s from %s with credential from %s\n", ref, from, cred.Source)
+				d, err := stack.PushLayout(cmd.Context(), client, ref, from)
+				if err != nil {
+					return classifyRegistryError(err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Pushed %s (%s)\n", ref, d)
+				return nil
+			}
+
+			m, blobs, pinned, tagged, err := buildStackFromRepo(cmd.Context(), repoDir, ref, "", stackSources(cmd, opts, &libs, artifactsDir))
 			if err != nil {
 				return err
 			}
+			if err := refuseIfPublished(cmd, client, tagged); err != nil {
+				return err
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Pushing %s (%d layer(s)) with credential from %s\n", tagged, len(m.Layers), cred.Source)
-			d, err := stack.Push(cmd.Context(), oci.New(cred), tagged, m, blobs)
+			d, err := stack.Push(cmd.Context(), client, tagged, m, blobs)
 			if err != nil {
 				return classifyRegistryError(err)
 			}
@@ -546,9 +671,40 @@ matches the host after "nsctl login".`,
 		},
 	}
 	cmd.Flags().StringVar(&token, "token", "", "registry token or PAT (overrides "+oci.TokenEnv+")")
+	cmd.Flags().StringVar(&from, "from", "", "push the OCI image layout `nsctl stack build` wrote at this path")
+	cmd.Flags().BoolVar(&bump, "bump", false, "tag with the next patch of the newest published version")
+	cmd.Flags().StringVar(&tag, "tag", "", "tag to publish under")
 	cmd.Flags().StringVar(&artifactsDir, "artifacts", "", "directory holding <class>_<version>_build.zip for every pinned companion")
 	cmd.Flags().BoolVar(&updateLock, "update-lock", false, "write the zips' digests back into the repository's lock")
 	libs.bindCloud(cmd)
 	libs.bindTenant(cmd)
 	return cmd
+}
+
+// refuseIfPublished is SPEC003's immutability rule.
+func refuseIfPublished(cmd *cobra.Command, client *oci.Client, ref oci.Ref) error {
+	tags, err := client.AllTags(cmd.Context(), ref)
+	if err != nil {
+		var oe *oci.Error
+		if errors.As(err, &oe) && oe.NotFound() {
+			return nil
+		}
+		return classifyRegistryError(err)
+	}
+	for _, t := range tags {
+		if t == ref.Tag {
+			return nserr.New(nserr.Usage, "%s is already published; a published version is immutable. Use --bump or a new tag", ref)
+		}
+	}
+	return nil
+}
+
+func orNone(tags []string) string {
+	if len(tags) == 0 {
+		return "none"
+	}
+	if len(tags) > 5 {
+		return strings.Join(tags[:5], ", ") + ", ..."
+	}
+	return strings.Join(tags, ", ")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +50,7 @@ cache alone, which is what makes it behave the same on an aeroplane.`,
 		newArtifactRegisterCommand(opts),
 		newArtifactUnpackCommand(opts),
 		newArtifactCacheCommand(opts),
+		newArtifactPushCommand(opts),
 	)
 	return cmd
 }
@@ -117,6 +119,7 @@ func (l *librarians) local() *librarian.Client { return librarian.NewLocal(l.loc
 
 func newArtifactPullCommand(opts *Options) *cobra.Command {
 	var libs librarians
+	var spec string
 
 	cmd := &cobra.Command{
 		Use:   "pull <repo-class>[@<version>][:<type>]",
@@ -138,7 +141,8 @@ is an apply that behaves differently on an aeroplane.`,
 		Example: `  nsctl artifact pull hmd-inf-local-registry@0.1.4
   nsctl artifact pull hmd-inf-local-registry
   nsctl artifact pull "hmd-inf-trino@~= 0.1"
-  nsctl artifact pull hmd-lang-foo@0.3.1:schema`,
+  nsctl artifact pull hmd-lang-foo@0.3.1:schema
+  nsctl artifact pull ghcr.io/acme/classes/hmd-inf-otel-collector:0.1.188   # an OCI artifact, no tenant`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -146,6 +150,11 @@ is an apply that behaves differently on an aeroplane.`,
 			home, err := opts.RequireHome()
 			if err != nil {
 				return err
+			}
+			// An OCI reference -- something with a registry host in front --
+			// is NERD016 SPEC009's free path and needs no librarian at all.
+			if ociRef, perr := oci.ParseRef(args[0]); perr == nil {
+				return pullFromOCI(cmd, opts, &libs, home, ociRef, spec)
 			}
 			req, err := parseArtifactRequest(args[0])
 			if err != nil {
@@ -171,6 +180,7 @@ is an apply that behaves differently on an aeroplane.`,
 	}
 	libs.bind(cmd)
 	libs.bindTenant(cmd)
+	cmd.Flags().StringVar(&spec, "spec", "", "with an OCI reference, choose the version by a BACON version spec")
 	return cmd
 }
 

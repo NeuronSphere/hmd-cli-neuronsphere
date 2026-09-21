@@ -186,7 +186,11 @@ func ShortName(ref oci.Ref) string {
 // hold the subject (l.RepoClassName) and every pinned class; the returned
 // lock carries every zip's digest and is the config blob. Deterministic for
 // equal inputs. SPEC002 and SPEC006.
-func Build(ref oci.Ref, version string, l *lock.Lock, zips map[string][]byte) (v1.Manifest, map[digest.Digest][]byte, *lock.Lock, error) {
+//
+// name is the stack's short name annotation, or "" when the builder does not
+// know where the artifact will be pushed (`stack build` writing a layout):
+// a consumer then names the stack after the reference it pulled it from.
+func Build(name, version string, l *lock.Lock, zips map[string][]byte) (v1.Manifest, map[digest.Digest][]byte, *lock.Lock, error) {
 	if l.RepoClassName == "" {
 		return v1.Manifest{}, nil, nil, errors.New("the lock names no repo_class_name")
 	}
@@ -253,11 +257,13 @@ func Build(ref oci.Ref, version string, l *lock.Lock, zips map[string][]byte) (v
 		Config:       v1.Descriptor{MediaType: LockMediaType, Digest: cfgDigest, Size: int64(len(config))},
 		Layers:       layers,
 		Annotations: map[string]string{
-			AnnotationStackName:                 ShortName(ref),
 			AnnotationStackVersion:              version,
 			"org.opencontainers.image.version":  version,
 			"org.opencontainers.image.licenses": "Apache-2.0",
 		},
+	}
+	if name != "" {
+		m.Annotations[AnnotationStackName] = name
 	}
 	return m, blobs, &pinned, nil
 }
