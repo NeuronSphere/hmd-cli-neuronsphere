@@ -119,3 +119,10 @@ Use the separate import, plan, and apply sequence when you need to review the
 local change first. A cloud BOM is evidence of versions deployed together,
 but cloud-specific configuration and runtime assumptions still need review
 for local use.
+
+The same BOM can seed a **stack** rather than one machine's environment:
+``nsctl stack init <name> --from-bom bom.json --select <instances>`` derives
+a stack repository -- manifest, lock and reference BOM -- from the selected
+instances and their required dependencies, for CI to publish so that others
+install the set with ``nsctl stack add`` and no tenant. See
+:doc:`use-stacks`, *Publish your own*.

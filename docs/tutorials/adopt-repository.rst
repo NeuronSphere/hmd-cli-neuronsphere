@@ -14,6 +14,12 @@ first needs :doc:`create-repository-manifest`, which supplies the complete
 manifest, deploy script, and validation steps. That tutorial also covers adding
 a single checkout directly to an existing environment without a lock.
 
+The two files this tutorial produces -- the manifest's ``local`` section and
+``neuronsphere.lock`` -- are exactly what a **stack** publishes: a repository
+adopted this way can later be built and pushed with ``nsctl stack build`` and
+``nsctl stack push`` so that others install it with one ``nsctl stack add``.
+See :doc:`../how-to/use-stacks`.
+
 Inspect the repository
 ----------------------
 
@@ -148,6 +154,10 @@ Keep the portable and local files distinct
 Commit the repository's manifest and ``neuronsphere.lock``. The generated
 ``$HMD_HOME/environments/dev.yaml`` contains local instance names, bindings,
 profiles, and checkout paths. It belongs to this machine's environment.
+The committed pair is portable in a second sense too: it is the input to
+``nsctl stack build``, and a CI workflow can publish it as a stack without
+any of this machine's state (:doc:`../how-to/use-stacks`, *Publish your
+own*).
 
 To name a dependency differently when registering another environment::
 

@@ -86,6 +86,17 @@ resources and their state; the repository listing distinguishes declarations
 from deployed instances. A successful startup alone does not imply an
 application has been installed: this tutorial has created the substrate.
 
+The quickest way to put something real on it is a **stack** -- a published
+set of RepoClasses pinned to versions known to work together, free to
+install from a public registry with no tenant or token::
+
+   nsctl stack add observability --env local --apply
+
+``stack add`` declares the stack's instances in the environment and
+``--apply`` deploys them; ``nsctl stack list --env local`` shows what it
+declared. See :doc:`../how-to/use-stacks` for names, versions, profiles and
+removal.
+
 Stop and resume
 ---------------
 
@@ -128,4 +139,6 @@ If startup fails
 Next, follow :doc:`create-repository-manifest` to give your own repository
 deployable BACON metadata and add it locally. If it already has that metadata,
 use :doc:`adopt-repository` for locked dependencies and profiles, or
-:doc:`../how-to/add-workloads` to declare one workload at a time.
+:doc:`../how-to/add-workloads` to declare one workload at a time. To install
+a published set of workloads instead of authoring them, see
+:doc:`../how-to/use-stacks`.

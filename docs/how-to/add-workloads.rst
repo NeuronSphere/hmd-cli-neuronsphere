@@ -1,10 +1,11 @@
 Add workloads
 =============
 
-Use this guide to add a checkout or a pinned artifact to an existing local
-environment. Start it first, for example with ``nsctl env start local``.
-``repo`` commands edit environment declarations; ``repoclass`` commands
-inspect or author metadata in a repository.
+Use this guide to add a checkout, a pinned artifact, or a published stack to
+an existing local environment. Start it first, for example with
+``nsctl env start local``. ``repo`` and ``stack`` commands edit environment
+declarations; ``repoclass`` commands inspect or author metadata in a
+repository.
 
 If your repository has no BACON manifest yet, start with
 :doc:`../tutorials/create-repository-manifest`. It provides a complete working
@@ -87,6 +88,25 @@ Merge the entry into the existing ``repos`` list rather than replacing other
 declarations. A ``version`` on a ``repo add`` command alone does not select
 ``source.type: artifact``; specify the source in the manifest or use the
 repository-adoption or BOM-import workflow, which writes it for you.
+
+Add a published stack
+---------------------
+
+A stack declares several instances at once -- every RepoClass its lock pins,
+at versions known to work together -- from one published artifact, with no
+tenant or token for a public namespace::
+
+   nsctl stack add observability --env local
+   nsctl stack list --env local
+   nsctl env apply local
+
+A bare name expands to ``ghcr.io/hmdlabs/stacks/<name>``; a full reference
+with a version works anywhere. ``stack add`` reuses an instance the
+environment already provides for a role the stack needs (the substrate's
+cluster or database, an instance another stack declared) and declares only
+what is missing. ``nsctl stack remove observability --env local``
+undeclares exactly what it added. Profiles, versions, private namespaces and
+publishing your own are in :doc:`use-stacks`.
 
 Update and remove a declaration
 -------------------------------

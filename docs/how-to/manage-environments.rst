@@ -75,6 +75,9 @@ After editing its manifest or adding a repository::
    nsctl repo list --env review
 
 There is no need to restart the environment for each declaration change.
+``nsctl stack add <name> --env review`` and ``stack remove`` change the
+declarations the same way -- several instances at a time, from a published
+stack (:doc:`use-stacks`) -- and are followed by the same plan and apply.
 ``env start review --no-deploy`` starts infrastructure without reconciling
 workloads. ``env apply review --force-full-redeploy`` forces declared entries
 through deployment even when reconciliation considers them current.

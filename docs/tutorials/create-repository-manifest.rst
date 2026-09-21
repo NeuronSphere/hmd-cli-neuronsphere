@@ -176,7 +176,14 @@ This sample intentionally has no dependency roles. For a real workload:
 * Use ``nsctl lock`` and local build registration for companion artifacts you
   produce yourself. Cloud Artifact Librarian access and cloud BOM import
   require paid NeuronSphere; they are optional to local onboarding.
+* Once the repository declares companions in ``local.repos`` and carries a
+  lock, it is also a **stack**: ``nsctl stack build`` packages it and every
+  pinned zip as one OCI artifact, and ``nsctl stack push`` publishes it so
+  that anyone can ``nsctl stack add`` it with no tenant. Declare the licence
+  of what you publish first (``nsctl repoclass license set MIT``) -- ``nsctl``
+  records the declaration on every layer and infers nothing.
 
 See :doc:`../reference/bacon` for the dependency and local-section fields,
-:doc:`../how-to/add-workloads` for instance bindings, and
-:doc:`adopt-repository` for profiles and locked companion versions.
+:doc:`../how-to/add-workloads` for instance bindings,
+:doc:`adopt-repository` for profiles and locked companion versions, and
+:doc:`../how-to/use-stacks` for publishing the result.

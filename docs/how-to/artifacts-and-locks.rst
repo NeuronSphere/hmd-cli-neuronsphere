@@ -12,6 +12,10 @@ Local-only use
 
 Local build registration, unpacking locally available artifacts, creating a
 lock from explicit pins, and ``lock --check`` do not require paid NeuronSphere.
+Neither do stacks: a published set of RepoClasses in a public registry
+namespace installs with ``nsctl stack add`` and no tenant, and a RepoClass
+build zip published with ``nsctl artifact push`` is fetched the same way
+(:doc:`use-stacks`, :doc:`../explanation/oci-distribution`).
 You can use a checkout directly as shown in
 :doc:`../tutorials/create-repository-manifest`. Skip the next two sections
 unless you have paid NeuronSphere tenant access.
@@ -87,6 +91,16 @@ The no-path form looks for the repository's build output. Use
 ``--version``, and ``--type`` when its identity needs to be supplied explicitly.
 Registration makes an existing artifact available; it does not build it.
 
+To make a build available to *other* machines with no tenant, publish it to
+an OCI registry instead::
+
+   nsctl artifact push . ghcr.io/acme/classes/hmd-inf-otel-collector --token $GHCR_PAT
+
+The printed ``source`` goes into the lock entry that pins this class, and
+``nsctl stack build`` then fetches the zip from there. A directory is zipped
+as its manifest's ``license`` declares (``nsctl repoclass license set``); see
+:doc:`use-stacks`.
+
 Create and update the lock
 --------------------------
 
@@ -155,9 +169,11 @@ Prepare for working offline
 
 Before disconnecting, fetch and unpack the versions you need, and complete a
 successful start and apply while Docker images and build dependencies are
-available. With paid NeuronSphere, ``nsctl artifact cache`` can also prefetch
-the current repository's BACON ``build.pre_build_artifacts`` from its cloud
-librarian.
+available. ``nsctl stack pull <name>:<version>`` fills the cache with every
+zip a stack pins without declaring anything, and ``nsctl stack versions
+<name> --offline`` answers from the version cache. With paid NeuronSphere,
+``nsctl artifact cache`` can also prefetch the current repository's BACON
+``build.pre_build_artifacts`` from its cloud librarian.
 
 The version-query cache, the local librarian's content, unpacked repository
 trees, and Docker's image cache are different stores. An offline version listing
