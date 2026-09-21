@@ -302,6 +302,41 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     ``stack remove`` knows what is the stack's, ``stack list`` has something
     to read, and a second ``stack add`` can tell "same again" from "upgrade".
 
+.. spec:: Composition: reuse if present, provide if absent
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC010
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    **Amended 2026-09-21.** A stack is a slice of an environment, never a
+    whole one, and slices overlap: observability's S3 sink and the
+    warehouse's bucket are one bucket, and airflow needs "a trino", not its
+    own. So ``stack add`` resolves every role a stack names -- its
+    ``local.dependencies`` and each companion's ``dependencies`` -- against
+    the environment **before** declaring anything:
+
+    1. An instance the environment already declares that **produces** the
+       role's resource (from its class manifest's ``deploy.resources`` and
+       ``meta-data/resources``, read from the cache; offline) fills it: the
+       role is **bound**, nothing is declared.
+    2. Else a companion the stack's lock pins for that role is **declared**,
+       and fills it.
+    3. Else the role is **unsatisfied**: the verb refuses, naming the resource
+       and, when the stack's manifest carries a ``suggest`` for the role, the
+       stack to add first (``nsctl stack add warehouse``) or the ``--name
+       <role>=<instance>`` that binds an existing instance. Nothing is added
+       on the user's behalf.
+
+    The same rule applies to a companion itself: a companion whose class
+    already runs in the environment under the instance name the stack would
+    give it is bound rather than declared twice, and ``stack list`` shows it
+    as *shared*. ``stack remove`` already leaves an instance another record
+    binds; this is the other half of that promise.
+
+    Rule 1 is deliberately by *resource*, not by class name, because that is
+    how ms-deployment resolves the dependency once declared (``NERD0004``),
+    and a stack that bound by class would be wired differently from how it
+    deploys.
+
 Testing
 -------
 

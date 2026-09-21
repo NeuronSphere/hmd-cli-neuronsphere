@@ -293,6 +293,33 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
     thing from the platform's login -- and because a publisher who can run
     GoReleaser can run ``nsctl plugin push`` in the same job.
 
+.. spec:: A RepoClass build zip is itself an artifact, and a lock entry may name it
+    :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC009
+    :links: HMD_CLI_NEURONSPHERE_NERD016
+    :status: proposed
+
+    **Amended 2026-09-21** by ``NERD019``: a third party building a stack in
+    CI has companions of their own and no librarian to hold them.
+
+    .. code-block:: text
+
+        nsctl artifact push <repo-dir | zip> <ref> [--tag <version>] [--token <t>]
+
+    publishes one RepoClass build zip as an OCI artifact: ``artifactType``
+    ``application/vnd.neuronsphere.repoclass.v1+json``, config blob the
+    class's ``meta-data/manifest.json`` (``application/vnd.neuronsphere.bacon.v1+json``),
+    one layer of ``application/vnd.neuronsphere.repoclass.build.v1+zip`` with
+    the ``NERD017`` SPEC002 layer annotations. The tag is ``meta-data/VERSION``
+    unless given. A directory is zipped as ``artifact.Zip`` does.
+
+    A ``neuronsphere.lock`` entry gains an optional ``source`` -- an OCI
+    reference without a version -- beside ``content_path``. A consumer that
+    needs the bytes tries ``source`` at the entry's version (then verifies
+    the digest) before the librarian; ``nsctl artifact pull`` accepts an OCI
+    reference and does the same. The librarian stays the paid path and the
+    default for the platform's own classes; ``source`` is what lets a lock
+    resolve with no tenant at all.
+
 Testing
 -------
 
