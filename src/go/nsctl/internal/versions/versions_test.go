@@ -45,9 +45,12 @@ func librarianHolding(t *testing.T, repoName string, paths map[string]string) *l
 				Nids []string `json:"nids"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			var items []map[string]string
+			var items []map[string]any
 			for _, nid := range body.Nids {
-				items = append(items, map[string]string{"nid": nid, "content_item_path": paths[nid]})
+				items = append(items, map[string]any{
+					"content_item":      map[string]string{"identifier": nid, "content_item_path": paths[nid]},
+					"content_item_type": "build",
+				})
 			}
 			_ = json.NewEncoder(w).Encode(items)
 		default:

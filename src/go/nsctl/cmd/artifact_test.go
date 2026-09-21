@@ -140,9 +140,12 @@ func newFakeLibrarian(t *testing.T) *fakeLibrarian {
 			Nids []string `json:"nids"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		items := []map[string]string{}
+		items := []map[string]any{}
 		for _, nid := range body.Nids {
-			items = append(items, map[string]string{"nid": nid, "content_item_path": nid})
+			items = append(items, map[string]any{
+				"content_item":      map[string]string{"identifier": nid, "content_item_path": nid},
+				"content_item_type": "build",
+			})
 		}
 		_ = json.NewEncoder(w).Encode(items)
 	})

@@ -2,6 +2,10 @@
 
 ## 2026-09-21
 
+- fix(artifact): `artifact versions` and `lock --resolve` decode get_by_nid's
+  real wire shape (the entity wrapped under `content_item`, beside its type
+  and a presigned url); the flat shape they read made every repo class look
+  as if it had published nothing. The fakes now answer as the service does.
 - test(cli): the contract suite clears `HMD_AUTH_TOKEN` and
   `HMD_ARTIFACT_LIBRARIAN_URL` for the binary under test -- the release job
   exports a real service token for the whole run, which let the cloud tier

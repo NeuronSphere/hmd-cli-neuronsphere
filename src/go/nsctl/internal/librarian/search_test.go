@@ -66,14 +66,15 @@ func (f *fakeLibrarian) server(t *testing.T) *Client {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.batchSizes = append(f.batchSizes, len(body.Nids))
-			var items []map[string]string
+			// The wire shape the real service answers with: the entity
+			// wrapped, beside its item type and a presigned download_url
+			// minted per item whether or not anybody wanted the bytes.
+			var items []map[string]any
 			for _, nid := range body.Nids {
-				items = append(items, map[string]string{
-					"nid":               nid,
-					"content_item_path": f.paths[nid],
-					// get_by_nid mints one of these per item whether or not
-					// anybody wanted the bytes.
-					"download_url": "https://signed.example/" + nid,
+				items = append(items, map[string]any{
+					"content_item":      map[string]string{"identifier": nid, "content_item_path": f.paths[nid]},
+					"content_item_type": "build",
+					"download_url":      "https://signed.example/" + nid,
 				})
 			}
 			_ = json.NewEncoder(w).Encode(items)

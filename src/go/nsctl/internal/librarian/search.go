@@ -28,8 +28,20 @@ type RepoEntity struct {
 // the version and the item type are both *in* the path, so neither is ever
 // fetched as an entity.
 type ContentItem struct {
-	Nid  string `json:"nid"`
-	Path string `json:"content_item_path"`
+	Nid  string
+	Path string
+}
+
+// getByNIDItem is get_by_nid's wire shape: the entity is wrapped, beside the
+// item type and a presigned download_url minted per item. Decoding the entity
+// fields at the top level -- which is what this did -- reads every path as
+// empty and makes any repo look as if it had published nothing.
+type getByNIDItem struct {
+	ContentItem struct {
+		Identifier string `json:"identifier"`
+		Path       string `json:"content_item_path"`
+	} `json:"content_item"`
+	ContentItemType string `json:"content_item_type"`
 }
 
 // nidChunk is how many ids go in one get_by_nid request.
@@ -130,11 +142,13 @@ func (c *Client) ContentItemsByNID(ctx context.Context, nids []string,
 		if end > len(nids) {
 			end = len(nids)
 		}
-		var chunk []ContentItem
+		var chunk []getByNIDItem
 		if err := c.operation(ctx, "get_by_nid", map[string]any{"nids": nids[start:end]}, &chunk); err != nil {
 			return nil, err
 		}
-		items = append(items, chunk...)
+		for _, it := range chunk {
+			items = append(items, ContentItem{Nid: it.ContentItem.Identifier, Path: it.ContentItem.Path})
+		}
 		if progress != nil {
 			progress(end, len(nids))
 		}
