@@ -34,6 +34,11 @@ jobs:
           curl -fsSL "https://github.com/neuronsphere/hmd-cli-bartleby/releases/download/v${VERSION}/bartleby_${VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C /tmp bartleby
           sudo install -m 755 /tmp/bartleby /usr/local/bin/bartleby
+      - name: Pull the Bartleby transform image
+        # bartleby only creates a container from its transform image, it never
+        # pulls one -- a dev machine already has it from a prior run, but a
+        # fresh runner needs this first. The image is public; no login needed.
+        run: bartleby update-image
       - name: Render documentation
         run: bartleby html
       - name: Validate rendered site
