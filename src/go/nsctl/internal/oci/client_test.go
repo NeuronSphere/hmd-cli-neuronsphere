@@ -40,7 +40,7 @@ func publish(t *testing.T, reg *ocitest.Registry, name, tag string) (v1.Manifest
 		Config:       v1.Descriptor{MediaType: testConfigType, Digest: digest.FromBytes(config), Size: int64(len(config))},
 		Layers: []v1.Descriptor{
 			{MediaType: testLayerType, Digest: digest.FromBytes(layerA), Size: int64(len(layerA)),
-				Annotations: map[string]string{"org.opencontainers.image.title": "a.zip"}},
+				Annotations: map[string]string{"org.opencontainers.image.title": "a.zip", "org.opencontainers.image.licenses": "Apache-2.0"}},
 			{MediaType: testLayerType, Digest: digest.FromBytes(layerB), Size: int64(len(layerB)),
 				Annotations: map[string]string{"org.opencontainers.image.title": "b.zip"}},
 		},
@@ -80,6 +80,10 @@ func TestFetchAnonymousThroughTheChallenge(t *testing.T) {
 	}
 	if len(b.Layers) != 2 || b.Layers[1].Annotations["org.opencontainers.image.title"] != "b.zip" {
 		t.Errorf("layers = %+v", b.Layers)
+	}
+	// Per-layer annotations pass through untouched, the licence included.
+	if b.Layers[0].Annotations["org.opencontainers.image.licenses"] != "Apache-2.0" {
+		t.Errorf("layer 0 annotations = %v", b.Layers[0].Annotations)
 	}
 	if b.Annotations["org.opencontainers.image.version"] != "0.1.0" {
 		t.Errorf("annotations = %v", b.Annotations)

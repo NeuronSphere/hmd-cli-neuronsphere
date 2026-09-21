@@ -34,34 +34,36 @@ const (
 var ErrNotAClass = errors.New("not a RepoClass artifact")
 
 // Build assembles the artifact for one class: the BACON manifest as config,
-// the zip as the one layer.
-func Build(class, version string, manifestJSON, zip []byte) (v1.Manifest, map[digest.Digest][]byte) {
+// the zip as the one layer, described as a stack layer would be so that the
+// declared licence (NERD017 SPEC011) annotates both the layer and the
+// manifest when there is one.
+func Build(class, version string, manifestJSON, zip []byte) (v1.Manifest, map[digest.Digest][]byte, error) {
+	layer, err := stack.LayerDescriptor(class, version, zip)
+	if err != nil {
+		return v1.Manifest{}, nil, err
+	}
 	cfg := digest.FromBytes(manifestJSON)
-	z := digest.FromBytes(zip)
-	blobs := map[digest.Digest][]byte{cfg: manifestJSON, z: zip}
+	blobs := map[digest.Digest][]byte{cfg: manifestJSON, layer.Digest: zip}
 	m := v1.Manifest{
 		Versioned:    oci.Versioned(),
 		MediaType:    v1.MediaTypeImageManifest,
 		ArtifactType: ArtifactType,
 		Config:       v1.Descriptor{MediaType: ManifestMediaType, Digest: cfg, Size: int64(len(manifestJSON))},
-		Layers: []v1.Descriptor{{
-			MediaType: stack.BuildMediaType, Digest: z, Size: int64(len(zip)),
-			Annotations: map[string]string{
-				stack.AnnotationClass: class, stack.AnnotationVersion: version, stack.AnnotationItemType: stack.ItemType,
-				stack.AnnotationTitle: fmt.Sprintf("%s_%s_%s.zip", class, version, stack.ItemType),
-			},
-		}},
+		Layers:       []v1.Descriptor{layer},
 		Annotations: map[string]string{
 			"org.opencontainers.image.title":   class,
 			"org.opencontainers.image.version": version,
 		},
 	}
-	return m, blobs
+	if spdx := layer.Annotations[stack.AnnotationLicenses]; spdx != "" {
+		m.Annotations[stack.AnnotationLicenses] = spdx
+	}
+	return m, blobs, nil
 }
 
-// FromDir zips a repository tree (as artifact.Zip does) and reads its class
-// and version from meta-data. A zip file is read as-is and its meta-data
-// inspected inside.
+// FromDir zips a repository tree (as artifact.Zip does, so the manifest's
+// declared license.exclude is honoured) and reads its class and version from
+// meta-data. A zip file is read as-is and its meta-data inspected inside.
 func FromDir(path string) (class, version string, manifestJSON, zip []byte, err error) {
 	info, err := os.Stat(path)
 	if err != nil {

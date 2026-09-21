@@ -41,6 +41,10 @@ const (
 	AnnotationVersion  = "io.neuronsphere.repoclass.version"
 	AnnotationItemType = "io.neuronsphere.repoclass.item_type"
 	AnnotationTitle    = "org.opencontainers.image.title"
+	// AnnotationLicenses is the SPDX expression the class's manifest declared
+	// under `license` (SPEC011): on a layer, that class's; on the manifest,
+	// the subject's. Absent when nothing was declared -- never inferred.
+	AnnotationLicenses = "org.opencontainers.image.licenses"
 
 	AnnotationStackName    = "io.neuronsphere.stack.name"
 	AnnotationStackVersion = "io.neuronsphere.stack.version"
@@ -65,6 +69,8 @@ type Layer struct {
 	Descriptor v1.Descriptor
 	// Subject marks the stack RepoClass's own zip.
 	Subject bool
+	// Licence is AnnotationLicenses, or "" when the class declared none.
+	Licence string
 }
 
 // Stack is a parsed stack artifact.
@@ -131,7 +137,7 @@ func Read(b *oci.Bundle) (*Stack, error) {
 		if class == "" || version == "" {
 			return nil, fmt.Errorf("%s: layer %s carries no %s/%s annotations", b.Ref, d.Digest, AnnotationClass, AnnotationVersion)
 		}
-		layer := Layer{Class: class, Version: version, Descriptor: d}
+		layer := Layer{Class: class, Version: version, Descriptor: d, Licence: d.Annotations[AnnotationLicenses]}
 		switch {
 		case class == l.RepoClassName:
 			if subjectSeen {
@@ -199,23 +205,24 @@ func Build(name, version string, l *lock.Lock, zips map[string][]byte) (v1.Manif
 
 	blobs := map[digest.Digest][]byte{}
 	var layers []v1.Descriptor
-	add := func(class, ver string, data []byte) v1.Descriptor {
-		d := digest.FromBytes(data)
-		blobs[d] = data
-		return v1.Descriptor{
-			MediaType: BuildMediaType, Digest: d, Size: int64(len(data)),
-			Annotations: map[string]string{
-				AnnotationClass: class, AnnotationVersion: ver, AnnotationItemType: ItemType,
-				AnnotationTitle: fmt.Sprintf("%s_%s_%s.zip", class, ver, ItemType),
-			},
+	add := func(class, ver string, data []byte) (v1.Descriptor, error) {
+		d, err := LayerDescriptor(class, ver, data)
+		if err != nil {
+			return v1.Descriptor{}, err
 		}
+		blobs[d.Digest] = data
+		return d, nil
 	}
 
 	subject, ok := zips[l.RepoClassName]
 	if !ok {
 		return v1.Manifest{}, nil, nil, fmt.Errorf("no build zip for the stack itself (%s)", l.RepoClassName)
 	}
-	layers = append(layers, add(l.RepoClassName, version, subject))
+	subjectLayer, err := add(l.RepoClassName, version, subject)
+	if err != nil {
+		return v1.Manifest{}, nil, nil, err
+	}
+	layers = append(layers, subjectLayer)
 
 	classes := make([]string, 0, len(pinned.Resolved))
 	for _, e := range pinned.Resolved {
@@ -228,7 +235,10 @@ func Build(name, version string, l *lock.Lock, zips map[string][]byte) (v1.Manif
 		if !ok {
 			return v1.Manifest{}, nil, nil, fmt.Errorf("no build zip for %s@%s, which the lock pins", class, e.Version)
 		}
-		d := add(class, e.Version, data)
+		d, err := add(class, e.Version, data)
+		if err != nil {
+			return v1.Manifest{}, nil, nil, err
+		}
 		if err := e.VerifyDigest(d.Digest.String()); err != nil {
 			return v1.Manifest{}, nil, nil, err
 		}
@@ -257,15 +267,43 @@ func Build(name, version string, l *lock.Lock, zips map[string][]byte) (v1.Manif
 		Config:       v1.Descriptor{MediaType: LockMediaType, Digest: cfgDigest, Size: int64(len(config))},
 		Layers:       layers,
 		Annotations: map[string]string{
-			AnnotationStackVersion:              version,
-			"org.opencontainers.image.version":  version,
-			"org.opencontainers.image.licenses": "Apache-2.0",
+			AnnotationStackVersion:             version,
+			"org.opencontainers.image.version": version,
 		},
 	}
 	if name != "" {
 		m.Annotations[AnnotationStackName] = name
 	}
+	// The manifest's licence is the subject's declaration, when it made
+	// one: a stack is nothing by fiat, and a reader with curl sees what the
+	// author said, or nothing.
+	if spdx := subjectLayer.Annotations[AnnotationLicenses]; spdx != "" {
+		m.Annotations[AnnotationLicenses] = spdx
+	}
 	return m, blobs, &pinned, nil
+}
+
+// LayerDescriptor describes one build zip as a layer: media type, digest,
+// size, the SPEC002 annotations, and the licence its manifest declares
+// (SPEC011) when it declares one. classart builds its one layer with it
+// too, so a class published alone and a class inside a stack are described
+// identically. Bytes that are not a zip are an error.
+func LayerDescriptor(class, version string, data []byte) (v1.Descriptor, error) {
+	licence, err := artifact.LicenceIn(data)
+	if err != nil {
+		return v1.Descriptor{}, fmt.Errorf("%s@%s: %w", class, version, err)
+	}
+	d := v1.Descriptor{
+		MediaType: BuildMediaType, Digest: digest.FromBytes(data), Size: int64(len(data)),
+		Annotations: map[string]string{
+			AnnotationClass: class, AnnotationVersion: version, AnnotationItemType: ItemType,
+			AnnotationTitle: fmt.Sprintf("%s_%s_%s.zip", class, version, ItemType),
+		},
+	}
+	if licence.SPDX != "" {
+		d.Annotations[AnnotationLicenses] = licence.SPDX
+	}
+	return d, nil
 }
 
 // Installed is what Install leaves in the cache.
@@ -300,7 +338,11 @@ func Install(ctx context.Context, home string, f oci.Fetcher, ref oci.Ref, progr
 	}
 	inst := &Installed{Stack: s, Dirs: map[string]string{}, Zips: map[string][]byte{}}
 	for _, layer := range s.Layers {
-		progress(fmt.Sprintf("  %s@%s (%s)", layer.Class, layer.Version, layer.Descriptor.Digest))
+		line := fmt.Sprintf("  %s@%s (%s)", layer.Class, layer.Version, layer.Descriptor.Digest)
+		if layer.Licence != "" {
+			line += "  " + layer.Licence
+		}
+		progress(line)
 		var buf bytes.Buffer
 		if err := f.Blob(ctx, ref, layer.Descriptor, &buf); err != nil {
 			return nil, err

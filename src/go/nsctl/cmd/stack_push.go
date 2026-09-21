@@ -184,6 +184,25 @@ func buildStackFromRepo(ctx context.Context, repoDir string, ref oci.Ref, tag st
 	return m, blobs, pinned, ref, nil
 }
 
+// licenceLabel is what a layer declared, or says that it declared nothing.
+// NERD017 SPEC011: the value is the author's and nsctl adds no judgement.
+func licenceLabel(d v1.Descriptor) string {
+	if spdx := d.Annotations[stack.AnnotationLicenses]; spdx != "" {
+		return spdx
+	}
+	return "(undeclared)"
+}
+
+// licencesLine is the one line build and push print naming every layer's
+// declared licence, in layer order (the subject first).
+func licencesLine(m v1.Manifest) string {
+	parts := make([]string, 0, len(m.Layers))
+	for _, d := range m.Layers {
+		parts = append(parts, d.Annotations[stack.AnnotationClass]+"="+licenceLabel(d))
+	}
+	return "Licences: " + strings.Join(parts, " ")
+}
+
 func lockPath(repoDir string) string { return lock.Path(repoDir) }
 
 func writeLockAt(repoDir string, l *lock.Lock) error { return lock.Write(repoDir, l) }

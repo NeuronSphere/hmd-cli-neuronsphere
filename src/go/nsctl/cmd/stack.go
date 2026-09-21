@@ -542,7 +542,9 @@ Each pinned zip comes from the first of: --artifacts <dir>; the artifact
 cache (what an environment this stack was derived from deployed from); the
 lock entry's "source", an OCI reference published with "nsctl artifact push"
 (no tenant needed); the cloud Artifact Librarian (paid, only with a
-credential). The tier that served each entry is printed.`,
+credential). The tier that served each entry is printed, and so is the
+licence each layer's manifest declares (NERD017 SPEC011): nsctl records
+what an author declared and refuses nothing on its account.`,
 		Example: `  nsctl stack build
   nsctl stack build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release`,
 		Args:          cobra.MaximumNArgs(1),
@@ -569,8 +571,8 @@ credential). The tier that served each entry is printed.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Built stack %s (%d layer(s), %s) -> %s\nPush it with: nsctl stack push <ref> --from %s --bump\n",
-				tagged.Tag, len(m.Layers), d, dir, out)
+			fmt.Fprintf(cmd.OutOrStdout(), "Built stack %s (%d layer(s), %s) -> %s\n%s\nPush it with: nsctl stack push <ref> --from %s --bump\n",
+				tagged.Tag, len(m.Layers), d, dir, licencesLine(m), out)
 			return nil
 		},
 	}
@@ -673,6 +675,9 @@ repository's owner), or a profile's registry_url after "nsctl login".`,
 				if err := refuseIfPublished(cmd, client, ref); err != nil {
 					return err
 				}
+				if m, _, _, err := stack.ReadLayout(from); err == nil {
+					fmt.Fprintln(cmd.OutOrStdout(), licencesLine(m))
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Pushing %s from %s with credential from %s\n", ref, from, cred.Source)
 				d, err := stack.PushLayout(cmd.Context(), client, ref, from)
 				if err != nil {
@@ -689,6 +694,7 @@ repository's owner), or a profile's registry_url after "nsctl login".`,
 			if err := refuseIfPublished(cmd, client, tagged); err != nil {
 				return err
 			}
+			fmt.Fprintln(cmd.OutOrStdout(), licencesLine(m))
 			fmt.Fprintf(cmd.OutOrStdout(), "Pushing %s (%d layer(s)) with credential from %s\n", tagged, len(m.Layers), cred.Source)
 			d, err := stack.Push(cmd.Context(), client, tagged, m, blobs)
 			if err != nil {

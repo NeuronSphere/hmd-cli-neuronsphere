@@ -23,10 +23,12 @@ func newArtifactPushCommand(opts *Options) *cobra.Command {
 		Short: "Publish a RepoClass build zip to an OCI registry",
 		Long: `Publish one RepoClass's build artifact to an OCI registry, where a
 neuronsphere.lock entry can name it as its "source" and anyone -- with no
-tenant -- can fetch it. A directory is zipped as the librarian would receive
-it; a zip is pushed as is. The tag is meta-data/VERSION unless --tag or the
-reference names one. A credential is required (--token, HMD_REGISTRY_TOKEN,
-or a profile's registry_url after "nsctl login").`,
+tenant -- can fetch it. A directory is zipped as its manifest declares: the
+paths under "license.exclude" stay out, and the "license" SPDX expression
+annotates the artifact (org.opencontainers.image.licenses); a zip is pushed
+as is and annotated from the manifest inside it. The tag is meta-data/VERSION
+unless --tag or the reference names one. A credential is required (--token,
+HMD_REGISTRY_TOKEN, or a profile's registry_url after "nsctl login").`,
 		Example: `  nsctl artifact push . ghcr.io/acme/classes/hmd-inf-otel-collector --token $GHCR_PAT
   nsctl artifact push dist/hmd-inf-otel-collector_0.1.188_build.zip ghcr.io/acme/classes/hmd-inf-otel-collector`,
 		Args:          cobra.ExactArgs(2),
@@ -59,8 +61,12 @@ or a profile's registry_url after "nsctl login").`,
 				version = ref.Tag
 			}
 			ref = ref.WithTag(version)
-			m, blobs := classart.Build(class, version, manifestJSON, zip)
+			m, blobs, err := classart.Build(class, version, manifestJSON, zip)
+			if err != nil {
+				return nserr.Wrap(nserr.Usage, err)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Pushing %s@%s to %s with credential from %s\n", class, version, ref, cred.Source)
+			fmt.Fprintf(cmd.OutOrStdout(), "Licence: %s\n", licenceLabel(m.Layers[0]))
 			d, err := classart.Push(cmd.Context(), oci.New(cred), ref, m, blobs)
 			if err != nil {
 				return classifyRegistryError(err)
