@@ -27,7 +27,8 @@ Stacks and CLI plugins (:doc:`how-to/use-stacks`,
 registry namespace such as ``ghcr.io/hmdlabs``: an anonymous pull needs no
 tenant and no token. A stack's descriptor files -- its lock, its OCI
 manifest, a plugin's descriptor -- are Apache 2.0; the RepoClass zips inside
-a stack carry their own licences under the path split above. A private or
+a stack carry their own licences, declared by each repository in its
+manifest's ``license`` and annotated on every layer. A private or
 curated namespace uses the same protocol with a login token, and ``nsctl``
 does not distinguish the two. See :doc:`explanation/oci-distribution`.
 
@@ -132,6 +133,17 @@ images ``nsctl`` pulls at runtime -- a dependency like PostgreSQL, not part of
 the binary. Every NeuronSphere image carries an
 ``org.opencontainers.image.licenses`` label, and the three BUSL images also
 ship their licence texts under ``/licenses/<repo>/``.
+
+The same split governs what ``nsctl`` publishes *from* those repositories
+as stack layers and RepoClass artifacts, by the same mechanism anyone's
+repository uses: a ``license`` declaration in the manifest
+(``spdx: Apache-2.0``, excluding ``src/python/``, ``src/docker/`` and
+``src/typescript/``), which ``nsctl artifact push``, ``stack build`` and
+``stack push`` honour when they zip a tree and record on every layer as
+``org.opencontainers.image.licenses``. ``nsctl`` itself infers no licence
+and refuses no artifact: the declaration is each repository's, and a
+third party publishes an MIT service, or keeps a proprietary directory out
+of a public stack, the same way. See ``NERD017`` SPEC011.
 
 Trademarks and contributions
 ----------------------------

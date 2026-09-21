@@ -92,6 +92,10 @@ A ``404`` from a public registry may mean the name is wrong *or* that the
 package is private (``ghcr.io`` packages are private by default); the error
 says so.
 
+A second private transport -- pushing a stack to, and adding it from, a
+tenant's deployed Artifact Librarian -- is proposed in
+:doc:`/proposals/NERD020_Stacks_Via_The_Artifact_Librarian`.
+
 Publish your own
 ----------------
 
@@ -151,7 +155,22 @@ says where.
 deployed from it), the lock entry's ``source`` -- a RepoClass published as an
 OCI artifact with ``nsctl artifact push``, which is how a third party's own
 classes reach CI with no tenant -- and, with a credential, the cloud Artifact
-Librarian. The tier that served each entry is printed.
+Librarian. The tier that served each entry is printed, and so is the
+licence each layer declares.
+
+Declare what you publish. The manifest's ``license`` names the SPDX
+expression of what ``nsctl`` publishes from your tree and, optionally, the
+paths it keeps out of every zip it makes from it::
+
+   nsctl repoclass license set MIT
+   nsctl repoclass license set Apache-2.0 --exclude src/python --exclude src/docker
+
+Every published layer is annotated ``org.opencontainers.image.licenses``
+with the expression, and ``stack build``/``stack push`` print a
+``Licences:`` line. Companions that arrive as zips are published as their
+authors made them and annotated from their own manifests. A class that
+declares nothing is published whole and unannotated; ``nsctl`` infers
+nothing and refuses nothing -- the declaration is yours.
 
 The stack's images must be pullable too: ``ghcr.io/hmdlabs`` is, and a stack
 whose images live elsewhere needs its consumers to set

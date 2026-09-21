@@ -80,7 +80,8 @@ the one manual, one-time act, and the workflow says so).
     (SPEC002), zips the repository itself as the subject, assembles the
     ``NERD017`` SPEC002 manifest, and writes it as an OCI image layout under
     ``--out`` (default ``build/stack``, which ``artifact.SkipDirs`` already
-    excludes from the subject's zip). ``index.json`` carries one manifest
+    excludes from the subject's zip, as does whatever the manifest declares
+    under ``license.exclude`` -- ``NERD017`` SPEC011). ``index.json`` carries one manifest
     with ``org.opencontainers.image.ref.name`` set to the tag, which is
     ``--tag`` or ``meta-data/VERSION``. The lock inside the layout carries
     every zip's digest.
@@ -93,6 +94,12 @@ the one manual, one-time act, and the workflow says so).
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD019
     :status: proposed
+
+    **Amended 2026-09-21.** Every tier hands over bytes that are published
+    whole and annotated from the manifest inside them (``NERD017``
+    SPEC011); only tier 2's re-zip of a tree, and the subject's own zip,
+    are made by ``nsctl`` and so honour that tree's declared
+    ``license.exclude``.
 
     For each lock entry, in order, the first source that answers wins, and
     the bytes are verified against the entry's ``digest`` when it has one:

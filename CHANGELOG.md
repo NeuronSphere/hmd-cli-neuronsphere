@@ -2,6 +2,18 @@
 
 ## 2026-09-21
 
+- feat: a BACON manifest's `license` (an SPDX string, or `{spdx, exclude}`)
+  declares what `nsctl` publishes from a tree. `artifact.Zip` leaves the
+  declared `exclude` paths out, so the stack subject, the cache re-zip,
+  `stack init --bundle-local`, `artifact push <dir>` and `artifact register`
+  all honour it; every stack layer and RepoClass artifact is annotated
+  `org.opencontainers.image.licenses` from the manifest inside its zip, and
+  the stack manifest carries the subject's declaration instead of a fixed
+  `Apache-2.0`. `stack build`/`push` print a `Licences:` line, `artifact
+  push` a `Licence:` line, `stack add` shows each layer's. New
+  `nsctl repoclass license set <spdx> [--exclude <path>]...` / `clear`;
+  `repoclass validate` checks the shape. Nothing is inferred from class
+  names or LICENSE files and no push is refused (NERD017 SPEC011).
 - fix: deploy containers get an in-network kubeconfig (the host file names a
   published localhost port a container cannot reach), the k3s node's
   container name (`HMD_LOCAL_K3S_CONTAINER`) and the control plane's

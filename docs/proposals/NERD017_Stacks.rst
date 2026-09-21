@@ -101,6 +101,17 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     :links: HMD_CLI_NEURONSPHERE_NERD017
     :status: proposed
 
+    **Amended 2026-09-21.** Each layer also carries
+    ``org.opencontainers.image.licenses`` when the class's manifest declares
+    a ``license`` (SPEC011): the declared SPDX expression, read from the
+    manifest inside the zip, whichever source the zip came from. The
+    manifest-level ``org.opencontainers.image.licenses`` is the *subject's*
+    declaration, not a fixed ``Apache-2.0``: a stack is nothing by fiat, and
+    a third party's stack is whatever they say it is. An undeclared class
+    or subject is unannotated. A zip ``nsctl`` makes from a tree leaves out
+    what the tree's manifest declares under ``license.exclude``; a zip that
+    arrives as bytes is published whole. The text below is the original.
+
     A stack is published as one OCI image manifest:
 
     ================================ ======================================================
@@ -123,7 +134,9 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     ``io.neuronsphere.stack.version``, ``org.opencontainers.image.version``,
     ``org.opencontainers.image.source`` (the repository URL when known) and
     ``org.opencontainers.image.licenses`` (``Apache-2.0``: a stack's descriptor
-    files are Apache, per :doc:`/licensing`; the zips inside carry their own).
+    files are Apache, per :doc:`/licensing`; the zips inside carry their own
+    -- superseded by the amendment above: the value is the subject's
+    declaration).
 
     The tag is the stack's version. Lock entries and layers must correspond
     one to one (plus the subject's layer); an artifact with a layer no entry
@@ -223,8 +236,9 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 
     From a repository with a ``local`` section and a lock, build the artifact
     of SPEC002 and push it (``NERD016`` SPEC005). The subject's zip is
-    ``artifact.Zip(repoDir)`` -- deterministic, honours ``SkipDirs``, and
-    always contains ``meta-data/`` and the lock. Each companion's zip comes
+    ``artifact.Zip(repoDir)`` -- deterministic, honours ``SkipDirs`` and the
+    manifest's declared ``license.exclude`` (SPEC011), and always contains
+    ``meta-data/`` and the lock. Each companion's zip comes
     from ``--artifacts <dir>`` (the ``hmd build`` output layout, for a
     publisher who built them) or else from the cloud Artifact Librarian by
     the lock's ``content_path``: **the publisher is a paid user**, and that is
@@ -268,6 +282,10 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     stacks, or a stack and a ``--from-repo`` subject, in one environment each
     keep their own bindings and refuse an instance-name collision with the
     ``--name`` remedy.
+
+    **Amended 2026-09-21.** A second transport -- a tenant's deployed
+    Artifact Librarian, for private stacks -- is proposed in ``NERD020``;
+    it changes nothing here.
 
     **Images are the v1 limitation.** A companion's image resolves through
     ``ImageCandidates`` (``internal/controlplane/images.go``): the local
@@ -339,6 +357,68 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     and a stack that bound by class would be wired differently from how it
     deploys.
 
+.. spec:: Declared licence
+    :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
+    :links: HMD_CLI_NEURONSPHERE_NERD017
+    :status: proposed
+
+    Anyone may declare and build a stack under whatever licence they
+    choose, and ``nsctl`` records the declaration and enforces nothing. The
+    declaration is a top-level ``license`` member of the BACON manifest
+    (``hmd-docs-bacon``, *License* section):
+
+    .. code-block:: json
+
+        "license": "MIT"
+
+        "license": {
+          "spdx": "Apache-2.0",
+          "exclude": ["src/python/", "src/docker/", "src/typescript/"]
+        }
+
+    ``spdx`` is the SPDX expression of *what nsctl publishes from the tree*
+    -- the value every published layer is annotated with. ``exclude`` lists
+    root-relative paths that stay out of every zip ``nsctl`` makes from the
+    tree, matched on whole path segments (``src/python`` covers
+    ``src/python/app.py`` and not ``src/pythonic/`` or
+    ``src/local/scripts/python/``); entries must be relative and inside the
+    tree. The string form is shorthand for ``{"spdx": ...}``. Absent means
+    the tree travels whole and is published unannotated.
+
+    **Where it applies.** ``artifact.Zip`` reads the tree's own manifest and
+    leaves the excluded paths out, so every verb that zips a tree honours
+    the declaration with no call-site knowledge: the stack subject and the
+    cache re-zip (``stack build``, ``stack push``), ``stack init
+    --bundle-local``, ``artifact push <dir>`` and ``artifact register
+    <dir>``. A zip that arrives as bytes -- a release directory, the kept
+    cache zip, an OCI source, the librarian -- is the author's bytes: it is
+    published whole and annotated from the manifest *inside it*.
+
+    **What is surfaced.** ``stack build`` and ``stack push`` print one
+    ``Licences:`` line naming every layer's declaration (or
+    ``(undeclared)``); ``artifact push`` prints ``Licence:``; ``stack add``
+    shows each layer's beside its digest; ``repoclass describe`` shows the
+    manifest's. ``nsctl repoclass license set <spdx> [--exclude <path>]...``
+    and ``license clear`` author the member through the ordered store, and
+    ``repoclass validate`` checks its shape -- only its shape: an exclude
+    that covers a deploy tool's source directory is deliberate in the repos
+    that do it, whose deploy re-tags an image it never builds
+    (:doc:`/licensing`).
+
+    **What is not done.** No licence is inferred from a class name or a
+    ``LICENSE`` file, no push is refused on licence grounds, and there is no
+    override flag because there is nothing to override. HMD's own path
+    split (descriptor paths Apache 2.0, ``src/python``, ``src/docker`` and
+    ``src/typescript`` BUSL 1.1 in three repositories) is a declaration in
+    *those* repositories' manifests, not a rule in ``nsctl``: the same
+    mechanism a third party uses to publish an MIT service, or to keep a
+    proprietary directory out of a public stack. That a local deploy needs
+    none of the excluded paths is a fact about ``hmd deploy --local`` --
+    the runner mounts the tree and the tools read ``src/cdktf``,
+    ``src/helm``, ``src/opa-bundles`` and ``src/local``; the docker tool
+    re-tags a pulled image -- proven by the classes ``tools/repopack``
+    bundles without them.
+
 Testing
 -------
 
@@ -357,7 +437,11 @@ round-trips byte for byte. ``test/nsctl_cli.robot`` gains the no-Docker
 contract cases: ``stack add`` without ``HMD_HOME`` names both ways to supply
 it, a ``github.com`` reference is refused naming ``NERD016``, and
 ``stack versions`` against a closed port fails cleanly with the host in the
-message.
+message. For SPEC011: ``artifact.Zip`` drops a declared exclude and keeps a
+same-named directory elsewhere; ``Build`` annotates each layer and the
+manifest from the declarations inside the zips and nothing else; ``Retag``
+keeps the annotation; ``artifact push`` of a zip file publishes it whole;
+and a robot case authors a declaration and validates it.
 
 The acceptance run publishes a real stack (the observability pair,
 ``hmd-inf-otel-collector`` and ``hmd-inf-clickhouse``, under a small stack
