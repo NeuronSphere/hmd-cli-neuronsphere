@@ -115,6 +115,12 @@ type Profile struct {
 	// CustomerCode and Region already say.
 	DeploymentURL        string `toml:"deployment_url"`
 	ArtifactLibrarianURL string `toml:"artifact_librarian_url"`
+
+	// RegistryURL names the tenant's OCI registry, for NERD016 SPEC006: a
+	// reference whose host matches it is fetched with the login token as
+	// the bearer. Optional; a tenant without a private registry leaves it
+	// unset and every pull is anonymous.
+	RegistryURL string `toml:"registry_url"`
 }
 
 // DefaultClientID is the client id used when a profile names none.
@@ -330,6 +336,7 @@ func (p Profile) Validate() error {
 	for key, value := range map[string]string{
 		"deployment_url":         p.DeploymentURL,
 		"artifact_librarian_url": p.ArtifactLibrarianURL,
+		"registry_url":           p.RegistryURL,
 	} {
 		if value = strings.TrimSpace(value); value == "" {
 			continue
@@ -347,6 +354,7 @@ func (p Profile) withDefaults() Profile {
 	p.AuthURL = strings.TrimRight(strings.TrimSpace(p.AuthURL), "/")
 	p.DeploymentURL = trimSlash(p.DeploymentURL)
 	p.ArtifactLibrarianURL = trimSlash(p.ArtifactLibrarianURL)
+	p.RegistryURL = trimSlash(p.RegistryURL)
 	p.CustomerCode = strings.TrimSpace(p.CustomerCode)
 	p.Region = strings.TrimSpace(p.Region)
 	if p.ClientID == "" {

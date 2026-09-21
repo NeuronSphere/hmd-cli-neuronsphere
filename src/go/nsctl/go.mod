@@ -13,6 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.110.0
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.47.0
 	github.com/aws/smithy-go v1.28.1
+	github.com/opencontainers/go-digest v1.0.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.8.0
 	golang.org/x/term v0.33.0
@@ -45,7 +46,6 @@ require (
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
-	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0 // indirect
@@ -63,6 +63,6 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.5
 	gopkg.in/yaml.v3 v3.0.1
 )

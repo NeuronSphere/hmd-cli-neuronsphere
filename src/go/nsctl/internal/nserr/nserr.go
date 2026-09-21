@@ -74,3 +74,19 @@ func CodeOf(err error) Code {
 	}
 	return Fail
 }
+
+// ErrSilent marks an error whose message has already been delivered -- by a
+// plugin that owned the terminal -- so Execute exits with the code and prints
+// nothing. NERD018 SPEC005.
+var ErrSilent = errors.New("exit without a message")
+
+// Silent is a coded, silent error for a child's exit status; nil for 0.
+func Silent(code int) error {
+	if code == 0 {
+		return nil
+	}
+	return &Error{Code: Code(code), Err: ErrSilent}
+}
+
+// IsSilent reports whether err should exit without a message.
+func IsSilent(err error) bool { return errors.Is(err, ErrSilent) }

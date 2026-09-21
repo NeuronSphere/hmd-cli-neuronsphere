@@ -37,6 +37,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/opencontainers/go-digest"
 	"sync"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -149,7 +151,45 @@ func Store(home, class, version string, data []byte) (string, error) {
 		}
 		return "", fmt.Errorf("%s@%s: %w", class, version, err)
 	}
+	// The digest sidecar is best-effort: a tree without one is a tree an
+	// older nsctl unpacked, and Digest answers "unknown" for it. NERD017
+	// SPEC007.
+	if err := os.MkdirAll(filepath.Dir(sidecar(dir)), 0o755); err == nil {
+		_ = os.WriteFile(sidecar(dir), []byte(digest.FromBytes(data).String()+"\n"), 0o644)
+	}
 	return dir, nil
+}
+
+// sidecar is the file holding the zip's digest for an unpacked tree. It lives
+// under a sibling of Root rather than inside the tree, so the runner's bind
+// mount and validate() see a repo tree and nothing else, and rather than
+// beside the tree, so a listing of Root is still exactly the cached trees.
+func sidecar(dir string) string {
+	return filepath.Join(filepath.Dir(dir)+"-digests", filepath.Base(dir))
+}
+
+// Digest is the sha256 of the zip a cached tree was unpacked from, or false
+// when the tree is absent or was unpacked before the sidecar existed.
+func Digest(home, class, version string) (string, bool) {
+	dir := Dir(home, class, version)
+	if dir == "" || !Cached(home, class, version) {
+		return "", false
+	}
+	data, err := os.ReadFile(sidecar(dir))
+	if err != nil {
+		return "", false
+	}
+	d, err := digest.Parse(strings.TrimSpace(string(data)))
+	if err != nil {
+		return "", false
+	}
+	return d.String(), true
+}
+
+// removeSidecar drops the digest and keeps the tree, for a test that models
+// an older cache.
+func removeSidecar(home, class, version string) error {
+	return os.RemoveAll(sidecar(Dir(home, class, version)))
 }
 
 // Invalidate drops the unpacked tree for a version, so the next Store re-unpacks.
@@ -167,6 +207,9 @@ func Invalidate(home, class, version string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(sidecar(dir)); err != nil {
 		return err
 	}
 	return os.RemoveAll(dir + ".unpacking")

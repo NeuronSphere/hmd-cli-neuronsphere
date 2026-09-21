@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-21
+
+- feat: `internal/oci`, an OCI Distribution client for artifact sources
+  (NERD016): anonymous and bearer pulls through the `WWW-Authenticate`
+  challenge, digest-verified manifests and blobs, `tags/list` version
+  enumeration, monolithic push with an `artifactType` retry, and SPEC006
+  credential resolution (`--token`, `HMD_REGISTRY_TOKEN`, a profile's new
+  `registry_url` with the login token, else anonymous). Ships with an
+  in-process fake registry (`internal/oci/ocitest`) for consumers' tests.
+- feat: `neuronsphere.lock` entries may carry an optional `digest` under
+  schema version 1, and the artifact cache records each unpacked zip's digest
+  (`artifact.Digest`) so a lock can be filled offline (NERD017 SPEC007).
+- feat: `nserr.Silent` for an exit status that has already spoken for itself
+  (NERD018 SPEC005).
+
 ## 2026-09-20
 
 - fix: `--home` is authoritative for the control plane's compose interpolation.

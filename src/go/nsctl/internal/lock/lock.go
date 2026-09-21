@@ -82,6 +82,13 @@ type Entry struct {
 	// edge from a test fixture.
 	Satisfies   []string `toml:"satisfies,omitempty"`
 	ContentPath string   `toml:"content_path"`
+	// Digest is the sha256 of the build zip ContentPath names, when something
+	// has seen the bytes: `nsctl lock` from the cache, or a pull. Optional,
+	// and omitted rather than empty so a lock written before it existed is
+	// byte-identical on rewrite. The schema stays at Version 1 because Parse
+	// is a non-strict decode and an older nsctl simply ignores the key.
+	// NERD017 SPEC007.
+	Digest string `toml:"digest,omitempty"`
 }
 
 // Lock is a parsed neuronsphere.lock.
@@ -157,6 +164,29 @@ func (l *Lock) Entry(repoClass string) (Entry, bool) {
 		}
 	}
 	return Entry{}, false
+}
+
+// SetDigest records the zip digest for a repo class, reporting whether the
+// class is in the lock.
+func (l *Lock) SetDigest(repoClass, digest string) bool {
+	for i := range l.Resolved {
+		if l.Resolved[i].RepoClassName == repoClass {
+			l.Resolved[i].Digest = digest
+			return true
+		}
+	}
+	return false
+}
+
+// VerifyDigest refuses bytes whose digest disagrees with the entry's. An
+// entry with no recorded digest cannot disagree: nothing was promised.
+func (e Entry) VerifyDigest(digest string) error {
+	if e.Digest == "" || e.Digest == digest {
+		return nil
+	}
+	return fmt.Errorf("%s@%s: the lock pins %s but the artifact is %s; "+
+		"the publisher's lock and the published bytes disagree, so this is not the stack they tested",
+		e.RepoClassName, e.Version, e.Digest, digest)
 }
 
 // AllProfiles is every profile the lock mentions, sorted. What --all-profiles
