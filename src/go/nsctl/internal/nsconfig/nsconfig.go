@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -64,6 +65,86 @@ type Config struct {
 	DefaultProfile string `toml:"default_profile"`
 	// Profiles are the [profile.<name>] tables.
 	Profiles map[string]Profile `toml:"profile"`
+	// Plugins are the [plugin.<noun>] tables: the CLI plugins this
+	// installation runs. NERD018 SPEC001. A plugin exists because it is
+	// listed here and for no other reason.
+	Plugins map[string]Plugin `toml:"plugin,omitempty"`
+}
+
+// Plugin is one declared CLI plugin.
+type Plugin struct {
+	// Name is the noun, the table's key. Filled in by Parse.
+	Name string `toml:"-"`
+
+	// Source is the OCI reference the plugin was installed from, and
+	// Version and Digest what was installed. All three are set together.
+	Source  string `toml:"source,omitempty"`
+	Version string `toml:"version,omitempty"`
+	Digest  string `toml:"digest,omitempty"`
+
+	// Path is a local executable to run instead: a dev build. With both
+	// Path and Source set, Path wins.
+	Path string `toml:"path,omitempty"`
+}
+
+// Dev reports whether the declaration runs a local path rather than an
+// installed version.
+func (p Plugin) Dev() bool { return strings.TrimSpace(p.Path) != "" }
+
+// pluginNameRe is a plugin noun: lower case, starts with a letter, dashes
+// allowed. The same shape as a cobra command name.
+var pluginNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// ReservedPluginNames are nouns cobra itself owns; the built-in command
+// tree adds its own at attach time.
+var ReservedPluginNames = []string{"help", "completion"}
+
+// ValidPluginName refuses a noun the grammar or cobra would not accept.
+func ValidPluginName(name string) error {
+	if !pluginNameRe.MatchString(name) {
+		return fmt.Errorf("plugin name %q must match %s", name, pluginNameRe)
+	}
+	for _, r := range ReservedPluginNames {
+		if name == r {
+			return fmt.Errorf("plugin name %q is reserved", name)
+		}
+	}
+	// The built-in nouns are reserved too; cmd checks those against the live
+	// tree, and this list keeps `nsctl plugin install env` honest even when
+	// nothing else is loaded.
+	for _, r := range builtinNouns {
+		if name == r {
+			return fmt.Errorf("plugin name %q is a built-in nsctl command", name)
+		}
+	}
+	return nil
+}
+
+// builtinNouns mirrors cmd/root.go's top-level commands. Duplicated rather
+// than imported, because cmd imports this package; a test in cmd asserts the
+// two agree.
+var builtinNouns = []string{
+	"agent", "env", "lock", "artifact", "bom", "repo", "repoclass",
+	"control-plane", "cp", "authd", "login", "logout", "whoami", "version",
+	"stack", "plugin",
+}
+
+// BuiltinNouns is the list cmd's test compares against its tree.
+func BuiltinNouns() []string { return append([]string(nil), builtinNouns...) }
+
+func (p Plugin) validate() error {
+	if err := ValidPluginName(p.Name); err != nil {
+		return err
+	}
+	if !p.Dev() {
+		if strings.TrimSpace(p.Source) == "" {
+			return fmt.Errorf("plugin %q needs a source (an OCI reference) or a path (a local executable)", p.Name)
+		}
+		if strings.TrimSpace(p.Version) == "" {
+			return fmt.Errorf("plugin %q has a source but no version", p.Name)
+		}
+	}
+	return nil
 }
 
 // Profile is one endpoint's configuration.
@@ -251,6 +332,13 @@ func Parse(data []byte) (*Config, error) {
 		profile.Name = name
 		cfg.Profiles[name] = profile
 	}
+	for name, plugin := range cfg.Plugins {
+		plugin.Name = name
+		if err := plugin.validate(); err != nil {
+			return nil, err
+		}
+		cfg.Plugins[name] = plugin
+	}
 	return &cfg, nil
 }
 
@@ -394,6 +482,33 @@ func (c *Config) Set(profile Profile) {
 		c.DefaultProfile = profile.Name
 	}
 	c.Profiles[profile.Name] = profile
+}
+
+// SetPlugin adds or replaces a plugin declaration.
+func (c *Config) SetPlugin(p Plugin) {
+	if c.Plugins == nil {
+		c.Plugins = map[string]Plugin{}
+	}
+	c.Plugins[p.Name] = p
+}
+
+// RemovePlugin drops a declaration, reporting whether there was one.
+func (c *Config) RemovePlugin(name string) bool {
+	if _, ok := c.Plugins[name]; !ok {
+		return false
+	}
+	delete(c.Plugins, name)
+	return true
+}
+
+// PluginNames is every declared noun, sorted.
+func (c *Config) PluginNames() []string {
+	names := make([]string, 0, len(c.Plugins))
+	for name := range c.Plugins {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Example is a pasteable profile table, used by the errors that refuse to

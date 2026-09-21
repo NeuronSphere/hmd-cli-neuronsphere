@@ -2,6 +2,13 @@
 
 ## 2026-09-21
 
+- feat: CLI plugins (NERD018): `nsctl plugin install|remove|list|update|push`
+  install a published plugin from an OCI registry (a bare name expands to
+  `ghcr.io/hmdlabs/plugins`) into `$HMD_HOME/.cache/neuronsphere/plugins/`
+  and declare it as `[plugin.<name>]` in `nsctl.toml`; a declared plugin runs
+  as `nsctl <name> ...` with its arguments passed verbatim and its exit
+  status returned unchanged. Nothing is scanned: a plugin exists because the
+  file names it. `path = ...` declares a local dev build.
 - feat: `internal/oci`, an OCI Distribution client for artifact sources
   (NERD016): anonymous and bearer pulls through the `WWW-Authenticate`
   challenge, digest-verified manifests and blobs, `tags/list` version

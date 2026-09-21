@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -79,9 +80,28 @@ func noArgs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// NewRootCommand builds the command tree. process supplies environment
-// variables; pass nil for the real one.
+// NewRootCommand builds the built-in command tree. process supplies
+// environment variables; pass nil for the real one.
+//
+// Declared plugins are never attached here. tools/docref renders the reference
+// from this tree and NERD015 validates skills against it, and neither may
+// pick up whatever a developer happens to have declared; NewRootCommandFor is
+// what main runs. NERD018 SPEC004.
 func NewRootCommand(version string, process hmdenv.Lookup) *cobra.Command {
+	root, _, _ := newRoot(version, process)
+	return root
+}
+
+// NewRootCommandFor is the tree main executes: the built-ins plus one command
+// per plugin declared in the HMD_HOME that argv (or the environment) names.
+// warn receives a line for a declaration that could not be attached.
+func NewRootCommandFor(version string, process hmdenv.Lookup, argv []string, warn io.Writer) *cobra.Command {
+	root, opts, proc := newRoot(version, process)
+	attachPlugins(root, opts, proc, argv, warn)
+	return root
+}
+
+func newRoot(version string, process hmdenv.Lookup) (*cobra.Command, *Options, hmdenv.Lookup) {
 	if process == nil {
 		process = os.Getenv
 	}
@@ -136,9 +156,10 @@ above that is a RepoClass you add.`,
 		newLogoutCommand(opts),
 		newWhoamiCommand(opts),
 		newVersionCommand(opts),
+		newPluginCommand(opts),
 	)
 
-	return root
+	return root, opts, process
 }
 
 // Execute runs the root command and exits with the error's code.
@@ -150,9 +171,13 @@ func Execute(version string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root := NewRootCommand(version, nil)
+	root := NewRootCommandFor(version, nil, os.Args[1:], os.Stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		// A plugin's exit status has already spoken for itself; nsctl adds
+		// nothing to it. NERD018 SPEC005.
+		if !nserr.IsSilent(err) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
 		os.Exit(int(nserr.CodeOf(err)))
 	}
 }

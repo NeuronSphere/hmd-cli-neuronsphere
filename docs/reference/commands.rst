@@ -1412,6 +1412,158 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl plugin
+------------
+
+A CLI plugin is an executable that adds one top-level noun to nsctl:
+"nsctl <name> ..." runs "nsctl-<name>" with every argument after the noun.
+
+A plugin runs because $HMD_HOME/.config/nsctl.toml declares it under
+[plugin.<name>], and for no other reason; nothing on PATH or under the cache
+is scanned. "install" fetches a published plugin from an OCI registry (a bare
+name expands to ghcr.io/hmdlabs/plugins), unpacks this platform's
+binary under $HMD_HOME/.cache/neuronsphere/plugins/, and writes the
+declaration. A local build is declared by hand with "path = ..." instead.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl plugin install
+--------------------
+
+Fetch a plugin from an OCI registry and declare it. <ref> is
+<host>/<repository>[:<version>]; a bare name expands to
+ghcr.io/hmdlabs/plugins/<name>. Without a version the newest published
+one is installed and printed. Public namespaces need no credential; a private
+one takes HMD_REGISTRY_TOKEN, or a profile whose registry_url matches the
+host after "nsctl login".
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin install <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl plugin install hello
+     nsctl plugin install ghcr.io/acme/plugins/deploy:1.4.0
+     nsctl plugin install hello --spec "~= 1.2"
+
+Local flags
+~~~~~~~~~~~
+
+* ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 1.2")
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl plugin list
+-----------------
+
+Read the [plugin.*] tables of nsctl.toml. Nothing else is consulted: a binary that is present but not declared is not a plugin.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl plugin push
+-----------------
+
+Build the plugin artifact from <dir>, which holds plugin.json and one
+<name>_<version>_<os>_<arch>.tar.gz per platform (GoReleaser's default
+archive layout), and push it to <ref>. The tag is the descriptor's version
+unless <ref> names one. A credential is required: --token, HMD_REGISTRY_TOKEN,
+or a profile whose registry_url matches the host after "nsctl login".
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin push <dir> <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl plugin push dist/ ghcr.io/acme/plugins/hello --token $GHCR_PAT
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl plugin remove
+-------------------
+
+Remove the [plugin.<name>] table from nsctl.toml and delete every installed version under the cache. A path declared for a dev build is never touched.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin remove <name>
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl plugin update
+-------------------
+
+Resolve the newest version of one declared plugin, or of every plugin
+declared with a source when no name is given, and install it. A plugin
+declared with only a path is left alone.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl plugin update [<name>]
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl repo
 ----------
 
