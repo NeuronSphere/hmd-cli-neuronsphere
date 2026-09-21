@@ -4,6 +4,7 @@
    in these docs, including cloud Artifact Librarian access, published-version
    queries, and cloud BOM inspection or import, require paid NeuronSphere and
    access to your organisation's tenant. Installing the free ``nsctl`` CLI does
-   not provide that access. Local Docker environments, BACON authoring, and
-   deployments from your own checkouts do not require a paid cloud tenant.
+   not provide that access. Local Docker environments, BACON authoring,
+   deployments from your own checkouts, and stacks or CLI plugins pulled from
+   a public registry namespace do not require a paid cloud tenant.
    See :doc:`/licensing` for product availability and component licences.

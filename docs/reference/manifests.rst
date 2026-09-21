@@ -93,6 +93,11 @@ Top-level fields
      - Active local profile names recorded by repository adoption
    * - ``bindings``
      - Maps dependency roles, companion names, and the subject class to local instances
+   * - ``stacks``
+     - Stacks added with ``nsctl stack add``: ``name``, ``version``, ``ref``,
+       ``digest``, and the ``profiles`` and ``bindings`` the stack's own
+       planner recorded (kept apart from the top-level ``bindings`` so a stack
+       and an adopted repository can share an environment)
    * - ``plugins``, ``plugin_config``
      - Python CLI settings, preserved but not acted on by nsctl
 

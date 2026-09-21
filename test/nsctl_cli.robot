@@ -82,7 +82,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version
+    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -213,3 +213,75 @@ Repoclass Validate Fails On An Error
     ${v}=         Run nsctl    repoclass    --path    ${dir}    validate
     Should Be Equal As Integers    ${v.rc}    1
     Should Contain    ${v.stdout}    validate: failed
+
+Plugin List With No Config Reports None
+    [Documentation]    NERD018 SPEC001: no nsctl.toml means no plugins, and
+    ...                saying so is exit 0, not an error.
+    [Tags]    contract    nerd018
+    ${home}=      Create Scratch Home
+    ${result}=    Run nsctl In Home    ${home}    plugin    list
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    No plugins declared
+
+Declared Path Plugin Runs With Argv And Exit Code
+    [Documentation]    NERD018 SPEC005: everything after the noun reaches the
+    ...                plugin verbatim, the SPEC005 variables are set, the exit
+    ...                status comes back unchanged, and nsctl adds no Error line.
+    [Tags]    contract    nerd018
+    ${home}=      Create Scratch Home
+    ${script}=    Join Path    ${home}    nsctl-hello
+    Create File    ${script}    \#!/bin/sh\necho "argv: $*"\necho "name=$NSCTL_PLUGIN_NAME home=$NSCTL_HOME"\nexit 7\n
+    Run Process    chmod    755    ${script}
+    Create File    ${home}${/}.config${/}nsctl.toml    [plugin.hello]\npath = "${script}"\n
+    ${result}=    Run nsctl In Home    ${home}    hello    a    --b    --help
+    Should Be Equal As Integers    ${result.rc}    7
+    Should Contain    ${result.stdout}    argv: a --b --help
+    Should Contain    ${result.stdout}    name=hello home=${home}
+    Should Not Contain    ${result.stderr}    Error:
+
+Declared Plugin Without Binary Names The Install Command
+    [Documentation]    NERD018 SPEC004: declared but not installed is a usage
+    ...                error whose remedy is the install verb.
+    [Tags]    contract    nerd018
+    ${home}=      Create Scratch Home
+    Create File    ${home}${/}.config${/}nsctl.toml    [plugin.hello]\nsource = "oci://ghcr.io/hmdlabs/plugins/hello"\nversion = "1.0"\ndigest = "sha256:0"\n
+    ${result}=    Run nsctl In Home    ${home}    hello
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    nsctl plugin install hello
+
+Reserved Plugin Name Is Refused
+    [Documentation]    NERD018 SPEC004: a declaration named after a built-in
+    ...                warns and the built-in wins.
+    [Tags]    contract    nerd018
+    ${home}=      Create Scratch Home
+    Create File    ${home}${/}.config${/}nsctl.toml    [plugin.env]\npath = "/x"\n
+    ${result}=    Run nsctl In Home    ${home}    env    --help
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    Usage:
+    Should Contain    ${result.stderr}    warning: plugins not loaded
+
+Stack Add Without HMD_HOME Names Both Ways
+    [Tags]    contract    nerd017
+    ${result}=    Run nsctl    stack    add    observability
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    HMD_HOME
+    Should Contain    ${result.stderr}    --home
+
+Stack Add Refuses The Deferred GitHub Scheme
+    [Documentation]    NERD016 SPEC008: a github.com reference is recognised
+    ...                and refused naming the deferred spec, not a parse error.
+    [Tags]    contract    nerd017
+    ${home}=      Create Scratch Home
+    ${result}=    Run nsctl In Home    ${home}    stack    add    github.com/acme/stack@1.0
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    NERD016
+
+Stack Versions Against A Closed Port Fails Cleanly
+    [Documentation]    A registry that is not there is exit 1 with the host
+    ...                in the message, never a panic.
+    [Tags]    contract    nerd017
+    ${home}=      Create Scratch Home
+    ${result}=    Run nsctl In Home    ${home}    stack    versions    127.0.0.1:1/x/y
+    Should Be Equal As Integers    ${result.rc}    1
+    Should Contain    ${result.stderr}    127.0.0.1:1
+    Should Not Contain    ${result.stderr}    panic

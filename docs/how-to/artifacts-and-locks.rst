@@ -112,6 +112,14 @@ fails for declared classes with no pin, warns about extra obsolete pins,
 and contacts no service. It does not verify availability or prove that the
 pinned versions work together.
 
+Each pinned entry may carry a ``digest``: the sha256 of the build zip its
+``content_path`` names. ``nsctl lock`` fills it for anything the artifact
+cache has already seen and keeps one the previous lock had at the same
+version; ``artifact pull``, ``stack pull`` and ``stack push --update-lock``
+fill it when they see the bytes. It is optional, the schema stays at
+``version = 1``, and ``lock --check`` does not verify it -- but ``stack add``
+refuses a zip whose digest disagrees with the lock inside the stack.
+
 Apply a changed lock
 --------------------
 

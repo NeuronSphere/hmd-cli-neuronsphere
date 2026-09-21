@@ -97,6 +97,30 @@ imperative verbs are wrappers, not a second way to say the same thing.
 Nothing is auto-wired: a declaration's dependencies are what the manifest says
 and no more.
 
+Two more shapes: stacks and CLI plugins
+---------------------------------------
+
+Two further ways to extend the local NeuronSphere exist, and neither is
+discovered either.
+
+A **stack** (``NERD017``, :doc:`../how-to/use-stacks`) is many RepoClasses
+by one reference: a RepoClass whose repository carries a ``local`` section and
+a ``neuronsphere.lock``, published as one OCI artifact holding every build
+zip the lock pins. ``nsctl stack add <ref>`` fetches it -- anonymously from a
+public namespace, no tenant needed -- and declares its instances in an
+environment manifest through the same planner ``env add --from-repo`` uses.
+It is the way to hand someone "the observability stack" as a single name.
+
+A **CLI plugin** (``NERD018``, :doc:`../how-to/install-cli-plugins`) is an
+executable ``nsctl-<noun>`` that adds one top-level noun to ``nsctl``. It
+runs because ``$HMD_HOME/.config/nsctl.toml`` declares it under
+``[plugin.<noun>]``, written by ``nsctl plugin install`` or by hand for a
+local build, and for no other reason: nothing on ``PATH`` is scanned.
+
+Both come from an OCI registry through one mechanism (``NERD016``,
+:doc:`../explanation/oci-distribution`), free from a public namespace and
+paid from a private one with the same code path.
+
 Where the code comes from
 -------------------------
 

@@ -22,6 +22,15 @@ your own build artifacts with the local librarian, and create or check locks
 from local inputs. See :doc:`tutorials/create-repository-manifest` for a
 complete local-only example.
 
+Stacks and CLI plugins (:doc:`how-to/use-stacks`,
+:doc:`how-to/install-cli-plugins`) are free to install from a public
+registry namespace such as ``ghcr.io/hmdlabs``: an anonymous pull needs no
+tenant and no token. A stack's descriptor files -- its lock, its OCI
+manifest, a plugin's descriptor -- are Apache 2.0; the RepoClass zips inside
+a stack carry their own licences under the path split above. A private or
+curated namespace uses the same protocol with a login token, and ``nsctl``
+does not distinguish the two. See :doc:`explanation/oci-distribution`.
+
 Product access and source-code licences are separate. The requirement for paid
 cloud features does not change the component licence grants described below,
 and the presence of a cloud command in the open-source CLI does not include

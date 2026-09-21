@@ -56,6 +56,19 @@ To add your own checkout, follow
 It includes a complete manifest, deploy script, validation commands, and both
 ways to register the repository locally. No paid cloud account is needed.
 
+To add a published set of RepoClasses in one go, add a stack -- free from a
+public registry namespace, no tenant or token needed:
+
+```shell
+nsctl stack add observability
+nsctl env apply
+```
+
+`nsctl` can also be extended with CLI plugins (`nsctl plugin install <name>`),
+executables that add a top-level noun. See
+[Use stacks](docs/how-to/use-stacks.rst) and
+[Install and write CLI plugins](docs/how-to/install-cli-plugins.rst).
+
 ## Documentation
 
 The hosted documentation is published at https://neuronsphere.github.io/hmd-cli-neuronsphere/. Start with the [first-environment tutorial](docs/tutorials/first-environment.rst), then see the [repository-adoption tutorial](docs/tutorials/adopt-repository.rst), [how-to guides](docs/how-to/), and generated [command reference](docs/reference/commands.rst).

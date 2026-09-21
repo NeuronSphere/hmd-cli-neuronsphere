@@ -27,6 +27,8 @@ the exact current CLI contract.
    Import a cloud BOM (paid NeuronSphere) <how-to/import-cloud-bom>
    how-to/test-local-authorization
    how-to/use-agent-skills
+   how-to/use-stacks
+   how-to/install-cli-plugins
 
 .. toctree::
    :maxdepth: 1
@@ -43,6 +45,7 @@ the exact current CLI contract.
    explanation/architecture
    explanation/reconciliation
    explanation/artifacts-offline
+   explanation/oci-distribution
    explanation/repository-adoption
    explanation/python-compatibility
 

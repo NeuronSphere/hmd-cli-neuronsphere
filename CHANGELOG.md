@@ -2,6 +2,10 @@
 
 ## 2026-09-21
 
+- test: `test/nsctl_cli.robot` gains the NERD017/NERD018 contract cases
+  (path plugins run with argv and exit status, missing binaries name the
+  install verb, reserved names warn, the GitHub scheme is refused, a closed
+  registry port fails cleanly).
 - feat: stacks (NERD017): `nsctl stack add|pull|list|remove|versions|push`.
   A stack is a RepoClass with a `local` section and a `neuronsphere.lock`,
   published as one OCI artifact (the lock as config, one layer per build zip).
