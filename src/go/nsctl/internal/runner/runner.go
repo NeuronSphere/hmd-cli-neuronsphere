@@ -373,9 +373,9 @@ func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath 
 		args = append(args, "-e", key+"="+env[key])
 	}
 	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
-	if r.Config.Kubeconfig != "" {
+	if kubeconfig := r.Config.kubeconfigMount(); kubeconfig != "" {
 		args = append(args,
-			"-v", r.Config.Kubeconfig+":/root/.kube/config:ro",
+			"-v", kubeconfig+":/root/.kube/config:ro",
 			"-e", "HMD_LOCAL_K3S_KUBECONFIG=/root/.kube/config",
 		)
 	}
@@ -389,6 +389,31 @@ func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath 
 		r.Config.Image, "/tmp/hmd-deploy-node.sh",
 	)
 	return args
+}
+
+// kubeconfigMount answers the host path to mount as a node's kubeconfig, or ""
+// when there is nothing yet worth mounting.
+//
+// The test is that the file is there, not that the field is set. A bind-mount
+// source the daemon cannot find it creates as an empty *directory* -- on the
+// host as much as in the container -- and a node that then reads the path dies
+// with `IsADirectoryError: [Errno 21] Is a directory: '/root/.kube/config'`,
+// naming the container's path and nothing that leads back here.
+//
+// Every node a fresh environment runs before its cluster exists mounts this
+// path, so the directory is created on the host exactly where the real config
+// must later be written. That is what floci.PointKubeconfigAtHost's defensive
+// RemoveAll and environment.kubeconfigUnusable exist to undo. Declining to
+// mount a source that is not there removes the cause rather than the trace.
+func (c Config) kubeconfigMount() string {
+	if c.Kubeconfig == "" {
+		return ""
+	}
+	info, err := os.Stat(c.Kubeconfig)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return c.Kubeconfig
 }
 
 // ForeignKubeconfigPath is where a foreign node finds the cluster's kubeconfig,
@@ -424,7 +449,10 @@ func (r *Runner) foreignEnv(node msdeploy.DeploymentNode, config []byte) map[str
 		// that knows to do one.
 		"HMD_LOCAL_K3S_CLUSTER_NAME": r.Config.K3sCluster,
 	}
-	if r.Config.Kubeconfig != "" {
+	// Named only when it is actually mounted: KUBECONFIG pointing at a path
+	// dockerArgsForeign did not bind is worse than its absence, because kubectl
+	// reports the empty directory Docker made rather than "no configuration".
+	if r.Config.kubeconfigMount() != "" {
 		env["KUBECONFIG"] = ForeignKubeconfigPath
 	}
 	return env
@@ -454,8 +482,8 @@ func (r *Runner) dockerArgsForeign(node msdeploy.DeploymentNode, workspace strin
 	// The daemon is a sibling: every bind mount a toolset asks of it resolves
 	// on the host, not inside this container.
 	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
-	if r.Config.Kubeconfig != "" {
-		args = append(args, "-v", r.Config.Kubeconfig+":"+ForeignKubeconfigPath+":ro")
+	if kubeconfig := r.Config.kubeconfigMount(); kubeconfig != "" {
+		args = append(args, "-v", kubeconfig+":"+ForeignKubeconfigPath+":ro")
 	}
 	args = append(args, "-v", workspace+":/workspace", "-w", "/workspace")
 	args = append(args, orDefault(cmd.Image, r.Config.Image))

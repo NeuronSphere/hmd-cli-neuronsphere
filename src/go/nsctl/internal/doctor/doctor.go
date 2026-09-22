@@ -128,6 +128,7 @@ func Gate(ctx context.Context, o Options) (dockerhost.Endpoint, []Check, error) 
 
 	checks = append(checks, o.capacity(daemon)...)
 	checks = append(checks, o.mounts(daemon)...)
+	checks = append(checks, o.rootlessSocket(daemon)...)
 	return ep, checks, nil
 }
 
@@ -236,6 +237,36 @@ func (o Options) mounts(d dockerhost.Daemon) []Check {
 			"directories:\n    " + strings.Join(outside, "\n    "),
 		Remedy: "Share them with the VM, or move them under your home directory.\n" +
 			"On Colima: colima stop && colima start --mount <path>:w",
+	}}
+}
+
+// rootlessSocket warns when the engine is rootless, and says nothing when it
+// is not: a rootful engine is the ordinary case and doctor's value is the
+// short list.
+//
+// SPEC011 decided the rootless socket would be a warning rather than a code
+// change, because the path is right for every rootful engine and nsctl cannot
+// know what a given rootless daemon put it at. The warning was the whole of
+// that decision and was never wired, so the how-to promised a report nothing
+// emitted.
+//
+// What makes it worth saying: the deploy nodes nsctl runs bind-mount
+// /var/run/docker.sock to drive the engine themselves. Against a rootless
+// daemon that source does not exist, and Docker creates a missing source as an
+// empty directory rather than failing, so the deploy gets a socket that is not
+// one (NERD021 SPEC011).
+func (o Options) rootlessSocket(d dockerhost.Daemon) []Check {
+	if !d.Rootless {
+		return nil
+	}
+	return []Check{{
+		Name: "engine socket", Status: StatusWarn,
+		Detail: "the engine is rootless, so its socket is not at /var/run/docker.sock " +
+			"(usually /run/user/<uid>/docker.sock). The containers nsctl runs to deploy " +
+			"mount that path to reach the engine; with nothing there the daemon creates " +
+			"an empty directory rather than reporting an error, and the deploy fails later " +
+			"and somewhere else.",
+		Remedy: "Use a rootful engine for the local platform, or expect deploy nodes to need the socket path adjusted.",
 	}}
 }
 

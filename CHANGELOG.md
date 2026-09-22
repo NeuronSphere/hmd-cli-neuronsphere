@@ -2,6 +2,33 @@
 
 ## 2026-09-22
 
+- fix: a deploy node is handed a kubeconfig only when there is one. The mount
+  was guarded on the field being set, not on the file being there, so every
+  node a *fresh* environment runs before its cluster exists -- `base-vpc`,
+  `local-neuronsphere`, `environment-db` -- named a path that did not exist
+  yet. Docker creates a missing bind-mount source as an empty **directory**,
+  on the host as well as in the container, so those nodes got a directory at
+  `/root/.kube/config` and the host got one at exactly the path the real
+  kubeconfig must later be written to. That is what
+  `floci.PointKubeconfigAtHost`'s defensive `RemoveAll` and
+  `environment.kubeconfigUnusable` were added to undo; declining to mount an
+  absent source removes the cause rather than the trace. A foreign node's
+  `KUBECONFIG` is set only when the mount is, for the same reason: a variable
+  naming an empty directory is worse than its absence.
+- fix: a transient image pull is retried, three attempts with a linear backoff.
+  A long-lived Docker Desktop install has accumulated the images of every
+  platform that machine ever ran, so a start pulls almost nothing; a freshly
+  created VM -- Colima, Rancher, a CI runner -- holds none of them and one
+  control-plane start fetches ten. A single registry hiccup (ghcr.io answers on
+  several addresses, and a token fetch that times out against one succeeds
+  against the next) aborted the whole start after minutes of downloading. Only
+  transport failures are retried: an absent tag or a refused credential fails
+  the same way however many times it is asked.
+- fix: `nsctl doctor` reports a rootless engine. SPEC011 decided the rootless
+  socket would be a warning rather than a code change, and the warning was the
+  whole of that decision -- `Daemon.Rootless` was probed and never read, so the
+  how-to promised a report nothing emitted.
+
 - fix: nsctl reaches the container engine the user's own `docker` CLI reaches,
   so Colima, OrbStack, Rancher Desktop and remote contexts work. The single
   Engine API client used `client.FromEnv`, which honours `DOCKER_HOST` and

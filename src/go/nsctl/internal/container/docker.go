@@ -240,18 +240,80 @@ func (d *Docker) PullImage(ctx context.Context, ref string) error {
 	if ref == "" {
 		return errors.New("no image reference")
 	}
-	var errBuf bytes.Buffer
-	c := exec.CommandContext(ctx, d.bin(), "pull", ref)
-	c.Stdout = io.Discard
-	c.Stderr = &errBuf
-	if err := c.Run(); err != nil {
-		msg := strings.TrimSpace(errBuf.String())
-		if msg == "" {
-			msg = err.Error()
+	var last string
+	for attempt := 1; ; attempt++ {
+		var errBuf bytes.Buffer
+		c := exec.CommandContext(ctx, d.bin(), "pull", ref)
+		c.Stdout = io.Discard
+		c.Stderr = &errBuf
+		err := c.Run()
+		if err == nil {
+			return nil
 		}
-		return fmt.Errorf("docker pull %s: %s", ref, msg)
+		last = strings.TrimSpace(errBuf.String())
+		if last == "" {
+			last = err.Error()
+		}
+		if attempt == PullAttempts || ctx.Err() != nil || !retryablePull(last) {
+			return fmt.Errorf("docker pull %s: %s", ref, last)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("docker pull %s: %s", ref, last)
+		case <-time.After(time.Duration(attempt) * PullBackoff):
+		}
 	}
-	return nil
+}
+
+// PullAttempts and PullBackoff bound the retry in PullImage. The backoff is
+// linear in the attempt: a registry that just refused a connection is not
+// helped by being asked again immediately, and a start should not spend
+// minutes discovering that a registry is genuinely down.
+const (
+	PullAttempts = 3
+	PullBackoff  = 2 * time.Second
+)
+
+// retryablePull reports whether a failed pull is worth repeating.
+//
+// A cold engine is the case this exists for. A long-lived Docker Desktop
+// install has accumulated the images of every platform that machine ever ran,
+// so a start pulls almost nothing; a freshly created VM -- Colima, Rancher, a
+// CI runner -- holds none of them and one control-plane start fetches ten.
+// Registry reads fail occasionally (ghcr.io answers on several addresses, and
+// a token fetch that times out against one succeeds against the next), and a
+// single such failure aborted the whole start after minutes of downloading,
+// with nothing resumable and no suggestion that trying again would work.
+//
+// Only what is worth repeating is repeated. An image that is not there, a tag
+// that does not exist, or a credential that is refused fails the same way
+// however many times it is asked; retrying those makes the error slower and
+// no better. So this matches the transport failures by name rather than
+// retrying everything that is not recognised.
+func retryablePull(msg string) bool {
+	m := strings.ToLower(msg)
+	for _, permanent := range []string{
+		"manifest unknown", "not found", "denied", "unauthorized",
+		"authentication required", "invalid reference",
+	} {
+		if strings.Contains(m, permanent) {
+			return false
+		}
+	}
+	for _, transient := range []string{
+		"i/o timeout", "timeout exceeded", "context deadline exceeded",
+		"connection refused", "connection reset", "no such host",
+		"tls handshake", "eof",
+		"temporary failure", "server misbehaving",
+		"500 internal server error", "502 bad gateway",
+		"503 service unavailable", "504 gateway timeout",
+		"too many requests",
+	} {
+		if strings.Contains(m, transient) {
+			return true
+		}
+	}
+	return false
 }
 
 // Start starts an existing container.

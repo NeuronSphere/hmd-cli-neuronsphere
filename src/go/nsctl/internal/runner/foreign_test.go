@@ -140,6 +140,18 @@ func sortedCopy(in []string) []string {
 	return out
 }
 
+// realKubeconfig writes a kubeconfig that actually exists, because the mount
+// guard tests the file rather than the field: a path that is not there is not
+// mounted, so a synthetic one would assert the wrong branch.
+func realKubeconfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(path, []byte("apiVersion: v1\nkind: Config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // The contract, asserted against the map dockerArgsForeign consumes rather
 // than a copy of it: a variable added to the map fails here until the spec
 // list agrees, and a variable added to the command line without going through
@@ -148,13 +160,14 @@ func TestForeignEnvIsExactlySPEC005(t *testing.T) {
 	t.Parallel()
 
 	node := msdeploy.DeploymentNode{InstanceName: "api", RepoClassName: "acme-api", Version: "0.3"}
+	kubeconfig := realKubeconfig(t)
 	for _, tt := range []struct {
 		name       string
 		kubeconfig string
 		want       []string
 	}{
 		{"without a cluster", "", spec005},
-		{"with a cluster", "/hmd/.cache/k3s/kubeconfig", append(append([]string(nil), spec005...), "KUBECONFIG")},
+		{"with a cluster", kubeconfig, append(append([]string(nil), spec005...), "KUBECONFIG")},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -199,7 +212,7 @@ func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 	t.Parallel()
 
 	r := testRunner(t, &fakeDocker{}, "")
-	r.Config.Kubeconfig = "/hmd/.cache/k3s/kubeconfig"
+	r.Config.Kubeconfig = realKubeconfig(t)
 	node := msdeploy.DeploymentNode{InstanceName: "api", RepoClassName: "acme-api", Version: "0.3"}
 	args := r.dockerArgsForeign(node, "/ws", nodeCommand{Argv: []string{"sh", "-c", "make deploy"}, Image: "ghcr.io/acme/ci:3.2"}, []byte("{}"))
 	joined := strings.Join(args, "\x00")
@@ -218,7 +231,7 @@ func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 	for _, want := range []string{
 		"-v\x00/ws:/workspace", "-w\x00/workspace",
 		"-v\x00/var/run/docker.sock:/var/run/docker.sock",
-		"-v\x00/hmd/.cache/k3s/kubeconfig:" + ForeignKubeconfigPath + ":ro",
+		"-v\x00" + r.Config.Kubeconfig + ":" + ForeignKubeconfigPath + ":ro",
 		"--network\x00net",
 		"--label\x00" + EnvironmentLabel + "=", "--label\x00" + InstanceLabel + "=api",
 		"run\x00--rm",
