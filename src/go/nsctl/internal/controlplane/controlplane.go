@@ -44,6 +44,8 @@ var HostsEntries = []string{"neuronsphere", "neuronsphere-workload"}
 // containers, narrowed so the sweep is testable without a daemon.
 type dockerClient interface {
 	ContainersWithLabel(ctx context.Context, key, value string) []string
+	ContainersWithLabelOnNetwork(ctx context.Context, key, value, network string) []string
+	Running(ctx context.Context, name string) (bool, error)
 	Stop(ctx context.Context, name string) error
 }
 
@@ -89,8 +91,14 @@ type Options struct {
 	// Upgrade pulls newer images before starting, rather than reusing what is
 	// already local.
 	Upgrade bool
-	Out     io.Writer
-	Err     io.Writer
+	// StartingEnv is the environment the caller is about to start, exempt from
+	// the reconciliation below. `env start` starts the control plane first, and
+	// stopping the very containers it is about to start would be a visible
+	// stop/start cycle for no reason. Empty for a bare `control-plane start`,
+	// which is starting no environment at all.
+	StartingEnv string
+	Out         io.Writer
+	Err         io.Writer
 }
 
 func (o *Options) lookup(key string) string {
@@ -365,6 +373,11 @@ func Start(ctx context.Context, opts *Options) error {
 		return err
 	}
 
+	// Which environment containers were up before Floci is, so the
+	// reconciliation after it can tell what Floci woke from what the user had
+	// running. Taken here because the next call starts Floci.
+	runningBefore := runningEnvContainers(ctx, docker, reg)
+
 	opts.step("Starting control-plane containers...")
 	results, err := runner.Up(ctx, project, active)
 	if err != nil {
@@ -456,6 +469,8 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := prov.Provision(ctx, names, floci.ControlPlaneDBAlias); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
+
+	restoreEnvironmentState(ctx, opts, docker, reg, runningBefore)
 
 	// Pulled once here rather than discovered missing midway through a deploy.
 	//
@@ -554,6 +569,41 @@ func Start(ctx context.Context, opts *Options) error {
 	// extension able to fail every environment start on the machine (SPEC006).
 	cpext.ReportFailures(opts.Err, extReport)
 	return nil
+}
+
+// envAccounts is the registry as the wake sweep wants it: a slug and the Floci
+// account its resources live in.
+func envAccounts(reg *registry.Registry) []floci.EnvAccount {
+	out := make([]floci.EnvAccount, 0, len(reg.Environments))
+	for _, slug := range reg.Names() {
+		out = append(out, floci.EnvAccount{Slug: slug, AccountID: reg.Environments[slug].AccountID})
+	}
+	return out
+}
+
+// runningEnvContainers snapshots what the user already had running, before the
+// call that starts Floci.
+func runningEnvContainers(ctx context.Context, d dockerClient, reg *registry.Registry) map[string]bool {
+	return floci.RunningEnvContainers(ctx, d, envAccounts(reg), reg.ControlPlane.Network)
+}
+
+// restoreEnvironmentState puts back down the environments Floci woke on its way
+// up, so that starting the control plane does not start anything else. See
+// floci.StopWoken for why Floci does that and why it is right of it to.
+func restoreEnvironmentState(ctx context.Context, opts *Options, d dockerClient, reg *registry.Registry, before map[string]bool) {
+	stopped, failures := floci.StopWoken(ctx, d, envAccounts(reg), reg.ControlPlane.Network, before, opts.StartingEnv)
+	for _, f := range failures {
+		opts.warn("leaving %s running: Floci started it for the %s environment and stopping it failed: %v",
+			f.Container, f.Slug, f.Err)
+	}
+	if len(stopped) == 0 {
+		return
+	}
+	were := "were"
+	if len(stopped) == 1 {
+		were = "was"
+	}
+	opts.step("  stopped what Floci restarted for %s, which %s not running", strings.Join(stopped, ", "), were)
 }
 
 // stopFlociSpawned stops every container Floci has spawned via the host

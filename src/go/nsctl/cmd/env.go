@@ -140,7 +140,11 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 			// and then leaves it running.
 			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
 				Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: verbose,
-				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+				// This environment is about to be started, so the control
+				// plane must not stop the containers Floci woke for it only
+				// for the next call to start them again.
+				StartingEnv: slug,
+				Out:         cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}); err != nil {
 				return err
 			}

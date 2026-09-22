@@ -349,8 +349,24 @@ func TestUniqueValuesIsSortedAndDeduplicated(t *testing.T) {
 // it stopped.
 type fakeFlociDocker struct {
 	labelled map[string][]string
-	stopped  []string
-	stopErr  map[string]error
+	// onNetwork is keyed "key=value@network", the shape
+	// ContainersWithLabelOnNetwork is asked for.
+	onNetwork  map[string][]string
+	running    map[string]bool
+	runningErr map[string]error
+	stopped    []string
+	stopErr    map[string]error
+}
+
+func (f *fakeFlociDocker) ContainersWithLabelOnNetwork(_ context.Context, key, value, network string) []string {
+	return f.onNetwork[key+"="+value+"@"+network]
+}
+
+func (f *fakeFlociDocker) Running(_ context.Context, name string) (bool, error) {
+	if err := f.runningErr[name]; err != nil {
+		return false, err
+	}
+	return f.running[name], nil
 }
 
 func (f *fakeFlociDocker) ContainersWithLabel(_ context.Context, key, value string) []string {

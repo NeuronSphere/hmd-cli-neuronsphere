@@ -115,6 +115,15 @@ func Start(ctx context.Context, opts *Options, name string) error {
 
 	d := container.New()
 	d.Timeout = 2 * time.Minute
+
+	// What was running before this start asks Floci anything. Its RDS service
+	// restarts every database it has persisted when it boots, and its EKS
+	// service brings back every cluster it knows about the moment it is asked
+	// a question -- which starting this environment does. Swept at the end so
+	// starting one environment does not start the others; see floci.StopWoken.
+	runningBefore := floci.RunningEnvContainers(ctx, d, envAccounts(reg), reg.ControlPlane.Network)
+	defer sweepWokenEnvironments(ctx, opts, d, reg, env.Slug, runningBefore)
+
 	target := floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout)
 	r := router.New(opts.Home, opts.Lookup)
 	names := floci.NamesFrom(opts.Lookup, env.DeploymentID, env.Slug)
@@ -317,6 +326,34 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		opts.step("%s", line)
 	}
 	return nil
+}
+
+// envAccounts is the registry as the wake sweep wants it: a slug and the Floci
+// account its resources live in.
+func envAccounts(reg *registry.Registry) []floci.EnvAccount {
+	out := make([]floci.EnvAccount, 0, len(reg.Environments))
+	for _, slug := range reg.Names() {
+		out = append(out, floci.EnvAccount{Slug: slug, AccountID: reg.Environments[slug].AccountID})
+	}
+	return out
+}
+
+// sweepWokenEnvironments puts back down the other environments Floci restarted
+// while this one was starting.
+func sweepWokenEnvironments(ctx context.Context, opts *Options, d floci.WakeDocker, reg *registry.Registry, exempt string, before map[string]bool) {
+	stopped, failures := floci.StopWoken(ctx, d, envAccounts(reg), reg.ControlPlane.Network, before, exempt)
+	for _, f := range failures {
+		opts.warn("leaving %s running: Floci started it for the %s environment and stopping it failed: %v",
+			f.Container, f.Slug, f.Err)
+	}
+	if len(stopped) == 0 {
+		return
+	}
+	were := "were"
+	if len(stopped) == 1 {
+		were = "was"
+	}
+	opts.step("  stopped what Floci restarted for %s, which %s not running", strings.Join(stopped, ", "), were)
 }
 
 // startK3s is the cluster part of Start: reconcile, ensure, provision, verify.
