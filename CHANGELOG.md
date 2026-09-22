@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-09-22
+
+- fix: nsctl reaches the container engine the user's own `docker` CLI reaches,
+  so Colima, OrbStack, Rancher Desktop and remote contexts work. The single
+  Engine API client used `client.FromEnv`, which honours `DOCKER_HOST` and
+  never reads `docker context`, so it fell back to
+  `unix:///var/run/docker.sock` -- a path Docker Desktop only provides as a
+  compatibility symlink and Colima does not provide at all. The CLI-shaped
+  preflight passed and the start then failed creating the network
+  (NERD021 SPEC001-SPEC004).
+- fix: `OurPorts` reports whether it could ask the engine at all. An empty set
+  meant "none of these ports are ours", so a start whose engine was
+  unreachable warned that its own proxy's ports were in use by something else
+  (NERD021 SPEC005).
+- fix: the deploy script, the overlay workspace and the container-facing
+  kubeconfig are written under `$HMD_HOME` rather than the system temp dir.
+  `runner.Config.WorkDir` existed for this and was never assigned, so every
+  deploy bind-mounted a source under `/var/folders`, which only Docker Desktop
+  shares; an unseen source becomes an empty directory (NERD021 SPEC006).
+- feat: `nsctl doctor` reports the resolved endpoint and where it came from,
+  the engine's version and size, whether host paths are visible to a VM-backed
+  engine, and whether the host names resolve. Read-only; exits 2 when
+  something needs fixing. The start preflight runs the same checks, so the
+  gate and the diagnostic cannot drift (NERD021 SPEC003, SPEC007-SPEC009).
+
 ## 2026-09-21
 
 - fix(artifact): `artifact versions` and `lock --resolve` decode get_by_nid's

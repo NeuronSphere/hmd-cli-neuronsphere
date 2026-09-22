@@ -205,8 +205,9 @@ func CheckInUse(ctx context.Context, p *Project, active map[string]bool, ours ma
 }
 
 // OurPorts returns the host ports bound by containers in the given compose
-// projects, using this runner's daemon connection.
-func (r *Runner) OurPorts(ctx context.Context, projects ...string) map[int]bool {
+// projects, using this runner's daemon connection, and whether it could
+// actually ask.
+func (r *Runner) OurPorts(ctx context.Context, projects ...string) (map[int]bool, bool) {
 	return OurPorts(ctx, r.API, projects...)
 }
 
@@ -216,12 +217,22 @@ type listAPI interface {
 }
 
 // OurPorts returns the host ports currently bound by containers in the given
-// compose projects.
+// compose projects, and whether the engine could be asked at all.
 //
 // The Python parses `docker ps`'s Ports text column for this. Reading the
 // structured Ports field off the API instead removes the parsing entirely.
-func OurPorts(ctx context.Context, api listAPI, projects ...string) map[int]bool {
+//
+// The second return replaces a bare `continue`. An empty set read as "none of
+// these ports are ours" made every port the platform itself publishes look
+// like a foreign process: on a machine whose engine nsctl could not reach, a
+// start warned that 19000 and 19001 were "already in use ... by something that
+// is not part of the local NeuronSphere" when they were nsctl's own proxy from
+// the previous run. The empty set is still the safe answer; what changes is
+// that "I could not ask" stops being spelled the same way as "none of them are
+// ours" (NERD021 SPEC005).
+func OurPorts(ctx context.Context, api listAPI, projects ...string) (map[int]bool, bool) {
 	out := map[int]bool{}
+	known := true
 	for _, project := range projects {
 		if project == "" {
 			continue
@@ -230,9 +241,9 @@ func OurPorts(ctx context.Context, api listAPI, projects ...string) map[int]bool
 		f.Add("label", LabelProject+"="+project)
 		list, err := api.ContainerList(ctx, container.ListOptions{Filters: f})
 		if err != nil {
-			// Docker not running, or a timeout. An empty set is the safe
-			// answer: the worst case is a spurious in-use warning, which is
-			// warn-only anyway.
+			// Docker not running, or a timeout. Keep whatever the other
+			// projects reported, and tell the caller this is partial.
+			known = false
 			continue
 		}
 		for _, c := range list {
@@ -243,5 +254,5 @@ func OurPorts(ctx context.Context, api listAPI, projects ...string) map[int]bool
 			}
 		}
 	}
-	return out
+	return out, known
 }

@@ -156,6 +156,7 @@ above that is a RepoClass you add.`,
 		newLogoutCommand(opts),
 		newWhoamiCommand(opts),
 		newVersionCommand(opts),
+		newDoctorCommand(opts),
 		newPluginCommand(opts),
 		newStackCommand(opts),
 	)

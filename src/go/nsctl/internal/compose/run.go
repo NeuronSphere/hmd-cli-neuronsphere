@@ -18,7 +18,10 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/client"
+
 	"github.com/docker/go-connections/nat"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dockerhost"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	nsdocker "github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
@@ -97,18 +100,40 @@ type Runner struct {
 	// PullImage fetches an image. NewRunner supplies the CLI-backed one; a
 	// test may substitute its own.
 	PullImage Puller
+	// Endpoint is where this runner is connected, so a failure can say which
+	// engine refused rather than making the reader guess.
+	Endpoint dockerhost.Endpoint
 	// Out carries progress; Err carries note: and warning: lines.
 	Out io.Writer
 	Err io.Writer
 }
 
-// NewRunner connects to the local Docker daemon.
-func NewRunner(out, errOut io.Writer) (*Runner, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+// NewRunner connects to the engine the user's own docker CLI reaches.
+//
+// Not client.FromEnv: it honours DOCKER_HOST and nothing else, so on any
+// machine whose current context names a socket elsewhere it fell back to
+// unix:///var/run/docker.sock. That is every Colima and OrbStack install --
+// and Docker Desktop too, whose context is unix://$HOME/.docker/run/docker.sock
+// and which only worked here because it symlinks the legacy path. The CLI-shaped
+// preflight passed and this failed four steps later (NERD021 SPEC001).
+func NewRunner(ctx context.Context, out, errOut io.Writer) (*Runner, error) {
+	ep, _ := (&dockerhost.Resolver{Inspect: dockerhost.CLIInspector(nil)}).Resolve(ctx)
+	return NewRunnerAt(ep, nil, out, errOut)
+}
+
+// NewRunnerAt builds a Runner against an already-resolved endpoint, so a
+// command that resolved one in its preflight proves and uses the same engine
+// rather than resolving a second time.
+func NewRunnerAt(ep dockerhost.Endpoint, lookup hmdenv.Lookup, out, errOut io.Writer) (*Runner, error) {
+	opts, err := ep.ClientOpts(lookup)
 	if err != nil {
-		return nil, fmt.Errorf("connecting to Docker: %w", err)
+		return nil, err
 	}
-	return &Runner{API: cli, PullImage: nsdocker.New().PullImage, Out: out, Err: errOut}, nil
+	cli, err := client.NewClientWithOpts(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("connecting to the container engine at %s: %w", ep.Describe(), err)
+	}
+	return &Runner{API: cli, Endpoint: ep, PullImage: nsdocker.New().PullImage, Out: out, Err: errOut}, nil
 }
 
 // pull fetches an image through the injected puller.
@@ -170,7 +195,7 @@ func (r *Runner) EnsureNetwork(ctx context.Context, name string) error {
 		return nil
 	}
 	if _, err := r.API.NetworkCreate(ctx, name, network.CreateOptions{Driver: "bridge"}); err != nil {
-		return fmt.Errorf("creating the %s network: %w", name, err)
+		return fmt.Errorf("creating the %s network on %s: %w", name, r.Endpoint.Describe(), err)
 	}
 	r.progress("Created the %s network.", name)
 	return nil

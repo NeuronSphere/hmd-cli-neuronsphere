@@ -61,6 +61,14 @@ type Kube struct {
 	Kubeconfig string
 	// Run executes a docker subcommand.
 	Run Exec
+	// TempDir is where KubeconfigForContainer writes the rewritten file.
+	//
+	// It is a bind-mount source the deploy runner hands to the host daemon, so
+	// it has to be somewhere that daemon can see; the system temp dir is not,
+	// on any engine but Docker Desktop, and an unseen source becomes an empty
+	// directory and then the IsADirectoryError below. Empty means the system
+	// temp dir, which is the old behaviour (NERD021 SPEC006).
+	TempDir string
 }
 
 // RunKube runs a script inside the k3s node container.
@@ -173,7 +181,7 @@ func (k *Kube) KubeconfigForContainer() (path string, cleanup func(), err error)
 	if err != nil {
 		return k.Kubeconfig, noop, nil
 	}
-	f, err := os.CreateTemp("", "nsctl-kubeconfig-*.yaml")
+	f, err := os.CreateTemp(k.TempDir, "nsctl-kubeconfig-*.yaml")
 	if err != nil {
 		return k.Kubeconfig, noop, nil
 	}

@@ -128,13 +128,48 @@ type Config struct {
 	// Extra is passed through as additional environment variables.
 	Extra map[string]string
 	// WorkDir is where the overlay workspaces and generated scripts are
-	// written. Empty means the system temp dir, which is right for the CLI.
+	// written. Empty means under Home, and the system temp dir only when there
+	// is no Home either.
 	//
-	// It matters when the runner is itself containerised: the paths below are
-	// bind-mount sources resolved by the *host* daemon, not inside this
-	// process's filesystem, so they have to name a directory that exists at the
-	// same absolute path on both sides.
+	// The paths below are bind-mount sources resolved by the *host* daemon,
+	// not inside this process's filesystem, so they have to name a directory
+	// that daemon can see. This field existed for that reason and was never
+	// assigned by anyone, so every deploy used the system temp dir -- on macOS
+	// under /var/folders, which Docker Desktop shares and most engines do not.
+	// A source the daemon cannot see is created by it as an empty directory,
+	// which is the failure recorded at k3s/kube.go's KubeconfigForContainer.
+	// Home is a path the user chose and every engine shares (NERD021 SPEC006).
 	WorkDir string
+}
+
+// workDir answers where this runner's bind-mountable temp material goes,
+// creating it on the way. It never fails the caller: a Home that cannot be
+// written falls back to the system temp dir, which is what happened before
+// this existed.
+func (c Config) workDir() string {
+	if c.WorkDir != "" {
+		return c.WorkDir
+	}
+	return TempDir(c.Home)
+}
+
+// TempDir is where bind-mountable temporary material goes for a given
+// HMD_HOME, created on the way. It is exported because the deploy runner is
+// not the only writer of a file it then bind-mounts: k3s's
+// KubeconfigForContainer writes one too, and the two must agree on somewhere
+// the engine can see.
+//
+// An empty home, or one that cannot be written, falls back to the system temp
+// dir -- the behaviour before this existed.
+func TempDir(home string) string {
+	if home == "" {
+		return ""
+	}
+	dir := filepath.Join(home, ".cache", "nsctl", "tmp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // Runner executes nodes and records what happened.
@@ -226,7 +261,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		r.step("  deploying %s (%s@%s) in %s: %s...", node.InstanceName, node.RepoClassName, node.Version,
 			orDefault(cmd.Image, r.Config.Image), strings.Join(cmd.Argv, " "))
 	} else {
-		scriptFile, err := os.CreateTemp(r.Config.WorkDir, "nsctl-deploy-*.sh")
+		scriptFile, err := os.CreateTemp(r.Config.workDir(), "nsctl-deploy-*.sh")
 		if err != nil {
 			return Result{Node: node, Failed: true, Err: fmt.Errorf("writing the deploy script: %w", err)}
 		}

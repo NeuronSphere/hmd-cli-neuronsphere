@@ -4,13 +4,27 @@
 
 ## Prerequisites
 
-`nsctl` and local development with it are free and need only Docker. Commands
-that talk to a hosted NeuronSphere (the cloud Artifact Librarian,
-published-version queries, cloud BOM inspection or import) connect to your
-organisation's NeuronSphere cloud tenant; see
+`nsctl` and local development with it are free and need only a container engine
+your `docker` CLI can reach. Docker Desktop, Colima, OrbStack, Rancher Desktop
+and a plain Linux daemon all work: `nsctl` resolves the engine exactly as
+`docker` does, from `DOCKER_HOST`, `DOCKER_CONTEXT` or your current
+`docker context`. Commands that talk to a hosted NeuronSphere (the cloud
+Artifact Librarian, published-version queries, cloud BOM inspection or import)
+connect to your organisation's NeuronSphere cloud tenant; see
 [product availability and licensing](docs/licensing.rst).
 
-Docker must be running. On macOS or Linux (including WSL2), add the local host names once:
+The engine must be running, and `nsctl doctor` reports what it resolved and
+whether anything needs fixing. Two things are worth knowing on macOS, where the
+engine runs inside a VM:
+
+- Give it enough room. The local platform runs Floci, Postgres, a graph and a
+  k3s cluster; below 4 CPUs and 8 GiB it starts slowly and services may be
+  OOM-killed. On Colima: `colima start --cpu 4 --memory 12 --disk 100`.
+- Keep `HMD_HOME` and your repository checkouts under your home directory.
+  `nsctl` bind-mounts them, and a path the VM does not share mounts as an empty
+  directory rather than failing.
+
+On macOS or Linux (including WSL2), add the local host names once:
 
 ```shell
 sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'

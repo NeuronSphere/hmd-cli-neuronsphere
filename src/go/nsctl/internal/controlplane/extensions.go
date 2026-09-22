@@ -180,7 +180,7 @@ func Apply(ctx context.Context, opts *Options) error {
 		return err
 	}
 
-	runner, err := compose.NewRunner(opts.Out, opts.Err)
+	runner, err := compose.NewRunner(ctx, opts.Out, opts.Err)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}

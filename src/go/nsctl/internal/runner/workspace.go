@@ -151,7 +151,7 @@ func overlayHasToolFiles(overlay string) bool {
 //	src/local/helm/*            -> src/helm/
 //	src/local/config_local.json -> meta-data/config_local.json
 func (r *Runner) overlayWorkspace(repoPath, overlay string) (string, error) {
-	root, err := os.MkdirTemp(r.Config.WorkDir, "nsctl-overlay-")
+	root, err := os.MkdirTemp(r.Config.workDir(), "nsctl-overlay-")
 	if err != nil {
 		return "", fmt.Errorf("creating an overlay workspace: %w", err)
 	}

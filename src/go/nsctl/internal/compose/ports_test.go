@@ -2,7 +2,9 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -193,7 +195,10 @@ func TestOurPortsReadsPublishedPortsStructurally(t *testing.T) {
 		"env": {{Ports: []types.Port{{PublicPort: 19033, PrivatePort: 8080}}}},
 	}}
 
-	got := OurPorts(context.Background(), f, "cp", "env", "")
+	got, known := OurPorts(context.Background(), f, "cp", "env", "")
+	if !known {
+		t.Error("the engine answered for both projects; this must report known")
+	}
 	if !got[80] || !got[19033] {
 		t.Errorf("got %v, want the published ports", got)
 	}
@@ -209,11 +214,46 @@ func TestOurPortsReadsPublishedPortsStructurally(t *testing.T) {
 func TestOurPortsToleratesADeadDaemon(t *testing.T) {
 	t.Parallel()
 
-	// An empty set is the safe answer: the worst case is a spurious warning,
-	// and the check is warn-only anyway.
-	if got := OurPorts(context.Background(), errLister{}, "cp"); len(got) != 0 {
+	// An empty set is still the safe answer -- but it must not be reported as
+	// "none of these ports are ours", which is what turned nsctl's own proxy
+	// into a foreign process in the warnings (NERD021 SPEC005).
+	got, known := OurPorts(context.Background(), errLister{}, "cp")
+	if len(got) != 0 {
 		t.Errorf("got %v, want an empty set", got)
 	}
+	if known {
+		t.Error("a dead daemon must report that the answer is not known")
+	}
+}
+
+// A failure on one project must not discard what the others reported, and must
+// still mark the whole answer partial.
+func TestOurPortsReportsAPartialAnswer(t *testing.T) {
+	t.Parallel()
+
+	f := &flakyLister{ok: map[string][]types.Container{
+		"cp": {{Ports: []types.Port{{PublicPort: 80, PrivatePort: 80}}}},
+	}}
+	got, known := OurPorts(context.Background(), f, "cp", "broken")
+	if !got[80] {
+		t.Errorf("got %v, want the port the engine did report", got)
+	}
+	if known {
+		t.Error("one failed project makes the answer partial")
+	}
+}
+
+// flakyLister answers for the projects it knows and fails for the rest.
+type flakyLister struct{ ok map[string][]types.Container }
+
+func (f *flakyLister) ContainerList(_ context.Context, opts container.ListOptions) ([]types.Container, error) {
+	for _, p := range opts.Filters.Get("label") {
+		name := strings.TrimPrefix(p, LabelProject+"=")
+		if list, found := f.ok[name]; found {
+			return list, nil
+		}
+	}
+	return nil, errors.New("no daemon")
 }
 
 type errLister struct{}

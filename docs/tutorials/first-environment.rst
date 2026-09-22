@@ -5,21 +5,26 @@ By the end of this tutorial you will have a running local control plane and
 one named environment, know how to inspect them, and be able to stop and
 restart your environment without discarding its data.
 
-You need macOS or Linux, including Linux under WSL2, and a running Docker
-daemon. Native Windows is not supported. The first start downloads images
-and creates infrastructure, so allow more time and disk space than a restart.
+You need macOS or Linux, including Linux under WSL2, and a running container
+engine that your ``docker`` CLI can reach -- Docker Desktop, Colima, OrbStack,
+Rancher Desktop or a plain Linux daemon. Native Windows is not supported. The
+first start downloads images and creates infrastructure, so allow more time and
+disk space than a restart.
 
 Prepare the host
 ----------------
 
-Check that the Docker CLI can reach its daemon::
+Check that ``nsctl`` can reach your container engine::
 
-   docker version
-   docker info
+   nsctl doctor
 
-If the server is unavailable, start Docker before continuing. On macOS, allow
-Docker to share the directory you will use for local state and any repository
-checkouts you intend to mount.
+It prints the endpoint it resolved and where that came from, the engine's
+version and size, and whether the host names below resolve. It changes nothing,
+and exits ``2`` when something needs fixing.
+
+If it cannot reach an engine, start yours and select it with ``docker context
+use <name>``; ``docker context ls`` lists them. See
+:doc:`../how-to/choose-a-container-engine` for what each engine needs.
 
 The host must resolve these two names to loopback. Add the following line to
 ``/etc/hosts`` if it is not already present::

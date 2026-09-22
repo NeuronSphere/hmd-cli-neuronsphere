@@ -298,7 +298,10 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	k3sContainer := clusterFor(steps, floci.K3sContainerName(env.K3sCluster, env.AccountID, d.ContainerNames(ctx)))
 	kubeconfig := clusterFor(steps, env.Kubeconfig)
 	if kubeconfig != "" && k3sContainer != "" {
-		kube := &k3s.Kube{Cluster: env.K3sCluster, Container: k3sContainer, Kubeconfig: kubeconfig}
+		kube := &k3s.Kube{
+			Cluster: env.K3sCluster, Container: k3sContainer, Kubeconfig: kubeconfig,
+			TempDir: runner.TempDir(opts.Home),
+		}
 		path, cleanup, err := kube.KubeconfigForContainer()
 		if err == nil {
 			kubeconfig = path

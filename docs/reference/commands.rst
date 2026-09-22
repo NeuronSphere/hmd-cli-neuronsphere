@@ -995,6 +995,30 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl doctor
+------------
+
+Reports what nsctl resolved and what the container engine says about itself.
+
+Prints the endpoint nsctl will use and where that came from, the engine's
+version and size, whether host paths are visible to it, and whether the local
+host names resolve. It changes nothing.
+
+Exits 2 when something needs fixing, 0 otherwise -- including when checks only
+warn.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl doctor
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl env
 ---------
 

@@ -24,6 +24,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/cpext"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/doctor"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/pgcheck"
@@ -199,8 +200,22 @@ func Start(ctx context.Context, opts *Options) error {
 	// Docker: ..." from the Engine API, or a bare `docker: executable file not
 	// found` from a shelled-out command -- neither of which says what to
 	// install. The message that does say it was written and never called.
-	if err := container.New().Available(ctx); err != nil {
-		return nserr.Wrap(nserr.Usage, err)
+	// ... and the CLI answering is not the same question as the Engine API
+	// answering. The two resolve the daemon differently, so a machine whose
+	// docker context names anything but /var/run/docker.sock passed this gate
+	// and then failed four steps later creating the network, with two port
+	// warnings in between that were about its own proxy (NERD021 SPEC003).
+	engine, checks, err := doctor.Gate(ctx, doctorOptions(opts))
+	for _, c := range checks {
+		if c.Status == doctor.StatusWarn {
+			opts.warn("%s", strings.TrimSpace(c.Detail))
+			if c.Remedy != "" {
+				opts.warn("%s", strings.TrimSpace(c.Remedy))
+			}
+		}
+	}
+	if err != nil {
+		return nserr.New(nserr.Usage, "%s", doctor.FirstFailure(checks))
 	}
 	if err := CheckHostsEntries(nil); err != nil {
 		return err
@@ -269,7 +284,9 @@ func Start(ctx context.Context, opts *Options) error {
 	}
 	aliasExtensions(project, exts)
 
-	runner, err := compose.NewRunner(opts.Out, opts.Err)
+	// From the endpoint the gate proved, not a second resolution: the whole
+	// defect was two halves of nsctl addressing two different daemons.
+	runner, err := compose.NewRunnerAt(engine, opts.Lookup, opts.Out, opts.Err)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
@@ -302,7 +319,14 @@ func Start(ctx context.Context, opts *Options) error {
 	for _, c := range compose.CheckReserved(project, active) {
 		opts.warn("%s", c)
 	}
-	ours := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
+	ours, known := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
+	if !known {
+		// Without this the findings below read as fact. They are guesses:
+		// every port the platform itself publishes looks foreign when the
+		// engine could not be asked which ones are ours (NERD021 SPEC005).
+		opts.warn("could not ask the container engine which ports the local NeuronSphere " +
+			"already publishes; the port warnings below may name ports that are its own")
+	}
 	for _, c := range compose.CheckInUse(ctx, project, active, ours, nil) {
 		opts.warn("%s", c)
 	}
@@ -564,7 +588,7 @@ func Stop(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	runner, err := compose.NewRunner(opts.Out, opts.Err)
+	runner, err := compose.NewRunner(ctx, opts.Out, opts.Err)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
@@ -612,7 +636,7 @@ func Remove(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return err
 	}
-	runner, err := compose.NewRunner(opts.Out, opts.Err)
+	runner, err := compose.NewRunner(ctx, opts.Out, opts.Err)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}

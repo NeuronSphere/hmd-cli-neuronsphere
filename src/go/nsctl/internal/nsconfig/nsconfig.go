@@ -125,7 +125,7 @@ func ValidPluginName(name string) error {
 // two agree.
 var builtinNouns = []string{
 	"agent", "env", "lock", "artifact", "bom", "repo", "repoclass",
-	"control-plane", "cp", "authd", "login", "logout", "whoami", "version",
+	"control-plane", "cp", "authd", "login", "logout", "whoami", "version", "doctor",
 	"stack", "plugin",
 }
 

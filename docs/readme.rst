@@ -11,7 +11,8 @@ A CLI tool for controlling the Local NeuronSphere.
    installed plugin packages.
 
    For a new install, :doc:`reference/commands` is the recommended way to run the local
-   platform: a single Go binary whose only prerequisite is Docker. Both front
+   platform: a single Go binary whose only prerequisite is a container engine
+   its ``docker`` CLI can reach. Both front
    ends operate on the same ``HMD_HOME`` and can be used interchangeably.
 
 Additional Requirements

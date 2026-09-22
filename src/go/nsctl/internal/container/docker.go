@@ -63,6 +63,20 @@ func (d *Docker) Available(ctx context.Context) error {
 	return nil
 }
 
+// ContextEndpoint is the daemon endpoint the docker CLI itself resolves, as
+// "<context>\t<host>\t<skipTLSVerify>".
+//
+// The CLI, rather than a reimplementation of ~/.docker/contexts: it already
+// resolves DOCKER_HOST, DOCKER_CONTEXT, currentContext and DOCKER_CONFIG, and
+// it is already a hard prerequisite here -- Available, PullImage, the deploy
+// runner and every k3s exec all shell out to it. This is the reasoning
+// compose's Puller records for `docker pull`: where the CLI resolves something
+// the Engine API client does not, ask the CLI (NERD021 SPEC002).
+func (d *Docker) ContextEndpoint(ctx context.Context) (string, error) {
+	return d.capture(ctx, "context", "inspect", "--format",
+		"{{.Name}}\t{{.Endpoints.docker.Host}}\t{{.Endpoints.docker.SkipTLSVerify}}")
+}
+
 // capture runs a docker subcommand and returns its trimmed stdout.
 func (d *Docker) capture(ctx context.Context, args ...string) (string, error) {
 	if d.Timeout > 0 {
