@@ -5,12 +5,20 @@ NERD021 Runtime Agnostic Container Engine
 
 .. req:: Reach the container engine the user's own docker CLI reaches
     :id: HMD_CLI_NEURONSPHERE_NERD021
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall address the container engine the user's own ``docker`` CLI
     addresses, whichever runtime provides it, and shall refuse -- naming the
     endpoint and where it came from -- rather than pass a preflight and then
     fail partway against a socket nobody selected.
+
+    .. note::
+
+        ``implemented`` as of 2026-09-22 and covered by unit tests
+        (``make check``). See `The acceptance run`_ for what was verified live
+        against Colima and what is still owed: a full ``control-plane start``
+        on Colima, which needs a machine whose host ports are free, and with it
+        the only live exercise of SPEC006.
 
 Motivation
 ----------
@@ -53,6 +61,25 @@ the same code reaches nothing:
 All three lines are one cause, and the middle two are the interesting ones: they
 are a *reporting* bug the connection bug merely exposed. The ports it warned
 about were almost certainly ``nsctl``'s own proxy from a previous run.
+
+Failing to connect is not the worst case. On a machine that has **both** engines
+-- which is every machine where someone is migrating to Colima -- the legacy
+path still resolves, to the other engine. Measured during the acceptance run
+below, with ``DOCKER_CONTEXT=colima`` set:
+
+.. code-block:: text
+
+    OLD (client.FromEnv) host = unix:///var/run/docker.sock
+    OLD reached: Docker Desktop 29.0.1        -> 14 containers
+    NEW (resolved)       host = unix:///Users/aburg/.colima/default/docker.sock
+    NEW reached: Ubuntu 24.04.4 LTS 29.5.2    ->  0 containers
+
+The user selected Colima and ``nsctl`` silently operated on Docker Desktop,
+where another platform was running. The control-plane containers pin
+``container_name``, so their names are global within a daemon; the ownership
+guard at ``ownership.go:54`` is what stands between that and recreating someone
+else's containers, and it was running against the wrong daemon too. A refusal
+is a bad day; this is the failure mode that eats a platform.
 
 The evidence this document is built on
 --------------------------------------
@@ -158,7 +185,7 @@ Reference: what already exists
 
 .. spec:: One resolved endpoint, the docker CLI's own
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC001
-    :status: proposed
+    :status: implemented
 
     A new package ``internal/dockerhost`` shall resolve the Engine endpoint
     exactly as the ``docker`` CLI does, and every Engine API client shall be
@@ -174,7 +201,7 @@ Reference: what already exists
 
 .. spec:: No new dependency, and no second implementation of the context store
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC002
-    :status: proposed
+    :status: implemented
 
     Resolution shall shell out to ``docker context inspect``. It shall not add
     ``github.com/docker/cli``, and it shall not parse
@@ -196,7 +223,7 @@ Reference: what already exists
 
 .. spec:: The preflight gate is the Engine API, not the CLI
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC003
-    :status: proposed
+    :status: implemented
 
     ``container.New().Available(ctx)`` shall remain -- it is what catches "no
     docker installed" -- and shall be followed by a reachability check against
@@ -209,7 +236,7 @@ Reference: what already exists
 
 .. spec:: An endpoint nsctl cannot dial is refused before anything is created
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC004
-    :status: proposed
+    :status: implemented
 
     ``ssh://`` shall be refused by name, with the remedy, because reaching it
     needs the CLI's own connection helper, which lives in the dependency
@@ -222,7 +249,7 @@ Reference: what already exists
 
 .. spec:: Port reporting says when it does not know
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC005
-    :status: proposed
+    :status: implemented
 
     ``OurPorts`` shall report whether it could ask the engine at all, and the
     caller shall say once that its port findings are unreliable rather than
@@ -233,7 +260,7 @@ Reference: what already exists
 
 .. spec:: Every bind-mount source lives where the daemon can see it
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC006
-    :status: proposed
+    :status: implemented
 
     ``nsctl``'s own temporary material that is bind-mounted -- the generated
     deploy script, the overlay workspace, and the container-facing kubeconfig --
@@ -251,7 +278,7 @@ Reference: what already exists
 
 .. spec:: A VM-backed daemon is detected and its mount rule stated
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC007
-    :status: proposed
+    :status: implemented
 
     When the daemon's ``OSType`` differs from ``runtime.GOOS``, the engine runs
     in a virtual machine and a host path is visible to it only if it was shared
@@ -264,7 +291,7 @@ Reference: what already exists
 
 .. spec:: Daemon capacity is reported, and a small one warns
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC008
-    :status: proposed
+    :status: implemented
 
     The engine's CPU and memory shall be read and a warning issued below a
     threshold, naming the numbers and a runtime-appropriate remedy.
@@ -275,7 +302,7 @@ Reference: what already exists
 
 .. spec:: nsctl doctor
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC009
-    :status: proposed
+    :status: implemented
 
     A read-only ``nsctl doctor`` shall print what ``nsctl`` resolved and what
     the daemon reports, and shall exit ``2`` when something needs fixing and
@@ -290,7 +317,7 @@ Reference: what already exists
 
 .. spec:: nsctl never overrides the user's endpoint for child processes
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC010
-    :status: proposed
+    :status: implemented
 
     Shelled-out ``docker`` commands and the containers ``nsctl`` runs shall keep
     inheriting the user's environment. ``nsctl`` shall not inject
@@ -301,7 +328,7 @@ Reference: what already exists
 
 .. spec:: The docker.sock bind mounts are correct and stay
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC011
-    :status: proposed
+    :status: implemented
 
     The ``/var/run/docker.sock`` bind mounts at ``internal/runner/runner.go:340``
     and ``:421`` and in the control-plane compose file shall not change.
@@ -315,7 +342,7 @@ Reference: what already exists
 
 .. spec:: The kubeconfig repoint and the hosts check are unchanged
     :id: HMD_CLI_NEURONSPHERE_NERD021_SPEC012
-    :status: proposed
+    :status: implemented
 
     ``PointKubeconfigAtHost``'s ``https://127.0.0.1:<hostPort>``
     (``internal/floci/k3s.go:387-409``) shall not change: it names a *published*
@@ -356,26 +383,57 @@ Answered by the acceptance run, not here:
 The acceptance run
 ------------------
 
-Not yet done. Until this section records one, treat every SPEC as verified by
-unit tests only -- and SPEC007, SPEC008 and SPEC011's rootless case as not
-verified at all, since no Colima machine was available where this was written.
+Done 2026-09-22, on the machine this was written on: macOS 26 (darwin/arm64),
+Docker Desktop 29.0.1 and Colima 0.10.3 (lima 2.2.0) installed side by side,
+with a live NeuronSphere platform running on Docker Desktop throughout.
 
-The run shall cover, on a Colima Mac:
+Colima was started with ``--activate=false`` so the global docker context stayed
+``desktop-linux``, and every Colima check ran with ``DOCKER_CONTEXT=colima``
+in the process environment. That is deliberate and worth keeping: it exercises
+precedence step 2 rather than step 3, and it leaves a running platform and
+another engineer's test run untouched.
 
-.. code-block:: console
+Verified against Colima (``colima start --cpu 2 --memory 2 --disk 20``):
 
-    $ colima start --cpu 4 --memory 12 --disk 100
-    $ docker context use colima
-    $ nsctl doctor
-    $ nsctl control-plane start
-    $ nsctl env start <slug>
-    $ nsctl env apply
+.. code-block:: text
 
-``control-plane start`` must connect and must not warn about ports that are its
-own; ``env apply`` is what exercises SPEC006, and is the step that would
-otherwise reproduce the ``kube.go:140-148`` scar.
+    docker CLI           ok       found and answering
+    engine endpoint      ok       unix:///Users/aburg/.colima/default/docker.sock (the docker context "colima")
+    engine reachable     ok       Ubuntu 24.04.4 LTS 29.5.2 (linux)
+    engine capacity      warning  the container engine has 2 CPUs and 1.9 GiB of memory. ...
+                                  On Colima: colima stop && colima start --cpu 4 --memory 12 --disk 100
+    bind mounts          ok       the engine runs in a virtual machine (Ubuntu 24.04.4 LTS on linux,
+                                  from a darwin host) ...
+    CLI and API agree    ok       unix:///Users/aburg/.colima/default/docker.sock
+    host names           ok       resolve to loopback
 
-And on a Docker Desktop machine, both refusals: ``DOCKER_HOST`` unset (which
-must behave exactly as before), and ``DOCKER_HOST`` pointing at a dead socket
-(which must be refused by the preflight, naming the endpoint and its source,
-rather than failing at ``EnsureNetwork``).
+- SPEC001, SPEC002: the endpoint resolves to Colima's socket through the
+  context, and the engine reached is Colima's (Ubuntu 24.04.4 / 29.5.2), not
+  Docker Desktop's (29.0.1). The A/B above is the same check stated as a
+  difference.
+- SPEC003: ``doctor`` and the start preflight share the suite; the engine was
+  reached, not merely the CLI.
+- SPEC005: ``EnsureNetwork`` -- the call that produced the original error --
+  creates, inspects and removes a network on Colima, and on Docker Desktop
+  unchanged.
+- SPEC007: the VM-backed rule fires for Colima *and* for Docker Desktop, which
+  is correct and is why the test is ``GOOS`` against ``OSType`` rather than a
+  runtime name.
+- SPEC008: Colima's documented defaults are confirmed at 2 CPUs and 2 GiB
+  (reported as 1.9 GiB usable), and the warning fires on them without refusing
+  the start.
+- SPEC009: ``nsctl doctor`` exits ``0`` with a warning present, as specified.
+
+Not yet verified, and still owed:
+
+- A full ``nsctl control-plane start`` and ``env start`` on Colima. ``hmd_proxy``
+  publishes ``80``, ``4566``, ``18080`` and ``19000-19079`` on the host, and the
+  Docker Desktop platform running during this session already held them; two
+  engines forward published ports to the same host loopback, so the two cannot
+  run at once. This needs a quiet machine, and it is the run that exercises
+  SPEC006 end to end -- the bind-mount fix -- which is so far covered only by
+  unit tests.
+- SPEC004's ``ssh://`` refusal, and SPEC011's rootless case, against real
+  endpoints of those kinds.
+- OrbStack and Rancher Desktop, which are expected to behave as Colima does but
+  were not installed.

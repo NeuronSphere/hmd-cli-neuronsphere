@@ -10,6 +10,13 @@
   compatibility symlink and Colima does not provide at all. The CLI-shaped
   preflight passed and the start then failed creating the network
   (NERD021 SPEC001-SPEC004).
+
+  Failing to connect was not the worst case. Verified on a machine running both
+  engines: with `DOCKER_CONTEXT=colima` the old path resolved
+  `unix:///var/run/docker.sock` and silently operated on **Docker Desktop**,
+  where another platform was running, instead of on the engine the user
+  selected. The ownership guard that prevents recreating another home's
+  containers was running against the wrong daemon too.
 - fix: `OurPorts` reports whether it could ask the engine at all. An empty set
   meant "none of these ports are ours", so a start whose engine was
   unreachable warned that its own proxy's ports were in use by something else
