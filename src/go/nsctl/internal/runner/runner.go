@@ -238,7 +238,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		}
 		scriptFile.Close()
 
-		args = r.dockerArgs(node, workspace, scriptPath)
+		args = r.dockerArgs(node, workspace, scriptPath, cmd.Override)
 		r.step("  deploying %s (%s@%s)...", node.InstanceName, node.RepoClassName, node.Version)
 	}
 
@@ -254,9 +254,25 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 }
 
 // dockerArgs builds the projectbuilder invocation.
-func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath string) []string {
-	config, _ := json.Marshal(node.InstanceConfiguration)
-	if node.InstanceConfiguration == nil {
+func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath string, override bool) []string {
+	// A seeded node carries its resolved configuration only inside the
+	// generated deploy script. `hmd deploy` reads it from there, but a
+	// src/local/deploy_local.sh override replaces that script and reads
+	// HMD_INSTANCE_CONFIG instead -- which was "{}" for every such node, so a
+	// script keyed on its configuration (hmd-inf-neptune's graph_host)
+	// silently fell back to its defaults. Lift it out of the script for
+	// those, as the foreign-node path does. Only for those: the resolved
+	// configuration of a node with many dependencies runs past the exec
+	// argument limit as an environment variable ("argument list too long"),
+	// and a generated script never reads the variable.
+	instanceConfig := node.InstanceConfiguration
+	if instanceConfig == nil && override {
+		if extracted, ok := ExtractConfig(node.Script); ok {
+			instanceConfig = extracted
+		}
+	}
+	config, _ := json.Marshal(instanceConfig)
+	if instanceConfig == nil {
 		config = []byte("{}")
 	}
 

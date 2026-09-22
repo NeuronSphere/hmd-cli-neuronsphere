@@ -37,6 +37,10 @@ type nodeCommand struct {
 	Script string
 	Argv   []string
 	Image  string
+	// Override is set when Script is a src/local/deploy_local.sh replacing the
+	// generated deploy script, which then has to be handed the configuration
+	// the generated script carried inline.
+	Override bool
 }
 
 // prepareWorkspace resolves the workspace to mount and the command to run.
@@ -116,7 +120,7 @@ func (r *Runner) prepareWorkspace(repoPath, script string, isolate bool) (worksp
 		}
 		// A full override: the generated command is replaced, so it is not
 		// localized either.
-		return tmp, nodeCommand{Script: "bash src/local/deploy_local.sh"}, func() { os.RemoveAll(filepath.Dir(tmp)) }, nil
+		return tmp, nodeCommand{Script: "bash src/local/deploy_local.sh", Override: true}, func() { os.RemoveAll(filepath.Dir(tmp)) }, nil
 	}
 
 	if overlayHasToolFiles(overlay) || isolate {

@@ -35,6 +35,12 @@
   `nsctl repoclass license set <spdx> [--exclude <path>]...` / `clear`;
   `repoclass validate` checks the shape. Nothing is inferred from class
   names or LICENSE files and no push is refused (NERD017 SPEC011).
+- fix: a `src/local/deploy_local.sh` node receives the resolved configuration in
+  `HMD_INSTANCE_CONFIG` (it was `{}`: `Seed` embeds the configuration only in the
+  generated script the override replaces), so `hmd-inf-neptune` records its
+  `graph_host` alias rather than Floci's proxy endpoint. Only such nodes: a
+  generated script never reads the variable, and a large configuration as an
+  environment variable trips the exec argument limit.
 - fix: deploy containers get an in-network kubeconfig (the host file names a
   published localhost port a container cannot reach), the k3s node's
   container name (`HMD_LOCAL_K3S_CONTAINER`) and the control plane's
