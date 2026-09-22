@@ -518,10 +518,40 @@ install has accumulated, so a first start fetches ten and every one is a chance
 to lose the run. Pulls are now retried three times with a linear backoff,
 transport failures only.
 
+SPEC011 against a real rootless daemon
+---------------------------------------
+
+Done 2026-09-22, against a genuine rootless engine rather than an argument
+about one: ``docker:27-dind-rootless``, published on a TCP port and named by a
+context of its own, so nsctl reached it exactly as it reaches any other.
+
+The premise holds precisely. The daemon runs as uid 1000, its socket is at
+``/run/user/1000/docker.sock``, and ``/var/run/docker.sock`` **does not exist on
+it at all**. It reports ``name=rootless`` among its ``SecurityOptions``, which
+is what ``dockerhost.Probe`` reads, and ``DockerRootDir`` is under the user's
+home rather than ``/var/lib/docker``. ``nsctl doctor`` names it and exits ``0``:
+a warning, not a refusal, as SPEC011 specified.
+
+What the run settles is that the warning is not sufficient. Mounting the
+hardcoded source on that engine was tried directly::
+
+    -v /var/run/docker.sock:/var/run/docker.sock   -> an empty DIRECTORY in the container
+    -v /run/user/1000/docker.sock:/var/run/docker.sock -> works: "sibling reaches server 27.5.1"
+
+So a deploy node on a rootless engine does not fail to find the socket; it is
+handed a directory the daemon invented, and every call through it fails later
+and somewhere else. That is the same failure this document describes for the
+kubeconfig, from the same cause, and the remedy is the same in shape: derive
+the mount *source* from the resolved endpoint when it names a unix socket, and
+keep the target at ``/var/run/docker.sock``. It is a larger change than the
+kubeconfig guard -- ``runner.Config`` does not carry the endpoint today and
+would have to -- so it is recorded here rather than done, with the evidence
+that it is worth doing.
+
 Not yet verified, and still owed:
 
-- SPEC004's ``ssh://`` refusal, and SPEC011's rootless case, against real
-  endpoints of those kinds. The rootless warning now exists and is unit-tested;
-  what is untested is a real rootless daemon.
+- SPEC004's ``ssh://`` refusal against a real ssh endpoint.
+- Deriving the deploy node's socket source from the resolved endpoint, per the
+  evidence above.
 - OrbStack and Rancher Desktop, which are expected to behave as Colima does but
   were not installed.
