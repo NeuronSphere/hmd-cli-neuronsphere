@@ -14,11 +14,11 @@ NERD021 Runtime Agnostic Container Engine
 
     .. note::
 
-        ``implemented`` as of 2026-09-22 and covered by unit tests
-        (``make check``). See `The acceptance run`_ for what was verified live
-        against Colima and what is still owed: a full ``control-plane start``
-        on Colima, which needs a machine whose host ports are free, and with it
-        the only live exercise of SPEC006.
+        ``implemented`` as of 2026-09-22, covered by unit tests
+        (``make check``) and accepted live: a full ``control-plane start`` and
+        ``env start`` ran on Colima the same day, with Docker Desktop stopped.
+        See `The acceptance run`_ for what each pass verified, what the live
+        run found that the unit tests could not, and what is still owed.
 
 Motivation
 ----------
@@ -424,16 +424,104 @@ Verified against Colima (``colima start --cpu 2 --memory 2 --disk 20``):
   the start.
 - SPEC009: ``nsctl doctor`` exits ``0`` with a warning present, as specified.
 
+The second pass: a platform on Colima
+--------------------------------------
+
+Done 2026-09-22, on the same machine with **Docker Desktop stopped**. The live
+platform was quiesced first (``env stop local``, ``control-plane stop``, never
+``purge``) so its volumes stayed intact, and Colima took the host ports the
+first pass could not.
+
+Two deliberate differences from the first pass. The global docker context was
+switched to ``colima``, so this exercises precedence step 3 (``currentContext``)
+where the first pass exercised step 2 (``DOCKER_CONTEXT``); and the VM was sized
+to run something rather than to trigger a warning::
+
+   colima start --cpu 8 --memory 20 --disk 150 --vm-type vz --mount-type virtiofs
+
+A scratch ``HMD_HOME`` was used, because Colima's volume namespace is its own
+and a run against one engine should not write the registry the other reads.
+
+What ran, all against ``ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.389``:
+
+- ``nsctl doctor`` -- seven checks, all ``ok``, exit ``0``; the capacity warning
+  is gone at this size.
+- ``NSCTL_LIVE=1 go test ./internal/dockerhost/...`` -- the endpoint resolves to
+  Colima's socket and the daemon reached reports ``Ubuntu 24.04.4 LTS 29.5.2``.
+- ``nsctl control-plane start`` -- exit ``0`` from a **cold engine**: ten images
+  pulled, network created with no port warning, and the control plane
+  bootstrapped through real projectbuilder deploy nodes (vpc, db, graph,
+  ms-deployment).
+- ``nsctl env add local`` and ``nsctl env start local`` -- exit ``0``. Four
+  deploy nodes, k3s up with its API served on host ``:19072``, one node Ready
+  and labelled, CoreDNS records written, ingress controller ready with
+  ``IngressClass "alb" -> traefik.io/ingress-controller``, the database aliased.
+- ``nsctl env purge local --yes`` and the whole environment again, to re-run the
+  deploy nodes against a genuinely fresh environment.
+- ``NSCTL_LIVE=1 go test ./internal/k3s/...`` -- all seven live tests pass
+  against the Colima cluster.
+
+This is the pass that answers the open questions above:
+
+- **The mount set.** Colima 0.10.3 mounts ``$HOME`` *writable* by default: the
+  generated lima config carries ``location: "~"`` with ``writable: true`` over
+  virtiofs. The rule "keep it under your home directory" holds without the user
+  adding a ``--mount``.
+- **OSType.** Colima reports ``linux`` from a ``darwin`` host, so SPEC007's
+  VM-backed rule fires, as it does for Docker Desktop.
+- **The 19000-19079 band.** It forwards completely -- 80 of 80 ports -- and
+  takes about five seconds after the container starts before every port in it
+  accepts a connection. Privileged ports forward too, so ``hmd_proxy`` on
+  ``:80`` works; that was the risk that could have stopped this pass and it did
+  not materialise.
+- **SPEC008's numbers.** 8 CPUs and 20 GiB ran the platform comfortably. The
+  threshold stays a proposal, but it is no longer unmeasured on the upper side.
+
+What the live run found that the unit tests could not
+-----------------------------------------------------
+
+SPEC006 moved nsctl's *own* temp material under ``$HMD_HOME``, and that part
+held: every overlay workspace and generated script mounted from
+``$HMD_HOME/.cache/nsctl/tmp`` and arrived non-empty. But the kubeconfig a
+deploy node mounts is not temp material -- it is the environment's own file --
+and it was mounted on the strength of ``Config.Kubeconfig != ""``, the field
+being set rather than the file being there.
+
+On a fresh environment nothing has written it yet, so the three nodes that run
+before the cluster exists each named a path that did not exist, and Docker
+created it as an empty **directory** -- in the container *and on the host*, at
+exactly the path the real kubeconfig is later written to. Observed directly,
+before the fix::
+
+    node 06d982938391: /root/.kube/config = DIRECTORY
+    node 83373f236fe1: /root/.kube/config = DIRECTORY
+
+That is the same mechanism this document describes at ``k3s/kube.go``, and what
+``floci.PointKubeconfigAtHost``'s defensive ``RemoveAll`` and
+``environment.kubeconfigUnusable`` exist to undo. Both clean up after the
+directory; neither stops it being made. Guarding the mount on the source being
+an existing regular file removes the cause. After the fix, on a purged and
+restarted environment::
+
+    node bb6a806c2fb2: /root/.kube/config=absent  mount=none     <- before the cluster
+    node 94747de71c45: /root/.kube/config=absent  mount=none
+    node 9970b6b8ffb6: /root/.kube/config=absent  mount=none
+    node f642104a8d5b: /root/.kube/config=file    mount=mounted  <- after it
+    node 3e875e6ca6dd: /root/.kube/config=file    mount=mounted
+
+Two smaller things came out of the same pass. A rootless engine was never
+actually reported: ``Daemon.Rootless`` was probed and read by nothing, so
+SPEC011's warning -- the whole of that decision -- did not exist, while the
+how-to told users to expect it. And a transient image pull aborted the entire
+start: a cold engine holds none of the images a long-lived Docker Desktop
+install has accumulated, so a first start fetches ten and every one is a chance
+to lose the run. Pulls are now retried three times with a linear backoff,
+transport failures only.
+
 Not yet verified, and still owed:
 
-- A full ``nsctl control-plane start`` and ``env start`` on Colima. ``hmd_proxy``
-  publishes ``80``, ``4566``, ``18080`` and ``19000-19079`` on the host, and the
-  Docker Desktop platform running during this session already held them; two
-  engines forward published ports to the same host loopback, so the two cannot
-  run at once. This needs a quiet machine, and it is the run that exercises
-  SPEC006 end to end -- the bind-mount fix -- which is so far covered only by
-  unit tests.
 - SPEC004's ``ssh://`` refusal, and SPEC011's rootless case, against real
-  endpoints of those kinds.
+  endpoints of those kinds. The rootless warning now exists and is unit-tested;
+  what is untested is a real rootless daemon.
 - OrbStack and Rancher Desktop, which are expected to behave as Colima does but
   were not installed.

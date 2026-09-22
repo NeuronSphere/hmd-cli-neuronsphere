@@ -62,9 +62,32 @@ never refuses on size alone.
 Colima's defaults are well under it, so size it at creation::
 
    colima stop
-   colima start --cpu 4 --memory 12 --disk 100
+   colima start --cpu 8 --memory 20 --disk 150
+
+Those are the numbers a full ``control-plane start`` plus ``env start`` was
+measured on, not a minimum. The disk is the one worth attention: a long-lived
+Docker Desktop install has accumulated the images of every platform that
+machine ever ran, and a newly created VM holds none of them, so a first start
+pulls the lot. Colima's 20 GiB default runs out partway through. Disk can only
+be grown after creation, never shrunk.
 
 On Docker Desktop, use *Settings -> Resources*.
+
+Published ports
+---------------
+
+The local platform publishes ``80``, ``4566``, ``18080`` and the whole
+``19000-19079`` band on the host, and two engines cannot both forward the same
+host ports. So only one engine can run the platform at a time: stop the
+platform on one before starting it on the other, rather than expecting them to
+coexist.
+
+Both properties this needs were measured on Colima 0.10.3 with its default
+``ssh`` port forwarder. Privileged ports below 1024 forward to the host, so
+``hmd_proxy`` on ``:80`` works. The eighty-port band forwards completely, and
+takes roughly five seconds after the container starts before every port in it
+accepts a connection -- so a check that runs the instant a container appears
+can see a port that is about to work.
 
 Keep bind-mounted paths where the engine can see them
 -----------------------------------------------------
@@ -80,10 +103,11 @@ reason. What is left to you is ``HMD_HOME`` itself and your repository
 checkouts.
 
 The rule that holds for every engine: keep them under your home directory.
-Colima shares ``$HOME`` and ``/tmp/colima`` by default and Docker Desktop
-shares a configurable set that includes ``/Users``. ``nsctl doctor`` warns,
-naming the paths, when it finds one outside your home directory on a VM-backed
-engine.
+Colima mounts ``$HOME`` writable by default -- confirmed on 0.10.3, which
+generates a lima ``mounts:`` entry of ``location: "~"`` with ``writable: true``
+over virtiofs -- and Docker Desktop shares a configurable set that includes
+``/Users``. ``nsctl doctor`` warns, naming the paths, when it finds one outside
+your home directory on a VM-backed engine.
 
 To share another path with Colima::
 
@@ -94,6 +118,8 @@ Rootless daemons
 ----------------
 
 A rootless daemon's socket is not at ``/var/run/docker.sock``, and the
-containers ``nsctl`` runs that talk to the engine bind-mount that path. If
-``nsctl doctor`` reports a rootless engine, expect deploy nodes that drive the
-engine themselves to need the socket path adjusted.
+containers ``nsctl`` runs that talk to the engine bind-mount that path.
+``nsctl doctor`` warns when the engine reports itself rootless -- an extra
+``engine socket`` line, absent on the rootful engines that are the ordinary
+case -- and deploy nodes that drive the engine themselves will need the socket
+path adjusted. Prefer a rootful engine for the local platform.
