@@ -541,17 +541,20 @@ hardcoded source on that engine was tried directly::
 So a deploy node on a rootless engine does not fail to find the socket; it is
 handed a directory the daemon invented, and every call through it fails later
 and somewhere else. That is the same failure this document describes for the
-kubeconfig, from the same cause, and the remedy is the same in shape: derive
-the mount *source* from the resolved endpoint when it names a unix socket, and
-keep the target at ``/var/run/docker.sock``. It is a larger change than the
-kubeconfig guard -- ``runner.Config`` does not carry the endpoint today and
-would have to -- so it is recorded here rather than done, with the evidence
-that it is worth doing.
+kubeconfig, from the same cause.
+
+It is also worse than a deploy-time problem. The ``floci`` service mounts the
+same path, and Floci spawns the whole substrate through it, so on a rootless
+engine Floci starts and can spawn nothing. The platform never reaches a deploy
+node.
+
+Making that work is its own capability rather than a loose end of this one, and
+it is specified in ``NERD022``. What belongs here is
+the finding: SPEC011 chose a warning over a code change, and the measurement
+above is the evidence that the warning is not sufficient.
 
 Not yet verified, and still owed:
 
 - SPEC004's ``ssh://`` refusal against a real ssh endpoint.
-- Deriving the deploy node's socket source from the resolved endpoint, per the
-  evidence above.
 - OrbStack and Rancher Desktop, which are expected to behave as Colima does but
   were not installed.
