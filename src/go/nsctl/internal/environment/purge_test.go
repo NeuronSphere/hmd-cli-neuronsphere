@@ -423,3 +423,73 @@ func TestThePurgeLeavesAnotherPlatformsContainersAndVolumesAlone(t *testing.T) {
 		t.Errorf("the purge took another platform's volume:\n%s", all)
 	}
 }
+
+// The volume goes with the container the sweep catches.
+//
+// Floci names an RDS volume after its container, and the targeted loop finds
+// that container by asking Floci which one backs the instance -- after the
+// purge has deleted the instance record, so the lookup answers nothing and the
+// container reaches the account sweep instead. Removing it there without its
+// volume leaked one Postgres volume per purge, while the run reported the
+// container removed.
+func TestAnEnvironmentPurgeTakesTheVolumeOfASweptContainer(t *testing.T) {
+	rec := &recorder{}
+	home := t.TempDir()
+	env := testEnv(home, "dev")
+	home = purgeHome(t, map[string]registry.Environment{"dev": env})
+	withFakes(t, rec, &fakeDocker{
+		rec: rec,
+		// Empty, exactly as it is once the instance record is gone: the
+		// targeted rds branch finds no container and removes no volume.
+		floci: map[string]string{},
+		labelled: map[string][]string{
+			container.LabelFlociAccount + "=" + env.AccountID + "@neuronsphere_default-abc12345": {"floci-rds-db-ABC123-de37d2"},
+		},
+	})
+
+	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
+	if err := Purge(context.Background(), opts, "dev"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	if rec.index("rm container floci-rds-db-ABC123-de37d2") < 0 {
+		t.Fatalf("the database container was not removed at all; calls were %v", rec.calls)
+	}
+	if rec.index("rm volumes floci-rds-db-ABC123-de37d2") < 0 {
+		t.Errorf("the container was removed but its volume was left behind; calls were %v", rec.calls)
+	}
+}
+
+// The database volume is taken even though Floci removed its container first.
+//
+// DeleteDBInstance removes the container and leaves the volume, so by the time
+// the purge looks for a container to name the volume by, there is none -- the
+// name has to be captured before Floci is asked to delete the instance. Getting
+// this wrong leaked one Postgres volume per purge while the run reported the
+// database removed.
+func TestAnEnvironmentPurgeTakesTheDatabaseVolumeFlociLeaves(t *testing.T) {
+	rec := &recorder{}
+	home := t.TempDir()
+	env := testEnv(home, "dev")
+	home = purgeHome(t, map[string]registry.Environment{"dev": env})
+	withFakes(t, rec, &fakeDocker{
+		rec: rec,
+		// Floci still knows the container when asked up front; the delete below
+		// is what takes it away.
+		floci: map[string]string{
+			"rds/environment-db-hmd-postgres-rds-dev-dev-reg1-none": "floci-rds-db-DEADBEEF-aa11bb",
+		},
+	})
+
+	opts := &Options{Home: home, Lookup: func(string) string { return "" }, Out: io.Discard, Err: io.Discard}
+	if err := Purge(context.Background(), opts, "dev"); err != nil {
+		t.Fatalf("Purge: %v", err)
+	}
+	volume := rec.index("rm volumes floci-rds-db-DEADBEEF-aa11bb")
+	if volume < 0 {
+		t.Fatalf("the database volume was left behind; calls were %v", rec.calls)
+	}
+	// And the name was read before the instance record went, not after.
+	if del := rec.index("floci delete instance environment-db-hmd-postgres-rds-dev-dev-reg1-none"); del >= 0 && volume < del {
+		t.Errorf("the volume was removed before the instance delete; calls were %v", rec.calls)
+	}
+}

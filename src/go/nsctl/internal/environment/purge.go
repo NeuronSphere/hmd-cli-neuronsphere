@@ -131,6 +131,17 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 		opts.warn("could not delete the cluster %s: %v", env.K3sCluster, err)
 	}
 
+	// The database container's name, taken before Floci is asked to delete the
+	// instance.
+	//
+	// DeleteDBInstance removes the container and deliberately leaves the volume
+	// -- that is what makes clearing a failed record a repair -- and Floci names
+	// the volume after the container. Asked afterwards, the instance record is
+	// gone and the container with it, so nothing names the volume any more:
+	// every purge leaked one Postgres volume while reporting the database
+	// removed. Sixty-two volumes had accumulated on this machine that way.
+	dbContainer, _ := d.FlociContainer(ctx, "rds", env.AccountID, floci.EnvDBIdentifier(names))
+
 	prov, err := newFlociDeleter(ctx, target, opts)
 	if err != nil {
 		opts.warn("could not reach Floci to delete %s's database and graph: %v", env.Slug, err)
@@ -150,6 +161,18 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 	// The containers and volumes Floci does not remove for us.
 	// DeleteDBInstance deliberately leaves the volume -- that is what makes
 	// clearing a failed record a repair -- so a purge has to take it here.
+	// The database volume, by the name captured above. Removing a volume whose
+	// container Floci has already taken is the whole point: RemoveVolumes reads
+	// an absent volume as success, so a database that was never created costs
+	// nothing here.
+	if dbContainer != "" {
+		if err := d.RemoveVolumes(ctx, dbContainer); err != nil {
+			opts.warn("%v", err)
+		} else {
+			opts.step("  removed %s (database volume)", dbContainer)
+		}
+	}
+
 	existing := d.ContainerNames(ctx)
 	removeContainers(ctx, opts, d, "cluster", floci.K3sContainerName(env.K3sCluster, env.AccountID, existing))
 	if err := d.RemoveVolumes(ctx, floci.K3sVolumeCandidates(env.K3sCluster, env.AccountID)...); err != nil {
@@ -189,8 +212,24 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 	// sweep below gives: every HMD_HOME allocates account 000000000001 to its
 	// first environment, so the account label alone matched another
 	// platform's stopped k3s and database containers and removed them.
+	//
+	// The volume goes with the container, not only in the targeted loop above.
+	// Floci names an RDS volume after the container it spawns, and that loop
+	// finds the container by asking Floci which one backs the instance -- after
+	// this purge has already deleted the instance record, so the lookup answers
+	// nothing and the container arrives here instead, logged "Floci-spawned"
+	// rather than "database". Removing it without its volume is how a purge
+	// leaked one Postgres volume per run while reporting the container gone.
+	//
+	// RemoveVolumes treats a name with no volume as success, so this costs
+	// nothing for the containers that have none. A volume Floci names something
+	// else -- floci-ecr-registry-data, against container floci-ecr-registry --
+	// is not matched by name and is not this sweep's to take.
 	for _, name := range d.ContainersWithLabelOnNetwork(ctx, container.LabelFlociAccount, env.AccountID, reg.ControlPlane.Network) {
 		removeContainers(ctx, opts, d, "Floci-spawned", name)
+		if err := d.RemoveVolumes(ctx, name); err != nil {
+			opts.warn("%v", err)
+		}
 	}
 
 	r := router.New(opts.Home, opts.Lookup)
