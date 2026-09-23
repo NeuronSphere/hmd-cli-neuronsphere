@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
@@ -395,6 +396,27 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		}
 	}
 	if err == nil {
+		// The database and graph Phase A may have just created, named before
+		// Phase B addresses them -- the same reason provisionNewCluster runs
+		// here for the cluster.
+		//
+		// On a first start there is no environment database until Phase A's
+		// deploy makes one, so `env start` has nothing to attach the alias to
+		// and says so ("no database ... has ever been deployed"). Phase B's
+		// first node is a hmd-database-account, which posts to ms-dbaccount,
+		// which connects to `hmd_db-<env>` -- and without this the name does
+		// not resolve yet:
+		//
+		//     psycopg2.OperationalError: could not translate host name
+		//     "hmd_db-local" to address: Name or service not known
+		//
+		// Attaching it only after Phase B, as the call below did alone, made
+		// that a first-start-only failure that a retry then papered over: every
+		// warm start inherits the alias from the run before, which is why it
+		// survived every --force-full-redeploy and only a purged environment
+		// showed it.
+		refreshSpawnedAliases(ctx, opts, reg, env, d, names)
+
 		// Phase B: everything the manifest declares.
 		_, err = runPhase(ctx, opts, seeder, run, bomEnv, phaseB, "declared")
 	}
@@ -410,11 +432,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil); writeErr != nil {
 		opts.warn("%v", writeErr)
 	}
-	// The database and graph containers are spawned by Floci inside the DAG,
-	// and a Lambda deployed later in the same DAG addresses them by the alias
-	// `env start` attaches -- which it has not had a chance to. Attach them
-	// now, on failure as well as success: a node that failed for want of the
-	// alias succeeds on the retry only if the retry can resolve the name.
+	// Again, for what Phase B itself spawned, and on failure as well as
+	// success: a node that failed for want of the alias succeeds on the retry
+	// only if the retry can resolve the name. The call before Phase B covers
+	// what Phase A created; this one covers the rest and is why a failed run
+	// still leaves the environment addressable.
 	refreshSpawnedAliases(ctx, opts, reg, env, d, names)
 	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
@@ -687,16 +709,50 @@ func kubeconfigUnusable(path string) bool {
 func refreshSpawnedAliases(ctx context.Context, opts *Options, reg *registry.Registry,
 	env *registry.Environment, d *container.Docker, names floci.Names) {
 
-	if dbContainer, err := floci.EnsureRDSRunning(ctx, d, env.AccountID, floci.EnvDBIdentifier(names),
+	var dbContainer, graphContainer string
+	var err error
+	if dbContainer, err = floci.EnsureRDSRunning(ctx, d, env.AccountID, floci.EnvDBIdentifier(names),
 		env.DBContainer, reg.ControlPlane.Network, 2*time.Minute, 0); err != nil {
 		opts.warn("%v", err)
 	} else if dbContainer != "" {
 		opts.step("  %s is up and aliased as %s", dbContainer, env.DBContainer)
 	}
-	if graphContainer, err := floci.EnsureNeptuneRunning(ctx, d, env.AccountID, floci.GraphIdentifier(names),
+	if graphContainer, err = floci.EnsureNeptuneRunning(ctx, d, env.AccountID, floci.GraphIdentifier(names),
 		env.GraphContainer, reg.ControlPlane.Network); err != nil {
 		opts.warn("%v", err)
 	} else if graphContainer != "" {
 		opts.step("  %s is up and aliased as %s", graphContainer, env.GraphContainer)
+	}
+
+	// The Docker alias is only half of it. A pod resolves these names through
+	// the cluster's coredns-custom record, which was written when the cluster
+	// was provisioned -- before Phase A created the database on a first start,
+	// so it holds no entry for it or a stale one from a container since
+	// replaced. The alias above fixes the Floci Lambdas and leaves every chart
+	// broken:
+	//
+	//     connection to server at "hmd_db-local" (172.27.0.11), port 5432
+	//     failed: Connection refused
+	//
+	// Rewriting is cheap and idempotent, and the records are rebuilt wholesale
+	// from the containers as they are now.
+	cluster := floci.K3sContainerName(env.K3sCluster, env.AccountID, d.ContainerNames(ctx))
+	if cluster == "" {
+		return
+	}
+	ops := &k3s.Operators{
+		Kube:   &k3s.Kube{Cluster: env.K3sCluster, Container: cluster, Kubeconfig: env.Kubeconfig, Run: d.Run},
+		Docker: d,
+		Env: k3s.Environment{
+			Slug: env.Slug, DBContainer: env.DBContainer, GraphContainer: env.GraphContainer,
+			CoreInstanceName: env.CoreInstanceName,
+			K3sCluster:       env.K3sCluster, K3sContainer: cluster,
+			AuthHost: authd.Host(opts.lookup),
+		},
+		Network: reg.ControlPlane.Network, IngressEnabled: ingressEnabled(opts),
+		Out: opts.Out, Err: opts.Err,
+	}
+	if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
+		opts.warn("%v", err)
 	}
 }
