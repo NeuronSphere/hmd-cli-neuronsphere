@@ -2,6 +2,23 @@
 
 ## 2026-09-23
 
+- fix: a stack that binds `graph-db` now has a graph to resolve against.
+  `global-graph` was only ever a Docker network alias, so an environment whose
+  manifest bound the role -- the shape `nsctl stack init --from-env` produces,
+  and what `hmd-stack-analytics` ships -- got as far as trino and then failed on
+  `register_deployed_instance: HTTP 500`, whose cause appears only in the
+  control plane's log as `AssertionError: No repo instance found for name,
+  global-graph`. The name answered on the network throughout, which is what hid
+  it. `env apply` and `env plan` now append the `hmd-inf-neptune` entry the
+  Python front end has always written, on demand: the graph is deployed the
+  first time something declares a `graph-db`, `neptune-db` or `neptune`
+  dependency, and a default environment still runs none -- it is a gremlin JVM
+  that most local work never reads. `HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false`
+  suppresses it even where something asks, leaving that dependency visibly
+  unresolved. An environment whose manifest already declares `global-graph` --
+  every environment the Python CLI created -- keeps its own entry rather than
+  gaining a second one under the same name.
+
 - fix: `brew install`/`brew upgrade` no longer warns about a deprecated cask
   stanza. Homebrew 6.0.16 deprecated free-form `postflight do ... end` blocks in
   favour of the declarative `postflight_steps`, and GoReleaser only ever emits

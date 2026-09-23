@@ -113,6 +113,9 @@ type Environment struct {
 	Region      string
 	// DBContainer is the DNS alias the environment's Postgres answers on.
 	DBContainer string
+	// GraphContainer is the DNS alias the environment's graph answers on, where
+	// it has one of its own. Empty falls back to the shared GraphHost.
+	GraphContainer string
 	// K3sCluster and K3sContainer name the cluster and the container Floci
 	// spawned for it.
 	K3sCluster   string

@@ -76,7 +76,8 @@ func buildBomEnv(ctx context.Context, opts *Options, d *container.Docker, env *r
 		// fail -- it succeeds against the wrong account.
 		AccessKeyID: target.AccessKeyID,
 		Region:      names.Region, DBContainer: env.DBContainer,
-		K3sCluster: env.K3sCluster, K3sContainer: k3sContainer,
+		GraphContainer: env.GraphContainer,
+		K3sCluster:     env.K3sCluster, K3sContainer: k3sContainer,
 	}
 	return bomEnv, target, names
 }
@@ -154,6 +155,28 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// has produced yet.
 	if steps.Cluster && extSecretsEnabled(opts) && k3sEnabled(opts) {
 		entries = append(entries, bom.ExtSecrets(bomEnv)...)
+	}
+
+	// The graph, when something actually wants one. Lazily, for the same reason
+	// the Python is lazy: it is a JVM per environment that most local work never
+	// touches, so a default environment deploys none.
+	//
+	// Not gated on the cluster: it is a Floci Neptune cluster, not a chart.
+	// Not in Substrate's own list either -- a substrate name is reserved in
+	// every environment, and this one is deployed only on demand.
+	//
+	// Without this a stack that binds graph-db to `global-graph` -- the shape
+	// `nsctl stack init --from-env` produces, and what hmd-stack-analytics
+	// ships -- fails at register time on an instance that never existed:
+	//
+	//	AssertionError: No repo instance found for name, global-graph
+	//
+	// The alias answered on the network throughout, which is what hid this.
+	if graphEnabled(opts) {
+		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
+			entries = append(entries, bom.Graph(bomEnv))
+		}
+		bom.RepointGraphDatabase(entries)
 	}
 
 	// Before the plan is computed, not only inside Seed.
@@ -526,6 +549,22 @@ func subnetGroupCollision(res *runner.Result) bool {
 // k3sEnabled and Substrate's withCluster parameter already draw.
 func extSecretsEnabled(opts *Options) bool {
 	switch strings.ToLower(strings.TrimSpace(opts.lookup(bom.ExtSecretsEnabledEnv))) {
+	case "false", "0", "no":
+		return false
+	}
+	return true
+}
+
+// graphEnabled is the hard override for the lazy default, matching bom_seeder's
+// graph_enabled. Gated here rather than inside internal/bom for the same reason
+// extSecretsEnabled is: the BOM constructors stay pure functions of arguments.
+//
+// Unlike ext-secrets this is not "on unless disabled" -- demand decides, and
+// this only takes the graph away. Setting it false with a consumer present
+// leaves that consumer failing to resolve its dependency, which is the intended,
+// visible outcome of turning it off.
+func graphEnabled(opts *Options) bool {
+	switch strings.ToLower(strings.TrimSpace(opts.lookup(bom.GraphEnabledEnv))) {
 	case "false", "0", "no":
 		return false
 	}

@@ -87,16 +87,22 @@ func newEnvStartCommand(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start an environment's infrastructure",
-		Long: `Starts one environment: its database, graph, k3s cluster and routes.
+		Long: `Starts one environment: its database, k3s cluster and routes.
 
 The control plane is started first if it is down, and is left running
 afterwards -- stopping it would take every other environment's emulated AWS
 with it.
 
+The graph is not in that list because it is provisioned on demand: it is
+deployed the first time something declares a graph-db, neptune-db or neptune
+dependency, and a default environment runs none. That keeps a gremlin JVM out
+of every environment that never reads a graph. HMD_LOCAL_NEURONSPHERE_ENABLE_GRAPH=false
+suppresses it even where something asks, leaving that dependency unresolved.
+
 --substrate chooses how much of that infrastructure this environment runs and
 records the choice in its manifest for every later start, apply and status:
-  full   the database, graph, k3s cluster and the core instances (the default)
-  core   the database, graph and database-account service; no cluster
+  full   the database, k3s cluster and the core instances (the default)
+  core   the database and database-account service; no cluster
   none   nothing beyond the control plane -- for repo classes that deploy with
          their own toolset against infrastructure they already have
 

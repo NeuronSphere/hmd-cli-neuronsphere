@@ -71,6 +71,14 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 		declaredRepos = declared.Repos
 	}
 	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
+	// The same demand-driven graph Apply appends, so a plan does not omit an
+	// instance the apply it is predicting would deploy.
+	if graphEnabled(opts) {
+		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
+			entries = append(entries, bom.Graph(bomEnv))
+		}
+		bom.RepointGraphDatabase(entries)
+	}
 
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	repoclass.Seed(resolver, declaredRepos)
