@@ -89,6 +89,11 @@ type repoPlan struct {
 	// Subject is the repository itself, always deployed from its working tree:
 	// that is what makes it the thing under test.
 	Subject manifest.Repo
+	// DeclareSubject reports whether Subject becomes an instance of the
+	// environment. False for a stack (NERD017 SPEC001): it names other
+	// RepoClasses and deploys none of its own, so an instance for it is a
+	// deploy node that runs nothing and can only fail.
+	DeclareSubject bool
 	// Renamed names the instances an override moved away from, which are left
 	// deployed rather than torn down.
 	Renamed []string
@@ -255,6 +260,11 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 		}
 		plan.Subject.Dependencies = deps
 	}
+	// A stack is not an instance (NERD017 SPEC001). Read from the marker rather
+	// than inferred from shape: a wrapper and an ordinary repository under test
+	// both carry a local section and may both omit deploy.commands, so shape
+	// alone drops the repository --from-repo exists to declare.
+	plan.DeclareSubject = !spec.Local.Stack
 	return plan, nil
 }
 
@@ -453,7 +463,9 @@ func (p *repoPlan) applyInto(m *manifest.Manifest, prune bool, bindings *map[str
 			declare = append(declare, in.Repo)
 		}
 	}
-	declare = append(declare, p.Subject)
+	if p.DeclareSubject {
+		declare = append(declare, p.Subject)
+	}
 
 	wanted := map[string]bool{}
 	for _, r := range declare {

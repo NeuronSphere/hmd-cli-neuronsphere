@@ -86,22 +86,33 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     :links: HMD_CLI_NEURONSPHERE_NERD017
     :status: proposed
 
-    A stack repository is an ordinary RepoClass repository with two
+    A stack repository is an ordinary RepoClass repository with three
     properties: a ``local`` section in ``meta-data/manifest.json`` (or
-    ``.toml``) naming its companions, and a ``neuronsphere.lock`` generated
-    from it. Nothing else marks it; there is no ``stack: true`` key, because
-    the two files are the declaration. A deploy phase is optional, and what it
-    contains decides whether the stack is an instance at all.
+    ``.toml``) naming its companions, ``local.stack: true`` in that section,
+    and a ``neuronsphere.lock`` generated from it.
+
+    ``local.stack`` reverses this spec's original rule that nothing marks a
+    stack, "because the two files are the declaration". That held only while
+    every stack was an instance, which made the distinction cost nothing. It
+    does not hold now. A wrapper and an ordinary repository under test have the
+    same shape -- both carry a ``local`` section, both may omit
+    ``deploy.commands`` -- so deciding from shape alone drops the repository the
+    user pointed at, which is the one thing ``--from-repo`` exists to declare.
+    The key sits in ``local`` because that is the section a stack already owns,
+    and a repository with no ``local`` section can never be one.
 
     A stack that *does* carry something -- a dashboard, a seed job, an
     ``hmd.env`` handback -- is itself one instance of the environment, deployed
-    from its own build zip the normal way.
+    from its own build zip the normal way. It still sets ``local.stack``; the
+    marker says what the repository *is*, and its deploy phase says what it
+    *does*.
 
     A stack that carries nothing is **not** an instance. It is declared in the
     ``stacks`` record (SPEC009) and nowhere else: no instance, no deploy node,
     nothing in the BOM. ``stack list`` reads that record, ``stack remove`` takes
     it as its subject, and ``env status`` reports the stack from it rather than
-    from an instance.
+    from an instance. Carrying nothing means no ``deploy.commands``; the key
+    may then be omitted entirely, since nothing reads it.
 
     This supersedes the original rule, which made every stack an instance and
     gave an empty one a ``NERD009`` exec no-op

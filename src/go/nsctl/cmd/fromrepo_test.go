@@ -758,3 +758,61 @@ func TestEnvAddFromRepoBindsAndWiresDependencies(t *testing.T) {
 		t.Errorf("--name on a bound role: err = %v, want a refusal", err)
 	}
 }
+
+// stackSubjectManifest is subjectManifest with the NERD017 SPEC001 marker: a
+// RepoClass that names other RepoClasses and deploys none of its own.
+const stackSubjectManifest = `{
+  "name": "hmd-stack-myapi",
+  "deploy": {"dependencies": {
+    "base-vpc":   {"repo_class_name": "hmd-vpc",          "required": "true", "version_spec": "0.1.5"},
+    "app-store":  {"repo_class_name": "hmd-inf-s3bucket", "required": "true", "version_spec": "0.1.13"}
+  }},
+  "local": {"version": 1, "stack": true, "repos": [
+    {"instance_name": "cache", "repo_class_name": "hmd-inf-redis", "version_spec": "0.2.1"}
+  ]}
+}`
+
+// A stack declares its companions and not itself (NERD017 SPEC001). The
+// instance it would otherwise get is a deploy node that runs nothing, and one
+// that has failed three separate ways -- `hmd true` from projectbuilder's
+// entrypoint, KeyError on a missing commands key, and an empty list that works
+// only by accident of the loop.
+func TestEnvAddFromRepoDoesNotDeclareAStack(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	repo := subjectRepo(t, home, stackSubjectManifest)
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "scratch",
+		"--from-repo", repo, "--no-pull"); err != nil {
+		t.Fatalf("env add: %v", err)
+	}
+	got := instanceNames(loadEnv(t, home, "scratch"))
+
+	for _, want := range []string{"cache", "app-store"} {
+		if !contains(got, want) {
+			t.Errorf("declared %v, missing the companion %q", got, want)
+		}
+	}
+	for _, unwanted := range []string{"hmd-stack-myapi", "stack-myapi", "myapi"} {
+		if contains(got, unwanted) {
+			t.Errorf("declared %v, which includes the stack itself as %q", got, unwanted)
+		}
+	}
+}
+
+// Without the marker the repository under test is declared, exactly as before.
+// The marker is the whole signal: shape cannot carry it, because this manifest
+// and a stack's differ only by that key.
+func TestEnvAddFromRepoDeclaresANonStackSubject(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	repo := subjectRepo(t, home, subjectManifest)
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "scratch",
+		"--from-repo", repo, "--no-pull"); err != nil {
+		t.Fatalf("env add: %v", err)
+	}
+	if got := instanceNames(loadEnv(t, home, "scratch")); !contains(got, "ms-myapi") {
+		t.Errorf("declared %v, missing the repository under test", got)
+	}
+}

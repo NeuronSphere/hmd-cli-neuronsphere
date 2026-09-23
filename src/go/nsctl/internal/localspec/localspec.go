@@ -129,8 +129,14 @@ type Gate struct {
 type Local struct {
 	Version         int
 	DefaultProfiles []string
-	Repos           []Repo
-	Dependencies    map[string]Gate
+	// Stack marks the repository as a stack: a RepoClass that exists to name
+	// other RepoClasses (NERD017 SPEC001). It decides whether the repository
+	// itself becomes an instance, which shape alone cannot -- a wrapper and an
+	// ordinary repository under test both carry a local section and may both
+	// omit deploy.commands.
+	Stack        bool
+	Repos        []Repo
+	Dependencies map[string]Gate
 }
 
 // Manifest is the part of a BACON manifest this package reads.
@@ -224,6 +230,7 @@ func Parse(data []byte) (*Manifest, error) {
 		} `json:"deploy"`
 		Local *struct {
 			Version         int      `json:"version"`
+			Stack           bool     `json:"stack"`
 			DefaultProfiles []string `json:"default_profiles"`
 			Repos           []struct {
 				InstanceName          string         `json:"instance_name"`
@@ -292,6 +299,7 @@ func Parse(data []byte) (*Manifest, error) {
 				"local: schema version %d is not supported; this nsctl understands %d", l.Version, Version))
 		}
 		m.Local.DefaultProfiles = l.DefaultProfiles
+		m.Local.Stack = l.Stack
 
 		seen := map[string]bool{}
 		for i, r := range l.Repos {
