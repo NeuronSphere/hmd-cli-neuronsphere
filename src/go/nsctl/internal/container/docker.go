@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -461,6 +462,49 @@ func (d *Docker) ContainerIP(ctx context.Context, name, network string) string {
 		return ""
 	}
 	return parseContainerIP(out)
+}
+
+// ContainerIPByAlias resolves a *network alias* to the IP of whatever container
+// answers to it on that network.
+//
+// ContainerIP cannot: `docker inspect` takes a container name or id, and an
+// alias is neither -- it answers "no such object: global-graph" for a name the
+// Docker DNS resolves perfectly well. Anything reading a container by the name
+// its consumers use, rather than the name Floci gave it, has to come through
+// here.
+//
+// One `docker inspect` over every container, not one per container: the
+// template prints the alias list and the address together, and a container not
+// on the network prints an empty line.
+func (d *Docker) ContainerIPByAlias(ctx context.Context, alias, network string) string {
+	if alias == "" || network == "" {
+		return ""
+	}
+	var names []string
+	for name := range d.ContainerNames(ctx) {
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names) // deterministic when two containers share an alias
+	format := `{{with index .NetworkSettings.Networks "` + network + `"}}{{range .Aliases}}{{.}},{{end}} {{.IPAddress}}{{end}}`
+	out, err := d.capture(ctx, append([]string{"inspect", "-f", format}, names...)...)
+	if err != nil && out == "" {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		aliases, ip, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		for _, a := range strings.Split(aliases, ",") {
+			if a == alias {
+				return parseContainerIP(ip)
+			}
+		}
+	}
+	return ""
 }
 
 // parseContainerIP validates docker's template output. Split out so the

@@ -12,8 +12,13 @@ import (
 
 // fakeDocker answers the three host-side things the operators need.
 type fakeDocker struct {
-	ips   map[string]string
-	execs [][]string
+	ips map[string]string
+	// aliasIPs is what ContainerIPByAlias resolves, kept separate from ips so a
+	// test cannot pass by accident: docker inspect resolves a container name
+	// and not an alias, and the two lookups must not be interchangeable here
+	// either.
+	aliasIPs map[string]string
+	execs    [][]string
 	// execErr fails the exec whose joined args contain this substring.
 	execErr  string
 	grepMiss bool
@@ -21,6 +26,10 @@ type fakeDocker struct {
 
 func (f *fakeDocker) ContainerIP(_ context.Context, name, _ string) string {
 	return f.ips[name]
+}
+
+func (f *fakeDocker) ContainerIPByAlias(_ context.Context, alias, _ string) string {
+	return f.aliasIPs[alias]
 }
 
 func (f *fakeDocker) Exec(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -485,5 +494,70 @@ func TestTheCoreDNSScriptWaitsForTheDeploymentToExist(t *testing.T) {
 	// condition, not a command `set -e` can abort on.
 	if !strings.Contains(coreDNSScript, "get deploy coredns >/dev/null 2>&1 && break") {
 		t.Errorf("the existence probe is not guarded against set -e:\n%s", coreDNSScript)
+	}
+}
+
+// An environment that binds graph-db to the shared control-plane graph deploys
+// no graph of its own, so there is no per-environment container to resolve --
+// but `global-graph` still has to answer inside the cluster. Trino opens
+// ws://global-graph:8182/gremlin while loading catalogs, so without the record
+// its coordinator never reaches ready and helm --atomic rolls the release back
+// reporting only "context deadline exceeded".
+func TestCoreDNSRecordsFallsBackToTheSharedGraph(t *testing.T) {
+	t.Parallel()
+
+	d := &fakeDocker{
+		ips: map[string]string{
+			FlociContainer: "172.27.0.3",
+			"hmd_db-local": "172.27.0.7",
+		},
+		// Only as an alias: docker inspect answers "no such object" for it.
+		aliasIPs: map[string]string{GraphHost: "172.27.0.6"},
+	}
+	o := &Operators{
+		Docker:  d,
+		Network: "net",
+		Env:     Environment{Slug: "local", DBContainer: "hmd_db-local", GraphContainer: "global-graph-local"},
+	}
+
+	got := map[string]string{}
+	for _, r := range o.CoreDNSRecords(context.Background(), "hmd_db-local", "") {
+		got[r.Host] = r.IP
+	}
+	if got[GraphHost] != "172.27.0.6" {
+		t.Errorf("%s = %q, want the shared graph's address: a pod cannot resolve it otherwise", GraphHost, got[GraphHost])
+	}
+	// The per-environment name must not be invented for a graph that is not there.
+	if ip, ok := got["global-graph-local"]; ok {
+		t.Errorf("global-graph-local = %q, but this environment deploys no graph of its own", ip)
+	}
+}
+
+// With a graph of its own, both names resolve to it and the fallback stays out.
+func TestCoreDNSRecordsPrefersTheEnvironmentGraph(t *testing.T) {
+	t.Parallel()
+
+	d := &fakeDocker{
+		ips: map[string]string{
+			FlociContainer:       "172.27.0.3",
+			"hmd_db-local":       "172.27.0.7",
+			"global-graph-local": "172.27.0.9",
+		},
+		aliasIPs: map[string]string{GraphHost: "172.27.0.6"},
+	}
+	o := &Operators{
+		Docker:  d,
+		Network: "net",
+		Env:     Environment{Slug: "local", DBContainer: "hmd_db-local", GraphContainer: "global-graph-local"},
+	}
+
+	got := map[string]string{}
+	for _, r := range o.CoreDNSRecords(context.Background(), "hmd_db-local", "global-graph-local") {
+		got[r.Host] = r.IP
+	}
+	for host, want := range map[string]string{GraphHost: "172.27.0.9", "global-graph-local": "172.27.0.9"} {
+		if got[host] != want {
+			t.Errorf("%s = %q, want %q -- the environment's own graph, not the shared one", host, got[host], want)
+		}
 	}
 }

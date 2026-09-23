@@ -50,6 +50,9 @@ const (
 // filesystem.
 type DockerAPI interface {
 	ContainerIP(ctx context.Context, name, network string) string
+	// ContainerIPByAlias resolves a network alias, which ContainerIP cannot:
+	// docker inspect takes a container name or id and an alias is neither.
+	ContainerIPByAlias(ctx context.Context, alias, network string) string
 	Exec(ctx context.Context, name string, args ...string) ([]byte, error)
 	Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error)
 }
@@ -290,6 +293,19 @@ func (o *Operators) CoreDNSRecords(ctx context.Context, dbContainer, graphContai
 				records = append(records, CoreDNSRecord{Host: o.Env.GraphContainer, IP: ip})
 			}
 		}
+	} else if ip := o.Docker.ContainerIPByAlias(ctx, GraphHost, o.Network); ip != "" {
+		// No graph of its own does not mean no graph. An environment may bind
+		// graph-db to the shared control-plane one instead of deploying a
+		// second -- hmd-stack-analytics does exactly that -- and then
+		// `global-graph` answers on the Docker network while nothing answers
+		// for it in the cluster.
+		//
+		// A pod still has to resolve it. Trino loads its catalogs at startup
+		// and the nsgraph connector opens ws://global-graph:8182/gremlin
+		// there, so the coordinator never reaches ready, and with --atomic the
+		// release is rolled back before anything can be inspected: the only
+		// symptom is "context deadline exceeded" on a chart that looks fine.
+		records = append(records, CoreDNSRecord{Host: GraphHost, IP: ip})
 	}
 	return records
 }
