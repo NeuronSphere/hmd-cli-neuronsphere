@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"gopkg.in/yaml.v3"
 )
 
-// fakeDocker answers the three host-side things the operators need.
+// fakeDocker answers the host-side things the operators need.
 type fakeDocker struct {
 	ips map[string]string
 	// aliasIPs is what ContainerIPByAlias resolves, kept separate from ips so a
@@ -22,6 +23,10 @@ type fakeDocker struct {
 	// execErr fails the exec whose joined args contain this substring.
 	execErr  string
 	grepMiss bool
+	// notRunning makes InspectState report the container as dead, so a test
+	// can exercise Provision's short-circuit. Zero value is "running," so
+	// every existing caller that never touches liveness is unaffected.
+	notRunning bool
 }
 
 func (f *fakeDocker) ContainerIP(_ context.Context, name, _ string) string {
@@ -48,6 +53,13 @@ func (f *fakeDocker) Exec(_ context.Context, name string, args ...string) ([]byt
 }
 
 func (f *fakeDocker) Run(context.Context, ...string) ([]byte, []byte, error) { return nil, nil, nil }
+
+func (f *fakeDocker) InspectState(context.Context, string) (container.State, bool) {
+	if f.notRunning {
+		return container.State{Running: false, Status: "exited", ExitCode: 1}, true
+	}
+	return container.State{Running: true, Status: "running"}, true
+}
 
 func testOperators(exec *recordExec, d *fakeDocker) *Operators {
 	return &Operators{
@@ -226,6 +238,25 @@ func TestPrepareNodeFailsWhenNoNodeIsReady(t *testing.T) {
 
 // Both edits go to the file, because the Deployment is owned by a k3s Addon
 // that reverts any live kubectl patch.
+// A container that dies partway through Provision (as the real bug did, mid
+// CoreDNS apply) must not be exec'd into five more times on the way to a
+// diagnosis that already knows the cause -- one dead-container check per step
+// is what turns that cascade into a single early return.
+func TestProvisionStopsOnceTheContainerIsConfirmedDead(t *testing.T) {
+	t.Parallel()
+
+	exec := &recordExec{stdout: "k3s-node Ready\n"}
+	d := &fakeDocker{notRunning: true}
+	o := testOperators(exec, d)
+
+	if err := o.Provision(context.Background()); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if len(d.execs) != 0 {
+		t.Errorf("EnsureIngressController ran against a dead container: %v", d.execs)
+	}
+}
+
 func TestPatchTraefikManifestEditsTheFile(t *testing.T) {
 	t.Parallel()
 

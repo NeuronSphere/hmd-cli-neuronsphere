@@ -274,6 +274,55 @@ func TestWaitForK3sAPIStopsWhenTheContainerDies(t *testing.T) {
 	}
 }
 
+func TestK3sDiagnosis(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		log  string
+		want string // substring expected in the diagnosis, "" for no diagnosis
+	}{
+		{
+			name: "node ip",
+			log:  `level=fatal msg="... failed to find interface with specified node ip"`,
+			want: "hmd-img-k3s-floci",
+		},
+		{
+			name: "storage backend",
+			log:  `level=fatal msg="... --storage-backend invalid"`,
+			want: "hmd-img-k3s-floci",
+		},
+		{
+			name: "cgroup missing controllers",
+			log: `E0923 19:54:37.130193 40 kubelet.go:1703] "Failed to start ContainerManager" ` +
+				`err="failed to initialize top level QOS containers: error validating root ` +
+				`container [kubepods] : cgroup [\"kubepods\"] has some missing controllers: ` +
+				`cpu, cpuset, hugetlb, memory, pids"`,
+			want: "nsctl env purge",
+		},
+		{
+			name: "unrecognized fatal",
+			log:  `level=fatal msg="something never seen before"`,
+			want: "",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := k3sDiagnosis(c.log)
+			if c.want == "" {
+				if got != "" {
+					t.Errorf("k3sDiagnosis(%q) = %q, want no diagnosis", c.log, got)
+				}
+				return
+			}
+			if !strings.Contains(got, c.want) {
+				t.Errorf("k3sDiagnosis(%q) = %q, want it to mention %q", c.log, got, c.want)
+			}
+		})
+	}
+}
+
 // A docker hiccup, or a container mid-launch, is a question rather than an
 // answer. Condemning either fails starts that were fine.
 func TestWaitForK3sAPIDoesNotCondemnAnUnreadableOrStartingContainer(t *testing.T) {

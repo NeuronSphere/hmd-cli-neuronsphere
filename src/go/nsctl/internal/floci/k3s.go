@@ -130,6 +130,11 @@ func k3sDiagnosis(log string) string {
 	case strings.Contains(log, "--storage-backend invalid"):
 		return "kube-apiserver rejected Floci's storage-backend override, which the " +
 			"hmd-img-k3s-floci wrapper exists to strip. The container is not on the wrapper image."
+	case strings.Contains(log, "missing controllers") && strings.Contains(log, "kubepods"):
+		return "kubelet could not enable cgroup controllers for kubepods, almost always because " +
+			"an earlier stop was cut off mid-teardown (SIGKILLed before containerd finished tearing " +
+			"down pod cgroups) and left the subtree in a state this boot cannot delegate into. The " +
+			"container cannot self-heal from `env start` -- run `nsctl env purge` to rebuild it clean."
 	}
 	return ""
 }

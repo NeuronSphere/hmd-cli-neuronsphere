@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -305,5 +306,46 @@ func TestAnUndeployableSlugIsNamedBeforeItCostsADeploy(t *testing.T) {
 		if !strings.Contains(got[0], want) {
 			t.Errorf("the warning does not mention %q: %s", want, got[0])
 		}
+	}
+}
+
+// A plain `docker stop` relies on Docker's 10s SIGTERM-then-SIGKILL default,
+// which is not always enough for kubelet/containerd to tear pod cgroups down
+// cleanly -- SIGKILL landing mid-teardown is what corrupts kubepods for the
+// next boot. stopK3s must try a graceful in-container shutdown first (whose
+// failure or absence is never fatal) and then stop with a longer grace period.
+func TestStopK3sTriesAGracefulShutdownThenStopsWithALongerGrace(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	log := filepath.Join(dir, "commands")
+	// The graceful-shutdown exec fails (as it would on an image with no
+	// k3s-killall.sh) -- that must not stop stopK3s from still calling
+	// `docker stop` afterward.
+	script := "#!/bin/sh\n" +
+		"echo \"$*\" >> " + log + "\n" +
+		"if [ \"$1\" = exec ]; then exit 1; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &container.Docker{Bin: bin}
+
+	if err := stopK3s(context.Background(), d, "floci-eks-1.ns-local-abc"); err != nil {
+		t.Fatalf("stopK3s: %v", err)
+	}
+
+	commands, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want exactly a graceful-shutdown exec then a stop, got: %v", lines)
+	}
+	if !strings.Contains(lines[0], "exec floci-eks-1.ns-local-abc") || !strings.Contains(lines[0], "k3s-killall.sh") {
+		t.Errorf("first call should attempt the graceful shutdown script: %q", lines[0])
+	}
+	if lines[1] != "stop -t 30 floci-eks-1.ns-local-abc" {
+		t.Errorf("second call should stop with a longer grace period, got %q", lines[1])
 	}
 }

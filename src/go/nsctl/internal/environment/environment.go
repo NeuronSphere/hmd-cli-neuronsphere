@@ -634,15 +634,21 @@ func Stop(ctx context.Context, opts *Options, name string) error {
 	names := floci.NamesFrom(opts.Lookup, env.DeploymentID, env.Slug)
 	existing := d.ContainerNames(ctx)
 
-	stop := func(role, container string) {
-		if container == "" || !existing[container] {
+	stop := func(role, name string) {
+		if name == "" || !existing[name] {
 			return
 		}
-		if _, _, err := d.Run(ctx, "stop", container); err != nil {
-			opts.warn("could not stop the %s container %s: %v", role, container, err)
+		var err error
+		if role == "k3s" {
+			err = stopK3s(ctx, d, name)
+		} else {
+			_, _, err = d.Run(ctx, "stop", name)
+		}
+		if err != nil {
+			opts.warn("could not stop the %s container %s: %v", role, name, err)
 			return
 		}
-		opts.step("  stopped %s (%s)", container, role)
+		opts.step("  stopped %s (%s)", name, role)
 	}
 
 	stop("k3s", floci.K3sContainerName(env.K3sCluster, env.AccountID, existing))
@@ -662,6 +668,25 @@ func Stop(ctx context.Context, opts *Options, name string) error {
 	}
 	opts.step("Stopped. The control plane is still running; stop it with `nsctl control-plane stop`.")
 	return nil
+}
+
+// stopK3s stops the k3s container, giving kubelet and containerd inside it
+// real time to tear down pod cgroups before Docker does.
+//
+// A plain `docker stop` relies on Docker's 10s SIGTERM-then-SIGKILL default,
+// which is not always enough: kubelet caught mid-teardown by the SIGKILL
+// leaves the kubepods cgroup subtree in a state the next boot's kubelet
+// cannot enable controllers on ("cgroup ... has some missing controllers"),
+// which corrupts the very "keep it in place" restart this Stop exists to make
+// cheap. k3s images conventionally ship k3s-killall.sh to unwind pods, CNI and
+// cgroups before the k3s process itself exits, so it is tried first. Its
+// absence, or any failure, is never a reason to fail the stop -- it only
+// shortens the work the longer grace period below has to cover.
+func stopK3s(ctx context.Context, d *container.Docker, name string) error {
+	_, _ = d.Exec(ctx, name, "sh", "-c",
+		"[ -x /usr/local/bin/k3s-killall.sh ] && /usr/local/bin/k3s-killall.sh >/dev/null 2>&1 || true")
+	_, _, err := d.Run(ctx, "stop", "-t", "30", name)
+	return err
 }
 
 // expectedK3sImage is the wrapper image the k3s container is meant to run.

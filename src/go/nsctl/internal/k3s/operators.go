@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,6 +56,10 @@ type DockerAPI interface {
 	ContainerIPByAlias(ctx context.Context, alias, network string) string
 	Exec(ctx context.Context, name string, args ...string) ([]byte, error)
 	Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error)
+	// InspectState reads a container's runtime state, used to stop Provision
+	// running further steps once the cluster is confirmed gone rather than
+	// exec'ing into it a handful more times.
+	InspectState(ctx context.Context, name string) (container.State, bool)
 }
 
 // Environment is what the operators need to know about the target environment.
@@ -125,14 +130,34 @@ func (o *Operators) Provision(ctx context.Context) error {
 	if err := o.PrepareNode(ctx); err != nil {
 		o.warn("%v", err)
 	}
+	if !o.k3sAlive(ctx) {
+		return nil
+	}
 	// One container, plus host-side IP lookups that cannot happen inside it.
 	if err := o.EnsureCoreDNSRecords(ctx); err != nil {
 		o.warn("%v", err)
+	}
+	if !o.k3sAlive(ctx) {
+		return nil
 	}
 	if err := o.EnsureIngressController(ctx); err != nil {
 		o.warn("%v", err)
 	}
 	return nil
+}
+
+// k3sAlive reports whether the k3s container is still running, so Provision
+// can stop issuing more docker execs once the cluster is confirmed gone
+// instead of turning one death into a cascade of unrelated-looking warnings.
+//
+// A hiccup asking (InspectState's second return false) is read as "keep
+// going," not "it died" -- the same doctrine InspectState itself documents:
+// a docker hiccup misread as a dead cluster would fail a start that was fine.
+// VerifyK3sAlive (internal/floci) still runs after Provision returns and
+// remains the source of the actual diagnosis; this only stops wasted work.
+func (o *Operators) k3sAlive(ctx context.Context) bool {
+	state, ok := o.Docker.InspectState(ctx, o.Env.K3sContainer)
+	return !ok || state.Running
 }
 
 // prepareNodeScript waits for readiness, reaps stale registrations and labels
