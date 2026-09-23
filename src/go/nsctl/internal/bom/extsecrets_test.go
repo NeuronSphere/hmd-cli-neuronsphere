@@ -152,3 +152,70 @@ func podKey(t *testing.T, entries []Entry) string {
 	t.Fatal("AWS_ACCESS_KEY_ID is not in extraEnv")
 	return ""
 }
+
+// A manifest-declared ext-secrets entry with no instance_configuration is the
+// shape `nsctl env add` writes. It used to reach the chart bare, which selected
+// the cloud IRSA branch and left every ClusterSecretStore at
+// InvalidProviderConfig.
+func TestApplyExtSecretsDefaultsFillsABareEntry(t *testing.T) {
+	entries := []Entry{{
+		RepoInstanceName: ExtSecretsInstance,
+		RepoClassName:    ExtSecretsRepoClass,
+	}}
+	ApplyExtSecretsDefaults(entries, "000000000007")
+
+	config := entries[0].InstanceConfiguration
+	for _, key := range []string{"clusterSecretStore", "parameterStoreSecretStore"} {
+		store, ok := config[key].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing from %v", key, config)
+		}
+		if local, _ := store["local"].(bool); !local {
+			t.Errorf("%s.local = %v, want true: without it the chart authenticates by IRSA", key, store["local"])
+		}
+		if got := store["localAccessKeyId"]; got != "000000000007" {
+			t.Errorf("%s.localAccessKeyId = %v, want the environment's account", key, got)
+		}
+	}
+	if _, ok := config["extraEnv"].([]any); !ok {
+		t.Errorf("extraEnv missing; the operator would not reach Floci")
+	}
+}
+
+// Defaults go under what a manifest declared, never over it.
+func TestApplyExtSecretsDefaultsKeepsDeclaredValues(t *testing.T) {
+	entries := []Entry{{
+		RepoInstanceName: ExtSecretsInstance,
+		RepoClassName:    ExtSecretsRepoClass,
+		InstanceConfiguration: map[string]any{
+			"clusterSecretStore": map[string]any{"name": "mine", "local": false},
+			"installCRDs":        true,
+		},
+	}}
+	ApplyExtSecretsDefaults(entries, "000000000007")
+
+	config := entries[0].InstanceConfiguration
+	store := config["clusterSecretStore"].(map[string]any)
+	if store["name"] != "mine" {
+		t.Errorf("name = %v, want the declared value kept", store["name"])
+	}
+	if local, _ := store["local"].(bool); local {
+		t.Errorf("local = true, want the declared false kept")
+	}
+	if config["installCRDs"] != true {
+		t.Errorf("installCRDs = %v, want the declared value kept", config["installCRDs"])
+	}
+	// Absent keys are still filled in alongside the declared ones.
+	if _, ok := store["localAccessKeyId"]; !ok {
+		t.Errorf("localAccessKeyId not filled in on a partially declared store")
+	}
+}
+
+// An entry for some other repo class is left alone.
+func TestApplyExtSecretsDefaultsIgnoresOtherClasses(t *testing.T) {
+	entries := []Entry{{RepoInstanceName: "redis", RepoClassName: "hmd-inf-redis"}}
+	ApplyExtSecretsDefaults(entries, "000000000007")
+	if entries[0].InstanceConfiguration != nil {
+		t.Errorf("configuration = %v, want untouched", entries[0].InstanceConfiguration)
+	}
+}

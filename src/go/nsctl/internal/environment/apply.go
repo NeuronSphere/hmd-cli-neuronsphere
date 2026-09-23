@@ -163,6 +163,13 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// what was seeded, and ext-secrets reads as drifted on every single apply.
 	// change_set_builder does the same thing in both places for the same
 	// reason, and says so: "Omitting it left ext-secrets permanently drifted."
+	// Defaults first, then the account. A manifest that declares ext-secrets
+	// itself shadows bom.ExtSecrets' entry, and InjectExtSecretsAccount only
+	// patches keys that already exist -- so without this an environment whose
+	// manifest carries no instance_configuration got the chart's cloud
+	// defaults: IRSA against a role in the control plane's account, every
+	// ClusterSecretStore stuck at InvalidProviderConfig.
+	bom.ApplyExtSecretsDefaults(entries, bomEnv.AccessKeyID)
 	bom.InjectExtSecretsAccount(entries, bomEnv.AccessKeyID)
 
 	// Floci spawns its database backend from an image reference pinned into its

@@ -189,3 +189,53 @@ func InjectExtSecretsAccount(entries []Entry, accessKeyID string) {
 		entries[i].InstanceConfiguration = config
 	}
 }
+
+// ApplyExtSecretsDefaults fills in the local-mode chart values on any
+// ext-secrets entry that is missing them.
+//
+// bom.ExtSecrets carries those values, but an environment manifest that
+// declares ext-secrets itself shadows that entry: TopoSort dedupes by instance
+// name and keeps the first, and Declared's entries are appended before
+// ExtSecrets'. A manifest the Python CLI wrote carries the values too, so this
+// never showed; one written by `nsctl env add` alone carries no
+// instance_configuration at all, and the chart then fell through to its cloud
+// branch -- IRSA against sts.<region>.amazonaws.com and a role in the control
+// plane's account rather than the environment's. Every ClusterSecretStore sat
+// at InvalidProviderConfig reporting InvalidIdentityToken, every ExternalSecret
+// failed to sync, and every chart waiting on one timed out under helm --atomic.
+//
+// Defaults go *under* what the manifest declared, never over it: a manifest
+// that sets these deliberately still wins. Runs before InjectExtSecretsAccount,
+// which then has the keys it only ever patches rather than creates.
+func ApplyExtSecretsDefaults(entries []Entry, accessKeyID string) {
+	for i := range entries {
+		if entries[i].RepoClassName != ExtSecretsRepoClass {
+			continue
+		}
+		defaults := extSecretsConfig(accessKeyID)
+		config := copyConfig(entries[i].InstanceConfiguration)
+		for key, def := range defaults {
+			existing, present := config[key]
+			if !present {
+				config[key] = def
+				continue
+			}
+			// A declared store keeps its own keys and gains the ones it left
+			// out -- `local` above all, which is what selects static-credential
+			// auth over IRSA.
+			defMap, defOK := def.(map[string]any)
+			curMap, curOK := existing.(map[string]any)
+			if !defOK || !curOK {
+				continue
+			}
+			merged := copyConfig(curMap)
+			for k, v := range defMap {
+				if _, ok := merged[k]; !ok {
+					merged[k] = v
+				}
+			}
+			config[key] = merged
+		}
+		entries[i].InstanceConfiguration = config
+	}
+}
