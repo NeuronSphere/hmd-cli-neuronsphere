@@ -56,7 +56,7 @@
         "src/python/hmd_cli_neuronsphere/external/hmd-ms-deployment-core"
       ],
       [
-        "hmd-ms-dbaccount@0.1.46:build",
+        "hmd-ms-dbaccount@0.1.47:build",
         "src/python/hmd_cli_neuronsphere/external/hmd-ms-dbaccount"
       ]
     ],
