@@ -2,6 +2,15 @@
 
 ## 2026-09-23
 
+- fix: `brew install`/`brew upgrade` no longer warns about a deprecated cask
+  stanza. Homebrew 6.0.16 deprecated free-form `postflight do ... end` blocks in
+  favour of the declarative `postflight_steps`, and GoReleaser only ever emits
+  the old wrapper for `homebrew_casks.hooks`, so every install printed a warning
+  naming the tap. The quarantine strip -- which an unsigned binary still needs,
+  or Gatekeeper kills nsctl on first run -- now goes in as a `custom_block`
+  carrying the `postflight_steps` form. Reaches users when the next release
+  regenerates the cask.
+
 - fix: `repoclass validate` no longer demands deploy commands from a stack.
   NERD017 SPEC001 lets a RepoClass declare `local.stack: true` to say it only
   names its companions rather than deploying an instance of itself, but

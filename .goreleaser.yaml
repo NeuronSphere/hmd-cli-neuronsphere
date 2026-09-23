@@ -1,6 +1,6 @@
 # Release build for nsctl. Modeled on hmd-cli-bartleby's, which publishes
-# through the same channels, with four deliberate divergences -- each noted
-# below, because copying that file verbatim would be wrong in all four places.
+# through the same channels, with five deliberate divergences -- each noted
+# below, because copying that file verbatim would be wrong in all five places.
 version: 2
 project_name: nsctl
 
@@ -92,12 +92,30 @@ homebrew_casks:
 
       If you use Colima, make sure it is running:
         colima start
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/nsctl"]
+    # A fifth divergence from bartleby, and the reason this is `custom_block`
+    # rather than `hooks.post.install`: the binary is neither signed nor
+    # notarized, and Homebrew quarantines cask downloads on macOS, so without
+    # stripping com.apple.quarantine Gatekeeper kills nsctl on first run.
+    # GoReleaser wraps `hooks` in `postflight do`, which Homebrew 6.0.16
+    # deprecated in favour of the declarative `postflight_steps` -- every
+    # install printed a warning naming the tap. No hook option emits the new
+    # stanza, so the Ruby is injected verbatim instead. The staged path is
+    # Homebrew's own step template token, expanded when the step runs, not Ruby
+    # interpolation -- the steps block is instance_eval'd on the step DSL, which
+    # has no `staged_path` method. GoReleaser templates this block too, so the
+    # token's braces are escaped past its own templating. The steps DSL cannot
+    # express the old "is xattr usable" guard, so `on_macos` + `if_path_exists`
+    # + `must_succeed: false` carry that intent.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          if_path_exists "/usr/bin/xattr" do
+            run "/usr/bin/xattr",
+                args:         ["-dr", "com.apple.quarantine", "{{ "{{" }}staged_path}}/nsctl"],
+                must_succeed: false
           end
+        end
+      end
 
 release:
   # The neuronsphere org, like bartleby and the Homebrew tap above. The
