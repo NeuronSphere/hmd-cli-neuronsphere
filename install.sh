@@ -57,24 +57,34 @@ latest_version() {
 
 # verify_checksum refuses an archive whose digest is not the one the release
 # published. A partial download that unpacks is worse than one that fails.
+#
+# The parameters are named vc_* deliberately. `sh` has no function-local
+# variables, so a plain `archive=$1` here assigns the *caller's* `archive` --
+# and the caller passes "$tmp/$archive", so `archive` became an absolute path
+# and the next "$tmp/$archive" doubled it:
+#
+#   tar: /tmp/tmp.XXXX//tmp/tmp.XXXX/nsctl_1.0.217_linux_amd64.tar.gz: Cannot open
+#
+# `local` would also do it, but it is not POSIX; distinct names need nothing.
 verify_checksum() {
-    archive=$1
-    sums=$2
+    vc_archive=$1
+    vc_sums=$2
+    vc_name=$(basename "$vc_archive")
 
-    expected=$(awk -v name="$(basename "$archive")" '$2 == name || $2 == "*" name { print $1 }' "$sums")
-    [ -n "$expected" ] || die "$(basename "$archive") is not listed in checksums.txt"
+    vc_expected=$(awk -v name="$vc_name" '$2 == name || $2 == "*" name { print $1 }' "$vc_sums")
+    [ -n "$vc_expected" ] || die "$vc_name is not listed in checksums.txt"
 
     if command -v sha256sum >/dev/null 2>&1; then
-        actual=$(sha256sum "$archive" | cut -d' ' -f1)
+        vc_actual=$(sha256sum "$vc_archive" | cut -d' ' -f1)
     elif command -v shasum >/dev/null 2>&1; then
-        actual=$(shasum -a 256 "$archive" | cut -d' ' -f1)
+        vc_actual=$(shasum -a 256 "$vc_archive" | cut -d' ' -f1)
     else
         echo "install: neither sha256sum nor shasum found; skipping verification" >&2
         return 0
     fi
 
-    [ "$actual" = "$expected" ] ||
-        die "checksum mismatch for $(basename "$archive"): got $actual, expected $expected"
+    [ "$vc_actual" = "$vc_expected" ] ||
+        die "checksum mismatch for $vc_name: got $vc_actual, expected $vc_expected"
 }
 
 main() {
