@@ -86,18 +86,44 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     :links: HMD_CLI_NEURONSPHERE_NERD017
     :status: proposed
 
-    A stack repository is an ordinary RepoClass repository with three
+    A stack repository is an ordinary RepoClass repository with two
     properties: a ``local`` section in ``meta-data/manifest.json`` (or
-    ``.toml``) naming its companions, a ``neuronsphere.lock`` generated from
-    it, and a deploy phase. Nothing else marks it; there is no ``stack: true``
-    key, because the two files are the declaration.
+    ``.toml``) naming its companions, and a ``neuronsphere.lock`` generated
+    from it. Nothing else marks it; there is no ``stack: true`` key, because
+    the two files are the declaration. A deploy phase is optional, and what it
+    contains decides whether the stack is an instance at all.
 
-    The stack RepoClass is itself one instance of the environment, deployed
-    from its own build zip, so that ``env status`` shows it, ``stack remove``
-    has a subject to undeclare, and a stack that *does* carry something --
-    a dashboard, a seed job, an ``hmd.env`` handback -- deploys it the normal
-    way. A stack that carries nothing declares a ``NERD009`` exec no-op
-    (``deploy.commands: [["exec", "true"]]``).
+    A stack that *does* carry something -- a dashboard, a seed job, an
+    ``hmd.env`` handback -- is itself one instance of the environment, deployed
+    from its own build zip the normal way.
+
+    A stack that carries nothing is **not** an instance. It is declared in the
+    ``stacks`` record (SPEC009) and nowhere else: no instance, no deploy node,
+    nothing in the BOM. ``stack list`` reads that record, ``stack remove`` takes
+    it as its subject, and ``env status`` reports the stack from it rather than
+    from an instance.
+
+    This supersedes the original rule, which made every stack an instance and
+    gave an empty one a ``NERD009`` exec no-op
+    (``deploy.commands: [["exec", "true"]]``). That rule was wrong twice over.
+
+    It does not work. ``NERD009`` SPEC005 passes an exec node's argv to the
+    image verbatim so the image's own entrypoint receives it, and an empty
+    ``deploy.image`` means projectbuilder, whose entrypoint is ``hmd``. The
+    argv ``true`` therefore runs as ``hmd true``, which argparse rejects with
+    exit 2. Dropping ``deploy.commands`` instead is worse: ``hmd-cli-deploy``
+    reads ``manifest["deploy"]["commands"]`` unguarded and raises ``KeyError``.
+    An empty list is the only spelling that survives both, and it exists only
+    to satisfy a node that should not be there.
+
+    It is not needed. The two reasons given for the instance -- a subject for
+    ``stack remove`` and visibility in ``env status`` -- are both served by the
+    ``stacks`` record SPEC009 already defines. The third, a stack with a real
+    payload, is preserved above.
+
+    What it costs is a projectbuilder container per apply to run nothing, and a
+    node that can fail -- and did, three distinct ways -- for a RepoClass whose
+    entire job is to name other RepoClasses.
 
     The lock is authoritative over the manifest's version specs: what is
     installed is what is pinned, and a range in the ``local`` section is
@@ -320,8 +346,10 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
             bindings:                   # role or class -> instance, as NERD010 SPEC005
               compute: local-neuronsphere
               otel-collector: otel
-            declared: [otel, stack-observability]   # what the stack itself declared (SPEC010);
-                                                    # a bound instance is not in it
+            declared: [otel]            # what the stack itself declared (SPEC010);
+                                        # a bound instance is not in it, and
+                                        # neither is the stack unless SPEC001
+                                        # made it an instance
 
     ``stacks`` is optional and the manifest schema version is unchanged; a
     manifest without it is every manifest that exists today. ``Validate``
