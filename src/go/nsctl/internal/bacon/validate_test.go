@@ -155,3 +155,17 @@ func TestValidateAcceptsALocalDeployScript(t *testing.T) {
 		t.Errorf("errors: %v", Validate(s, Known{}))
 	}
 }
+
+// A stack (NERD017 SPEC001) names its companions rather than deploying an
+// instance of itself, so a deploy section with dependencies but no commands
+// and no deploy_local.sh is not an error.
+func TestValidateAcceptsAStackWithNoDeployCommands(t *testing.T) {
+	t.Parallel()
+
+	manifest := `{"name":"n","description":"d","build":{},"deploy":{"dependencies":{"db":{"repo_class_name":"x"}}},"local":{"stack":true}}`
+	s := classDir(t, manifest, map[string]string{"meta-data/VERSION": "0.1\n"})
+	got := messages(Validate(s, Known{}), Error)
+	if strings.Contains(got, "declares no commands") {
+		t.Errorf("stack should not need deploy.commands: %v", Validate(s, Known{}))
+	}
+}

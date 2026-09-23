@@ -366,9 +366,11 @@ func (v *validator) semantics() {
 
 	if hasDeploy {
 		// Error: a deploy section with neither commands nor a resolvable
-		// command is a bare KeyError in hmd-cli-deploy.
+		// command is a bare KeyError in hmd-cli-deploy -- except a stack
+		// (NERD017 SPEC001), which names its companions rather than
+		// deploying an instance of itself.
 		commands, _ := deploy.Array("commands")
-		if len(commands) == 0 && !v.hasLocalDeployScript() {
+		if len(commands) == 0 && !v.isStack() && !v.hasLocalDeployScript() {
 			v.add(Error, "deploy.commands", "deploy declares no commands and there is no src/local/deploy_local.sh; nothing can deploy this")
 		}
 		execs := 0
@@ -456,6 +458,18 @@ func (v *validator) semantics() {
 func (v *validator) hasLocalDeployScript() bool {
 	_, err := os.Stat(filepath.Join(v.dir, "src", "local", "deploy_local.sh"))
 	return err == nil
+}
+
+// isStack reports local.stack (NERD017 SPEC001): true means this RepoClass
+// exists to name other RepoClasses and is never itself instanced or deployed.
+func (v *validator) isStack() bool {
+	local, ok := v.doc.Object("local")
+	if !ok {
+		return false
+	}
+	stack, _ := local.Get("stack")
+	b, _ := stack.(bool)
+	return b
 }
 
 func (v *validator) resourceFiles() {

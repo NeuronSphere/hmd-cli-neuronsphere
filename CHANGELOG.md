@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-23
+
+- fix: `repoclass validate` no longer demands deploy commands from a stack.
+  NERD017 SPEC001 lets a RepoClass declare `local.stack: true` to say it only
+  names its companions rather than deploying an instance of itself, but
+  `semantics()`'s "nothing can deploy this" check never consulted that flag --
+  so every stack manifest that dropped its now-pointless `deploy.commands: []`
+  failed validation. The check now skips a stack the same way it already skips
+  a `src/local/deploy_local.sh` override.
+
 ## 2026-09-22
 
 - fix: a deploy node is handed a kubeconfig only when there is one. The mount
