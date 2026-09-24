@@ -204,17 +204,32 @@ type PortRoute struct {
 
 // WriteEnvVhosts writes an environment's Host-routed vhost fragment.
 //
-// One wildcard block per environment rather than one per app: the charts derive
-// their Ingress hosts from the environment name, so a wildcard covers every UI
-// the environment deploys without this package having to know which apps exist.
+// One wildcard block rather than one per app: a wildcard covers every UI the
+// environment deploys without this package having to know which apps exist.
+//
+// The wildcard is *.local.<domain> -- HelmLocalSlug, not the environment's own
+// slug. That is what the charts render (see IngressHostFor), and writing
+// *.<slug>. instead produced a server block that matched nothing whatsoever in
+// any environment not named `local`.
+//
+// It follows that every environment's charts render the *same* hostnames, so
+// only one environment can own the wildcard: a second block with the same
+// server_name is a conflict nginx resolves by preferring whichever fragment it
+// happened to read first. The default environment takes it, and the others are
+// reached on their ports, which are allocated per environment and cannot
+// collide. Giving each environment its own hostname would mean rewriting the
+// host on the deployed Ingress object, which is a change to what the charts
+// asked for and is deliberately not made here.
 //
 // Port routes go in the same fragment rather than one of their own, because a
 // fragment is rewritten wholesale -- a second writer aimed at a second file
 // would have to be kept in step with removal, and one file keeps writing and
 // removal atomic.
 func (r *Router) WriteEnvVhosts(env Env, upstream string, portRoutes []PortRoute) error {
-	blocks := []string{
-		wrap(env.Slug+":vhost", vhostServer("*."+env.Slug+"."+IngressDomain, upstream)),
+	var blocks []string
+	if env.IsDefault {
+		blocks = append(blocks,
+			wrap(env.Slug+":vhost", vhostServer("*."+HelmLocalSlug+"."+IngressDomain, upstream)))
 	}
 	for _, pr := range portRoutes {
 		origin := "http://localhost:" + strconv.Itoa(pr.Port)

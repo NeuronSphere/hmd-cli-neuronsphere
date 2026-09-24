@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ import (
 
 // DefaultMSDeploymentURL is the control-plane route to hmd-ms-deployment, from
 // the host.
-const DefaultMSDeploymentURL = "http://localhost/hmd_ms_deployment"
+func DefaultMSDeploymentURL() string { return hosturl.Route("hmd_ms_deployment") }
 
 // msDeploymentURL is where to reach the deployment service.
 //
@@ -47,7 +48,7 @@ func MSDeploymentURL(lookup func(string) string) string {
 			return v
 		}
 	}
-	return DefaultMSDeploymentURL
+	return DefaultMSDeploymentURL()
 }
 
 // connectMSDeployment resolves the deployment service's route and refuses
@@ -679,13 +680,13 @@ func foundationServices(envSlug string) []bom.ServiceSpec {
 		{
 			Name:       "hmd_ms_dbaccount",
 			RepoClass:  DBAccountRepoClass,
-			APIBaseURL: "http://localhost/" + envSlug + "/hmd_ms_dbaccount",
+			APIBaseURL: hosturl.Route(envSlug + "/hmd_ms_dbaccount"),
 		},
 		// Control-plane services are addressed unprefixed; an environment's own
 		// sit under its /<slug>/ prefix.
-		{Name: "hmd_ms_deployment", RepoClass: "hmd-ms-deployment", APIBaseURL: DefaultMSDeploymentURL},
-		{Name: "hmd_ms_naming", RepoClass: "hmd-ms-naming", APIBaseURL: "http://localhost/hmd_ms_naming"},
-		{Name: "hmd_ms_artifact_lib", RepoClass: "hmd-ms-artifact-lib", APIBaseURL: "http://localhost/hmd_ms_artifact_lib"},
+		{Name: "hmd_ms_deployment", RepoClass: "hmd-ms-deployment", APIBaseURL: DefaultMSDeploymentURL()},
+		{Name: "hmd_ms_naming", RepoClass: "hmd-ms-naming", APIBaseURL: hosturl.Route("hmd_ms_naming")},
+		{Name: "hmd_ms_artifact_lib", RepoClass: "hmd-ms-artifact-lib", APIBaseURL: hosturl.Route("hmd_ms_artifact_lib")},
 	}
 }
 
@@ -747,7 +748,7 @@ func provisionNewCluster(ctx context.Context, opts *Options, reg *registry.Regis
 
 	// nil accumulator: this recovery prints no environment summary, so there is
 	// nothing for its discoveries to be reported in. found's setters tolerate it.
-	if err := startCluster(ctx, opts, d, router.New(opts.Home, opts.Lookup), routerEnv, env,
+	if err := startCluster(ctx, opts, reg, d, router.New(opts.Home, opts.Lookup), routerEnv, env,
 		cluster, reg.ControlPlane.Network, dbContainer, graphContainer, nil); err != nil {
 		opts.warn("%v", err)
 	}

@@ -11,11 +11,17 @@ services:
     image: nginx:stable-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
+      # The host side is a variable so a machine that already has something on
+      # 80 can still run: nsctl probes these before the project is built and
+      # picks a free one, recording it so the URL does not move again. The
+      # container side never changes -- only where the host reaches it does.
+      - "${HMD_LOCAL_HTTP_PORT:-80}:80"
       # Streamed to the control-plane floci container. Keeps `neuronsphere:4566`
-      # (the hostname baked into presigned S3/API URLs, mapped to 127.0.0.1 in
-      # the host's /etc/hosts) working now that Floci publishes nothing itself.
-      - "4566:4566"
+      # -- the hostname baked into presigned S3/API URLs -- working now that
+      # Floci publishes nothing itself. 4566 is also LocalStack's port, so a
+      # developer running one for another project needs this to move; nsctl
+      # redirects the baked-in name to wherever it landed.
+      - "${HMD_LOCAL_FLOCI_PORT:-4566}:4566"
       # Durable host route to the default environment's k3s Trino coordinator,
       # kept at its historical port so existing integration tests are unaffected.
       - "${HMD_LOCAL_TRINO_HOST_PORT:-18080}:${HMD_LOCAL_TRINO_HOST_PORT:-18080}"
@@ -24,7 +30,18 @@ services:
       # static, so the whole range is published up front and individual listeners
       # inside it are added/removed at runtime with an nginx reload -- no
       # restart. See env_registry.env_port_range().
-      - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}"
+      - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19111}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19111}"
+      # The wildcard resolver, streamed to hmd_dnsd. Bound to loopback
+      # explicitly, unlike everything above it: this answers 127.0.0.1 for every
+      # name in its suffix, which means nothing to anyone else and should not be
+      # reachable from off this machine.
+      #
+      # 19153 rather than the obvious 5353, which mDNS holds on macOS -- shared
+      # between mDNSResponder, Chrome and Spotify with SO_REUSEPORT, which
+      # Docker's publisher does not set, so publishing 5353 fails outright. It
+      # also sits above the band, since a port inside it could not be bound
+      # twice, and below the 49152 ephemeral floor.
+      - "127.0.0.1:${HMD_LOCAL_DNS_PORT:-19153}:${HMD_LOCAL_DNS_PORT:-19153}/udp"
     networks:
       neuronsphere_default:
         aliases:
@@ -290,6 +307,21 @@ services:
       timeout: 10s
       start_period: 5s
       retries: 3
+    networks:
+      - neuronsphere_default
+
+  # The wildcard resolver. Off unless HMD_LOCAL_NEURONSPHERE_ENABLE_DNS asks for
+  # it: nothing a default first run does needs a name resolved (NERD025), and a
+  # resolver is only useful once the machine has been pointed at it, which takes
+  # a step nsctl deliberately will not take for you (`nsctl dns install`).
+  dnsd:
+    container_name: hmd_dnsd
+    profiles: ["dnsd"]
+    image: ${HMD_NSCTL_IMAGE:-hmd-img-nsctl:latest}
+    command: ["dns", "serve", "--addr", ":19153"]
+    restart: unless-stopped
+    # No host port. hmd_proxy is the only service that may publish one, and it
+    # streams this listener through on UDP -- see WriteControlPlaneStreams.
     networks:
       - neuronsphere_default
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -34,8 +36,8 @@ func TestCheckExclusivePublisherFindsAnOffender(t *testing.T) {
 	t.Parallel()
 
 	p := &Project{Name: "p", Services: []Service{
-		{Key: "proxy", Ports: []Port{{80, 80, 80, 80, "tcp"}}},
-		{Key: "db", Ports: []Port{{5432, 5432, 5432, 5432, "tcp"}}},
+		{Key: "proxy", Ports: []Port{{"", 80, 80, 80, 80, "tcp"}}},
+		{Key: "db", Ports: []Port{{"", 5432, 5432, 5432, 5432, "tcp"}}},
 	}}
 
 	got := CheckExclusivePublisher(p, nil)
@@ -55,7 +57,7 @@ func TestCheckExclusivePublisherIgnoresADisabledService(t *testing.T) {
 	t.Parallel()
 
 	p := &Project{Name: "p", Services: []Service{
-		{Key: "gui", Profiles: []string{"deployment-gui"}, Ports: []Port{{19003, 19003, 8000, 8000, "tcp"}}},
+		{Key: "gui", Profiles: []string{"deployment-gui"}, Ports: []Port{{"", 19003, 19003, 8000, 8000, "tcp"}}},
 	}}
 	if got := CheckExclusivePublisher(p, map[string]bool{}); len(got) != 0 {
 		t.Errorf("a profile-disabled service was reported: %v", got)
@@ -70,14 +72,14 @@ func TestCheckReservedIgnoresTheProxyItself(t *testing.T) {
 
 	// The proxy is who the 80 and 4566 reservations are *for*.
 	p := &Project{Name: "p", Services: []Service{
-		{Key: "proxy", Ports: []Port{{80, 80, 80, 80, "tcp"}, {4566, 4566, 4566, 4566, "tcp"}}},
+		{Key: "proxy", Ports: []Port{{"", 80, 80, 80, 80, "tcp"}, {"", 4566, 4566, 4566, 4566, "tcp"}}},
 	}}
 	if got := CheckReserved(p, nil); len(got) != 0 {
 		t.Errorf("the proxy was reported against its own reservations: %v", got)
 	}
 
 	other := &Project{Name: "p", Services: []Service{
-		{Key: "thing", Ports: []Port{{8082, 8082, 8082, 8082, "tcp"}}},
+		{Key: "thing", Ports: []Port{{"", 8082, 8082, 8082, 8082, "tcp"}}},
 	}}
 	got := CheckReserved(other, nil)
 	if len(got) != 1 || got[0].Port != 8082 {
@@ -89,17 +91,18 @@ func TestCheckReservedIgnoresTheProxyItself(t *testing.T) {
 }
 
 // port_validator.parse_host_port returns None for a range, so the Python never
-// probes the 19000-19079 band at all. Expanding it is the point.
+// probes the 19000-19111 band at all. Expanding it is the point.
 func TestHostPortsExpandsRanges(t *testing.T) {
 	t.Parallel()
 
 	p := parseControlPlane(t, controlPlaneEnv())
 	ports := HostPorts(p, map[string]bool{"deployment-gui": true})
 
-	if len(ports) != 83 {
-		t.Errorf("got %d host ports, want 83 (80, 4566, 18080 and the 80-wide band)", len(ports))
+	if len(ports) != 116 {
+		t.Errorf("got %d host ports, want 116 (80, 4566, 18080, the 112-wide band, and the resolver)", len(ports))
 	}
-	want := map[int]bool{80: true, 4566: true, 18080: true, 19000: true, 19003: true, 19079: true}
+	// 19080 is the first shared user-interface port, 19111 the last.
+	want := map[int]bool{80: true, 4566: true, 18080: true, 19000: true, 19003: true, 19079: true, 19080: true, 19111: true}
 	have := map[int]bool{}
 	for _, p := range ports {
 		have[p] = true
@@ -120,7 +123,7 @@ func TestHostPortsExpandsRanges(t *testing.T) {
 func TestHostPortsSkipsContainerOnlyPublications(t *testing.T) {
 	t.Parallel()
 
-	p := &Project{Services: []Service{{Key: "a", Ports: []Port{{0, 0, 8080, 8080, "tcp"}}}}}
+	p := &Project{Services: []Service{{Key: "a", Ports: []Port{{"", 0, 0, 8080, 8080, "tcp"}}}}}
 	if got := HostPorts(p, nil); len(got) != 0 {
 		t.Errorf("got %v, want none -- Docker picks the host port", got)
 	}
@@ -130,14 +133,14 @@ func TestCheckInUseReportsOnlyForeignPorts(t *testing.T) {
 	t.Parallel()
 
 	p := &Project{Name: "p", Services: []Service{
-		{Key: "proxy", Ports: []Port{{80, 82, 80, 82, "tcp"}}},
+		{Key: "proxy", Ports: []Port{{"", 80, 82, 80, 82, "tcp"}}},
 	}}
 
 	// 80 is ours, 81 is someone else's, 82 is free.
 	busy := map[int]bool{80: true, 81: true}
 	ours := map[int]bool{80: true}
 
-	got := CheckInUse(context.Background(), p, nil, ours, func(port int) bool { return busy[port] })
+	got := CheckInUse(context.Background(), p, nil, ours, func(b HostBinding) bool { return busy[b.Port] })
 	if len(got) != 1 {
 		t.Fatalf("got %v, want only the foreign port", got)
 	}
@@ -154,14 +157,14 @@ func TestCheckInUseTreatsOurOwnPortsAsFree(t *testing.T) {
 	t.Parallel()
 
 	p := &Project{Name: "p", Services: []Service{
-		{Key: "proxy", Ports: []Port{{19000, 19079, 19000, 19079, "tcp"}}},
+		{Key: "proxy", Ports: []Port{{"", 19000, 19079, 19000, 19079, "tcp"}}},
 	}}
 	ours := map[int]bool{}
 	for i := 19000; i <= 19079; i++ {
 		ours[i] = true
 	}
 
-	got := CheckInUse(context.Background(), p, nil, ours, func(int) bool { return true })
+	got := CheckInUse(context.Background(), p, nil, ours, func(HostBinding) bool { return true })
 	if len(got) != 0 {
 		t.Errorf("got %d conflicts for ports we already bind, want none", len(got))
 	}
@@ -299,3 +302,144 @@ func listenOnAFreePort() (*listener, error) {
 }
 
 var _ = filters.NewArgs
+
+// hmd_proxy is the only service that may publish a host port. A service that
+// publishes its own is reported as a conflict and told to route through the
+// proxy -- so a bundled service must never do it, in any profile.
+func TestNoBundledServicePublishesItsOwnPort(t *testing.T) {
+	t.Parallel()
+
+	p := parseControlPlane(t, controlPlaneEnv())
+	// Every profile on at once: a service that only publishes when it is
+	// switched on is the case most likely to be missed.
+	active := map[string]bool{"deployment-gui": true, "authd": true, "dnsd": true}
+	if got := CheckExclusivePublisher(p, active); len(got) != 0 {
+		t.Errorf("bundled services publish host ports of their own: %v", got)
+	}
+}
+
+// The probe has to test what Docker will actually do. Dialling 127.0.0.1 asks
+// a different question than binding 0.0.0.0, and the two disagree exactly where
+// it matters: a listener on a real interface is invisible to the dial and still
+// fatal to the bind.
+func TestBindProberSeesAListenerADialWouldMiss(t *testing.T) {
+	t.Parallel()
+
+	// Bind a specific address rather than 0.0.0.0: that is the case a loopback
+	// connect probe cannot see when the address is not loopback.
+	addr := specificInterface(t)
+	ln, err := net.Listen("tcp", net.JoinHostPort(addr, "0"))
+	if err != nil {
+		t.Skipf("cannot bind %s: %v", addr, err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	b := HostBinding{Port: port, Protocol: "tcp"}
+	if !BindProber(200 * time.Millisecond)(b) {
+		t.Errorf("a listener on %s:%d was not detected; Docker's 0.0.0.0 bind would fail", addr, port)
+	}
+}
+
+// A UDP squatter is invisible to a TCP probe, and 5353 is precisely that case.
+func TestBindProberSeesAUDPListener(t *testing.T) {
+	t.Parallel()
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("ListenPacket: %v", err)
+	}
+	defer pc.Close()
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+
+	if !BindProber(200 * time.Millisecond)(HostBinding{Port: port, Protocol: "udp"}) {
+		t.Error("a UDP listener was not detected")
+	}
+	// The same port number on TCP is genuinely free, and must not be reported.
+	if BindProber(200 * time.Millisecond)(HostBinding{Port: port, Protocol: "tcp"}) {
+		t.Error("a UDP listener was reported as a TCP conflict")
+	}
+}
+
+func TestBindProberReportsAFreePort(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close() // now free
+
+	if BindProber(200 * time.Millisecond)(HostBinding{Port: port, Protocol: "tcp"}) {
+		t.Errorf("free port %d reported as in use", port)
+	}
+}
+
+// On Linux a port below 1024 cannot be bound without privileges, and nsctl does
+// not have them. "Not permitted" is not "in use", and reporting it as one would
+// refuse every start on a machine where port 80 is simply privileged.
+func TestAPermissionDenialIsNotAConflict(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"in use", syscall.EADDRINUSE, true},
+		{"not permitted", syscall.EACCES, false},
+		{"not owner", syscall.EPERM, false},
+		{"address not available", syscall.EADDRNOTAVAIL, false},
+	} {
+		if got := bindErrorMeansInUse(&net.OpError{Err: &os.SyscallError{Err: tt.err}}); got != tt.want {
+			t.Errorf("%s: bindErrorMeansInUse = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+// Bindings carry the protocol and the interface, because a published port is
+// only meaningful with both.
+func TestHostBindingsCarryProtocolAndInterface(t *testing.T) {
+	t.Parallel()
+
+	p := &Project{Name: "p", Services: []Service{
+		{Key: "proxy", Ports: []Port{
+			{"", 80, 80, 80, 80, "tcp"},
+			{"127.0.0.1", 19153, 19153, 19153, 19153, "udp"},
+		}},
+	}}
+	got := HostBindings(p, nil)
+	if len(got) != 2 {
+		t.Fatalf("got %d bindings, want 2: %v", len(got), got)
+	}
+	var udp *HostBinding
+	for i := range got {
+		if got[i].Protocol == "udp" {
+			udp = &got[i]
+		}
+	}
+	if udp == nil {
+		t.Fatalf("the UDP binding was dropped: %v", got)
+	}
+	if udp.HostIP != "127.0.0.1" || udp.Port != 19153 {
+		t.Errorf("UDP binding = %+v, want 127.0.0.1:19153", *udp)
+	}
+}
+
+// specificInterface returns a non-loopback address where one exists, and
+// loopback otherwise -- the assertion holds either way, it is only sharper on a
+// real interface.
+func specificInterface(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil && !ipn.IP.IsLoopback() {
+			return ipn.IP.String()
+		}
+	}
+	return "127.0.0.1"
+}

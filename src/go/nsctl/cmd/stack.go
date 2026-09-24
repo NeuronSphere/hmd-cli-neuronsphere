@@ -78,6 +78,7 @@ func stackRef(cmd *cobra.Command, opts *Options, typed, spec string) (oci.Ref, *
 // installStack is SPEC003 steps 1-4: fetch, verify, cache, and offer the zips
 // to the local librarian.
 func installStack(cmd *cobra.Command, opts *Options, home string, ref oci.Ref, client *oci.Client, localURL string) (*stack.Installed, error) {
+	localURL = localLibrarianURL(localURL)
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Fetching %s (credential: %s)\n", ref, client.Credential.Source)
 	inst, err := stack.Install(cmd.Context(), home, client, ref, func(line string) { fmt.Fprintln(out, line) })
@@ -223,7 +224,7 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 	cmd.Flags().StringVar(&spec, "spec", "", "a BACON version spec to choose the version by (e.g. \"~= 0.1\")")
 	cmd.Flags().BoolVar(&apply, "apply", false, "Run `nsctl env apply` afterwards")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "With --apply, show the underlying command output")
-	cmd.Flags().StringVar(&localURL, "local-url", librarian.LocalBaseURL, "the control plane's Artifact Librarian")
+	cmd.Flags().StringVar(&localURL, "local-url", "", "the control plane's Artifact Librarian")
 	cmd.Flags().StringSliceVar(&repo.profiles, "profile", nil, "Local profiles to activate. Repeatable, or comma-separated")
 	cmd.Flags().BoolVar(&repo.allProfiles, "all-profiles", false, "Activate every profile the stack's lock mentions")
 	cmd.Flags().BoolVar(&repo.lean, "lean", false, "Activate no profiles: the stack and its unconditional entries alone")
@@ -290,7 +291,7 @@ job warming a cache.`,
 		},
 	}
 	cmd.Flags().StringVar(&spec, "spec", "", "a BACON version spec to choose the version by")
-	cmd.Flags().StringVar(&localURL, "local-url", librarian.LocalBaseURL, "the control plane's Artifact Librarian")
+	cmd.Flags().StringVar(&localURL, "local-url", "", "the control plane's Artifact Librarian")
 	return cmd
 }
 

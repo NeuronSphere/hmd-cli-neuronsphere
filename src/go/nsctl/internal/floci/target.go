@@ -16,6 +16,7 @@ package floci
 import (
 	"context"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"net/http"
 	"time"
 
@@ -26,9 +27,6 @@ import (
 
 // Endpoints and accounts, matching floci_deployer's module constants.
 const (
-	// DefaultEndpoint is where hmd_proxy streams the single Floci. The Floci
-	// container publishes nothing itself.
-	DefaultEndpoint = "http://localhost:4566"
 	// InternalEndpoint is the in-network address baked into API Gateway invoke
 	// URLs and handed to Lambdas as AWS_ENDPOINT_URL.
 	InternalEndpoint = "http://neuronsphere:4566"
@@ -111,8 +109,16 @@ func endpoint(lookup Lookup) string {
 			return v
 		}
 	}
-	return DefaultEndpoint
+	return DefaultEndpoint()
 }
+
+// DefaultEndpoint is where hmd_proxy streams the single Floci. The Floci
+// container publishes nothing itself.
+//
+// A function rather than a constant because the port is not fixed: 4566 is also
+// LocalStack's, so a machine already running one publishes this somewhere else
+// and every URL naming it has to follow (NERD007 SPEC001).
+func DefaultEndpoint() string { return hosturl.Floci() }
 
 func region(lookup Lookup) string {
 	if lookup != nil {

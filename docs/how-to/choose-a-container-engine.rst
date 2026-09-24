@@ -77,7 +77,7 @@ Published ports
 ---------------
 
 The local platform publishes ``80``, ``4566``, ``18080`` and the whole
-``19000-19079`` band on the host, and two engines cannot both forward the same
+``19000-19111`` band on the host, and two engines cannot both forward the same
 host ports. So only one engine can run the platform at a time: stop the
 platform on one before starting it on the other, rather than expecting them to
 coexist.

@@ -154,10 +154,20 @@ class PortSlotTests(_TempHome):
             hi,
             er.DEFAULT_PORT_BASE
             + er.MAX_ENVS * (er.PORTS_PER_ENV + er.K3S_PORTS_PER_ENV)
+            + er.MAX_UI_PORTS
             - 1,
         )
         env = er.create_env("dev2")
         self.assertTrue(lo <= env.floci_port <= hi and lo <= env.spare_port <= hi)
+
+    def test_the_published_range_covers_the_shared_ui_band(self):
+        """A UI port outside the published range is a URL nothing answers."""
+        lo, hi = (int(p) for p in er.env_port_range().split("-"))
+        band = er.DEFAULT_PORT_BASE + er.MAX_ENVS * (
+            er.PORTS_PER_ENV + er.K3S_PORTS_PER_ENV
+        )
+        for idx in range(er.MAX_UI_PORTS):
+            self.assertTrue(lo <= band + idx <= hi, f"UI port {band + idx} unpublished")
 
     def test_the_published_range_covers_every_k3s_port(self):
         """A listener outside the range hmd_proxy publishes is unreachable."""
@@ -344,3 +354,38 @@ class LegacyFlociStateTests(_TempHome):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ControlPlanePortGuardTests(_TempHome):
+    """`hmd neuronsphere up` must refuse a home whose ports nsctl has moved.
+
+    This front end writes the default ports into some eighty URLs. nsctl derives
+    them from the registry, so the two disagree the moment anything moves.
+    """
+
+    def _guard(self):
+        from hmd_cli_neuronsphere.hmd_cli_neuronsphere import (
+            _assert_control_plane_ports_are_default,
+        )
+
+        return _assert_control_plane_ports_are_default
+
+    def test_a_home_on_the_defaults_is_allowed(self):
+        er.ensure_default_env()
+        self._guard()()  # must not raise
+
+    def test_no_registry_at_all_is_allowed(self):
+        self._guard()()  # must not raise
+
+    def test_a_moved_port_is_refused_and_names_the_alternative(self):
+        er.ensure_default_env()
+        path = er.registry_path()
+        raw = json.loads(path.read_text())
+        raw.setdefault("control_plane", {})["ports"] = {"http": 8080}
+        path.write_text(json.dumps(raw))
+
+        with self.assertRaises(SystemExit) as ctx:
+            self._guard()()
+        message = str(ctx.exception)
+        self.assertIn("8080", message)
+        self.assertIn("nsctl env start", message)

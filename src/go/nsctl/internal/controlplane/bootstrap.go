@@ -110,7 +110,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 			Image:                ProjectBuilderRef(opts),
 			FlociEndpoint:        floci.InternalEndpoint,
 			AccountID:            target.AccountID,
-			DeploymentServiceURL: MSDeploymentURL,
+			DeploymentServiceURL: MSDeploymentURL(),
 			LocalProxy:           "http://hmd_proxy",
 			RepoHome:             opts.lookup("HMD_REPO_HOME"),
 			Home:                 opts.Home,
@@ -321,7 +321,7 @@ func deployFoundationService(ctx context.Context, opts *Options, docker *contain
 	if err != nil {
 		return "", nserr.Wrap(nserr.Fail, err)
 	}
-	opts.step("  routed %s/%s/", strings.TrimSuffix(MSDeploymentURL, "/hmd_ms_deployment"),
+	opts.step("  routed %s/%s/", strings.TrimSuffix(MSDeploymentURL(), "/hmd_ms_deployment"),
 		floci.LambdaName(repoClass))
 	return apiID, nil
 }

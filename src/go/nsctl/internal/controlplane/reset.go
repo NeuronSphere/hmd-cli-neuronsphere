@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"io"
 	"net/http"
 	"strings"
@@ -126,7 +127,7 @@ func Reset(ctx context.Context, opts *Options, repoClasses ...string) error {
 // through nginx and Floci yet. Any other response, including one the service
 // itself considers an error, means the route resolved and the wait is done.
 func waitForServiceRoute(ctx context.Context, lambdaName string, timeout time.Duration) error {
-	url := "http://localhost/" + lambdaName + "/"
+	url := hosturl.Route(lambdaName) + "/"
 	client := &http.Client{Timeout: 5 * time.Second}
 	deadline := time.Now().Add(timeout)
 

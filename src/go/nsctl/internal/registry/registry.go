@@ -49,6 +49,20 @@ const (
 	DefaultPortBase = 19000
 	// MaxEnvs is both the slot count and the width of the k3s band above them.
 	MaxEnvs = 16
+	// MaxUIPorts is how many Ingress-exposed user interfaces can be published
+	// on a host port at once, across every environment together.
+	//
+	// A band of its own above the k3s band, because the slot stride cannot be
+	// widened -- see FlociPort. Shared rather than per-slot, and this is a cost
+	// decision rather than a taste one: hmd_proxy publishes its whole band up
+	// front, every port in it becomes an individual Engine API binding
+	// (compose.portSpec) and an individual in-use probe (compose.HostPorts), and
+	// the band is already eighty. A per-environment block of eight would make it
+	// 216 to buy capacity for sixteen simultaneous environments nobody runs.
+	// Thirty-two shared ports cover the environments people actually have open
+	// and cost the start path thirty-two more bindings, not a hundred and
+	// thirty-six.
+	MaxUIPorts = 32
 )
 
 // The single Floci. Every environment is an emulated AWS *account* inside it,
@@ -111,6 +125,42 @@ type Environment struct {
 	PortSlot     int    `json:"port_slot"`
 	Slug         string `json:"slug"`
 	StateDir     string `json:"state_dir"`
+	// UIPorts maps an Ingress hostname to the host port hmd_proxy serves it on.
+	//
+	// Persisted rather than recomputed from the current set of Ingress hosts,
+	// for the reason this package's doc gives: a derived value that changes
+	// later orphans what was named under the old rule. Here the thing named is
+	// a URL a user has bookmarked, so a UI that moves ports because an
+	// unrelated one was deployed first is a defect.
+	//
+	// omitempty: an environment that publishes no UI writes no key, so this
+	// does not appear in a registry the Python CLI round-trips.
+	UIPorts map[string]int `json:"ui_ports,omitempty"`
+}
+
+// Control-plane port names. These are the host ports hmd_proxy publishes, and
+// the only ports a local NeuronSphere claims on the machine.
+//
+// Named rather than derived from a single base, because they are not one
+// arithmetic family: 80 is a web port, 4566 is what Floci answers on, and the
+// environment band is 112 contiguous ports. A base offset that fitted all three
+// would be a fiction.
+const (
+	PortHTTP    = "http"
+	PortFloci   = "floci"
+	PortTrino   = "trino"
+	PortDNS     = "dns"
+	PortEnvBase = "env_base"
+)
+
+// defaultControlPlanePorts are the ports a home takes when they are free. They
+// are the historical values, so an install that works today does not move.
+var defaultControlPlanePorts = map[string]int{
+	PortHTTP:    80,
+	PortFloci:   4566,
+	PortTrino:   18080,
+	PortDNS:     19153,
+	PortEnvBase: DefaultPortBase,
 }
 
 // ControlPlane is the shared half of a local NeuronSphere: one per HMD_HOME.
@@ -119,6 +169,38 @@ type ControlPlane struct {
 	ComposeProject string `json:"compose_project"`
 	FlociDataDir   string `json:"floci_data_dir"`
 	Network        string `json:"network"`
+	// Ports are the host ports this home actually publishes, recorded the first
+	// time they are chosen.
+	//
+	// Persisted rather than recomputed for the reason this package's doc gives,
+	// and with a sharper edge than most: these appear in URLs people bookmark,
+	// in a kubeconfig, and in an nginx fragment. A value that drifted would
+	// point every one of them somewhere else.
+	//
+	// omitempty: a home that took the defaults writes no key, so a registry the
+	// Python CLI round-trips is unchanged.
+	Ports map[string]int `json:"ports,omitempty"`
+}
+
+// Port is the host port this home publishes for a named service, or the
+// default where nothing was recorded. An unknown name answers 0, which is not a
+// port -- a caller asking for one has a bug rather than a fallback.
+func (c ControlPlane) Port(name string) int {
+	if port, ok := c.Ports[name]; ok && port > 0 {
+		return port
+	}
+	return defaultControlPlanePorts[name]
+}
+
+// EnvPortWidth is how many contiguous host ports an environment band needs: the
+// per-environment slots, the k3s band above them, and the shared UI band.
+const EnvPortWidth = MaxEnvs*(PortsPerEnv+1) + MaxUIPorts
+
+// EnvPortRange is the contiguous band hmd_proxy publishes for environments,
+// derived from whichever base this home took.
+func (c ControlPlane) EnvPortRange() (int, int) {
+	base := c.Port(PortEnvBase)
+	return base, base + EnvPortWidth - 1
 }
 
 // Registry is the whole file.
@@ -519,6 +601,87 @@ func (e *Environment) SparePort() int { return e.FlociPort() + 3 }
 // OpenSSL >= 3.5 send by default) exceeds. Every client then hangs with
 // "net/http: TLS handshake timeout" against a perfectly healthy cluster.
 func (e *Environment) K3sPort() int { return e.base() + MaxEnvs*PortsPerEnv + e.PortSlot }
+
+// UIPortAt is the idx'th port in the shared UI band.
+//
+// A third band, above the k3s one, for the same reason K3sPort is a band rather
+// than a fifth slot port: widening PortsPerEnv would renumber every existing
+// environment's Trino, graph and spare, and slot 0's spare is the Deployment
+// GUI's published 19003.
+//
+// It does not depend on the port slot: the band is shared across environments,
+// so the receiver contributes only its port base.
+func (e *Environment) UIPortAt(idx int) int {
+	return e.base() + MaxEnvs*PortsPerEnv + MaxEnvs + idx
+}
+
+// UIPort reports the port already assigned to an Ingress hostname.
+//
+// It never allocates. A caller that wants a port for a host it has just
+// discovered wants AssignUIPort; this answers for the summary and for
+// `env status`, where inventing a port would advertise one nothing listens on.
+func (e *Environment) UIPort(host string) (int, bool) {
+	port, ok := e.UIPorts[host]
+	return port, ok
+}
+
+// UsedUIPorts is every host port already promised to a user interface, in any
+// environment. The band is shared, so allocation has to see all of them.
+func (r *Registry) UsedUIPorts() map[int]string {
+	used := map[int]string{}
+	for _, e := range r.Environments {
+		for host, port := range e.UIPorts {
+			used[port] = host
+		}
+	}
+	return used
+}
+
+// AssignUIPort returns the host port an Ingress hostname is served on,
+// allocating and recording one the first time it is asked.
+//
+// Hashing the hostname first means a UI usually lands on the same port across
+// machines and re-creations even before anything is persisted -- the same
+// reasoning as AllocatePortSlot -- and the lowest-free fallback keeps it
+// correct when two hostnames collide. The recorded map then pins the choice, so
+// a later collision cannot move a port that is already in use, which matters
+// because the port is an address someone has bookmarked.
+//
+// Allocation consults every environment, not just this one: two environments
+// deploying the same chart produce the same hostname today (see
+// router.IngressHostFor) and must still not be handed the same port.
+//
+// The caller persists. This mutates env, and an Environment lives in the
+// registry by value.
+func (r *Registry) AssignUIPort(env *Environment, host string) (int, error) {
+	if port, ok := env.UIPorts[host]; ok {
+		return port, nil
+	}
+	taken := r.UsedUIPorts()
+	for _, port := range env.UIPorts {
+		taken[port] = host
+	}
+	if len(taken) >= MaxUIPorts {
+		return 0, fmt.Errorf(
+			"all %d published user-interface ports are in use, so %s has no host port; reach it by hostname, or free one by deleting an environment that no longer needs its UIs",
+			MaxUIPorts, host)
+	}
+	idx := int(crc32.ChecksumIEEE([]byte(host))) % MaxUIPorts
+	if _, clash := taken[env.UIPortAt(idx)]; clash {
+		for i := 0; i < MaxUIPorts; i++ {
+			if _, clash := taken[env.UIPortAt(i)]; !clash {
+				idx = i
+				break
+			}
+		}
+	}
+	port := env.UIPortAt(idx)
+	if env.UIPorts == nil {
+		env.UIPorts = map[string]int{}
+	}
+	env.UIPorts[host] = port
+	return port, nil
+}
 
 func (e *Environment) base() int {
 	if e.PortBase == 0 {

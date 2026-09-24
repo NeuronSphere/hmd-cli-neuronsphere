@@ -71,6 +71,10 @@ func (s Service) Name(project string) string {
 
 // Port is a published port or port range.
 type Port struct {
+	// HostIP is the interface the host side binds to, empty for all of them.
+	// A service that must not be reachable from off the machine says so here;
+	// the local resolver is the case that needed it.
+	HostIP                       string
 	HostStart, HostEnd           int
 	ContainerStart, ContainerEnd int
 	Protocol                     string
@@ -475,6 +479,21 @@ func parsePort(spec string) (Port, error) {
 	if body, proto, found := strings.Cut(spec, "/"); found {
 		spec = body
 		p.Protocol = proto
+	}
+
+	// An optional bind address comes first: [ip:]host:container. IPv6 is
+	// bracketed, as compose writes it, so the colons inside it are not
+	// mistaken for separators.
+	if strings.HasPrefix(spec, "[") {
+		end := strings.Index(spec, "]:")
+		if end < 0 {
+			return p, fmt.Errorf("unterminated IPv6 bind address")
+		}
+		p.HostIP = spec[1:end]
+		spec = spec[end+2:]
+	} else if parts := strings.Split(spec, ":"); len(parts) == 3 {
+		p.HostIP = parts[0]
+		spec = parts[1] + ":" + parts[2]
 	}
 
 	hostSpec, containerSpec, found := strings.Cut(spec, ":")

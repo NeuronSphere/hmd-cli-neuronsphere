@@ -28,14 +28,13 @@ If it cannot reach an engine, start yours and select it with ``docker context
 use <name>``; ``docker context ls`` lists them. See
 :doc:`../how-to/choose-a-container-engine` for what each engine needs.
 
-The host must resolve these two names to loopback. Add the following line to
-``/etc/hosts`` if it is not already present::
+There is nothing to add to ``/etc/hosts``. Containers receive Docker network
+aliases for ``neuronsphere`` and ``neuronsphere-workload``, and ``nsctl`` dials
+those same names on loopback when your machine cannot resolve them -- so a
+first run needs no privileged step at all.
 
-   127.0.0.1 neuronsphere neuronsphere-workload
-
-Containers already receive Docker network aliases. The host entry is needed
-because URLs returned by local services must also work from your shell and
-browser. Startup checks this and reports a missing entry.
+``nsctl doctor`` reports whether they resolve, because the legacy ``hmd build``
+and ``push-artifact`` still need them to. It reports; it does not refuse.
 
 Install nsctl
 -------------

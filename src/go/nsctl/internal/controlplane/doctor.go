@@ -29,8 +29,9 @@ func DoctorOptions(opts *Options) doctor.Options {
 
 func doctorOptions(opts *Options) doctor.Options {
 	o := DoctorOptions(opts)
-	// The start preflight runs the hosts check itself, in its own order and
-	// with its own error; Gate does not call this anyway.
+	// The start reports unresolvable host names itself, as a notice tied to the
+	// names it actually had to redirect (see Start), so running the check here
+	// too would say the same thing twice; Gate does not call this anyway.
 	o.Hosts = nil
 	return o
 }

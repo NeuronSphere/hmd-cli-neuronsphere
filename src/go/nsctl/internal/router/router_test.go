@@ -67,7 +67,7 @@ func TestControlPlaneStreamsMatchThePython(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	if err := r.WriteControlPlaneStreams("neuronsphere"); err != nil {
+	if err := r.WriteControlPlaneStreams("neuronsphere", "", 0); err != nil {
 		t.Fatalf("WriteControlPlaneStreams: %v", err)
 	}
 
@@ -296,7 +296,7 @@ func TestWriteBootstrapConfigLeavesAWorkingConfigAlone(t *testing.T) {
 	if err := r.WriteBaseConfig(); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.WriteControlPlaneStreams("neuronsphere"); err != nil {
+	if err := r.WriteControlPlaneStreams("neuronsphere", "", 0); err != nil {
 		t.Fatal(err)
 	}
 

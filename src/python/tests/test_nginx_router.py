@@ -40,6 +40,10 @@ class _Env:
         self.legacy_layout = False
 
     @property
+    def is_default(self):
+        return self.slug == "local"
+
+    @property
     def floci_port(self):
         return self.port_base + self.port_slot * 4
 
@@ -570,14 +574,32 @@ class IngressVhostTests(_TempHome):
     def test_environments_get_their_own_vhost_fragment(self):
         nr.write_env_vhosts(_Env("local"), "10.0.0.1:31080")
         nr.write_env_vhosts(_Env("dev2", slot=1), "10.0.0.2:31080")
-        self.assertIn(
-            "*.dev2.neuronsphere.io",
+        # Each environment still owns a fragment of its own...
+        self.assertTrue((self.vhost_dir() / "10-env-dev2.conf").exists())
+        # ...but only the default one claims the wildcard. Every environment's
+        # charts render the same `*.local.` hostnames, so a second block with
+        # that server_name is a conflict nginx resolves by preferring whichever
+        # fragment it read first. `*.dev2.neuronsphere.io` -- what this used to
+        # write -- matched nothing the charts ever asked for.
+        self.assertNotIn(
+            "server_name *.",
             (self.vhost_dir() / "10-env-dev2.conf").read_text(),
         )
         self.assertIn(
             "*.local.neuronsphere.io",
             (self.vhost_dir() / "10-env-local.conf").read_text(),
         )
+
+    def test_a_non_default_environment_still_gets_its_port_routes(self):
+        """A port is how a second environment's UI is reached at all."""
+        nr.write_env_vhosts(
+            _Env("dev2", slot=1),
+            "10.0.0.2:31080",
+            port_routes=[(19081, nr.ingress_host_for("airflow"))],
+        )
+        text = (self.vhost_dir() / "10-env-dev2.conf").read_text()
+        self.assertIn("listen 19081;", text)
+        self.assertIn("proxy_set_header Host airflow.local.neuronsphere.io;", text)
 
     def test_removing_an_env_removes_its_vhost(self):
         env = _Env("dev2", slot=1)

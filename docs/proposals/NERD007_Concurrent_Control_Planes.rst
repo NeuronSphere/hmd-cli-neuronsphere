@@ -114,6 +114,16 @@ Each home therefore needs its own hostname, which means its own ``/etc/hosts``
 entry. That is the one part of this that cannot be made invisible to the user:
 ``/etc/hosts`` needs root, and ``nsctl`` deliberately does not.
 
+.. note::
+
+    **Amended by** :doc:`NERD026_Local_Name_Resolution` **(2026-09-24).** The
+    conclusion above holds only while the derived name is a bare label. Placed
+    under the resolver-covered suffix instead -- ``<hash>.local.neuronsphere.io``
+    rather than ``neuronsphere-<hash>`` -- it is answered by a wildcard that is
+    already there, and a second concurrent platform costs no privileged edit at
+    all. See NERD026 SPEC005. The port-base and account-id reasoning below is
+    unaffected.
+
 4. Account ids collide
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -171,6 +181,12 @@ the three things it does not yet cover.
     This is the user-visible cost of the feature and should be stated as such
     rather than engineered around: a second concurrent platform costs one line
     in ``/etc/hosts``, added once.
+
+    **Amended by** :doc:`NERD026_Local_Name_Resolution` **SPEC005.** Where the
+    resolver is installed, the derived name is taken from under
+    ``local.neuronsphere.io`` and that remaining line is not needed either. The
+    cost is then zero rather than one, and the paragraph above applies only to
+    a machine that has declined the resolver.
 
 .. spec:: Account ids partitioned by home
     :id: HMD_CLI_NEURONSPHERE_NERD007_SPEC003

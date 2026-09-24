@@ -26,6 +26,32 @@ func testOptions(home string, env map[string]string) *Options {
 // Without the hosts entries every presigned URL Floci hands back is unusable
 // from the host, and the failure surfaces far away as a connection refused
 // inside some unrelated tool.
+// The notice has to say what is actually degraded and name both remedies. An
+// instruction to edit /etc/hosts with no statement of what breaks without it is
+// what made this look mandatory when it never was (NERD025 SPEC004).
+func TestTheHostNamesNoticeNamesBothRemedies(t *testing.T) {
+	t.Parallel()
+
+	got := hostNamesNotice([]string{"neuronsphere"})
+	for _, want := range []string{
+		"neuronsphere",
+		"nsctl dns install",
+		"/etc/hosts",
+		"127.0.0.1 neuronsphere neuronsphere-workload",
+		"hmd build",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notice should mention %q, got:\n%s", want, got)
+		}
+	}
+	// It must not read as a precondition of starting.
+	for _, unwanted := range []string{"and try again", "must resolve"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("notice still reads as a gate (%q), got:\n%s", unwanted, got)
+		}
+	}
+}
+
 func TestCheckHostsEntries(t *testing.T) {
 	t.Parallel()
 
@@ -477,5 +503,33 @@ func TestTheProxyCheckRefusesOnlyWhenItKnows(t *testing.T) {
 				t.Errorf("checkProxyStarted() = %v, want nil", err)
 			}
 		})
+	}
+}
+
+// A refusal that states a precondition without naming what satisfies it is
+// incomplete (NERD023 SPEC002). The port refusal names every override, and each
+// one has to be a variable something actually reads -- a remedy naming a
+// variable nothing honours is worse than no remedy.
+func TestThePortRemedyNamesRealOverrides(t *testing.T) {
+	t.Parallel()
+
+	// DNSPortEnv is a constant here, so this one cannot drift silently.
+	if !strings.Contains(portRemedy, DNSPortEnv) {
+		t.Errorf("the remedy does not name %s:\n%s", DNSPortEnv, portRemedy)
+	}
+	for _, want := range []string{
+		"HMD_LOCAL_ENV_PORT_BASE",
+		"HMD_LOCAL_ENV_PORT_RANGE",
+		"HMD_LOCAL_TRINO_HOST_PORT",
+		"HMD_LOCAL_GUI_HOST_PORT",
+	} {
+		if !strings.Contains(portRemedy, want) {
+			t.Errorf("the remedy does not name %s:\n%s", want, portRemedy)
+		}
+	}
+	// 80 and 4566 are fixed. Offering an override for them would send the
+	// reader looking for a variable that does not exist.
+	if !strings.Contains(portRemedy, "fixed") {
+		t.Errorf("the remedy does not say that 80 and 4566 cannot be moved:\n%s", portRemedy)
 	}
 }

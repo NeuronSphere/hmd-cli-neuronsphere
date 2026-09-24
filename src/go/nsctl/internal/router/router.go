@@ -304,13 +304,21 @@ func (r *Router) WriteControlPlaneRoutes(services map[string]string, stage, upst
 
 // WriteControlPlaneStreams writes stream.d/00-control-plane.conf.
 //
-// Only Floci is streamed. It carries :4566 so that neuronsphere:4566 -- the
-// hostname baked into presigned S3 and API URLs, mapped to 127.0.0.1 in the
-// host's /etc/hosts -- keeps working now that the Floci container publishes
-// nothing itself.
-func (r *Router) WriteControlPlaneStreams(flociHost string) error {
-	block := wrap("floci", streamServer(FlociStreamPort, flociHost+":4566", "ns_floci"))
-	return r.writeFragment(filepath.Join(r.StreamDir(), ControlPlaneFragment), []string{block}, "control-plane streams")
+// Floci carries :4566 so that neuronsphere:4566 -- the hostname baked into
+// presigned S3 and API URLs -- keeps working now that the Floci container
+// publishes nothing itself.
+//
+// The resolver is streamed for the reason every other container is: hmd_proxy
+// is the only service that may publish a host port (compose.ProxyService), and
+// that invariant is checked. dnsPort of 0 leaves it out, which is the default
+// -- the resolver is opt-in.
+func (r *Router) WriteControlPlaneStreams(flociHost string, dnsHost string, dnsPort int) error {
+	blocks := []string{wrap("floci", streamServer(FlociStreamPort, flociHost+":4566", "ns_floci"))}
+	if dnsPort > 0 && dnsHost != "" {
+		blocks = append(blocks, wrap("dnsd",
+			udpStreamServer(dnsPort, fmt.Sprintf("%s:%d", dnsHost, dnsPort), "ns_dnsd")))
+	}
+	return r.writeFragment(filepath.Join(r.StreamDir(), ControlPlaneFragment), blocks, "control-plane streams")
 }
 
 // ControlPlaneVhosts is what the control plane wants served by name or by port.
@@ -546,6 +554,17 @@ func passthroughLocation(path, upstream string) string {
 // varName must be unique per server block within one stream context.
 func streamServer(port int, upstream, varName string) string {
 	return fmt.Sprintf("server {\n    listen %d;\n    set $%s \"%s\";\n    proxy_pass $%s;\n}", port, varName, upstream, varName)
+}
+
+// udpStreamServer is streamServer for a datagram listener.
+//
+// proxy_responses 1 is what makes it a DNS proxy rather than a session that
+// waits for traffic that is never coming: one query, one answer. Without it
+// nginx holds the session open until proxy_timeout, which costs a worker
+// connection per lookup.
+func udpStreamServer(port int, upstream, varName string) string {
+	return fmt.Sprintf("server {\n    listen %d udp;\n    set $%s \"%s\";\n    proxy_pass $%s;\n    proxy_responses 1;\n    proxy_timeout 5s;\n}",
+		port, varName, upstream, varName)
 }
 
 func markers(route string) (string, string) {

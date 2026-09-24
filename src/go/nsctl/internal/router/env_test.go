@@ -128,6 +128,47 @@ func TestPortVhostSetsHostAndUndoesItOnRedirects(t *testing.T) {
 	}
 }
 
+// The wildcard has to match what the charts actually render, which is the
+// literal "local" -- not the environment's own slug. Written as *.<slug>. it
+// matched nothing at all in any environment not named `local`.
+func TestTheWildcardVhostMatchesWhatTheChartsRender(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080", nil); err != nil {
+		t.Fatal(err)
+	}
+	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
+	if !strings.Contains(body, "server_name *.local."+IngressDomain+";") {
+		t.Errorf("the wildcard does not match the rendered Ingress hosts:\n%s", body)
+	}
+}
+
+// Every environment's charts render the same hostnames, so only one
+// environment can own the wildcard. A second one claiming it would be a
+// conflicting server_name that nginx resolves by silently preferring whichever
+// fragment it read first -- so the others are reached on their ports, which are
+// allocated per environment and cannot collide.
+func TestOnlyTheDefaultEnvironmentClaimsTheWildcard(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	dev := Env{Slug: "dev", AccountID: "000000000002", TrinoPort: 19005, K3sPort: 19065, SparePort: 19007}
+	host := IngressHostFor("airflow")
+	if err := r.WriteEnvVhosts(dev, "1.2.3.4:31080", []PortRoute{{Port: 19081, IngressHost: host}}); err != nil {
+		t.Fatal(err)
+	}
+	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("dev")))
+
+	if strings.Contains(body, "server_name *.") {
+		t.Errorf("a non-default environment claimed the wildcard:\n%s", body)
+	}
+	// It still gets its port route, which is how it is reached at all.
+	if !strings.Contains(body, "listen 19081;") {
+		t.Errorf("the port route is missing:\n%s", body)
+	}
+}
+
 // hmd-cli-helm renders every local chart with alb.hostname=<instance>.local.<domain>,
 // and the slug there is the literal "local" in every environment.
 func TestIngressHostForUsesTheLiteralLocalSlug(t *testing.T) {

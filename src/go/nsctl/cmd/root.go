@@ -5,12 +5,15 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"io"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/loopback"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/spf13/cobra"
 )
@@ -145,6 +148,11 @@ above that is a RepoClass you add.`,
 			opts.resolve(homeFlag, process, func(msg string) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", msg)
 			})
+			// Where this home publishes the control plane, before any command
+			// builds a URL. Best effort: a home with no registry yet, or one
+			// this process cannot read, keeps the historical ports -- which is
+			// exactly what it had before any of this existed.
+			applyHostPorts(opts)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -185,6 +193,7 @@ above that is a RepoClass you add.`,
 		newDoctorCommand(opts),
 		newEnvCommand(opts),
 		newRepoCommand(opts),
+		newDNSCommand(opts),
 		newVersionCommand(opts),
 	)
 	assign(groupAuthor,
@@ -235,4 +244,28 @@ func Execute(version string) {
 		}
 		os.Exit(int(nserr.CodeOf(err)))
 	}
+}
+
+// applyHostPorts resolves this home's published ports and points the process at
+// them: the URLs every command builds, and the dial redirect that makes Floci's
+// own presigned URLs reachable.
+//
+// Both are process-global and both are set here, in one place, because they are
+// two halves of one fact -- where this machine reaches the control plane. A
+// command that resolved one and not the other would build a correct URL and
+// fail to follow a presigned one, or the reverse.
+func applyHostPorts(opts *Options) {
+	httpPort, flociPort := 0, 0
+	if opts.Home != "" {
+		if reg, err := registry.Load(opts.Home, opts.Lookup); err == nil {
+			httpPort = reg.ControlPlane.Port(registry.PortHTTP)
+			flociPort = reg.ControlPlane.Port(registry.PortFloci)
+		}
+	}
+	hosturl.Apply(httpPort, flociPort)
+	// A presigned URL from Floci names `neuronsphere` on its in-network port.
+	// The host may be unable to resolve that name at all, and may reach the
+	// emulator on a different port; the redirect covers both without touching
+	// the Host header the signature covers (NERD025 SPEC003).
+	loopback.Install(nil, hosturl.FlociPort())
 }

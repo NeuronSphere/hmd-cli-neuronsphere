@@ -2,6 +2,82 @@
 
 ## 2026-09-24
 
+- feat: a first run no longer needs `/etc/hosts` or `sudo`. `control-plane start`
+  refused to run at all unless `neuronsphere` and `neuronsphere-workload` already
+  resolved to loopback -- the first thing a new user met, before anything had
+  run. That gate is gone. nsctl now dials those two names on loopback itself for
+  any machine that cannot resolve them, which leaves the request untouched: the
+  `Host` header is signed under SigV4, so rewriting the URL to name localhost
+  would have voided the signature on the very presigned URL being fetched. A
+  machine that already has the hosts entry is unaffected, and so is nsctl running
+  inside a container, where the names are Docker aliases that must not be
+  redirected to the container's own loopback.
+- feat: every Ingress-exposed user interface is published on a host port, so
+  reaching one needs no name resolution at all. The mechanism was already
+  written, documented and unit-tested -- `portVhostServer` sets `Host` so Traefik
+  still matches the rule and undoes it on redirects -- and had simply never been
+  called: both writers passed no port routes. The friction it removes is the part
+  that grew, since every UI a deploy exposed used to add another hostname and
+  another `sudo` line.
+- feat: UI ports come from a band shared across environments rather than divided
+  among them, and each assignment is persisted, because the port is an address
+  someone bookmarks. Shared is a cost decision: hmd_proxy publishes its whole
+  range up front, every port in it becomes an individual Engine API binding and
+  an in-use probe at each start, and the band is already eighty. A block of eight
+  per environment would have made it 216 to buy capacity for sixteen simultaneous
+  environments nobody runs; 32 shared ports cover what people actually have open.
+  The published range widens to `19000-19111`.
+- fix: the environment vhost matched nothing in any environment not named
+  `local`. `hmd-cli-helm` renders `alb.hostname` with the literal `local` in
+  *every* environment, while the vhost was written as `*.<slug>.neuronsphere.io`
+  -- so a second environment's UIs were unreachable by hostname and had been all
+  along. The wildcard now matches what the charts actually render. It follows
+  that only one environment can own it, so the default takes it and the others
+  are reached on their ports, which cannot collide.
+- feat: `nsctl dns` serves a wildcard resolver for `*.local.neuronsphere.io`,
+  for the names that genuinely cannot be a port -- an OIDC issuer, a package
+  index URL, a control-plane extension -- each read by a browser, a container and
+  a cluster pod that must all resolve one string. One arrangement covers the
+  whole suffix including names that do not exist yet, which `/etc/hosts` cannot
+  do at any price. `nsctl dns install` prints the privileged step and does not
+  run it. The resolver file is scoped to `local.neuronsphere.io` and not to
+  `neuronsphere.io`, which would have captured the real public website.
+- feat: the local platform now takes whatever host ports are free, so it runs
+  alongside whatever else is on the machine with nothing to configure. 80 and
+  4566 were never fixed for a reason -- they were fixed because the URLs were
+  literals -- and 4566 is LocalStack's port, so anyone running one could not
+  start a local NeuronSphere at all. Ports are probed before the project is
+  built, the defaults are kept wherever they are free, and only a port that is
+  genuinely taken is chosen anew and recorded. A machine that works today does
+  not move and writes nothing to the registry. Every host-facing URL is derived
+  from the result, and a presigned URL -- which still names the in-network port,
+  because the signature covers it -- is dialled wherever the host publishes it.
+  A moved band takes every environment's port base with it. `hmd neuronsphere up`
+  refuses a home whose ports have moved rather than addressing the wrong ones.
+- fix: a host port taken by something outside the local NeuronSphere now refuses
+  the start and names every way to move the platform's ports, instead of warning
+  and walking into the engine's own bind failure. The probe also asks the
+  question the engine asks: it attempts the bind rather than dialling loopback,
+  so a listener pinned to a real interface -- invisible to a `127.0.0.1` connect
+  and still fatal to a `0.0.0.0` bind -- and a UDP listener are both seen. It
+  clears `SO_REUSEADDR`, which Go sets by default and the engine does not, and
+  which otherwise lets the probe succeed where the engine fails. A bind refused
+  for want of privilege is not treated as a conflict, so a Linux machine where
+  port 80 is merely privileged is not blocked. The engine's own error is
+  translated as a backstop.
+- feat: `env status` lists the user interfaces an environment has, which it did
+  not report at all, and a start leads with the port URL and shows the hostname
+  only where it resolves.
+- fix: compose port entries accept a bind address (`127.0.0.1:19153:19153/udp`),
+  which the parser silently could not express. The resolver answers `127.0.0.1`
+  for everything it owns and must not be reachable from off the machine. It
+  listens on 19153 rather than the obvious 5353, which mDNS holds on macOS --
+  shared between mDNSResponder, Chrome and Spotify with `SO_REUSEPORT`, which
+  Docker's publisher does not set, so publishing 5353 fails outright on a
+  typical Mac. It publishes no port of its own either: hmd_proxy carries the
+  listener and streams it on over UDP, because only the proxy may publish a
+  host port and that invariant is checked.
+
 - feat: the database-account service is deployed for a consumer instead of for a
   substrate mode. An environment that declares no `hmd-database-account` now
   starts without it, and `env apply` deploys it when one is added -- so an

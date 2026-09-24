@@ -20,7 +20,7 @@ func TestControlPlaneTarget(t *testing.T) {
 	if got.AccountID != ControlPlaneAccountID || got.AccessKeyID != ControlPlaneAccountID {
 		t.Errorf("account/key = %q/%q, want %q", got.AccountID, got.AccessKeyID, ControlPlaneAccountID)
 	}
-	if got.Endpoint != DefaultEndpoint || got.InternalEndpoint != InternalEndpoint {
+	if got.Endpoint != DefaultEndpoint() || got.InternalEndpoint != InternalEndpoint {
 		t.Errorf("endpoints = %q / %q", got.Endpoint, got.InternalEndpoint)
 	}
 	if got.Container != "floci" || got.Alias != "neuronsphere" {
@@ -65,7 +65,7 @@ func TestEndpointOverrides(t *testing.T) {
 		env  map[string]string
 		want string
 	}{
-		{"the default", nil, DefaultEndpoint},
+		{"the default", nil, DefaultEndpoint()},
 		{"FLOCI_ENDPOINT wins", map[string]string{"FLOCI_ENDPOINT": "http://x:1"}, "http://x:1"},
 		{"MINISTACK_ENDPOINT is the legacy name", map[string]string{"MINISTACK_ENDPOINT": "http://y:2"}, "http://y:2"},
 		{"FLOCI_ENDPOINT beats MINISTACK_ENDPOINT", map[string]string{"FLOCI_ENDPOINT": "http://x:1", "MINISTACK_ENDPOINT": "http://y:2"}, "http://x:1"},

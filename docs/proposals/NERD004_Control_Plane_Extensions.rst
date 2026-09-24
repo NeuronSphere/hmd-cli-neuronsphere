@@ -491,8 +491,9 @@ in it::
          - Mechanism
          - Status
        * - Host shell
-         - ``/etc/hosts`` entry plus an nginx ``server_name`` block on :80,
-           in a ``vhost.d/`` fragment
+         - an nginx ``server_name`` block on :80, in a ``vhost.d/`` fragment,
+           plus host-side resolution of the name -- the local resolver of
+           :doc:`NERD026_Local_Name_Resolution`, or an ``/etc/hosts`` entry
          - ``router.namedVhostServer``
        * - Floci Lambdas, sibling containers
          - Docker network alias on ``hmd_proxy``
@@ -530,6 +531,16 @@ in it::
     Reaching it from the host costs one ``/etc/hosts`` line, exactly as the
     identity provider and the environment UIs do. ``control-plane start``
     prints the line to add rather than leaving the reader to derive it.
+
+    **Amended (2026-09-24).** The environment UIs no longer cost such a line --
+    :doc:`NERD025_Port_First_Addressing` SPEC001 serves them on published ports
+    -- so extensions and the identity provider are now the cases that still
+    want a name. For them the cost is paid once, for the whole suffix, by
+    NERD026 rather than per extension. ``control-plane start`` continues to
+    print the ``/etc/hosts`` line as the fallback for a machine without the
+    resolver, and the open question below -- whether ``CheckHostsEntries``
+    should warn for declared extensions -- is answered by NERD025 SPEC004,
+    which turns that check into a report covering every name it knows about.
 
 .. spec:: Durable state
     :id: HMD_CLI_NEURONSPHERE_NERD004_SPEC008

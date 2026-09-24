@@ -814,10 +814,20 @@ def _port_vhost_server(
 def write_env_vhosts(env, upstream: str, port_routes=()) -> Path:
     """Write an environment's Host-routed vhost fragment.
 
-    One wildcard block per environment (``*.<slug>.neuronsphere.io``) rather
-    than one per app: the charts derive their Ingress hosts from the environment
-    name, so a wildcard covers every UI the environment deploys without this
-    module having to know which apps exist.
+    One wildcard block rather than one per app: a wildcard covers every UI the
+    environment deploys without this module having to know which apps exist.
+
+    The wildcard is ``*.local.neuronsphere.io`` -- ``_HELM_LOCAL_SLUG``, not the
+    environment's own slug. That is what the charts render (see
+    :func:`ingress_host_for`), and writing ``*.<slug>.`` instead produced a
+    server block matching nothing whatsoever in any environment not named
+    ``local``.
+
+    It follows that every environment's charts render the *same* hostnames, so
+    only one environment can own the wildcard: a second block with the same
+    ``server_name`` is a conflict nginx resolves by preferring whichever fragment
+    it read first. The default environment takes it; the others are reached on
+    their ports.
 
     ``port_routes`` is an optional sequence of ``(port, ingress_host)`` pairs, each
     additionally served at ``http://localhost:<port>/`` (see
@@ -826,12 +836,14 @@ def write_env_vhosts(env, upstream: str, port_routes=()) -> Path:
     writer aimed at a second file would still have to be kept in step with
     :func:`remove_env_routes` -- one file keeps writing and removal atomic.
     """
-    blocks = [
-        _wrap(
-            f"{env.slug}:vhost",
-            _vhost_server(f"*.{env.slug}.{INGRESS_DOMAIN}", upstream),
+    blocks = []
+    if getattr(env, "is_default", False):
+        blocks.append(
+            _wrap(
+                f"{env.slug}:vhost",
+                _vhost_server(f"*.{_HELM_LOCAL_SLUG}.{INGRESS_DOMAIN}", upstream),
+            )
         )
-    ]
     for port, ingress_host in port_routes:
         blocks.append(
             _wrap(

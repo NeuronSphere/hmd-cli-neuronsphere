@@ -930,6 +930,40 @@ def _seed_telemetry_profiles(
 from . import pg_upgrade  # noqa: E402
 
 
+def _assert_control_plane_ports_are_default() -> None:
+    """Refuse when nsctl has moved this home's published ports.
+
+    This front end writes ``http://localhost/...`` and ``localhost:4566`` in
+    some eighty places. ``nsctl`` derives them from the registry and will move
+    them when something else on the machine already holds 80 or 4566 -- 4566 is
+    LocalStack's port too. Nothing here follows, so a start would bring up a
+    platform addressed one way and talk to it another.
+
+    Only a home that actually moved is refused. A home on the defaults, which is
+    every home where nothing was in the way, is unaffected.
+    """
+    from . import env_registry as er
+
+    path = er.registry_path()
+    if not path.exists():
+        return
+    try:
+        ports = (json.loads(path.read_text()).get("control_plane") or {}).get(
+            "ports"
+        ) or {}
+    except (json.JSONDecodeError, OSError):
+        return
+    if not ports:
+        return
+    moved = ", ".join(f"{name}={port}" for name, port in sorted(ports.items()))
+    raise SystemExit(
+        "ERROR: this HMD_HOME publishes the local platform on non-default ports "
+        f"({moved}).\n"
+        "       `hmd neuronsphere up` addresses the defaults and cannot reach them.\n"
+        "       Use `nsctl env start`, which derives every URL from the registry."
+    )
+
+
 def _assert_no_legacy_env_floci_state() -> None:
     """Refuse to start over state from the container-per-environment layout.
 
@@ -1078,6 +1112,7 @@ def start_neuronsphere(
     from .floci_deployer import ensure_neuronsphere_hosts_entry
 
     ensure_neuronsphere_hosts_entry()
+    _assert_control_plane_ports_are_default()
     _assert_no_legacy_env_floci_state()
     # Before Floci starts: it would otherwise recreate the RDS container from an
     # image that cannot read the existing data directory, and the failure would

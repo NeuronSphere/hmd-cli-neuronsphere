@@ -329,9 +329,9 @@ func presence(exists bool) string {
 
 func reachable(up bool) string {
 	if up {
-		return "reachable at " + status.MSDeploymentURL
+		return "reachable at " + status.MSDeploymentURL()
 	}
-	return "not answering at " + status.MSDeploymentURL
+	return "not answering at " + status.MSDeploymentURL()
 }
 
 // handbackVars reports what the declared extensions contribute to hmd.env and

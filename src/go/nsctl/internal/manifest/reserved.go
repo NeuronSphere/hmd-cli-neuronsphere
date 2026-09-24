@@ -43,9 +43,9 @@ var reservedInstanceNames = map[string]bool{
 
 // controlPlaneReservedNames are the names the control plane already uses, per
 // NERD004 SPEC011: its own three instances, the three bootstrap services, and
-// the five service keys in the bundled compose file.
+// the service keys in the bundled compose file.
 //
-// The last five are not a collision hazard -- SPEC004 prefixes an extension's
+// The service keys are not a collision hazard -- SPEC004 prefixes an extension's
 // service keys with its instance name, so an instance called "proxy" would key
 // a service "proxy-something" and collide with nothing. They are refused
 // because the *name* would read in `status` as though it were the control
@@ -66,6 +66,7 @@ var controlPlaneReservedNames = map[string]bool{
 	"floci":               true,
 	"deployment-gui":      true,
 	"authd":               true,
+	"dnsd":                true,
 }
 
 // Reserved reports whether an instance name belongs to the substrate.

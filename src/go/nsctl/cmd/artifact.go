@@ -64,7 +64,7 @@ type librarians struct {
 
 func (l *librarians) bind(cmd *cobra.Command) {
 	l.bindCloud(cmd)
-	cmd.Flags().StringVar(&l.localURL, "local-url", librarian.LocalBaseURL,
+	cmd.Flags().StringVar(&l.localURL, "local-url", "",
 		"the control plane's Artifact Librarian")
 }
 
@@ -115,7 +115,16 @@ func (l *librarians) cloud(cmd *cobra.Command, opts *Options) (*librarian.Client
 	return c, nil
 }
 
-func (l *librarians) local() *librarian.Client { return librarian.NewLocal(l.localURL) }
+// local resolves the flag at use rather than at construction: the command tree
+// is built before the registry is read, so a default captured there would name
+// port 80 on a home that publishes somewhere else.
+func (l *librarians) local() *librarian.Client {
+	url := l.localURL
+	if url == "" {
+		url = librarian.LocalBaseURL()
+	}
+	return librarian.NewLocal(url)
+}
 
 func newArtifactPullCommand(opts *Options) *cobra.Command {
 	var libs librarians
@@ -625,4 +634,14 @@ func orNotSetHere(s string) string {
 		return "<a directory>"
 	}
 	return s
+}
+
+// localLibrarianURL is the control plane's Artifact Librarian, or the override
+// a caller passed. Resolved at use: the flag default would otherwise be fixed
+// when the command tree is built, before this home's ports are known.
+func localLibrarianURL(override string) string {
+	if override != "" {
+		return override
+	}
+	return librarian.LocalBaseURL()
 }

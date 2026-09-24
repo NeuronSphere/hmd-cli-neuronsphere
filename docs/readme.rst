@@ -26,19 +26,25 @@ The local NeuronSphere stack uses ``neuronsphere`` and
 ``neuronsphere-workload`` as the canonical hostnames for the local AWS
 emulator. They are registered as Docker network aliases on the compose
 services so they resolve automatically inside the
-``neuronsphere_default`` network. The host must also resolve them to a
-loopback address so presigned S3/API URLs returned by in-network
-services work from ``hmd build``, ``push-artifact``, and other CLI
-commands running on your machine.
+``neuronsphere_default`` network.
 
-Run this once on macOS, Linux, or WSL2::
+``nsctl`` needs nothing further. It dials those two names on loopback itself,
+so it neither requires an ``/etc/hosts`` entry nor refuses to start without one
+(``NERD025`` SPEC003).
+
+The legacy Python path does still want them. ``hmd build`` and
+``push-artifact`` follow the presigned S3/API URLs those services return, and
+they resolve the hostname through a different client that has no such
+redirect. Either of these covers it, once::
+
+    nsctl dns install        # prints one step; covers every local name
 
     sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'
 
 Native Windows is not supported. Use WSL2 instead.
 
-``hmd neuronsphere up`` runs a pre-flight check on every invocation and
-will print this exact instruction (and abort) if the entry is missing.
+``hmd neuronsphere up`` still runs its own pre-flight and aborts without the
+hosts entry; that gate belongs to the Python front end, not to ``nsctl``.
 
 Configuration
 ---------------------------------

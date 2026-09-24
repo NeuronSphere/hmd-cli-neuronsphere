@@ -10,6 +10,7 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"io"
 	"net"
 	"os"
@@ -24,8 +25,10 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/cpext"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/doctor"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/loopback"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/pgcheck"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -33,11 +36,16 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
-// HostsEntries are the names the host must resolve to a loopback address.
+// HostsEntries are the names a host-side consumer of a presigned URL has to
+// resolve.
 //
-// `neuronsphere` is baked into the presigned S3 and API URLs Floci hands back
-// to host-side consumers, so the host has to resolve it for those URLs to work
-// at all.
+// `neuronsphere` is baked into the presigned S3 and API URLs Floci hands back,
+// so a consumer given one of those URLs has to resolve the name to follow it.
+//
+// nsctl no longer needs the machine to do that -- internal/loopback dials these
+// names itself -- so this is a report rather than a requirement. It still
+// matters for the legacy Python artifact path, which follows the same URLs
+// through hmd_lib_librarian_client and has no such override.
 var HostsEntries = []string{"neuronsphere", "neuronsphere-workload"}
 
 // dockerClient is the Docker surface Stop needs to reach Floci-spawned
@@ -64,6 +72,50 @@ const AuthClientID = "neuronsphere-local"
 // AuthProfile gates the mock identity provider container.
 const AuthProfile = "authd"
 
+// DNSProfile gates the wildcard resolver container.
+const DNSProfile = "dnsd"
+
+// DNSContainer is the resolver's container name and DNSPort the port it
+// listens on. Like the identity provider it publishes nothing to the host: it
+// is reached through hmd_proxy, which is the only service that may publish a
+// host port.
+const DNSContainer = "hmd_dnsd"
+
+// DNSPortEnv overrides the resolver's port.
+const DNSPortEnv = "HMD_LOCAL_DNS_PORT"
+
+// DefaultDNSPort is where the resolver listens.
+//
+// Not 5353, the obvious choice: mDNS holds it on macOS -- shared between
+// mDNSResponder, Chrome and Spotify with SO_REUSEPORT, which Docker's port
+// publisher does not set -- so publishing it fails outright. See
+// internal/dnsd.
+const DefaultDNSPort = dnsd.DefaultPort
+
+// portRemedy names every way to move a published port, because a refusal that
+// states a precondition without naming what satisfies it is incomplete
+// (NERD023 SPEC002).
+//
+// 80 and 4566 are deliberately absent: they are fixed in the compose file, and
+// 4566 is baked into every presigned URL Floci hands back, so the only remedy
+// for those is to free the port.
+const portRemedy = "  Move the platform's ports, or free the ones above:\n" +
+	"    HMD_LOCAL_ENV_PORT_BASE     the 19000 band (per-environment ports and user interfaces)\n" +
+	"    HMD_LOCAL_ENV_PORT_RANGE    the published range, if it must differ from the base\n" +
+	"    HMD_LOCAL_TRINO_HOST_PORT   Trino's fixed host port (18080)\n" +
+	"    HMD_LOCAL_GUI_HOST_PORT     the Deployment GUI (19003)\n" +
+	"    HMD_LOCAL_DNS_PORT          the wildcard resolver (19153)\n" +
+	"  80 and 4566 are fixed -- 4566 is baked into every presigned URL Floci returns."
+
+// DNSEnabledEnv turns the wildcard resolver on.
+//
+// Off by default, and for a reason particular to this one: a resolver nothing
+// points at is a container doing nothing, and pointing a machine at it takes a
+// privileged step nsctl will not take on the user's behalf. Turning it on is
+// therefore a decision the user has already made by the time they run
+// `nsctl dns install`, not a default anyone should inherit.
+const DNSEnabledEnv = "HMD_LOCAL_NEURONSPHERE_ENABLE_DNS"
+
 // AuthContainer is the identity provider's container name and AuthPort the port
 // it listens on. Like the runner it publishes nothing to the host: it is
 // reached through hmd_proxy, by name, so that one URL works from the browser,
@@ -77,7 +129,7 @@ const (
 const DefaultGUIPort = 19003
 
 // MSDeploymentURL is the control-plane route to hmd-ms-deployment.
-const MSDeploymentURL = "http://localhost/hmd_ms_deployment"
+func MSDeploymentURL() string { return hosturl.Route("hmd_ms_deployment") }
 
 // Options configures a start or a stop.
 type Options struct {
@@ -127,9 +179,10 @@ type Resolver func(host string) ([]net.IP, error)
 
 // CheckHostsEntries verifies the host resolves the Floci aliases to loopback.
 //
-// Without them every presigned URL Floci hands back is unusable from the host,
-// and the failure surfaces far away as a connection refused inside some
-// unrelated tool.
+// Kept as a diagnostic after NERD025 SPEC004 removed it from the start path:
+// `nsctl doctor` reports it, nothing gates on it. The seam is unchanged -- an
+// injected Resolver, nothing runtime-sensitive -- so NERD021 SPEC012 still
+// holds.
 func CheckHostsEntries(resolve Resolver) error {
 	if resolve == nil {
 		resolve = net.LookupIP
@@ -144,8 +197,21 @@ func CheckHostsEntries(resolve Resolver) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return nserr.New(nserr.Usage,
-		"%s must resolve to a loopback address. Add this line to /etc/hosts and try again:\n\n    127.0.0.1 %s",
+	return nserr.New(nserr.Usage, "%s", hostNamesNotice(missing))
+}
+
+// hostNamesNotice says what is degraded and names both remedies.
+//
+// It no longer stops a start: nsctl dials these names on loopback itself
+// (internal/loopback), so what remains affected is the legacy Python artifact
+// path -- `hmd build` and `push-artifact` dereference the same presigned URLs
+// through hmd_lib_librarian_client, which has no such override. Saying so is
+// the point: an instruction to edit a file, with no statement of what breaks
+// without it, is what made this look mandatory when it was not.
+func hostNamesNotice(missing []string) string {
+	return fmt.Sprintf(
+		"%s do not resolve on this host. nsctl reaches them anyway, but `hmd build` and `push-artifact` cannot follow a presigned URL until they do.\n"+
+			"  Give the host the names with `nsctl dns install`, or add this line to /etc/hosts:\n\n    127.0.0.1 %s\n",
 		strings.Join(missing, " and "), strings.Join(HostsEntries, " "))
 }
 
@@ -225,8 +291,12 @@ func Start(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return nserr.New(nserr.Usage, "%s", doctor.FirstFailure(checks))
 	}
-	if err := CheckHostsEntries(nil); err != nil {
-		return err
+	if names := loopback.Install(nil, reg.ControlPlane.Port(registry.PortFloci)); len(names) > 0 {
+		// Reported, not refused. nsctl dials these itself (NERD025 SPEC003),
+		// so the start proceeds; what is left degraded is the legacy Python
+		// artifact path, which fetches the same presigned URLs through
+		// hmd_lib_librarian_client and has no such override.
+		opts.warn("%s", hostNamesNotice(names))
 	}
 	if err := CheckNoLegacyEnvFlociState(reg); err != nil {
 		return err
@@ -269,6 +339,38 @@ func Start(ctx context.Context, opts *Options) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
+	// From the endpoint the gate proved, not a second resolution: the whole
+	// defect was two halves of nsctl addressing two different daemons.
+	runner, err := compose.NewRunnerAt(engine, opts.Lookup, opts.Out, opts.Err)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+
+	// Which host ports this home publishes, settled before the project is built
+	// -- the compose file interpolates them, so choosing afterwards would
+	// publish one set and probe another.
+	//
+	// ours is read first for the same reason CheckInUse needs it: the
+	// platform's own published ports look foreign to a probe, and without this
+	// a restart would walk the whole platform up the port space every time.
+	ourPorts, portsKnown := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
+	if !portsKnown {
+		ourPorts = nil
+	}
+	if moved, err := ChoosePorts(reg, ourPorts, nil); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	} else if len(moved) > 0 {
+		for _, m := range moved {
+			opts.step("  %s", m)
+		}
+		// Recorded before anything is created. A port chosen and not persisted
+		// would be chosen again differently on the next start, and every URL
+		// derived from it would move with it.
+		if err := reg.Save(opts.Home); err != nil {
+			return nserr.Wrap(nserr.Fail, fmt.Errorf("recording the chosen host ports: %w", err))
+		}
+	}
+
 	guiImage := DeploymentGUIImage(ctx, opts, docker.ImagePresent)
 	project, err := Project(opts, reg, guiImage)
 	if err != nil {
@@ -291,13 +393,6 @@ func Start(ctx context.Context, opts *Options) error {
 		opts.warn("no extensions will be started; the rest of the control plane is unaffected")
 	}
 	aliasExtensions(project, exts)
-
-	// From the endpoint the gate proved, not a second resolution: the whole
-	// defect was two halves of nsctl addressing two different daemons.
-	runner, err := compose.NewRunnerAt(engine, opts.Lookup, opts.Out, opts.Err)
-	if err != nil {
-		return nserr.Wrap(nserr.Fail, err)
-	}
 
 	// Before anything is created, and before the ports check, because this is
 	// the failure that eats someone else's platform rather than merely failing
@@ -327,7 +422,7 @@ func Start(ctx context.Context, opts *Options) error {
 	for _, c := range compose.CheckReserved(project, active) {
 		opts.warn("%s", c)
 	}
-	ours, known := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
+	ours, known := ourPorts, portsKnown
 	if !known {
 		// Without this the findings below read as fact. They are guesses:
 		// every port the platform itself publishes looks foreign when the
@@ -335,8 +430,25 @@ func Start(ctx context.Context, opts *Options) error {
 		opts.warn("could not ask the container engine which ports the local NeuronSphere " +
 			"already publishes; the port warnings below may name ports that are its own")
 	}
-	for _, c := range compose.CheckInUse(ctx, project, active, ours, nil) {
-		opts.warn("%s", c)
+	if conflicts := compose.CheckInUse(ctx, project, active, ours, nil); len(conflicts) > 0 {
+		// A taken port is not a risk the start can take: hmd_proxy publishes
+		// its ports as one contiguous range, so a single foreign listener fails
+		// the whole container and takes every route down with it. Warning and
+		// continuing only delays the same failure into the engine's own
+		// message, which names the port and nothing else.
+		//
+		// Unless the engine could not be asked which ports are ours. Then the
+		// findings are guesses, and refusing on a guess would block a start
+		// over the platform's own ports.
+		if !known {
+			for _, c := range conflicts {
+				opts.warn("%s", c)
+			}
+		} else {
+			return nserr.New(nserr.InUse,
+				"these host ports are in use by something outside the local NeuronSphere:\n  %s\n%s",
+				joinConflicts(conflicts), portRemedy)
+		}
 	}
 
 	// Before compose: a profile is active for a container whose image does not
@@ -534,7 +646,11 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := r.WriteControlPlaneRoutes(services, floci.DefaultStage, "", nil); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	if err := r.WriteControlPlaneStreams(target.Alias); err != nil {
+	dnsHost, dnsPort := "", 0
+	if DNSEnabled(opts) {
+		dnsHost, dnsPort = DNSContainer, DNSPort(opts)
+	}
+	if err := r.WriteControlPlaneStreams(target.Alias, dnsHost, dnsPort); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	if err := r.WriteControlPlaneVhosts(router.ControlPlaneVhosts{
@@ -550,7 +666,7 @@ func Start(ctx context.Context, opts *Options) error {
 	}
 
 	opts.step("Control plane ready.")
-	opts.step("  services   %s/", MSDeploymentURL)
+	opts.step("  services   %s/", MSDeploymentURL())
 	opts.step("  floci      %s", target.Endpoint)
 	if GUIEnabled(opts) {
 		opts.step("  gui        http://localhost:%d", GUIPort(opts))
@@ -753,10 +869,19 @@ func Project(opts *Options, reg *registry.Registry, guiImage string) (*compose.P
 // the published :stable tag, which is degraded but not a reason to fail a
 // start, matching what the Python does when resolution raises.
 func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.Lookup {
+	envLo, envHi := reg.ControlPlane.EnvPortRange()
 	overlay := map[string]string{
 		"HMD_HOME":                    opts.Home,
 		"NEURONSPHERE_DOCKER_NETWORK": reg.ControlPlane.Network,
 		"HMD_LOCAL_GUI_HOST_PORT":     strconv.Itoa(GUIPort(opts)),
+		// The ports this home settled on. A value the user exported still wins
+		// -- see the lookup below -- so these are a default that already knows
+		// what else is running on the machine, not an override.
+		"HMD_LOCAL_HTTP_PORT":       strconv.Itoa(reg.ControlPlane.Port(registry.PortHTTP)),
+		"HMD_LOCAL_FLOCI_PORT":      strconv.Itoa(reg.ControlPlane.Port(registry.PortFloci)),
+		"HMD_LOCAL_TRINO_HOST_PORT": strconv.Itoa(reg.ControlPlane.Port(registry.PortTrino)),
+		"HMD_LOCAL_DNS_PORT":        strconv.Itoa(reg.ControlPlane.Port(registry.PortDNS)),
+		"HMD_LOCAL_ENV_PORT_RANGE":  fmt.Sprintf("%d-%d", envLo, envHi),
 	}
 	if guiImage != "" {
 		overlay["HMD_DEPLOYMENT_GUI_IMAGE"] = guiImage
@@ -810,7 +935,29 @@ func ActiveProfiles(opts *Options) map[string]bool {
 	if AuthEnabled(opts) {
 		active[AuthProfile] = true
 	}
+	if DNSEnabled(opts) {
+		active[DNSProfile] = true
+	}
 	return active
+}
+
+// DNSPort is the host port hmd_proxy streams the resolver at.
+func DNSPort(opts *Options) int {
+	if raw := opts.lookup(DNSPortEnv); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			return n
+		}
+	}
+	return DefaultDNSPort
+}
+
+// DNSEnabled reports whether the wildcard resolver should run.
+func DNSEnabled(opts *Options) bool {
+	switch strings.ToLower(strings.TrimSpace(opts.lookup(DNSEnabledEnv))) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
 }
 
 // AuthEnabled, AuthHost and AuthIssuerBase read the identity provider's

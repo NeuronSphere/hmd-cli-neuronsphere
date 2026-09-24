@@ -335,11 +335,11 @@ func TestNewLocalNeedsNoCredential(t *testing.T) {
 func TestLocalBaseURLKeepsItsTrailingSlash(t *testing.T) {
 	t.Parallel()
 
-	if !strings.HasSuffix(LocalBaseURL, "/") {
-		t.Errorf("LocalBaseURL = %q, want a trailing slash", LocalBaseURL)
+	if !strings.HasSuffix(LocalBaseURL(), "/") {
+		t.Errorf("LocalBaseURL = %q, want a trailing slash", LocalBaseURL())
 	}
-	if LocalBaseURL != "http://localhost/hmd_ms_artifact_lib/" {
-		t.Errorf("LocalBaseURL = %q", LocalBaseURL)
+	if LocalBaseURL() != "http://localhost/hmd_ms_artifact_lib/" {
+		t.Errorf("LocalBaseURL = %q", LocalBaseURL())
 	}
 	if LocalAPIKey != "local-dummy" {
 		t.Errorf("LocalAPIKey = %q, want the literal the local librarian accepts", LocalAPIKey)

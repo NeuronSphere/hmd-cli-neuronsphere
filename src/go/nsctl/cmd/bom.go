@@ -70,7 +70,7 @@ func (s *cloudServices) bindFetch(cmd *cobra.Command) {
 	s.bindRead(cmd)
 	cmd.Flags().StringVar(&s.librarianURL, "librarian-url", "",
 		"cloud Artifact Librarian URL, overriding "+librarian.URLEnv)
-	cmd.Flags().StringVar(&s.localURL, "local-url", librarian.LocalBaseURL,
+	cmd.Flags().StringVar(&s.localURL, "local-url", "",
 		"the control plane's Artifact Librarian")
 }
 
@@ -128,7 +128,7 @@ func (s *cloudServices) roleResolver(cmd *cobra.Command, opts *Options, home str
 	if err != nil {
 		return nil, err
 	}
-	return newRoleResolver(cmd.Context(), home, cloud, librarian.NewLocal(s.localURL)), nil
+	return newRoleResolver(cmd.Context(), home, cloud, librarian.NewLocal(localLibrarianURL(s.localURL))), nil
 }
 
 func newBOMEnvsCommand(opts *Options) *cobra.Command {
@@ -573,7 +573,7 @@ func fetchSelection(cmd *cobra.Command, opts *Options, svc *cloudServices, home 
 	if err != nil {
 		return nil, nil, err
 	}
-	local := librarian.NewLocal(svc.localURL)
+	local := librarian.NewLocal(localLibrarianURL(svc.localURL))
 
 	fmt.Fprintf(out, "\nFetching %s from %s:\n", count(len(needed), "artifact"), cloud.BaseURL)
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)

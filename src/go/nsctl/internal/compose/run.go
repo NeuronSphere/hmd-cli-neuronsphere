@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -302,6 +303,17 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 	}
 	created, err := r.API.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, name)
 	if err != nil {
+		// The engine's port-conflict error arrives wrapped in driver noise and
+		// names a port and nothing else. The pre-flight probe should have
+		// caught this; when it did not -- a port taken in the moment between
+		// the two, or an engine binding differently than expected -- say what
+		// happened in the same terms the probe would have.
+		if port, ok := BindFailure(err); ok {
+			return res, fmt.Errorf(
+				"creating %s: host port %d is already in use by something outside the local "+
+					"NeuronSphere, so the engine could not publish it. Free that port, or move "+
+					"the platform's -- `nsctl doctor` lists them: %w", name, port, err)
+		}
 		return res, fmt.Errorf("creating %s: %w", name, err)
 	}
 	if err := r.API.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
@@ -662,8 +674,39 @@ func restartPolicy(spec string) container.RestartPolicy {
 	}
 }
 
+// bindFailurePatterns match the ways an engine reports that it could not
+// publish a host port. Two forms, because the message is the driver's rather
+// than the API's and they do not all phrase it alike.
+var bindFailurePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`Bind for [^:]+:(\d+) failed`),
+	regexp.MustCompile(`listen (?:tcp|udp) [^:]+:(\d+): bind:`),
+}
+
+// BindFailure reports the host port an engine could not publish, when that is
+// what went wrong.
+//
+// It reads the message rather than a code because there is no code: the failure
+// comes back from the network driver as prose, wrapped in whatever context the
+// caller added.
+func BindFailure(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	msg := err.Error()
+	for _, re := range bindFailurePatterns {
+		if m := re.FindStringSubmatch(msg); m != nil {
+			port, convErr := strconv.Atoi(m[1])
+			if convErr != nil {
+				return 0, false
+			}
+			return port, true
+		}
+	}
+	return 0, false
+}
+
 // portSpec expands ranges into individual bindings, which is what the Engine
-// API takes -- the 19000-19079 band becomes eighty entries.
+// API takes -- the 19000-19111 band becomes 112 entries.
 func portSpec(ports []Port) (nat.PortSet, nat.PortMap, error) {
 	exposed := nat.PortSet{}
 	bindings := nat.PortMap{}
@@ -679,6 +722,7 @@ func portSpec(ports []Port) (nat.PortSet, nat.PortMap, error) {
 				continue
 			}
 			bindings[cPort] = append(bindings[cPort], nat.PortBinding{
+				HostIP:   p.HostIP,
 				HostPort: strconv.Itoa(p.HostStart + i),
 			})
 		}

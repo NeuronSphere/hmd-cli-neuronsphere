@@ -400,8 +400,10 @@ unaffected; environment services are **prefixed** with the environment name:
      - control-plane artifact-lib
    * - ``http://localhost/<env>/<service>/``
      - that environment's services
-   * - ``http://<app>.<env>.neuronsphere.io/``
-     - that environment's Ingress-exposed UIs (Airflow, Argo)
+   * - ``http://localhost:<19080+n>``
+     - an Ingress-exposed UI (Airflow, Argo, Superset), on a shared band
+   * - ``http://<app>.local.neuronsphere.io/``
+     - the same UI by hostname, for the default environment
    * - ``http://localhost:4566``
      - control-plane Floci (nginx ``stream``)
    * - ``http://localhost:<19000+4n>``
@@ -419,7 +421,7 @@ deployed Trino shows no Trino route, and the services and UIs it does have are
 listed by name.
 
 Non-HTTP protocols (Trino, the k3s API, Floci's AWS wire protocol) get L4
-``stream`` listeners rather than HTTP locations. The whole ``19000-19079`` range
+``stream`` listeners rather than HTTP locations. The whole ``19000-19111`` range
 is published by ``hmd_proxy`` up front — a compose ``ports:`` list is static —
 and individual listeners inside it are added and removed at runtime with an
 nginx reload, never a container restart. That is 16 environments × 4 slots, plus
@@ -449,10 +451,31 @@ API Gateway stage name, since a CDKTF stage is not called ``local``. Use
 
 UIs are reached the way the cloud reaches them: through the chart's own
 ``Ingress``. Locally the ingress controller is the k3s Traefik, configured to
-answer to the cloud's ``alb`` ingress class so charts deploy unmodified;
-``hmd_proxy`` Host-routes ``*.<env>.neuronsphere.io`` to it. Because
-``/etc/hosts`` has no wildcards, each UI hostname needs an entry — ``up`` prints
-the exact ``sudo`` line for any that do not yet resolve.
+answer to the cloud's ``alb`` ingress class so charts deploy unmodified, and
+``hmd_proxy`` fronts it.
+
+**Every UI is also published on a host port**, and that is the address a start
+reports first, because it works on a machine that has never been told to
+resolve anything (``NERD025`` SPEC001). Ports come from a band shared across
+environments rather than divided among them: ``hmd_proxy`` publishes its whole
+range up front, so a per-environment block would cost a hundred and thirty-six
+extra port bindings and in-use probes at every start to buy capacity for
+sixteen simultaneous environments nobody runs.
+
+The hostname still works, and is still what the cloud uses. Two things are
+worth knowing about it. ``hmd-cli-helm`` renders ``alb.hostname`` with the
+literal ``local`` in *every* environment, so the wildcard vhost is
+``*.local.neuronsphere.io`` — written as ``*.<env>.`` it matched nothing at all
+in any environment not named ``local``. And because every environment renders
+the same hostnames, only the default environment claims that wildcard; a second
+claim is a conflicting ``server_name`` that nginx resolves by preferring
+whichever fragment it read first. Other environments are reached on their
+ports, which are allocated per environment and cannot collide.
+
+Making the hostname resolve is one step for the whole suffix, wildcard
+included, via ``nsctl dns install`` — see :doc:`proposals/NERD026_Local_Name_Resolution`.
+``/etc/hosts`` has no wildcards, so it can only ever name UIs that already
+exist.
 
 How cloud charts work unmodified
 --------------------------------

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"io"
 	"net/http"
 	"time"
@@ -20,7 +21,7 @@ import (
 // concatenates, so the bug does not exist here. Keeping the slash and pinning it
 // with a test is what stops a later refactor to url.JoinPath -- which resolves
 // the same way urljoin does -- from reintroducing it.
-const LocalBaseURL = "http://localhost/hmd_ms_artifact_lib/"
+func LocalBaseURL() string { return hosturl.Route("hmd_ms_artifact_lib") + "/" }
 
 // LocalAPIKey is the literal the local librarian accepts. It is anonymous and
 // reachable only on loopback; the threat model for a single-developer local
@@ -54,7 +55,7 @@ var ErrMultipartRequired = errors.New("the artifact needs a multipart upload, wh
 // "anonymous" without a second thing to keep in step.
 func NewLocal(baseURL string) *Client {
 	if baseURL == "" {
-		baseURL = LocalBaseURL
+		baseURL = LocalBaseURL()
 	}
 	return &Client{
 		BaseURL: trimSlash(baseURL),

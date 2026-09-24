@@ -462,3 +462,23 @@ func TestDBAccountRouteOnlyWhenRouted(t *testing.T) {
 		t.Errorf("the services route should survive, got %v", snap.RouteOrder)
 	}
 }
+
+// `env status` listed no user interface at all, which after NERD025 SPEC001 is
+// the address most people actually want from it.
+func TestEnvStatusListsTheUIPorts(t *testing.T) {
+	t.Parallel()
+
+	e := &Environment{Routes: map[string]string{}}
+	for _, host := range sortedHosts(map[string]int{
+		"superset.local.neuronsphere.io": 19088,
+		"airflow.local.neuronsphere.io":  19081,
+	}) {
+		e.addRoute("ui:"+host, host)
+	}
+	// Sorted, so the same environment renders the same bytes twice.
+	if got, want := e.RouteOrder, []string{
+		"ui:airflow.local.neuronsphere.io", "ui:superset.local.neuronsphere.io",
+	}; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("route order = %v, want %v", got, want)
+	}
+}

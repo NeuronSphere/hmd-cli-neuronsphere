@@ -97,6 +97,12 @@ Scope and terminology
     1. **Host readiness.** The same ``doctor`` gate ``control-plane start``
        runs, rendered the same way, so the diagnostic and the gate cannot
        drift. A failed check stops the run and carries its existing remedy.
+
+       **Amended by** :doc:`NERD025_Port_First_Addressing` **SPEC004
+       (2026-09-24).** Name resolution is no longer part of that gate. It is
+       reported by ``doctor`` and does not stop a quickstart, because after
+       NERD025 nothing a first run does requires it -- which is what makes
+       this command honest about being one command.
     2. **A home.** When ``HMD_HOME`` is unset, propose a path and **print the
        ``export`` line for the user to run**. It shall not write, append to, or
        create a shell profile, an ``rc`` file, or any file outside the chosen

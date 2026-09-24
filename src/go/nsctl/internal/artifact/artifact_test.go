@@ -379,7 +379,12 @@ func TestUnavailableTellsTheCausesApart(t *testing.T) {
 		{
 			name:  "the presigned host does not resolve",
 			cause: &net.DNSError{Name: "neuronsphere", Err: "no such host"},
-			want:  []string{"neuronsphere", "/etc/hosts", "127.0.0.1"},
+			want:  []string{"neuronsphere", "/etc/hosts", "127.0.0.1", "nsctl doctor"},
+			// nsctl redirects these names itself, so reaching this branch means
+			// something other than a missing hosts entry; the message must not
+			// send the reader straight back to the old remedy as if it were the
+			// whole story.
+			unwanted: []string{"and try again"},
 		},
 	}
 	for _, tt := range tests {

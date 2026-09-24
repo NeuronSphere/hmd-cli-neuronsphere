@@ -11,7 +11,9 @@ package status
 
 import (
 	"context"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,11 +26,11 @@ import (
 
 // MSDeploymentURL is the control-plane route to hmd-ms-deployment, served by
 // hmd_proxy. Matches environments._MS_DEPLOYMENT_URL.
-const MSDeploymentURL = "http://localhost/hmd_ms_deployment"
+func MSDeploymentURL() string { return hosturl.Route("hmd_ms_deployment") }
 
 // DefaultFlociEndpoint is where hmd_proxy streams the single Floci. The Floci
 // container itself publishes nothing.
-const DefaultFlociEndpoint = "http://localhost:4566"
+func DefaultFlociEndpoint() string { return hosturl.Floci() }
 
 // DefaultGUIPort is the Deployment GUI's published port -- slot 0's spare,
 // which is why the port stride cannot be widened.
@@ -302,15 +304,15 @@ func (r *Reporter) EnvironmentStatus(ctx context.Context, e *registry.Environmen
 		Routes:         map[string]string{},
 	}
 
-	flociEndpoint := firstNonEmpty(r.lookup("FLOCI_ENDPOINT"), r.lookup("MINISTACK_ENDPOINT"), DefaultFlociEndpoint)
-	out.addRoute("services", "http://localhost/"+e.Slug+"/<service>/")
+	flociEndpoint := firstNonEmpty(r.lookup("FLOCI_ENDPOINT"), r.lookup("MINISTACK_ENDPOINT"), DefaultFlociEndpoint())
+	out.addRoute("services", hosturl.Route(e.Slug)+"/<service>/")
 	out.addRoute("floci", flociEndpoint)
 	// dbaccount only when it is actually routed, which is the Trino rule below
 	// applied for the same reason: an environment that declares no
 	// hmd-database-account consumer runs no dbaccount service, and a row for
 	// one is a URL that answers nothing.
 	if hasDB && r.routedService(e.Slug, "hmd_ms_dbaccount") {
-		out.addRoute("dbaccount", "http://localhost/"+e.Slug+"/hmd_ms_dbaccount/")
+		out.addRoute("dbaccount", hosturl.Route(e.Slug+"/hmd_ms_dbaccount")+"/")
 	}
 	if hasCluster {
 		// Trino only when it is actually routed. The port belongs to the
@@ -321,6 +323,15 @@ func (r *Reporter) EnvironmentStatus(ctx context.Context, e *registry.Environmen
 			out.addRoute("trino", "localhost:"+strconv.Itoa(e.TrinoPort()))
 		}
 		out.addRoute("k3s", "localhost:"+strconv.Itoa(e.K3sPort()))
+		// The user interfaces, at the addresses that work without resolving
+		// anything. Read from the recorded assignments rather than from the
+		// port band: a port is recorded only for a UI that was actually
+		// discovered on the cluster, so this reports what the environment has
+		// rather than what its band reserves (NERD023 SPEC003).
+		for _, host := range sortedHosts(e.UIPorts) {
+			out.addRoute("ui:"+strings.SplitN(host, ".", 2)[0],
+				"http://localhost:"+strconv.Itoa(e.UIPorts[host])+"/")
+		}
 	}
 	if r.guiEnabled() {
 		gui := "http://localhost:" + strconv.Itoa(r.guiPort())
@@ -387,7 +398,7 @@ func (r *Reporter) ControlPlaneStatus(ctx context.Context, reg *registry.Registr
 	}
 
 	if r.Probe != nil {
-		out.MSDeploymentUp = r.Probe(ctx, MSDeploymentURL+"/")
+		out.MSDeploymentUp = r.Probe(ctx, MSDeploymentURL()+"/")
 	}
 
 	for _, name := range reg.Names() {
@@ -459,6 +470,17 @@ func (r *Reporter) guiPort() int {
 		}
 	}
 	return DefaultGUIPort
+}
+
+// sortedHosts orders the recorded UI hostnames, so the same environment renders
+// the same bytes twice.
+func sortedHosts(ports map[string]int) []string {
+	out := make([]string, 0, len(ports))
+	for host := range ports {
+		out = append(out, host)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (e *Environment) addRoute(key, value string) {

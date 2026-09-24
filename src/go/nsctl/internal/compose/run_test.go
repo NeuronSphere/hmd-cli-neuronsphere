@@ -3,6 +3,8 @@ package compose
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -198,7 +200,7 @@ func testProject() *Project {
 				Key: "proxy", ContainerName: "hmd_proxy", Image: "nginx:stable-alpine",
 				Restart:     "unless-stopped",
 				Environment: map[string]string{"B": "2", "A": "1"},
-				Ports:       []Port{{80, 80, 80, 80, "tcp"}, {19000, 19003, 19000, 19003, "tcp"}},
+				Ports:       []Port{{"", 80, 80, 80, 80, "tcp"}, {"", 19000, 19003, 19000, 19003, "tcp"}},
 				Volumes:     []Mount{{Source: "/h/.cache/nginx", Target: "/etc/nginx/ns", ReadOnly: true}},
 				Networks:    []NetworkAttachment{{Name: "neuronsphere_default", Aliases: []string{"proxy"}}},
 			},
@@ -539,7 +541,7 @@ func TestConfigHashChangesWithTheConfiguration(t *testing.T) {
 		{"a different image", func(s *Service) { s.Image = "nginx:other" }},
 		{"a different environment value", func(s *Service) { s.Environment = map[string]string{"A": "changed"} }},
 		{"a different bind", func(s *Service) { s.Volumes = []Mount{{Source: "/other", Target: "/t"}} }},
-		{"a different port", func(s *Service) { s.Ports = []Port{{81, 81, 81, 81, "tcp"}} }},
+		{"a different port", func(s *Service) { s.Ports = []Port{{"", 81, 81, 81, 81, "tcp"}} }},
 		{"a different restart policy", func(s *Service) { s.Restart = "always" }},
 		{"a different command", func(s *Service) { s.Command = []string{"sh"} }},
 	}
@@ -701,5 +703,100 @@ func TestARunnerWithNoPullerRefusesToPull(t *testing.T) {
 	err := r.EnsureImage(context.Background(), "nginx:stable-alpine")
 	if err == nil || !strings.Contains(err.Error(), "no puller") {
 		t.Errorf("EnsureImage = %v, want a refusal naming the missing puller", err)
+	}
+}
+
+// A service that must not be reachable from off the machine says so with a bind
+// address, and it has to survive into the Engine API binding -- the local
+// resolver answers 127.0.0.1 for its whole suffix, which is an answer nobody
+// else should be given.
+func TestPortSpecKeepsTheBindAddress(t *testing.T) {
+	t.Parallel()
+
+	_, bindings, err := portSpec([]Port{{"127.0.0.1", 5353, 5353, 5353, 5353, "udp"}})
+	if err != nil {
+		t.Fatalf("portSpec: %v", err)
+	}
+	got, ok := bindings["5353/udp"]
+	if !ok || len(got) != 1 {
+		t.Fatalf("bindings = %v, want one entry for 5353/udp", bindings)
+	}
+	if got[0].HostIP != "127.0.0.1" {
+		t.Errorf("HostIP = %q, want 127.0.0.1 -- without it the resolver listens on every interface", got[0].HostIP)
+	}
+	if got[0].HostPort != "5353" {
+		t.Errorf("HostPort = %q, want 5353", got[0].HostPort)
+	}
+}
+
+// An unqualified port keeps binding everywhere, as it always has.
+func TestPortSpecLeavesAnUnboundPortAlone(t *testing.T) {
+	t.Parallel()
+
+	_, bindings, err := portSpec([]Port{{"", 80, 80, 80, 80, "tcp"}})
+	if err != nil {
+		t.Fatalf("portSpec: %v", err)
+	}
+	if got := bindings["80/tcp"]; len(got) != 1 || got[0].HostIP != "" {
+		t.Errorf("bindings = %v, want one entry with no host IP", got)
+	}
+}
+
+// The engine's own port-conflict error names the port and nothing else, and it
+// arrives wrapped in driver noise. A check that ran and said the port was free
+// makes that worse, not better: the reader needs to be told these are the same
+// fact, and what to do about it.
+func TestBindFailureIsRecognisedAndNamed(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		err  string
+		port int
+		ok   bool
+	}{
+		{
+			"the usual driver-wrapped form",
+			"driver failed programming external connectivity on endpoint hmd_proxy " +
+				"(a1b2): Bind for 0.0.0.0:19045 failed: port is already allocated",
+			19045, true,
+		},
+		{
+			"bare",
+			"Bind for 0.0.0.0:19045 failed: port is already allocated",
+			19045, true,
+		},
+		{
+			"bound to an interface",
+			"Bind for 127.0.0.1:19153 failed: port is already allocated",
+			19153, true,
+		},
+		{
+			"the listen form some engines emit",
+			"listen udp 0.0.0.0:19153: bind: address already in use",
+			19153, true,
+		},
+		{"an unrelated failure", "no such image: hmd-img-nsctl:latest", 0, false},
+		{"empty", "", 0, false},
+	} {
+		port, ok := BindFailure(errors.New(tt.err))
+		if ok != tt.ok {
+			t.Errorf("%s: recognised = %v, want %v", tt.name, ok, tt.ok)
+			continue
+		}
+		if port != tt.port {
+			t.Errorf("%s: port = %d, want %d", tt.name, port, tt.port)
+		}
+	}
+}
+
+// It has to survive the wrapping the create path adds.
+func TestBindFailureSurvivesWrapping(t *testing.T) {
+	t.Parallel()
+
+	inner := errors.New("Bind for 0.0.0.0:19045 failed: port is already allocated")
+	wrapped := fmt.Errorf("creating %s: %w", "hmd_proxy", inner)
+	if port, ok := BindFailure(wrapped); !ok || port != 19045 {
+		t.Errorf("BindFailure(wrapped) = %d, %v; want 19045, true", port, ok)
 	}
 }

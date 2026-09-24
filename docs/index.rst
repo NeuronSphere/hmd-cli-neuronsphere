@@ -26,6 +26,7 @@ resolved and why; see :doc:`how-to/choose-a-container-engine`.
    :caption: How-to guides
 
    how-to/choose-a-container-engine
+   how-to/resolve-local-hostnames
    how-to/manage-environments
    how-to/add-workloads
    how-to/artifacts-and-locks

@@ -56,9 +56,20 @@ Routing and hostnames
 ---------------------
 
 The proxy provides the host-facing routes. Services and pods often receive
-URLs referring to ``neuronsphere`` or ``neuronsphere-workload``, so those
-names need to resolve from both containers and the host. Docker aliases cover
-container traffic; the host's loopback entries cover shell and browser traffic.
+URLs referring to ``neuronsphere`` or ``neuronsphere-workload``, so those names
+need to resolve from both containers and the host. Docker aliases cover
+container traffic.
+
+On the host there are three ways in, in the order they are preferred. A user
+interface is published on a **port**, which needs no name at all. The two Floci
+names are **dialled on loopback by nsctl itself**, which is why a first run
+needs no ``/etc/hosts`` entry and why nothing refuses to start without one; the
+``Host`` header is left alone, because it is signed under SigV4 and rewriting
+the URL would void the signature. What is left -- the identity provider's
+issuer, the package registry, control-plane extensions, and the legacy Python
+artifact path -- genuinely needs a **resolved name**, and a local wildcard
+resolver covers the whole suffix at once where ``/etc/hosts`` could only ever
+name what already exists.
 
 An environment route also selects the correct Floci account. This is why
 bypassing the expected route can reach the wrong account or return a 404 even

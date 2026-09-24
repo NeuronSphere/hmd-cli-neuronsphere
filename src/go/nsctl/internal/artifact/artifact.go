@@ -460,12 +460,19 @@ func Unavailable(home, class, version, contentPath, repoHome string, cause error
 	switch {
 	case errors.As(cause, &dns):
 		// The librarian answers /apiop/get with a presigned URL hosted at
-		// neuronsphere:4566, which resolves from the host only through the
-		// /etc/hosts entry plus the nginx stream that fronts it. This is neither
-		// a missing artifact nor a down librarian, and reporting it as either
-		// sends the reader in the wrong direction.
+		// neuronsphere:4566. This is neither a missing artifact nor a down
+		// librarian, and reporting it as either sends the reader in the wrong
+		// direction.
+		//
+		// nsctl dials that name on loopback itself (internal/loopback), so
+		// reaching this branch means the override did not apply -- the name
+		// resolved to something that is not the local proxy, or the failure is
+		// for a different name entirely. Both are worth saying plainly rather
+		// than answering with the /etc/hosts line that is no longer the cause.
 		fmt.Fprintf(&b, "%s did not resolve, so the presigned URL is unreachable from this host.\n", dns.Name)
-		b.WriteString("Add this line to /etc/hosts and try again:\n\n    127.0.0.1 neuronsphere neuronsphere-workload")
+		b.WriteString("nsctl redirects the Floci host names to loopback, so this is a name it does not redirect\n" +
+			"or one resolving somewhere unexpected. Check it with `nsctl doctor`; `nsctl dns install`\n" +
+			"gives the host the local names, or add them to /etc/hosts:\n\n    127.0.0.1 neuronsphere neuronsphere-workload")
 	case cause == nil:
 		b.WriteString("Register a local build of it, or pull the published version into the control plane.")
 	default:

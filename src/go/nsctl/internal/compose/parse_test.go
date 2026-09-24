@@ -51,11 +51,11 @@ func TestParseTheBundledControlPlaneFile(t *testing.T) {
 
 	p := parseControlPlane(t, controlPlaneEnv())
 
-	if len(p.Services) != 4 {
-		t.Fatalf("got %d services, want 4 (proxy, floci, deployment-gui, authd): %v", len(p.Services), p.Services)
+	if len(p.Services) != 5 {
+		t.Fatalf("got %d services, want 5 (proxy, floci, deployment-gui, authd, dnsd): %v", len(p.Services), p.Services)
 	}
 	// Sorted, so output and tests do not depend on map iteration order.
-	want := []string{"authd", "deployment-gui", "floci", "proxy"}
+	want := []string{"authd", "deployment-gui", "dnsd", "floci", "proxy"}
 	for i, w := range want {
 		if p.Services[i].Key != w {
 			t.Errorf("service %d = %q, want %q (services must be in a deterministic order)", i, p.Services[i].Key, w)
@@ -98,14 +98,34 @@ func TestParseProxyPublishesTheWholeBand(t *testing.T) {
 		got[portKey(port)] = true
 		total += port.Count()
 	}
-	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566", "18080-18080:18080-18080", "19000-19079:19000-19079"} {
+	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566", "18080-18080:18080-18080", "19000-19111:19000-19111"} {
 		if !got[want] {
 			t.Errorf("proxy does not publish %s; got %v", want, got)
 		}
 	}
-	// 3 singles plus the 80-wide environment band.
-	if total != 83 {
-		t.Errorf("proxy publishes %d host ports, want 83", total)
+	// 3 singles plus the 112-wide environment band (16 slots of 4, 16 k3s
+	// ports, then the 32 shared user-interface ports), plus the resolver's UDP
+	// listener.
+	if total != 116 {
+		t.Errorf("proxy publishes %d host ports, want 116", total)
+	}
+	// The resolver is the one published port bound to loopback rather than to
+	// every interface: it answers 127.0.0.1 for its whole suffix, which is an
+	// answer nobody off this machine should be given.
+	var dns *Port
+	for i, port := range s.Ports {
+		if port.Protocol == "udp" {
+			dns = &s.Ports[i]
+		}
+	}
+	if dns == nil {
+		t.Fatalf("the proxy publishes no UDP listener for the resolver: %v", s.Ports)
+	}
+	if dns.HostIP != "127.0.0.1" {
+		t.Errorf("the resolver is published on %q, want 127.0.0.1 only", dns.HostIP)
+	}
+	if dns.HostStart == 5353 {
+		t.Error("the resolver is published on 5353, which mDNS holds on macOS")
 	}
 
 	// The route fragments are a directory bind so nginx_router can add and
@@ -275,11 +295,14 @@ func TestParsePort(t *testing.T) {
 		want    Port
 		wantErr bool
 	}{
-		{"a simple pair", "80:80", Port{80, 80, 80, 80, "tcp"}, false},
-		{"differing ports", "8080:80", Port{8080, 8080, 80, 80, "tcp"}, false},
-		{"a range", "19000-19079:19000-19079", Port{19000, 19079, 19000, 19079, "tcp"}, false},
-		{"an explicit protocol", "53:53/udp", Port{53, 53, 53, 53, "udp"}, false},
-		{"container only", "80", Port{0, 0, 80, 80, "tcp"}, false},
+		{"a simple pair", "80:80", Port{"", 80, 80, 80, 80, "tcp"}, false},
+		{"differing ports", "8080:80", Port{"", 8080, 8080, 80, 80, "tcp"}, false},
+		{"a range", "19000-19079:19000-19079", Port{"", 19000, 19079, 19000, 19079, "tcp"}, false},
+		{"a bind address", "127.0.0.1:5353:5353/udp", Port{"127.0.0.1", 5353, 5353, 5353, 5353, "udp"}, false},
+		{"a bind address on a range", "127.0.0.1:5300-5301:5300-5301", Port{"127.0.0.1", 5300, 5301, 5300, 5301, "tcp"}, false},
+		{"an IPv6 bind address", "[::1]:5353:5353/udp", Port{"::1", 5353, 5353, 5353, 5353, "udp"}, false},
+		{"an explicit protocol", "53:53/udp", Port{"", 53, 53, 53, 53, "udp"}, false},
+		{"container only", "80", Port{"", 0, 0, 80, 80, "tcp"}, false},
 		{"mismatched range lengths", "1-2:1-3", Port{}, true},
 		{"a backwards range", "19079-19000:19079-19000", Port{}, true},
 		{"not a number", "abc:80", Port{}, true},

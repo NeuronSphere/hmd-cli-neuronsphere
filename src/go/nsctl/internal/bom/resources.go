@@ -2,6 +2,7 @@ package bom
 
 import (
 	"context"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 )
@@ -131,7 +132,7 @@ func LocalCoreResources(env Environment, networkName, clusterName string, servic
 		}
 		url := svc.APIBaseURL
 		if url == "" {
-			url = "http://localhost/" + svc.Name
+			url = hosturl.Route(svc.Name)
 		}
 		tags := with()
 		if svc.RepoClass != "" {

@@ -17,13 +17,21 @@ On first use, startup builds the local ``hmd-img-nsctl`` image from sources
 embedded in the binary. You do not need a separate source checkout.
 For development, ``HMD_NSCTL_IMAGE`` can select another locally built image.
 
-Add the auth hostname to the host's ``/etc/hosts`` if it is absent::
+The issuer is one of the few things that cannot be reached on a port. The same
+hostname is routed through the proxy from the host, the Docker network and
+Kubernetes pods alike, and keeping it identical in every place matters: a token
+with one ``iss`` value is not valid for a consumer expecting another. That is
+exactly what ``http://localhost:<port>`` cannot be, because inside a pod
+``localhost`` is the pod.
 
-   127.0.0.1 auth.local.neuronsphere.io
+So the host has to resolve it. Either::
 
-The same hostname is routed through the proxy from the host, Docker network,
-and Kubernetes pods. Keeping the issuer identical in every place matters:
-a token with one ``iss`` value is not valid for a consumer expecting another.
+   nsctl dns install     # covers *.local.neuronsphere.io, wildcard included
+
+   sudo sh -c 'echo "127.0.0.1 auth.local.neuronsphere.io" >> /etc/hosts'
+
+The first covers the package registry and any control-plane extension too, and
+keeps covering names added later.
 
 Mint and inspect user claims
 ----------------------------
