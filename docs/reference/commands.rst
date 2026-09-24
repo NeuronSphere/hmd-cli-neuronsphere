@@ -10,6 +10,10 @@ nsctl runs the local NeuronSphere: one control plane per HMD_HOME and the
 environment substrate your deployments sit on. Docker is the only host
 prerequisite.
 
+New here? Run "nsctl quickstart". It checks the host, creates your first
+environment and offers to adopt your own repository, naming each command before
+it runs it.
+
 It ships the control plane and the substrate -- a cluster, a database, and the
 External Secrets operator a cloud chart's secrets resolve through. Everything
 above that is a RepoClass you add.
@@ -1680,6 +1684,51 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl quickstart
+----------------
+
+Walks a new installation through what it needs, in order: the host checks,
+where local state lives, a first environment, something deployed into it, and
+your own repository.
+
+Every step names the command it runs before running it, so the session is a
+transcript you can repeat by hand, and every step can be declined. It creates
+nothing the named commands would not create, and never purges, deletes or
+redeploys.
+
+It does not edit your shell configuration. When HMD_HOME is unset it proposes a
+path, prints the export line for you to keep, and uses --home for the rest of
+the run.
+
+With stdin closed -- every CI job -- it prints the ordered list of commands and
+runs nothing.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl quickstart [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl quickstart
+     nsctl quickstart --repo ~/src/my-service
+
+Local flags
+~~~~~~~~~~~
+
+* ``--repo`` — A repository to offer adopting, instead of asking for one
+* ``--yes`` — Take the default answer to every question
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl repo
 ----------
 
@@ -2343,6 +2392,55 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--json`` — Print the summary as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass detect
+----------------------
+
+Inspects the repository and prints a classification: what deploys it, what
+image it runs in, what could not be decided, and what will not be guessed --
+each with the file and line the conclusion came from, so you can disagree with a
+finding by opening its source.
+
+With --apply it writes what is unambiguous: the name, a provisional description,
+the build mechanism, and the deploy command with its image. Without --apply it
+writes nothing. When nothing in the repository states what it is in one line,
+--apply refuses and asks for --description: BACON requires one, and a manifest
+without it cannot validate.
+
+It will not write a dependency, a resource, or any discovery metadata -- not even
+a provisional one. Those need the environment's vocabulary and your judgement: a
+dependency role marked required that is wrong fails the entire ChangeSet, naming
+only the role. The "refused" rows say so explicitly, so their absence from the
+manifest is a statement rather than an omission.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass detect [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass detect
+     nsctl repoclass detect --path ~/src/my-service --json
+     nsctl repoclass detect --apply
+
+Local flags
+~~~~~~~~~~~
+
+* ``--apply`` — Write what is unambiguous
+* ``--description`` — The one-line description, overriding a detected one and required when none was detected
+* ``--json`` — Print the classification as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~

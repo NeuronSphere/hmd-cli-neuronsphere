@@ -57,6 +57,28 @@ Confirm that your shell finds the binary::
    nsctl version
    nsctl --help
 
+``--help`` leads with the commands a first run needs.
+
+The guided way
+--------------
+
+``nsctl quickstart`` walks the rest of this tutorial interactively::
+
+   nsctl quickstart
+
+It runs the host checks, settles ``HMD_HOME``, starts your first environment, and
+offers to adopt your own repository. Every step names the command it runs before
+running it, so the session is a transcript you can repeat, and every step can be
+declined. It never purges, deletes or redeploys, and it does not edit your shell
+configuration: when ``HMD_HOME`` is unset it proposes a path, prints the export
+line for you to keep, and uses ``--home`` for the rest of the run.
+
+With stdin closed -- every CI job -- it prints the ordered list of commands and
+runs nothing.
+
+The rest of this page is the same sequence by hand, which is worth reading once
+even if you took the guided path.
+
 Choose a home and start
 -----------------------
 
@@ -101,6 +123,15 @@ install from a public registry with no tenant or token::
 ``--apply`` deploys them; ``nsctl stack list --env local`` shows what it
 declared. See :doc:`../how-to/use-stacks` for names, versions, profiles and
 removal.
+
+``observability`` is an illustrative name. Which stacks exist is decided by what
+a registry serves, not by anything ``nsctl`` carries, so check a reference before
+relying on it::
+
+   nsctl stack versions observability
+
+If nothing answers, no stack is published under that name for you; ``stack add``
+takes any full reference.
 
 Stop and resume
 ---------------

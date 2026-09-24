@@ -43,8 +43,10 @@ type Options struct {
 // containers, volumes and network under a name no other HMD tool computes.
 func (o *Options) RequireHome() (string, error) {
 	if o.Home == "" {
+		// A refusal that states a precondition without naming the command that
+		// satisfies it is incomplete (NERD023 SPEC002).
 		return "", nserr.New(nserr.Usage,
-			"HMD_HOME is not set. Export it, or pass --home <path>")
+			"HMD_HOME is not set. Export it, pass --home <path>, or run `nsctl quickstart`")
 	}
 	return o.Home, nil
 }
@@ -115,6 +117,10 @@ func newRoot(version string, process hmdenv.Lookup) (*cobra.Command, *Options, h
 environment substrate your deployments sit on. Docker is the only host
 prerequisite.
 
+New here? Run "nsctl quickstart". It checks the host, creates your first
+environment and offers to adopt your own repository, naming each command before
+it runs it.
+
 It ships the control plane and the substrate -- a cluster, a database, and the
 External Secrets operator a cloud chart's secrets resolve through. Everything
 above that is a RepoClass you add.`,
@@ -142,27 +148,66 @@ above that is a RepoClass you add.`,
 	root.PersistentFlags().StringVar(&homeFlag, "home", "",
 		"Path to HMD_HOME (overrides $HMD_HOME)")
 
-	root.AddCommand(
-		newAgentCommand(),
+	// Listed in the order they are added rather than alphabetically. Within a
+	// group the useful order is not the alphabet: "Start here" has to begin with
+	// quickstart, which sorts third. Package-level in cobra, and set here
+	// because this is the only place that builds a tree.
+	cobra.EnableCommandSorting = false
+
+	// Grouped so that --help leads with what a first run needs.
+	//
+	// Sixteen commands in one alphabetical block put `authd` -- a mock identity
+	// provider -- beside `env` as an equal, and named no first command at all.
+	// This is presentation only: nothing is renamed or moved, and every existing
+	// invocation stays valid. NERD023 SPEC002.
+	root.AddGroup(
+		&cobra.Group{ID: groupStart, Title: "Start here:"},
+		&cobra.Group{ID: groupAuthor, Title: "Author a repo class, stack or plugin:"},
+		&cobra.Group{ID: groupSupply, Title: "Artifacts, locks and cloud BOMs:"},
+		&cobra.Group{ID: groupAuth, Title: "Identity:"},
+	)
+	assign := func(group string, cmds ...*cobra.Command) {
+		for _, c := range cmds {
+			c.GroupID = group
+			root.AddCommand(c)
+		}
+	}
+	assign(groupStart,
+		newQuickstartCommand(opts),
+		newDoctorCommand(opts),
 		newEnvCommand(opts),
-		newLockCommand(opts),
-		newArtifactCommand(opts),
-		newBOMCommand(opts),
 		newRepoCommand(opts),
+		newVersionCommand(opts),
+	)
+	assign(groupAuthor,
 		newRepoClassCommand(opts),
+		newStackCommand(opts),
+		newPluginCommand(opts),
+		newAgentCommand(),
+	)
+	assign(groupSupply,
+		newArtifactCommand(opts),
+		newLockCommand(opts),
+		newBOMCommand(opts),
 		newControlPlaneCommand(opts),
-		newAuthdCommand(opts),
+	)
+	assign(groupAuth,
 		newLoginCommand(opts),
 		newLogoutCommand(opts),
 		newWhoamiCommand(opts),
-		newVersionCommand(opts),
-		newDoctorCommand(opts),
-		newPluginCommand(opts),
-		newStackCommand(opts),
+		newAuthdCommand(opts),
 	)
 
 	return root, opts, process
 }
+
+// Command groups on the root. Plugin commands add their own (NERD018 SPEC004).
+const (
+	groupStart  = "start"
+	groupAuthor = "author"
+	groupSupply = "supply"
+	groupAuth   = "auth"
+)
 
 // Execute runs the root command and exits with the error's code.
 //

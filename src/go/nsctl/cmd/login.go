@@ -1,17 +1,14 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/browser"
@@ -19,6 +16,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tokenstore"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tty"
 )
 
 // refreshMargin is how long before expiry a token is renewed rather than used.
@@ -74,20 +72,9 @@ func (d *loginDeps) isTTY(cmd *cobra.Command) bool {
 }
 
 // stdinIsTerminal reports whether there is a person to answer a prompt.
-//
-// term.IsTerminal rather than a check for a character device, because
-// /dev/null *is* a character device on every Unix -- so `nsctl login </dev/null`,
-// the usual way a script says "there is nobody here", would be mistaken for a
-// terminal and answered with a prompt into the void. term.IsTerminal asks the
-// kernel for the terminal attributes instead, which /dev/null does not have.
+// internal/tty holds the reasoning and the one implementation.
 func stdinIsTerminal(cmd *cobra.Command) bool {
-	file, ok := cmd.InOrStdin().(*os.File)
-	if !ok {
-		// A test, or anything else whose stdin is a buffer rather than a file
-		// descriptor. Not a person.
-		return false
-	}
-	return term.IsTerminal(int(file.Fd()))
+	return tty.IsTerminal(cmd.InOrStdin())
 }
 
 func newLoginCommand(opts *Options) *cobra.Command {
@@ -364,14 +351,11 @@ func promptForProfile(cmd *cobra.Command, opts *Options, home, name string) (nsc
 		nsconfig.Path(home, opts.Lookup))
 	fmt.Fprintln(out, "  This is the OAuth issuer nsctl signs in against: your identity")
 	fmt.Fprintln(out, "  provider's issuer URL, such as an Okta authorization server.")
-	fmt.Fprintf(out, "\n  Endpoint for profile %q: ", name)
-
-	reader := bufio.NewReader(cmd.InOrStdin())
-	line, err := reader.ReadString('\n')
-	if err != nil && strings.TrimSpace(line) == "" {
+	answer := tty.New(cmd.InOrStdin(), out).Ask(fmt.Sprintf("\n  Endpoint for profile %q", name), "")
+	if answer == "" {
 		return nsconfig.Profile{}, noConfigError(home, opts, name)
 	}
-	profile := nsconfig.Profile{Name: name, AuthURL: strings.TrimSpace(line)}
+	profile := nsconfig.Profile{Name: name, AuthURL: answer}
 	if verr := profile.Validate(); verr != nil {
 		return nsconfig.Profile{}, nserr.Wrap(nserr.Usage, verr)
 	}

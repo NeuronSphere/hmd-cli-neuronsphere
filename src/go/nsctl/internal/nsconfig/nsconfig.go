@@ -126,7 +126,7 @@ func ValidPluginName(name string) error {
 var builtinNouns = []string{
 	"agent", "env", "lock", "artifact", "bom", "repo", "repoclass",
 	"control-plane", "cp", "authd", "login", "logout", "whoami", "version", "doctor",
-	"stack", "plugin",
+	"stack", "plugin", "quickstart",
 }
 
 // BuiltinNouns is the list cmd's test compares against its tree.

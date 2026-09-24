@@ -126,6 +126,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
 	group.AddCommand(
 		newRepoClassInitCommand(path),
 		newRepoClassDescribeCommand(path),
+		newRepoClassDetectCommand(path),
 		newRepoClassValidateCommand(path),
 		newRepoClassBuildCommand(path),
 		newRepoClassDeployCommand(path),

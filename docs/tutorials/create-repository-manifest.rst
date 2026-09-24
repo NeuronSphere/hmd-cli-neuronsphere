@@ -29,10 +29,39 @@ deploy it. Adding it to an environment creates an **instance** of that class.
 An environment's own YAML manifest is a different file, written under
 ``$HMD_HOME/environments/``.
 
+Let nsctl read the repository first
+-----------------------------------
+
+Before writing anything by hand, ask what the repository already says about how
+it deploys::
+
+   nsctl repoclass detect
+
+It reports what deploys this repository, what image it runs in, what it could not
+decide, and what it will not guess -- each with the file and line the conclusion
+came from, so you can disagree with any row by opening its source. It writes
+nothing until asked::
+
+   nsctl repoclass detect --apply
+
+That writes the name, a provisional description, the build mechanism, and the
+deploy command with its image. Supply ``--description "..."`` when nothing in the
+repository states what it is in one line; BACON requires one.
+
+It will **not** write a dependency, a resource or any discovery metadata, and the
+``refused`` rows say so explicitly. Those need the environment's vocabulary and
+your judgement: a required dependency role that is wrong does not fail its own
+node, it fails the entire ChangeSet with a message naming only the role. Adding
+them is the rest of this page.
+
+If you would rather work this out with an AI agent, ``nsctl agent skills install
+nsctl-repoclass-adopt`` installs guidance that starts from ``detect`` and asks you
+about every dependency before adding it. See :doc:`../how-to/use-agent-skills`.
+
 Create the class metadata
 -------------------------
 
-From the repository root, run::
+To author the same thing explicitly, from the repository root, run::
 
    nsctl repoclass init acme-local-demo \
        --description "A local repository onboarding example"

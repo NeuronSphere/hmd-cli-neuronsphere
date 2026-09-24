@@ -12,7 +12,10 @@ do not hand-edit manifest fields that those commands own.
 
 Run `nsctl repoclass validate` after a coherent change. Explain dependencies
 before adding them and obtain confirmation if the user did not explicitly ask
-to change dependency topology. Do not claim that `repoclass detect` exists.
+to change dependency topology.
+
+This skill is for a repository that already has a manifest. For one that has
+none, use `nsctl-repoclass-adopt`, which starts from `nsctl repoclass detect`.
 
 # nsctl-command: repoclass
 # nsctl-command: repoclass describe

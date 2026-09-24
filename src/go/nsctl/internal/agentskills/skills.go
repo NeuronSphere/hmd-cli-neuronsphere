@@ -68,6 +68,7 @@ var skills = []Skill{
 	{"nsctl-local-environment", "Create, run, inspect, and stop a local NeuronSphere environment."},
 	{"nsctl-local-plugin", "Adapt a service for local NeuronSphere development and Floci-safe deployment."},
 	{"nsctl-onboard", "Orient a newcomer to the local NeuronSphere and identify the next safe command."},
+	{"nsctl-repoclass-adopt", "Adopt an existing repository that has no NeuronSphere metadata, from detect's evidence."},
 	{"nsctl-repoclass-author", "Author and validate a RepoClass through nsctl's supported verbs."},
 }
 

@@ -11,7 +11,9 @@ Under the hood a stack is a RepoClass whose repository carries a ``local``
 section and a ``neuronsphere.lock`` (see :doc:`artifacts-and-locks`),
 published as one OCI artifact holding every build zip the lock pins.
 ``nsctl`` carries no list of stacks; one exists because a registry serves it
-under a name you type.
+under a name you type. Every stack name on this page is illustrative --
+``nsctl stack versions <name>`` is what tells you whether a reference resolves
+for you.
 
 Add a stack to an environment
 -----------------------------

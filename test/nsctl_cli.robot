@@ -470,3 +470,139 @@ Env Credentials Refuses An Instance The Environment Does Not Declare
     ${r}=         Run nsctl In Home    ${home}    env    credentials    dev    --instance    nope
     Should Be Equal As Integers    ${r.rc}    2
     Should Contain    ${r.stderr}    declares no instance named
+
+Help Leads With What A First Run Needs
+    [Documentation]    NERD023 SPEC002: sixteen commands in one alphabetical
+    ...                block named no first command and put authd -- a mock
+    ...                identity provider -- beside env as an equal.
+    [Tags]    contract    nerd023
+    ${result}=    Run nsctl    --help
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    Start here:
+    Should Contain    ${result.stdout}    nsctl quickstart
+    # quickstart is first in its group, not third as the alphabet would have it.
+    ${start}=     Get Line    ${result.stdout}    ${{ $result.stdout.splitlines().index('Start here:') + 1 }}
+    Should Contain    ${start}    quickstart
+    # Grouping is presentation only: every command is still listed.
+    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    agent    artifact    lock    bom
+        Should Contain    ${result.stdout}    ${command}
+    END
+
+Missing HMD_HOME Names Quickstart
+    [Documentation]    NERD023 SPEC002: a refusal that states a precondition
+    ...                without naming the command that satisfies it is
+    ...                incomplete.
+    [Tags]    contract    nerd023
+    ${result}=    Run nsctl    env    list
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    nsctl quickstart
+
+Quickstart Without A Terminal Prints The Sequence And Runs Nothing
+    [Documentation]    NERD023 SPEC001: a wizard is a conversation and there is
+    ...                nobody to have it with, so the useful answer is the
+    ...                ordered list of commands -- which is also what CI wants.
+    [Tags]    contract    nerd023
+    ${result}=    Run nsctl    quickstart
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stdout}    stdin is not a terminal
+    Should Contain    ${result.stdout}    nsctl doctor
+    Should Contain    ${result.stdout}    nsctl env start local
+    Should Contain    ${result.stdout}    nsctl repoclass detect
+    Should Contain    ${result.stderr}    nothing was run and nothing was written
+
+Detect Classifies A Repository And Writes Nothing
+    [Documentation]    NERD009 SPEC009: the classification carries the file and
+    ...                line each conclusion came from, and without --apply it
+    ...                writes nothing.
+    [Tags]    contract    nerd009    nerd023
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}Makefile    deploy:\n\t./scripts/ship.sh\n
+    Create File    ${dir}${/}README.md    Routes public traffic.\n
+    ${d}=         Run nsctl    repoclass    detect    --path    ${dir}    --json
+    Should Be Equal As Integers    ${d.rc}    0
+    Should Contain    ${d.stdout}    "mechanism": "external"
+    Should Contain    ${d.stdout}    "value": "make deploy"
+    Should Contain    ${d.stdout}    Makefile:1
+    Should Not Exist    ${dir}${/}meta-data${/}manifest.json
+
+Detect Refuses To Infer Dependencies Or Resources
+    [Documentation]    NERD009 SPEC010, and the assertions that matter most: a
+    ...                wrong required role fails the entire ChangeSet naming only
+    ...                the role, so the refusals are reported explicitly and
+    ...                --apply writes neither.
+    [Tags]    contract    nerd009    nerd023
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}Makefile    deploy:\n\t./ship\n
+    Create File    ${dir}${/}README.md    Routes public traffic.\n
+    Create File    ${dir}${/}docker-compose.yml    services:\n${SPACE}${SPACE}web:\n${SPACE}${SPACE}${SPACE}${SPACE}image: nginx\n
+    ${d}=         Run nsctl    repoclass    detect    --path    ${dir}    --json
+    Should Contain    ${d.stdout}    "field": "deploy.dependencies"
+    Should Contain    ${d.stdout}    "confidence": "refused"
+
+    ${a}=         Run nsctl    repoclass    detect    --path    ${dir}    --apply
+    Should Be Equal As Integers    ${a.rc}    0
+    ${manifest}=  Get File    ${dir}${/}meta-data${/}manifest.json
+    Should Contain    ${manifest}    "mechanism": "external"
+    Should Not Contain    ${manifest}    dependencies
+    Should Not Contain    ${manifest}    resources
+    Should Not Contain    ${manifest}    discovery
+    Should Not Exist    ${dir}${/}meta-data${/}resources
+    # What it wrote validates, which is the point of writing only what is
+    # unambiguous.
+    ${v}=         Run nsctl    repoclass    validate    --path    ${dir}
+    Should Be Equal As Integers    ${v.rc}    0
+
+Detect Refuses To Apply Without A Description
+    [Documentation]    BACON requires a non-empty description, so writing a
+    ...                manifest without one produces a file that cannot
+    ...                validate. Refusing and naming the flag is better.
+    [Tags]    contract    nerd009    nerd023
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}Procfile    web: node server.js\n
+    ${a}=         Run nsctl    repoclass    detect    --path    ${dir}    --apply
+    Should Be Equal As Integers    ${a.rc}    2
+    Should Contain    ${a.stderr}    --description
+    Should Not Exist    ${dir}${/}meta-data${/}manifest.json
+    ${ok}=        Run nsctl    repoclass    detect    --path    ${dir}    --apply    --description    An edge service
+    Should Be Equal As Integers    ${ok.rc}    0
+    ${v}=         Run nsctl    repoclass    validate    --path    ${dir}
+    Should Be Equal As Integers    ${v.rc}    0
+
+Detect Reports A PaaS Deploy And Stops
+    [Documentation]    NERD009 SPEC009: there is no local equivalent of a
+    ...                platform deploy, and saying so is the honest answer.
+    [Tags]    contract    nerd009    nerd023
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}fly.toml    app = "edge"\n
+    Create File    ${dir}${/}README.md    Routes public traffic.\n
+    ${d}=         Run nsctl    repoclass    detect    --path    ${dir}
+    Should Be Equal As Integers    ${d.rc}    0
+    Should Contain    ${d.stdout}    No deploy mechanism could be decided
+    Should Contain    ${d.stdout}    no local equivalent
+
+Detect On An Existing Repo Class Names Describe
+    [Tags]    contract    nerd009    nerd023
+    ${dir}=       Create Scratch Repo
+    Run nsctl    repoclass    --path    ${dir}    init    acme-x    --description    A thing
+    ${d}=         Run nsctl    repoclass    detect    --path    ${dir}
+    Should Be Equal As Integers    ${d.rc}    0
+    Should Contain    ${d.stdout}    already a repo class
+    ${a}=         Run nsctl    repoclass    detect    --path    ${dir}    --apply
+    Should Be Equal As Integers    ${a.rc}    2
+
+Adopt Skill Is Bundled Now That Detect Exists
+    [Documentation]    NERD015 SPEC001 withheld nsctl-repoclass-adopt until
+    ...                repoclass detect existed; NERD023 SPEC008 builds it.
+    [Tags]    contract    nerd015    nerd023
+    ${dir}=       Create Scratch Repo
+    ${l}=         Run nsctl    agent    skills    list    --path    ${dir}
+    Should Be Equal As Integers    ${l.rc}    0
+    Should Contain    ${l.stdout}    nsctl-repoclass-adopt
+    ${i}=         Run nsctl    agent    skills    install    nsctl-repoclass-adopt    --host    all    --path    ${dir}
+    Should Be Equal As Integers    ${i.rc}    0
+    Should Exist    ${dir}${/}.claude${/}skills${/}nsctl-repoclass-adopt${/}SKILL.md
+    Should Exist    ${dir}${/}.agents${/}skills${/}nsctl-repoclass-adopt${/}SKILL.md
+    ${body}=      Get File    ${dir}${/}.claude${/}skills${/}nsctl-repoclass-adopt${/}SKILL.md
+    Should Contain    ${body}    repoclass detect
+    Should Contain    ${body}    --json
+    Should Contain    ${body}    explicit confirmation

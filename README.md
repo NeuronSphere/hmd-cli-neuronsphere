@@ -46,7 +46,18 @@ or use the release installer on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/neuronsphere/hmd-cli-neuronsphere/main/install.sh | sh
 ```
 
-From a checkout, `make install` builds and installs the binary. Then choose an explicit home and start your first environment:
+From a checkout, `make install` builds and installs the binary. Then let the
+guided first run take it from there:
+
+```shell
+nsctl quickstart
+```
+
+It runs the host checks, settles `HMD_HOME`, starts your first environment and
+offers to adopt your own repository, naming every command before it runs it. It
+needs a terminal; with stdin closed it prints the sequence and runs nothing.
+
+To do it by hand, choose an explicit home and start your first environment:
 
 ```shell
 export HMD_HOME="$HOME/hmd"
@@ -74,9 +85,13 @@ To add a published set of RepoClasses in one go, add a stack -- free from a
 public registry namespace, no tenant or token needed:
 
 ```shell
+nsctl stack versions observability   # does this reference resolve for you?
 nsctl stack add observability
 nsctl env apply
 ```
+
+`observability` is an illustrative name. Which stacks exist is decided by what a
+registry serves, not by anything `nsctl` carries.
 
 `nsctl` can also be extended with CLI plugins (`nsctl plugin install <name>`),
 executables that add a top-level noun. See

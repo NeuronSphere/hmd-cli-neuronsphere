@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/status"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tty"
 	"github.com/spf13/cobra"
 )
 
@@ -758,14 +758,7 @@ func confirmFullPurge(cmd *cobra.Command, opts *Options) bool {
 		}
 	}
 	fmt.Fprintln(out, "\n  To purge a single environment instead, name it.")
-	fmt.Fprint(out, "  Type 'yes' to continue: ")
-
-	reader := bufio.NewReader(cmd.InOrStdin())
-	line, err := reader.ReadString('\n')
-	if err != nil && line == "" {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(line), "yes")
+	return tty.New(cmd.InOrStdin(), out).ConfirmWord("  Type 'yes' to continue", "yes")
 }
 
 // renderNewEnvironment reports an environment that has just been registered,

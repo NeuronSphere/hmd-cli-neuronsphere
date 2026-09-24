@@ -23,6 +23,8 @@ The bundled skills cover these tasks:
      - Getting oriented in nsctl and a repository
    * - ``nsctl-local-environment``
      - Creating and operating local environments
+   * - ``nsctl-repoclass-adopt``
+     - Adopting a repository that has no NeuronSphere metadata
    * - ``nsctl-repoclass-author``
      - Authoring BACON repository metadata
    * - ``nsctl-local-plugin``
