@@ -2441,6 +2441,7 @@ Local flags
 * ``--apply`` — Write what is unambiguous
 * ``--description`` — The one-line description, overriding a detected one and required when none was detected
 * ``--json`` — Print the classification as JSON
+* ``--quiet`` — With --apply, report only what was written; for a caller that has already shown the classification
 
 Inherited flags
 ~~~~~~~~~~~~~~~

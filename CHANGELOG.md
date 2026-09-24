@@ -1,5 +1,43 @@
 # Changelog
 
+## 2026-09-24
+
+- feat: `nsctl quickstart` is a guided first run. It runs the host checks,
+  settles `HMD_HOME`, starts a first environment, offers a stack and offers to
+  adopt the user's own repository. Every step is an ordinary nsctl invocation
+  printed before it runs, so the session is a transcript and there is no second
+  path into the platform; every step is declinable, nothing purges or redeploys,
+  and no shell profile is edited -- the export line is printed and `--home`
+  carries the run. With stdin closed it prints the sequence and runs nothing. The
+  root command tree is grouped so `--help` leads with what a first run needs, and
+  `HMD_HOME is not set` now names the command that fixes it.
+- feat: `nsctl repoclass detect` reports how a repository already deploys, in
+  what image, what could not be decided and what will not be guessed -- each with
+  the file and line it came from. `--apply` writes the name, description, build
+  mechanism and deploy command with its image, and nothing else: no dependency,
+  no resource, no discovery, not even a provisional one, because a required role
+  that is wrong fails the entire ChangeSet naming only the role. It refuses to
+  apply without a description rather than writing a manifest that cannot
+  validate. With `detect` built, `nsctl-repoclass-adopt` is now bundled.
+- feat: a repo class can declare how a deployed instance is reached, in a
+  top-level `access` block -- a URL template, the identity that signs in, and
+  where the credential lives, never the credential. `nsctl env credentials <env>`
+  resolves it against a deployment, filling in `{instance_name}`,
+  `{deployment_id}`, `{environment}` and `{ingress_host}` and reading the secret
+  from Floci. Values are withheld unless `--reveal` is passed: a credential in a
+  deploy summary reaches scrollback and CI logs for a value needed once. The
+  store is declared rather than inferred, because `create_secret()` writes
+  Parameter Store while a chart may read Secrets Manager and a guess reports
+  absence against a secret that is present. `validate` refuses a literal password
+  anywhere in the declaration. Declared for `hmd-inf-superset` and
+  `hmd-app-airflow`.
+- fix: an environment summary and `env status` report the services an environment
+  has instead of the ports its slot reserved. A Trino endpoint was printed on
+  every full-substrate environment whether or not Trino had ever been deployed,
+  while the deployed service paths were reduced to a count and the Ingress
+  hostnames of deployed UIs were read only to warn about `/etc/hosts`. All three
+  facts were already in hand.
+
 ## 2026-09-23
 
 - fix: a stack that binds `graph-db` now has a graph to resolve against.

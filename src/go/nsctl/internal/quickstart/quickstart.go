@@ -95,11 +95,14 @@ func Run(ctx context.Context, o Options) error {
 	if !f.settleHome() {
 		return nil
 	}
-	slug, ok := f.startEnvironment(ctx)
-	if !ok {
-		return nil
+	// A declined or failed start skips only the step that needs a running
+	// environment. Adopting a repository and installing skills are filesystem
+	// operations that work with nothing up, and stopping here would deny them to
+	// exactly the user whose first start did not work -- who needs them most.
+	slug, running := f.startEnvironment(ctx)
+	if running {
+		f.offerStack(ctx, slug)
 	}
-	f.offerStack(ctx, slug)
 	f.offerRepository(ctx)
 	f.offerSkills(ctx)
 	f.closing(slug)
@@ -268,7 +271,9 @@ func (f *flow) offerRepository(ctx context.Context) {
 		fmt.Fprintf(f.Out, "\n  Nothing written. `nsctl repoclass detect --path %s --apply` writes it.\n", path)
 		return
 	}
-	if err := f.run(ctx, "repoclass", "detect", "--path", path, "--apply"); err != nil {
+	// --quiet: the classification is already on screen from the run above, and
+	// printing the same table twice for one decision reads as a second answer.
+	if err := f.run(ctx, "repoclass", "detect", "--path", path, "--apply", "--quiet"); err != nil {
 		fmt.Fprintf(f.Err, "\nwarning: %v\n", err)
 	}
 	f.Repo = path
@@ -300,6 +305,7 @@ func (f *flow) offerSkills(ctx context.Context) {
 func (f *flow) closing(slug string) {
 	f.section("Where to go next")
 	h := f.homeArg()
+	fmt.Fprintf(f.Out, "  nsctl%s env start %s         start it\n", h, slug)
 	fmt.Fprintf(f.Out, "  nsctl%s env status %s        what is running, and its URLs\n", h, slug)
 	fmt.Fprintf(f.Out, "  nsctl%s env credentials %s   how to sign in to what you deployed\n", h, slug)
 	fmt.Fprintf(f.Out, "  nsctl%s env stop %s          stop it, keeping its state\n", h, slug)

@@ -66,8 +66,8 @@ func drive(t *testing.T, answers string, o Options, rec *recorder) string {
 	if !f.settleHome() {
 		return out.String()
 	}
-	slug, ok := f.startEnvironment(context.Background())
-	if ok {
+	slug, running := f.startEnvironment(context.Background())
+	if running {
 		f.offerStack(context.Background(), slug)
 	}
 	f.offerRepository(context.Background())
@@ -296,5 +296,42 @@ func TestExpandUser(t *testing.T) {
 	// No resolved home: left as written rather than joined to nothing.
 	if got := expandUser("~/x", ""); got != "~/x" {
 		t.Errorf("expandUser = %q", got)
+	}
+}
+
+// A start that fails skips only the step that needs a running environment. This
+// is the case a live run found: the two steps that work with nothing up --
+// adopting a repository and installing skills -- were being denied to exactly
+// the user whose first start did not work.
+func TestAFailedStartStillOffersTheOfflineSteps(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	rec := &recorder{
+		fail:    map[string]error{"env start local": fmt.Errorf("another home owns those containers")},
+		capture: map[string]string{"stack versions observability": "0.1.0\n"},
+	}
+	// name (default), start=y, detect --apply=y, skills=y. With Repo set the
+	// "point it at a repository" question is not asked.
+	text := drive(t, "\ny\ny\ny\n", Options{Home: t.TempDir(), Version: "v1", Repo: repo}, rec)
+
+	if !rec.ran("env", "start", "local") {
+		t.Fatalf("the start should have been attempted; calls %v", rec.calls)
+	}
+	if rec.ran("stack", "add") {
+		t.Error("a stack needs a running environment and must be skipped")
+	}
+	if !rec.ran("repoclass", "detect", "--path", repo) {
+		t.Errorf("adopting a repository needs no environment; calls %v", rec.calls)
+	}
+	if !rec.ran("agent", "skills", "install") {
+		t.Errorf("installing skills needs no environment; calls %v", rec.calls)
+	}
+	if !strings.Contains(text, "Where to go next") {
+		t.Errorf("the run should still reach its end:\n%s", text)
+	}
+	// And it names how to start it, since it is not running.
+	if !strings.Contains(text, "env start local") {
+		t.Errorf("the closing block should name the start command:\n%s", text)
 	}
 }

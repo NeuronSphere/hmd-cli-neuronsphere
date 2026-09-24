@@ -19,7 +19,7 @@ import (
 // (NERD009 SPEC009), and with --apply writes what is unambiguous through the
 // same authoring verbs a person would use (SPEC008).
 func newRepoClassDetectCommand(path *repoClassPath) *cobra.Command {
-	var asJSON, apply bool
+	var asJSON, apply, quiet bool
 	var description string
 	cmd := &cobra.Command{
 		Use:   "detect",
@@ -58,13 +58,18 @@ manifest is a statement rather than an omission.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
-			if asJSON {
+			switch {
+			case asJSON:
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
 				if err := encoder.Encode(result); err != nil {
 					return nserr.Wrap(nserr.Fail, err)
 				}
-			} else {
+			case quiet && apply:
+				// The caller has already shown the classification -- the guided
+				// first run does exactly this -- so repeating it would print the
+				// same table twice for one decision.
+			default:
 				renderDetect(cmd.OutOrStdout(), result, apply)
 			}
 			if !apply {
@@ -87,6 +92,8 @@ manifest is a statement rather than an omission.`,
 	cmd.Flags().BoolVar(&apply, "apply", false, "Write what is unambiguous")
 	cmd.Flags().StringVar(&description, "description", "",
 		"The one-line description, overriding a detected one and required when none was detected")
+	cmd.Flags().BoolVar(&quiet, "quiet", false,
+		"With --apply, report only what was written; for a caller that has already shown the classification")
 	return cmd
 }
 
