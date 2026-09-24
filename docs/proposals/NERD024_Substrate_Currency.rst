@@ -5,7 +5,7 @@ NERD024 Substrate Currency
 
 .. req:: An environment's substrate shall be no larger than it needs and no older than the binary operating it
     :id: HMD_CLI_NEURONSPHERE_NERD024
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall deploy a substrate service only when something in the
     environment selects it, and shall reconcile the version of what is already
@@ -18,6 +18,13 @@ NERD024 Substrate Currency
 
     No part of this shall require a credential, and no failure on a local path
     shall be reported in terms that suggest one.
+
+    .. note::
+
+        ``implemented`` as of 2026-09-24. Every SPEC below is built, unit
+        tested, and exercised against a running platform -- see
+        `The acceptance run`_, which also records the one thing it could not
+        prove and why.
 
 Motivation
 ----------
@@ -111,7 +118,7 @@ Specifications
 
 .. spec:: Demand decides presence
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC001
-    :status: proposed
+    :status: implemented
 
     A substrate service shall be deployed when something in the environment
     selects it, not because the substrate mode names it.
@@ -132,7 +139,7 @@ Specifications
 
 .. spec:: Currency is read from the deployed artifact
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC002
-    :status: proposed
+    :status: implemented
 
     The deployed version of a substrate service shall be read back from its
     Lambda's ``HMD_REPO_VERSION`` environment variable and compared with what
@@ -143,7 +150,7 @@ Specifications
 
 .. spec:: env apply reconciles what it finds
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC003
-    :status: proposed
+    :status: implemented
 
     ``nsctl env apply`` shall reconcile the dbaccount service before the phase
     that calls it: absent and selected, deploy; present and stale, refresh with
@@ -162,7 +169,7 @@ Specifications
 
 .. spec:: A 5xx through an environment route is diagnosed, not relayed
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC004
-    :status: proposed
+    :status: implemented
 
     After a deploy or refresh the service's route root shall be probed. A
     healthy ``hmd-ms-base`` service answers ``404`` there -- it registers only
@@ -182,7 +189,7 @@ Specifications
 
 .. spec:: The compatibility floor is declared, not inferred
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC005
-    :status: proposed
+    :status: implemented
 
     ``hmd-ms-base`` ``0.2.282`` shall be named in the source as the floor for
     any service reached through an environment route, with the reason: below it
@@ -195,7 +202,7 @@ Specifications
 
 .. spec:: nsctl doctor reports currency without repairing it
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC006
-    :status: proposed
+    :status: implemented
 
     ``nsctl doctor`` shall report, for each running environment, whether its
     substrate services are current and whether their routes answer. Stale shall
@@ -215,7 +222,7 @@ Specifications
 
 .. spec:: Local operation states that it needs no credential
     :id: HMD_CLI_NEURONSPHERE_NERD024_SPEC007
-    :status: proposed
+    :status: implemented
 
     The property is already true; this makes it legible.
 
@@ -233,6 +240,58 @@ Specifications
     embedded in the binary and installed into ``.claude/skills/`` and
     ``.agents/skills/``, so they are what an agent has in front of it at the
     moment the wrong conclusion is available.
+
+The acceptance run
+------------------
+
+2026-09-24, against a real control plane in ``$HMD_HOME=~/hmdtr1``, in a
+dedicated ``nerd024`` environment on ``--substrate core`` so nothing touched the
+environments already registered there. Both ``hmd-ms-dbaccount`` images were
+already cached, so the run needed no network.
+
+**SPEC001.** Started with nothing declared. The summary printed ``database`` and
+``substrate core`` and **no** ``dbaccount`` line; the route fragment carried no
+``hmd_ms_dbaccount`` marker; ``env status`` listed no ``dbaccount`` route; and
+``doctor`` reported nothing about the environment's substrate. Under the
+previous behaviour every one of those would have announced a service that was
+not there. An ``hmd-database-account`` consumer was then declared and the next
+``apply`` deployed the service, so presence follows demand in both directions.
+
+**SPEC002, SPEC003.** With ``HMD_LOCAL_VERSION_HMD_MS_DBACCOUNT=0.1.46`` the
+apply deployed that version on demand. Unpinned, the next apply printed
+``hmd-ms-dbaccount in "nerd024" is 0.1.46, this nsctl resolves 0.1.47;
+refreshing it``, redeployed and rerouted it. A third apply printed nothing at
+all, which is the "present and current" path costing one ``GetFunction``.
+``env status`` still listed the route afterwards, which is the ordering
+constraint this document warns about.
+
+**SPEC004.** On the stale version the route answered ``500`` and the apply
+stopped **before** the phase whose first node calls the service, naming the
+deployed version, the floor, the repair that would work, and that it is not an
+authentication failure. After the refresh the same route answered ``404`` with
+FastAPI's ``{"detail":"Not Found"}``.
+
+**SPEC006.** ``doctor`` reported ``ok`` against the live Lambda, ``warning``
+with ``nsctl env start`` as the remedy under a forced version difference, and
+``failure`` with exit 2 on a 5xx.
+
+**What the run changed.** The first apply of the deliberately broken ``0.1.46``
+*passed* the probe and failed at the deploy node instead. ``hmd_proxy`` answers
+``404`` with ``{"error": "no route defined"}`` for a path it is not yet routing,
+and a healthy ``hmd-ms-base`` service answers ``404`` too -- so a probe run in
+the moment between writing the fragment and nginx reloading it read the proxy's
+answer as the service's. The probe now tells them apart and keeps waiting rather
+than concluding. That defect was invisible to every unit test and is the reason
+this section exists.
+
+**What it could not prove.** That the ``hmd-database-account`` node itself
+succeeds after the refresh. ``hmd-img-projectbuilder:0.5.389`` ships
+``hmd-cli-dbaccount`` 0.1.7, whose local-path predicate is ``environment ==
+"local"`` alone; the ``AWS_ENDPOINT_URL`` fallback that a non-``local``
+environment needs exists in the repository but is not in that image. The node
+therefore takes the cloud path and dies looking up an API Gateway key, in any
+environment not named ``local``, with or without this change. Unrelated to this
+document and recorded here so the gap is not mistaken for one of its own.
 
 Alternatives considered
 -----------------------

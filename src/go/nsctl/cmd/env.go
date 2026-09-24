@@ -107,7 +107,7 @@ suppresses it even where something asks, leaving that dependency unresolved.
 --substrate chooses how much of that infrastructure this environment runs and
 records the choice in its manifest for every later start, apply and status:
   full   the database, k3s cluster and the core instances (the default)
-  core   the database and database-account service; no cluster
+  core   the database and the graph; no cluster
   none   nothing beyond the control plane -- for repo classes that deploy with
          their own toolset against infrastructure they already have
 

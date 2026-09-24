@@ -43,7 +43,14 @@
   grouped. `cobra.EnableCommandSorting` is package-level in cobra and was set
   inside `newRoot`, which every parallel test calls; it is set once in `init`
   instead.
-- docs: propose NERD024 -- substrate currency. Amends NERD008 (local operation is
+- fix: the route probe no longer reads hmd_proxy's own 404 as a healthy service.
+  The proxy answers `{"error": "no route defined"}` with a 404 for a path it is
+  not yet routing, and a healthy hmd-ms-base service answers 404 too, so a probe
+  run between writing the route fragment and nginx reloading it passed a
+  deliberately broken service through. Found by NERD024's acceptance run.
+- fix: `env start --help` said substrate `core` runs the database-account
+  service. It runs the database and the graph; the service follows its consumer.
+- docs: NERD024 is implemented, with its acceptance run recorded. Amends NERD008 (local operation is
   out of scope for login, entirely) and NERD015 (the skills state the
   local/cloud credential boundary).
 

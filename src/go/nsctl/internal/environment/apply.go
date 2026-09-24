@@ -887,8 +887,15 @@ func reconcileDBAccountForApply(ctx context.Context, opts *Options, reg *registr
 	// guards against was that nothing checked the second one until a deploy
 	// node hit it with no way to say what it had found (NERD024 SPEC004).
 	name := floci.LambdaName(DBAccountRepoClass)
-	code := probeRoute(ctx, opts.Lookup, env.Slug, name)
+	code, routed := probeRoute(ctx, opts.Lookup, env.Slug, name)
 	switch {
+	case !routed:
+		// The proxy answered that it has no such route, so nothing reached the
+		// service and there is nothing to conclude about it. Warned rather than
+		// passed silently: reading this as health is what let a deliberately
+		// broken service through the first time this ran.
+		opts.warn("hmd_proxy is not yet routing %s; the deploy reaches the service over the container network, so this is not by itself a failure",
+			ServiceRouteURL(opts.Lookup, env.Slug, name))
 	case code >= 500:
 		return nserr.New(nserr.Fail, "%s",
 			brokenRoute(opts.Lookup, env.Slug, name, state.Serving, state.Resolved, code))

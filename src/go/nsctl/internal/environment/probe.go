@@ -3,6 +3,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -40,13 +41,33 @@ const (
 	routeProbeTimeout  = 10 * time.Second
 )
 
-// probeRoute reports the status code a service's route root answers with, and
-// -1 when nothing answers at all.
+// noRouteBody is what hmd_proxy answers when *it* has no route for a path.
 //
-// Retried, because this runs immediately after a deploy: Floci registers the
-// gateway's routes a moment after the stage is deployed, and the first request
-// also pays the Lambda's cold start.
-func probeRoute(ctx context.Context, lookup func(string) string, slug, service string) int {
+// It matters because that answer is a 404, and a healthy hmd-ms-base service
+// answers 404 too -- so without telling the two apart, a probe run in the
+// moment between writing the fragment and nginx reloading it reads "nginx does
+// not know this path yet" as "the service is fine". Found exactly that way: the
+// first apply of a deliberately broken 0.1.46 passed the probe and failed at
+// the deploy node instead, which is the failure this check exists to pre-empt.
+const noRouteBody = "no route defined"
+
+// probeBodyLimit is how much of the body is read to recognise that answer. It
+// is one short JSON object; anything longer is a real service's response and
+// only needs to not be mistaken for it.
+const probeBodyLimit = 512
+
+// probeRoute reports the status code a service's route root answers with, and
+// whether the proxy is routing that path at all.
+//
+// The code is -1 when nothing answers. routed is false when hmd_proxy answered
+// that it has no such route, which is not a verdict on the service: nothing has
+// reached it.
+//
+// Retried, because this runs immediately after a deploy: nginx reloads a moment
+// after the fragment is written, Floci registers the gateway's routes a moment
+// after the stage is deployed, and the first request pays the Lambda's cold
+// start.
+func probeRoute(ctx context.Context, lookup func(string) string, slug, service string) (int, bool) {
 	return probeRouteN(ctx, lookup, slug, service, routeProbeAttempts)
 }
 
@@ -55,38 +76,41 @@ func probeRoute(ctx context.Context, lookup func(string) string, slug, service s
 // `doctor` asks for one attempt: nothing was just deployed, so there is no cold
 // start to wait out, and a report that takes five seconds per environment to
 // say "ok" is a report people stop running.
-func probeRouteN(ctx context.Context, lookup func(string) string, slug, service string, attempts int) int {
+func probeRouteN(ctx context.Context, lookup func(string) string, slug, service string, attempts int) (int, bool) {
 	client := &http.Client{Timeout: routeProbeTimeout}
 	url := ServiceRouteURL(lookup, slug, service)
-	code := -1
+	code, routed := -1, false
 	for attempt := 1; attempt <= attempts; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return -1
+			return -1, false
 		}
 		resp, err := client.Do(req)
 		if err == nil {
 			code = resp.StatusCode
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, probeBodyLimit))
 			resp.Body.Close()
-			// Anything below 500 is an answer: hmd-ms-base registers only
-			// /api/... and /apiop/... routes, so a healthy service 404s at its
-			// route root. That is the distinction internal/status already
-			// relies on, and it is what makes a 5xx here diagnostic rather
-			// than ambiguous (NERD024 SPEC004).
-			if code < 500 {
-				return code
+			routed = !(code == http.StatusNotFound && strings.Contains(string(body), noRouteBody))
+			// Anything below 500 from the service itself is an answer:
+			// hmd-ms-base registers only /api/... and /apiop/... routes, so a
+			// healthy service 404s at its route root. That is the distinction
+			// internal/status already relies on, and it is what makes a 5xx
+			// here diagnostic rather than ambiguous (NERD024 SPEC004). A 404
+			// from the proxy is not that, so it keeps waiting instead.
+			if routed && code < 500 {
+				return code, true
 			}
 		}
 		if attempt == attempts {
-			return code
+			return code, routed
 		}
 		select {
 		case <-ctx.Done():
-			return code
+			return code, routed
 		case <-time.After(routeProbeBackoff):
 		}
 	}
-	return code
+	return code, routed
 }
 
 // brokenRoute explains a 5xx from an environment route in full, which is what

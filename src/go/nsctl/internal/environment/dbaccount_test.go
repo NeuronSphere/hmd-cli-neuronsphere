@@ -58,9 +58,12 @@ func TestProbeRouteAcceptsTheHealthy404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got := probeRoute(context.Background(), fixedLookup(srv.URL), "local", "hmd_ms_dbaccount")
+	got, routed := probeRoute(context.Background(), fixedLookup(srv.URL), "local", "hmd_ms_dbaccount")
 	if got != http.StatusNotFound {
 		t.Fatalf("probeRoute = %d, want 404", got)
+	}
+	if !routed {
+		t.Error("a service's own 404 means the path is routed")
 	}
 }
 
@@ -74,8 +77,8 @@ func TestProbeRouteReportsA5xxAfterRetrying(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if got := probeRoute(context.Background(), fixedLookup(srv.URL), "local", "hmd_ms_dbaccount"); got != 500 {
-		t.Fatalf("probeRoute = %d, want 500", got)
+	if got, routed := probeRoute(context.Background(), fixedLookup(srv.URL), "local", "hmd_ms_dbaccount"); got != 500 || !routed {
+		t.Fatalf("probeRoute = %d routed=%v, want 500 routed=true", got, routed)
 	}
 	// Retried rather than believed first time: this runs straight after a
 	// deploy, where a cold Lambda and a just-registered gateway both answer
@@ -129,5 +132,32 @@ func fixedLookup(base string) func(string) string {
 			return base
 		}
 		return ""
+	}
+}
+
+// hmd_proxy answers 404 with this body for a path it is not routing, and a
+// healthy hmd-ms-base service answers 404 too. Telling them apart is the whole
+// point: the acceptance run for NERD024 deployed a deliberately broken 0.1.46,
+// probed in the moment between writing the fragment and nginx reloading it,
+// read the proxy's 404 as the service's, and passed.
+func TestProbeRouteDoesNotReadTheProxys404AsHealth(t *testing.T) {
+	t.Parallel()
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error": "no route defined"}`))
+	}))
+	defer srv.Close()
+
+	code, routed := probeRoute(context.Background(), fixedLookup(srv.URL), "local", "hmd_ms_dbaccount")
+	if routed {
+		t.Errorf("the proxy's own 404 is not the service answering (code %d)", code)
+	}
+	// And it keeps waiting rather than concluding, because the usual cause is
+	// a reload that has not happened yet.
+	if n := atomic.LoadInt32(&calls); n != routeProbeAttempts {
+		t.Errorf("probed %d times, want %d", n, routeProbeAttempts)
 	}
 }

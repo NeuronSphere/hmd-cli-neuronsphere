@@ -89,7 +89,7 @@ func dbAccountCheck(ctx context.Context, opts *Options, env *registry.Environmen
 	// Only a 5xx. Nothing answering at all is far more likely to be a stopped
 	// proxy or a stopped environment than a broken service, and reporting that
 	// as a broken image would send the reader after the wrong thing.
-	if code := probeRouteN(ctx, opts.Lookup, env.Slug, name, 1); code >= 500 {
+	if code, routed := probeRouteN(ctx, opts.Lookup, env.Slug, name, 1); routed && code >= 500 {
 		return doctor.Check{
 			Name:   checkName(env.Slug),
 			Status: doctor.StatusFail,
