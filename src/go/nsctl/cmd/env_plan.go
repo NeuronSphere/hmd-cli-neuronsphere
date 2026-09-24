@@ -62,7 +62,9 @@ consume.`,
 			}
 			switch output {
 			case "json":
-				return renderPlanJSON(cmd.OutOrStdout(), result)
+				if err := renderPlanJSON(cmd.OutOrStdout(), result); err != nil {
+					return err
+				}
 			case "md":
 				renderPlanMD(cmd.OutOrStdout(), result)
 			default:

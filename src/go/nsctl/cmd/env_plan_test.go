@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -143,6 +145,81 @@ func TestRenderPlanJSONOmitsValidationWhenThereIsNoneToReport(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), `"validation"`) {
 		t.Errorf("validation key present with nothing to validate:\n%s", buf.String())
+	}
+}
+
+// fakeMSDeploymentServer answers every request ComputePlan's full run makes
+// (InstanceStatus's three searches, RegisterCatalog's writes,
+// CandidateWarnings' suggestion lookup) the same way
+// internal/bom's registerCatalogServer does, plus a validate_changeset case
+// this test controls -- so `env plan` reaches an actual Validation result
+// instead of stopping early on an unreachable service or an empty reconcile.
+func fakeMSDeploymentServer(t *testing.T, valid bool) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/apiop/validate_changeset"):
+			if valid {
+				_, _ = w.Write([]byte(`{"valid": true}`))
+			} else {
+				_, _ = w.Write([]byte(`{"valid": false, "errors": [` +
+					`{"type":"missing_required_role","instance":"airflow","message":"required role, database, not supplied"}` +
+					`]}`))
+			}
+		case strings.HasPrefix(r.URL.Path, "/apiop/find_repo_class_versions"):
+			_, _ = w.Write([]byte(`[{"identifier":"rcv-1","version":"0.1"}]`))
+		case strings.HasPrefix(r.URL.Path, "/apiop/register_deployed_instance"):
+			_, _ = w.Write([]byte(`{"repo_instance_id":"ri-1","repo_instance_deployment_id":"rid-1"}`))
+		case strings.HasPrefix(r.URL.Path, "/api/") && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// This is the N1 regression: `env plan --output json` on an invalid plan must
+// exit nonzero, exactly as --output text/md already do, not just print
+// "valid": false and exit 0.
+func TestEnvPlanJSONExitsNonzeroWhenValidationFails(t *testing.T) {
+	t.Parallel()
+
+	srv := fakeMSDeploymentServer(t, false)
+	home := registryHome(t, twoEnvRegistry)
+	env := fakeEnv(map[string]string{"HMD_HOME": home, "HMD_LOCAL_MS_DEPLOYMENT_URL": srv.URL})
+
+	out, _, err := run(t, env, "env", "plan", "local", "--output", "json")
+
+	if err == nil {
+		t.Fatal("an invalid plan printed as JSON did not produce an error")
+	}
+	if !strings.Contains(err.Error(), "validate_changeset rejects this definition") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, `"valid": false`) {
+		t.Errorf("json output missing the invalid validation result:\n%s", out)
+	}
+}
+
+// The companion case: a valid plan must still print JSON and exit 0, so the
+// regression test above can't be satisfied by simply always failing.
+func TestEnvPlanJSONSucceedsWhenValidationPasses(t *testing.T) {
+	t.Parallel()
+
+	srv := fakeMSDeploymentServer(t, true)
+	home := registryHome(t, twoEnvRegistry)
+	env := fakeEnv(map[string]string{"HMD_HOME": home, "HMD_LOCAL_MS_DEPLOYMENT_URL": srv.URL})
+
+	out, _, err := run(t, env, "env", "plan", "local", "--output", "json")
+
+	if err != nil {
+		t.Fatalf("a valid plan produced an error: %v", err)
+	}
+	if !strings.Contains(out, `"valid": true`) {
+		t.Errorf("json output missing the valid validation result:\n%s", out)
 	}
 }
 
