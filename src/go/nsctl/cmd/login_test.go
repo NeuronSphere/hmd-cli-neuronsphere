@@ -451,17 +451,23 @@ func TestLogoutAndWhoami(t *testing.T) {
 	// mixed signal that sent an agent to `nsctl login` to fix a local deploy
 	// -- while the exit code stays 2, because a script asking "am I signed in"
 	// is entitled to a nonzero answer.
-	whoamiOut, _, err := run(t, env, "whoami")
+	whoamiOut, whoamiErr, err := run(t, env, "whoami")
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Errorf("whoami before login: error = %v, want a usage refusal", err)
 	}
 	if !nserr.IsSilent(err) {
 		t.Errorf("whoami before login printed an error; it should report instead: %v", err)
 	}
-	for _, want := range []string{"normal state", "nothing local needs a credential", "hosted NeuronSphere tenant"} {
-		if !strings.Contains(whoamiOut, want) {
-			t.Errorf("whoami before login should say %q, got:\n%s", want, whoamiOut)
+	// On stderr, and naming the command, because test/nsctl_cli.robot pins
+	// both: `nsctl whoami > file` must leave an empty file rather than prose
+	// that is not a credential.
+	for _, want := range []string{"normal state", "nothing local needs a credential", "hosted NeuronSphere tenant", "nsctl login"} {
+		if !strings.Contains(whoamiErr, want) {
+			t.Errorf("whoami before login should say %q on stderr, got:\n%s", want, whoamiErr)
 		}
+	}
+	if whoamiOut != "" {
+		t.Errorf("whoami before login wrote to stdout: %q", whoamiOut)
 	}
 	out, _, err := run(t, env, "logout")
 	if err != nil {

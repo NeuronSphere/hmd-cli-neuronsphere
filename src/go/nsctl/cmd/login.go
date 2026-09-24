@@ -502,12 +502,14 @@ registry.`,
 				// agent diagnosing a failed local deploy took it for one
 				// (NERD024 SPEC007).
 				//
-				// The status still exits 2: a script asking "am I signed in"
-				// is entitled to a nonzero answer, and only the framing of the
-				// message was ever wrong.
-				out := cmd.OutOrStdout()
-				fmt.Fprintln(out, "Not signed in, which is the normal state: nothing local needs a credential.")
-				fmt.Fprintln(out, "`nsctl login` is for a hosted NeuronSphere tenant or a private registry.")
+				// The status still exits 2 and still goes to stderr: a script
+				// asking "am I signed in" is entitled to a nonzero answer, and
+				// `nsctl whoami > file` should leave an empty file rather than
+				// prose that is not a credential. Only the framing was ever
+				// wrong, so only the framing changed.
+				errOut := cmd.ErrOrStderr()
+				fmt.Fprintln(errOut, "Not signed in, which is the normal state: nothing local needs a credential.")
+				fmt.Fprintln(errOut, "`nsctl login` is for a hosted NeuronSphere tenant or a private registry.")
 				return nserr.Silent(int(nserr.Usage))
 			}
 			claims, decodeErr := authd.DecodeClaims(login.AccessToken)
