@@ -112,6 +112,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		if err := refuseCoreBindings(mode, declared); err != nil {
 			return err
 		}
+		plan.DBAccount = wantsDBAccount(plan, declared)
 	}
 
 	d := container.New()
@@ -244,6 +245,8 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	if plan.DBAccount {
 		if err := EnsureDBAccount(ctx, opts, reg, env, d, r, routerEnv, target, names); err != nil {
 			opts.warn("%v", err)
+		} else {
+			f.foundDBAccount()
 		}
 	} else if err := r.WriteEnvRoutes(routerEnv, nil, floci.DefaultStage, nil); err != nil {
 		// Rewritten empty rather than left: a dbaccount route from an earlier
@@ -478,6 +481,19 @@ type found struct {
 	// is the only condition under which the summary names `env credentials`
 	// (NERD023 SPEC006).
 	Access bool
+	// DBAccount is true when this start deployed and routed the
+	// database-account service. The summary reports the route from this rather
+	// than from the substrate mode, because the mode no longer decides it: an
+	// environment declaring no consumer runs none (NERD024 SPEC001), and
+	// advertising a route nothing answers is the failure d9aed93 fixed for
+	// ports and this would reintroduce for services.
+	DBAccount bool
+}
+
+func (f *found) foundDBAccount() {
+	if f != nil {
+		f.DBAccount = true
+	}
 }
 
 func (f *found) foundTrino() {
@@ -562,9 +578,11 @@ func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFat
 		return append(lines, credentialsPointer(env, f)...)
 	}
 	if plan.Database {
-		lines = append(lines,
-			fmt.Sprintf("  database   %s:5432", env.DBContainer),
-			fmt.Sprintf("  dbaccount  http://localhost/%s/hmd_ms_dbaccount/", env.Slug))
+		lines = append(lines, fmt.Sprintf("  database   %s:5432", env.DBContainer))
+		if f != nil && f.DBAccount {
+			lines = append(lines,
+				fmt.Sprintf("  dbaccount  http://localhost/%s/hmd_ms_dbaccount/", env.Slug))
+		}
 	}
 	lines = append(lines, fmt.Sprintf("  substrate  %s", mode))
 	return append(lines, credentialsPointer(env, f)...)

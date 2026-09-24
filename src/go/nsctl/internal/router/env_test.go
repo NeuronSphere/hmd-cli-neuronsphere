@@ -263,3 +263,41 @@ func TestStreamsPortReadsTheFragment(t *testing.T) {
 		t.Error("a slug with no fragment must not read another's")
 	}
 }
+
+// NERD024 SPEC001: the fragment is the record of what was actually routed, so
+// it answers "is that service there" for a caller that must stay cheap and must
+// work on a stopped environment -- StreamsPort's contract, for HTTP.
+func TestRoutesServiceReadsTheFragment(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+
+	// Before anything is written: an environment that has never started routes
+	// nothing, and that is an answer rather than an error.
+	if r.RoutesService("local", "hmd_ms_dbaccount") {
+		t.Error("a missing fragment must not report a route")
+	}
+
+	if err := r.WriteEnvRoutes(testEnv(), map[string]string{"hmd_ms_dbaccount": "gw1"}, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !r.RoutesService("local", "hmd_ms_dbaccount") {
+		t.Error("a written route should be found")
+	}
+	// Scoped to the service and to the environment, not merely to the file.
+	if r.RoutesService("local", "hmd_ms_transform") {
+		t.Error("a service with no route must not be reported")
+	}
+	if r.RoutesService("other", "hmd_ms_dbaccount") {
+		t.Error("another environment's fragment is not this one's")
+	}
+
+	// Rewritten without it -- which is what an environment that stops
+	// declaring a database-account consumer does on its next start.
+	if err := r.WriteEnvRoutes(testEnv(), nil, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if r.RoutesService("local", "hmd_ms_dbaccount") {
+		t.Error("a route rewritten away must not still be reported")
+	}
+}

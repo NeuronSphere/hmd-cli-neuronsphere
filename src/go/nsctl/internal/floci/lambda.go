@@ -161,6 +161,24 @@ func (s *Services) DeployLambda(ctx context.Context, functionName, imageURI stri
 	return aws.ToString(got.Configuration.FunctionArn), nil
 }
 
+// FunctionEnv is a deployed function's environment variables, or an error when
+// there is no such function.
+//
+// Used to read back what a Lambda was deployed with -- HMD_REPO_VERSION above
+// all, which ServiceEnv writes -- so currency can be decided from the
+// deployment itself rather than from a record kept beside it that could
+// disagree with it (NERD024 SPEC002).
+func (s *Services) FunctionEnv(ctx context.Context, functionName string) (map[string]string, error) {
+	got, err := s.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(functionName)})
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", functionName, err)
+	}
+	if got.Configuration == nil || got.Configuration.Environment == nil {
+		return map[string]string{}, nil
+	}
+	return got.Configuration.Environment.Variables, nil
+}
+
 // EnsureRestAPI creates or reuses a REST API by name.
 //
 // recreate deletes an existing one first, which matters because Floci's

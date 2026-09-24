@@ -89,7 +89,13 @@ func newLoginCommand(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Sign in with the device authorization grant",
-		Long: `Signs in through the OAuth 2.0 device authorization grant.
+		Long: `Signs in through the OAuth 2.0 device authorization grant, for the things
+that are not local.
+
+Nothing on this machine requires it: local environments, deploys, repositories
+and stacks from a public registry namespace need no account, tenant or token.
+Sign in to reach a hosted NeuronSphere tenant -- its Artifact Librarian,
+published-version queries, cloud BOM inspection -- or a private registry.
 
 nsctl prints a code and a URL; you open the URL in whatever browser you have,
 on whatever machine you have, and type the code. Nothing binds a port on this
@@ -469,7 +475,11 @@ func newWhoamiCommand(opts *Options) *cobra.Command {
 		Long: `Prints who the cached token says you are.
 
 The token is decoded, not verified -- this reports what the credential carries,
-it does not decide anything. Run ` + "`nsctl login`" + ` to replace an expired one.`,
+it does not decide anything. Run ` + "`nsctl login`" + ` to replace an expired one.
+
+Nothing local reads this. Local environments, deploys and repositories need no
+credential at all; a token is for a hosted NeuronSphere tenant or a private
+registry.`,
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -484,8 +494,21 @@ it does not decide anything. Run ` + "`nsctl login`" + ` to replace an expired o
 			}
 			login := file.Login
 			if !login.Present() {
-				return nserr.New(nserr.Usage,
-					"not signed in. Run `nsctl login`.")
+				// Reported, not raised. Signed out is the ordinary state of a
+				// machine doing local work -- no local command sends a
+				// credential, so nothing is waiting on this -- and an "Error:"
+				// in front of that sentence contradicts it. The bare
+				// instruction this replaces read as a prerequisite, and an
+				// agent diagnosing a failed local deploy took it for one
+				// (NERD024 SPEC007).
+				//
+				// The status still exits 2: a script asking "am I signed in"
+				// is entitled to a nonzero answer, and only the framing of the
+				// message was ever wrong.
+				out := cmd.OutOrStdout()
+				fmt.Fprintln(out, "Not signed in, which is the normal state: nothing local needs a credential.")
+				fmt.Fprintln(out, "`nsctl login` is for a hosted NeuronSphere tenant or a private registry.")
+				return nserr.Silent(int(nserr.Usage))
 			}
 			claims, decodeErr := authd.DecodeClaims(login.AccessToken)
 			if showClaims {

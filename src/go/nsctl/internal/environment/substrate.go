@@ -33,6 +33,25 @@ func planFor(mode manifest.Substrate) startPlan {
 	}
 }
 
+// wantsDBAccount reports whether an environment should run the database-account
+// service (NERD024 SPEC001).
+//
+// The service is deployed for a consumer, not for a mode. An environment that
+// declares no hmd-database-account has nothing that will ever call it, and
+// paying an image pull, a Lambda create, a REST API create and a stage deploy
+// for it on every start is exactly the cost NERD014 set out to remove from the
+// environments that need none of this.
+//
+// A manifest that could not be read leaves the mode's answer alone, which is
+// the rule substrateMode already applies to the mode itself: the worse failure
+// of the two is skipping a service something depends on.
+func wantsDBAccount(plan startPlan, declared *manifest.Manifest) bool {
+	if !plan.DBAccount || declared == nil {
+		return plan.DBAccount
+	}
+	return bom.DeclaresDBAccount(declared.Repos)
+}
+
 // substrateMode is the environment's recorded mode (NERD014 SPEC002).
 //
 // An unreadable manifest is reported and read as full, never as none: the

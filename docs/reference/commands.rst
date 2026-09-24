@@ -1008,6 +1008,13 @@ Prints the endpoint nsctl will use and where that came from, the engine's
 version and size, whether host paths are visible to it, and whether the local
 host names resolve. It changes nothing.
 
+With a home set it also reports each environment's substrate: whether the
+service versions Floci is running are the ones this nsctl resolves, and whether
+their routes answer. A stale one warns and names the restart that refreshes it;
+a service returning 5xx where a healthy one answers 404 fails, and says what
+that means. Nothing here needs a credential, and nothing here is fixed by
+signing in.
+
 Exits 2 when something needs fixing, 0 otherwise -- including when checks only
 warn.
 
@@ -1468,7 +1475,13 @@ Inherited flags
 nsctl login
 -----------
 
-Signs in through the OAuth 2.0 device authorization grant.
+Signs in through the OAuth 2.0 device authorization grant, for the things
+that are not local.
+
+Nothing on this machine requires it: local environments, deploys, repositories
+and stacks from a public registry namespace need no account, tenant or token.
+Sign in to reach a hosted NeuronSphere tenant -- its Artifact Librarian,
+published-version queries, cloud BOM inspection -- or a private registry.
 
 nsctl prints a code and a URL; you open the URL in whatever browser you have,
 on whatever machine you have, and type the code. Nothing binds a port on this
@@ -3284,6 +3297,10 @@ Prints who the cached token says you are.
 
 The token is decoded, not verified -- this reports what the credential carries,
 it does not decide anything. Run `nsctl login` to replace an expired one.
+
+Nothing local reads this. Local environments, deploys and repositories need no
+credential at all; a token is for a hosted NeuronSphere tenant or a private
+registry.
 
 Usage
 ~~~~~

@@ -45,11 +45,13 @@ func TestEnvironmentStatusListsOnlyWhatTheSubstrateRuns(t *testing.T) {
 			[]string{"services", "floci", "dbaccount", "trino", "k3s"}, nil},
 	}
 	for _, c := range cases {
-		// Trino routed throughout: this case table is about what a *mode*
-		// runs, and TestTrinoRouteOnlyWhenRouted covers the routing condition.
+		// Trino and dbaccount routed throughout: this case table is about what
+		// a *mode* runs, and TestTrinoRouteOnlyWhenRouted and
+		// TestDBAccountRouteOnlyWhenRouted cover the routing conditions.
 		r := &Reporter{Docker: d, Lookup: fakeEnv(nil),
-			Substrate: func(string) manifest.Substrate { return c.mode },
-			Routed:    func(string, int) bool { return true }}
+			Substrate:     func(string) manifest.Substrate { return c.mode },
+			Routed:        func(string, int) bool { return true },
+			RoutedService: func(string, string) bool { return true }}
 		snap := r.EnvironmentStatus(context.Background(), liveEnv())
 		if snap.Substrate != c.mode {
 			t.Errorf("%s: snapshot carries %q", c.mode, snap.Substrate)

@@ -199,6 +199,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	bom.ApplyExtSecretsDefaults(entries, bomEnv.AccessKeyID)
 	bom.InjectExtSecretsAccount(entries, bomEnv.AccessKeyID)
 
+	// Everything this environment declares, kept before the plan narrows
+	// `entries` to what still needs deploying. Demand for a substrate service
+	// is a property of the environment, not of one run's remaining work.
+	declaredEntries := entries
+
 	// Floci spawns its database backend from an image reference pinned into its
 	// own configuration, and a reference that resolves nowhere fails the
 	// instance while the deploy polls indefinitely. Catch it in seconds here.
@@ -444,6 +449,23 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		// showed it.
 		refreshSpawnedAliases(ctx, opts, reg, env, d, names)
 
+		// The database-account service, when the environment asks for one, at
+		// the version this binary resolves (NERD024 SPEC001, SPEC003).
+		//
+		// Here as well as in Start, because Start answers the question only
+		// for the environment as it stood when it started. A consumer added to
+		// an environment that is already running is deployed by this command,
+		// and this is the last moment before the node that calls the service:
+		// Phase B's first is an hmd-database-account.
+		//
+		// Demand is read from every declared entry rather than from what this
+		// run is about to deploy: an environment whose db-accounts are all
+		// deployed already still needs the service they were deployed through.
+		if steps.DBAccount && bom.RequiresDBAccount(declaredEntries) {
+			err = reconcileDBAccountForApply(ctx, opts, reg, env, d, target, names)
+		}
+	}
+	if err == nil {
 		// Phase B: everything the manifest declares.
 		_, err = runPhase(ctx, opts, seeder, run, bomEnv, phaseB, "declared")
 	}
@@ -826,4 +848,58 @@ func declaresAccess(opts *Options, repos []manifest.Repo) bool {
 		}
 		return bacon.Open(dir)
 	})
+}
+
+// reconcileDBAccountForApply deploys or refreshes the database-account service
+// and proves it answers, before the phase whose first node calls it.
+//
+// The route work after a change is the order Start uses and must stay that way:
+// SetupService recreates the REST API, WriteEnvRoutes rewrites the environment
+// fragment wholesale, and refreshRoutes splices the DAG-discovered routes back
+// in. Any other order erases them, which is the regression this ordering exists
+// to prevent -- and it would only show up in the next thing that addressed a
+// deployed service, long after the run that caused it.
+func reconcileDBAccountForApply(ctx context.Context, opts *Options, reg *registry.Registry,
+	env *registry.Environment, d *container.Docker, target floci.Target, names floci.Names) error {
+
+	r := router.New(opts.Home, opts.Lookup)
+	routerEnv := router.Env{
+		Slug: env.Slug, AccountID: env.AccountID,
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(), SparePort: env.SparePort(),
+		IsDefault: env.IsDefault(),
+	}
+
+	state, err := ReconcileDBAccount(ctx, opts, reg, env, d, r, routerEnv, target, names)
+	if err != nil {
+		return err
+	}
+	if state.Changed {
+		if err := refreshRoutes(ctx, opts, r, routerEnv, target, &found{}); err != nil {
+			opts.warn("%v", err)
+		}
+		if err := r.Reload(ctx, d.Exec); err != nil {
+			opts.warn("%v", err)
+		}
+	}
+
+	// Proved rather than assumed. A deploy that reports success and a service
+	// that answers are different facts, and the whole cost of the failure this
+	// guards against was that nothing checked the second one until a deploy
+	// node hit it with no way to say what it had found (NERD024 SPEC004).
+	name := floci.LambdaName(DBAccountRepoClass)
+	code := probeRoute(ctx, opts.Lookup, env.Slug, name)
+	switch {
+	case code >= 500:
+		return nserr.New(nserr.Fail, "%s",
+			brokenRoute(opts.Lookup, env.Slug, name, state.Serving, state.Resolved, code))
+	case code < 0:
+		// Warned, not failed. Nothing answering from the *host* says little
+		// about the deploy: the node that calls this service reaches it over
+		// the container network, and connectMSDeployment has already refused
+		// this run if the proxy is unreachable. Failing here would stop an
+		// apply that used to work, on evidence that does not support it.
+		opts.warn("could not reach %s from this host; the deploy reaches it over the container network, so this is not by itself a failure",
+			ServiceRouteURL(opts.Lookup, env.Slug, name))
+	}
+	return nil
 }

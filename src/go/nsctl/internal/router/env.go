@@ -248,6 +248,27 @@ func (r *Router) StreamsPort(slug string, port int) bool {
 	return strings.Contains(string(data), begin)
 }
 
+// RoutesService reports whether an environment's HTTP fragment carries a route
+// for one service.
+//
+// StreamsPort's reasoning, applied to the http.d fragment: the fragment is the
+// record of what was actually routed, so it answers "is that service there"
+// without asking Floci, cheaply, and on a stopped environment. Which matters
+// now that a substrate service is deployed for a consumer rather than for a
+// mode (NERD024 SPEC001) -- the mode no longer tells anyone whether the route
+// exists.
+//
+// A missing or unreadable fragment is false, for StreamsPort's reason: an
+// environment that has never started routes nothing.
+func (r *Router) RoutesService(slug, service string) bool {
+	data, err := os.ReadFile(filepath.Join(r.HTTPDir(), EnvFragmentName(slug)))
+	if err != nil {
+		return false
+	}
+	begin, _ := markers(slug + "/" + service)
+	return strings.Contains(string(data), begin)
+}
+
 // RemoveEnvRoutes deletes every fragment an environment owns.
 func (r *Router) RemoveEnvRoutes(slug string) error {
 	name := EnvFragmentName(slug)

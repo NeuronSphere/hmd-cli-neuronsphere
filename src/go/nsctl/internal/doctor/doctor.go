@@ -82,6 +82,19 @@ type Options struct {
 	CLIEndpoint func(ctx context.Context) (string, error)
 	// Hosts verifies the /etc/hosts entries. Nil skips it.
 	Hosts func() error
+	// Environments reports whether each running environment's substrate is
+	// current and answering (NERD024 SPEC006). Nil skips it.
+	//
+	// Injected for the reason status.Reporter injects Substrate and Routed:
+	// this package must not learn HMD_HOME's layout, and it must not import the
+	// environment package, which imports it back through the start preflight.
+	// The caller owns the knowledge; doctor owns the reporting.
+	//
+	// Run only from Run, never from Gate. Gate is the preflight other commands
+	// call before starting anything, and a preflight that asks Floci whether a
+	// start may proceed fails in exactly the case where the start is what would
+	// have fixed it.
+	Environments func(ctx context.Context) []Check
 }
 
 func (o Options) lookup(key string) string {
@@ -144,6 +157,9 @@ func Run(ctx context.Context, o Options) []Check {
 		return checks
 	}
 	checks = append(checks, o.agreement(ctx, ep)...)
+	if o.Environments != nil {
+		checks = append(checks, o.Environments(ctx)...)
+	}
 	if o.Hosts != nil {
 		if err := o.Hosts(); err != nil {
 			checks = append(checks, Check{Name: "host names", Status: StatusFail, Detail: err.Error()})

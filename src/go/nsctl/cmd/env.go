@@ -40,11 +40,12 @@ func loadRegistry(opts *Options) (*registry.Registry, string, error) {
 func reporter(opts *Options) *status.Reporter {
 	r := router.New(opts.Home, opts.Lookup)
 	return &status.Reporter{
-		Docker:    container.New(),
-		Probe:     status.HTTPProber(3 * time.Second),
-		Lookup:    opts.Lookup,
-		Substrate: substrateOf(opts),
-		Routed:    r.StreamsPort,
+		Docker:        container.New(),
+		Probe:         status.HTTPProber(3 * time.Second),
+		Lookup:        opts.Lookup,
+		Substrate:     substrateOf(opts),
+		Routed:        r.StreamsPort,
+		RoutedService: r.RoutesService,
 	}
 }
 

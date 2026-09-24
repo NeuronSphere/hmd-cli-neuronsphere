@@ -119,6 +119,21 @@ plane *is* Floci's default account (``000000000000``), so an unsigned call
 already resolves there and a bearer token reaches the service in
 ``Authorization`` unchanged.
 
+This is also a compatibility floor, and a sharp one. A service image built on
+``hmd-ms-base`` older than **0.2.282** parses the credential scope as a bearer
+token inside ``hmd-base-service``'s ``UserMiddleware`` -- middleware, so outside
+any route's error handling -- and returns a **500 with no body on every
+request**, authenticated or not. ``0.2.280`` relocates the caller's credential
+and ``0.2.282`` adds the guard that stops the crash; only the second is enough,
+because the crash is in middleware rather than in a route.
+
+Recognising it costs nothing once you know the shape: ``hmd-ms-base`` registers
+only ``/api/...`` and ``/apiop/...``, so a healthy service answers **404** at
+``http://localhost/<env>/<service>/`` and only a broken one answers 5xx. That is
+what ``nsctl doctor`` reports and what ``nsctl env apply`` checks before the
+first node that calls a service. It is never an authentication problem: no local
+command sends a credential, and signing in changes nothing.
+
 The account selector has to occupy ``Authorization`` because Floci offers no
 other way to name it for an API Gateway **v1** REST API, which is what
 ``hmd-lib-cdktf-factories`` deploys. Floci's ``AccountContextFilter`` reads the

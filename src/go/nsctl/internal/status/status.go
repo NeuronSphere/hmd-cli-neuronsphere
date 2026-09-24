@@ -245,6 +245,12 @@ type Reporter struct {
 	// endpoint the environment merely reserved, and a nil that fell back to
 	// "yes" would put the defect straight back (NERD023 SPEC003).
 	Routed func(slug string, port int) bool
+	// RoutedService answers whether an environment routes one HTTP service,
+	// from the router's own record and for the same reason as Routed: the
+	// substrate mode no longer decides whether the database-account service is
+	// deployed, so reporting its route from the mode advertises an endpoint
+	// nothing answers (NERD024 SPEC001).
+	RoutedService func(slug, service string) bool
 }
 
 func (r *Reporter) routed(slug string, port int) bool {
@@ -252,6 +258,13 @@ func (r *Reporter) routed(slug string, port int) bool {
 		return false
 	}
 	return r.Routed(slug, port)
+}
+
+func (r *Reporter) routedService(slug, service string) bool {
+	if r.RoutedService == nil {
+		return false
+	}
+	return r.RoutedService(slug, service)
 }
 
 func (r *Reporter) substrate(slug string) manifest.Substrate {
@@ -292,7 +305,11 @@ func (r *Reporter) EnvironmentStatus(ctx context.Context, e *registry.Environmen
 	flociEndpoint := firstNonEmpty(r.lookup("FLOCI_ENDPOINT"), r.lookup("MINISTACK_ENDPOINT"), DefaultFlociEndpoint)
 	out.addRoute("services", "http://localhost/"+e.Slug+"/<service>/")
 	out.addRoute("floci", flociEndpoint)
-	if hasDB {
+	// dbaccount only when it is actually routed, which is the Trino rule below
+	// applied for the same reason: an environment that declares no
+	// hmd-database-account consumer runs no dbaccount service, and a row for
+	// one is a URL that answers nothing.
+	if hasDB && r.routedService(e.Slug, "hmd_ms_dbaccount") {
 		out.addRoute("dbaccount", "http://localhost/"+e.Slug+"/hmd_ms_dbaccount/")
 	}
 	if hasCluster {

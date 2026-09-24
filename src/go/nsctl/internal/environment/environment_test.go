@@ -192,7 +192,7 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 
 	env := &registry.Environment{Slug: "local", PortSlot: 8, DBContainer: "hmd_db-local"}
 
-	routed := &found{Trino: true}
+	routed := &found{Trino: true, DBAccount: true}
 
 	none := strings.Join(readySummary(env, manifest.SubstrateNone, nil, routed), "\n")
 	for _, absent := range []string{"trino", "k3s", "database", "dbaccount"} {
@@ -221,6 +221,31 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 	full := strings.Join(readySummary(env, manifest.SubstrateFull, nil, routed), "\n")
 	if strings.Contains(full, "substrate") {
 		t.Errorf("full is the default and should not announce itself, got:\n%s", full)
+	}
+}
+
+// NERD024 SPEC001: the dbaccount line reports what was deployed, not what the
+// mode allows. Asserted in both directions for the Trino reason below -- the
+// summary used to print it from the mode alone, so a one-sided test would pass
+// against exactly the misreport this replaced.
+func TestReadySummaryReportsDBAccountOnlyWhenDeployed(t *testing.T) {
+	t.Parallel()
+
+	env := &registry.Environment{Slug: "local", PortSlot: 8, DBContainer: "hmd_db-local"}
+
+	deployed := strings.Join(readySummary(env, manifest.SubstrateCore, nil, &found{DBAccount: true}), "\n")
+	if !strings.Contains(deployed, "dbaccount  http://localhost/local/hmd_ms_dbaccount/") {
+		t.Errorf("a deployed dbaccount should be named, got:\n%s", deployed)
+	}
+
+	absent := strings.Join(readySummary(env, manifest.SubstrateCore, nil, &found{}), "\n")
+	if strings.Contains(absent, "dbaccount") {
+		t.Errorf("an environment that deployed none should not advertise one, got:\n%s", absent)
+	}
+	// The database is the control: it is still reported from the mode, so a
+	// change that dropped both lines together would not read as a pass here.
+	if !strings.Contains(absent, "database   hmd_db-local:5432") {
+		t.Errorf("the database is still the mode's, got:\n%s", absent)
 	}
 }
 

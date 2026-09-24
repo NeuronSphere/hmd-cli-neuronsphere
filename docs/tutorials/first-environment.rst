@@ -1,6 +1,8 @@
 Your first local environment
 ============================
 
+.. include:: ../_includes/paid-cloud.txt
+
 By the end of this tutorial you will have a running local control plane and
 one named environment, know how to inspect them, and be able to stop and
 restart your environment without discarding its data.

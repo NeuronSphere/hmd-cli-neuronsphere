@@ -425,3 +425,40 @@ func TestHTTPProberRespectsContextCancellation(t *testing.T) {
 		t.Errorf("HTTPProber took %v after context cancellation, want it to return promptly", elapsed)
 	}
 }
+
+// NERD024 SPEC001: the database-account service is deployed for a consumer
+// rather than for a mode, so its route is reported from the router's record
+// like Trino's. Asserted in both directions for the same reason: reporting it
+// from the mode is exactly what this replaces, and a routed-only assertion
+// would pass against that.
+func TestDBAccountRouteOnlyWhenRouted(t *testing.T) {
+	t.Parallel()
+
+	env := liveEnv()
+
+	var askedSlug, askedService string
+	routed := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil),
+		RoutedService: func(slug, service string) bool {
+			askedSlug, askedService = slug, service
+			return true
+		}}
+	want := "http://localhost/" + env.Slug + "/hmd_ms_dbaccount/"
+	if got := routed.EnvironmentStatus(context.Background(), env).Routes["dbaccount"]; got != want {
+		t.Errorf("a routed dbaccount should be reported, got %q", got)
+	}
+	if askedSlug != env.Slug || askedService != "hmd_ms_dbaccount" {
+		t.Errorf("asked about %q/%q, want %q/hmd_ms_dbaccount", askedSlug, askedService, env.Slug)
+	}
+
+	absent := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil),
+		RoutedService: func(string, string) bool { return false }}
+	snap := absent.EnvironmentStatus(context.Background(), env)
+	if got, ok := snap.Routes["dbaccount"]; ok {
+		t.Errorf("an environment running no dbaccount must not advertise one, got %q", got)
+	}
+	// The services template is the control: it is reported unconditionally, so
+	// a change that dropped every route would not read as a pass here.
+	if _, ok := snap.Routes["services"]; !ok {
+		t.Errorf("the services route should survive, got %v", snap.RouteOrder)
+	}
+}

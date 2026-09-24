@@ -10,6 +10,8 @@ plane and local environments; a RepoClass describes software deployed into an
 environment. Do not imply that it is a Docker Compose replacement or a cloud
 account.
 
+0. Everything local is free and needs no account, tenant or token. Do not send
+   a newcomer to `nsctl login`; it is for a hosted tenant or a private registry.
 1. Start with the user's goal. Explain only the terms needed for that goal.
 2. Inspect rather than assume. Run `nsctl version`; if a local home is needed,
    ask for or locate `HMD_HOME` before commands that require it.

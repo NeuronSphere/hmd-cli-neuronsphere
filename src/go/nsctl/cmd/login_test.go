@@ -446,10 +446,22 @@ func TestLogoutAndWhoami(t *testing.T) {
 	home := t.TempDir()
 	env := fakeEnv(map[string]string{"HMD_HOME": home})
 
-	// Not signed in.
-	_, _, err := run(t, env, "whoami")
+	// Not signed in. NERD024 SPEC007: the status is reported rather than
+	// raised -- an "Error:" in front of "this is the normal state" is the
+	// mixed signal that sent an agent to `nsctl login` to fix a local deploy
+	// -- while the exit code stays 2, because a script asking "am I signed in"
+	// is entitled to a nonzero answer.
+	whoamiOut, _, err := run(t, env, "whoami")
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Errorf("whoami before login: error = %v, want a usage refusal", err)
+	}
+	if !nserr.IsSilent(err) {
+		t.Errorf("whoami before login printed an error; it should report instead: %v", err)
+	}
+	for _, want := range []string{"normal state", "nothing local needs a credential", "hosted NeuronSphere tenant"} {
+		if !strings.Contains(whoamiOut, want) {
+			t.Errorf("whoami before login should say %q, got:\n%s", want, whoamiOut)
+		}
 	}
 	out, _, err := run(t, env, "logout")
 	if err != nil {

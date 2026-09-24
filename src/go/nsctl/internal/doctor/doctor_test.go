@@ -210,3 +210,67 @@ func TestReportPrintsEveryLineOfDetailAndRemedy(t *testing.T) {
 		}
 	}
 }
+
+// NERD024 SPEC006: the environment checks belong to the diagnostic, never to
+// the preflight.
+//
+// Asserted in both directions, and the Gate half is the one that matters. Gate
+// is what every start calls before it does anything, so an environment check
+// there would ask Floci whether a start may proceed -- and fail in exactly the
+// case where running the start is what would have fixed it.
+func TestEnvironmentChecksRunInRunAndNotInGate(t *testing.T) {
+	ep := dockerhost.Endpoint{Host: "unix:///x.sock", Context: "colima", Source: dockerhost.SourceContext}
+	var asked int
+	opts := Options{
+		Docker: okCLI{}, Resolver: fixedResolver(ep),
+		Connect: reaching(healthy(), nil), GOOS: "linux",
+		Lookup: func(string) string { return "" },
+		Environments: func(context.Context) []Check {
+			asked++
+			return []Check{{
+				Name: "substrate (local)", Status: StatusWarn,
+				Detail: "serving 0.1.46, this nsctl resolves 0.1.47",
+				Remedy: "nsctl env start local",
+			}}
+		},
+	}
+
+	if _, _, err := Gate(context.Background(), opts); err != nil {
+		t.Fatalf("Gate: %v", err)
+	}
+	if asked != 0 {
+		t.Fatalf("Gate consulted the environment checks %d time(s); it must not", asked)
+	}
+
+	checks := Run(context.Background(), opts)
+	if asked != 1 {
+		t.Fatalf("Run consulted the environment checks %d time(s), want 1", asked)
+	}
+	got, ok := find(checks, "substrate (local)")
+	if !ok {
+		t.Fatalf("Run did not report the environment check: %+v", checks)
+	}
+	if got.Status != StatusWarn || got.Remedy != "nsctl env start local" {
+		t.Errorf("the finding was not carried through verbatim: %+v", got)
+	}
+	// A warning must not turn a doctor run into a refusal.
+	if Failed(checks) {
+		t.Errorf("a stale substrate warns; it does not fail: %+v", checks)
+	}
+}
+
+// A home with nothing to say produces no rows, rather than a row saying so.
+func TestEnvironmentChecksMayBeSilent(t *testing.T) {
+	ep := dockerhost.Endpoint{Host: "unix:///x.sock", Context: "colima", Source: dockerhost.SourceContext}
+	checks := Run(context.Background(), Options{
+		Docker: okCLI{}, Resolver: fixedResolver(ep),
+		Connect: reaching(healthy(), nil), GOOS: "linux",
+		Lookup:       func(string) string { return "" },
+		Environments: func(context.Context) []Check { return nil },
+	})
+	for _, c := range checks {
+		if strings.HasPrefix(c.Name, "substrate") {
+			t.Errorf("nothing to check should print nothing, got %+v", c)
+		}
+	}
+}

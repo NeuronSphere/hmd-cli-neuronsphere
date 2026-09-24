@@ -2,6 +2,46 @@
 
 ## 2026-09-24
 
+- feat: the database-account service is deployed for a consumer instead of for a
+  substrate mode. An environment that declares no `hmd-database-account` now
+  starts without it, and `env apply` deploys it when one is added -- so an
+  environment that will never ask for a database stops paying an image pull, a
+  Lambda create, a REST API create and a stage deploy on every start. The
+  summary, `env status` and the route fragment agree about whether it is there,
+  rather than inferring it from the mode.
+- feat: `env apply` reconciles that service's version against the one the running
+  binary resolves, and refreshes it in place when they differ. `EnsureDBAccount`
+  ran only from `env start`, so an environment created by an older nsctl kept its
+  Lambda indefinitely under a newer one and the command people re-ran could not
+  repair it. Currency is read from the deployed function's `HMD_REPO_VERSION`, so
+  it cannot disagree with what is actually running; a current service costs one
+  `GetFunction` and touches neither Floci nor the proxy.
+- feat: a 5xx from an environment route is diagnosed instead of relayed. A
+  healthy hmd-ms-base service answers 404 at its route root -- it registers only
+  `/api/...` and `/apiop/...` -- so a 5xx there names the deployed version, the
+  `hmd-ms-base` 0.2.282 floor and why it exists, and the repair that would
+  actually work: a restart when a newer version is resolvable, and an upgrade or
+  a pin when the resolved version is the broken one. It also says, in the
+  message, that this is not an authentication failure.
+- feat: `nsctl doctor` reports each environment's substrate currency and route
+  health. It names repairs and performs none, and stays silent about an
+  environment that routes nothing, a Floci that does not answer or a home with no
+  environments. The checks run in the diagnostic only, never in the start
+  preflight, which must not ask Floci whether a start may proceed.
+- fix: nothing local now reads as needing a credential. `nsctl whoami` says that
+  being signed out is the ordinary state and that nothing local needs one;
+  `login` and `whoami` help say what a token is actually for; the bundled
+  `nsctl-debug`, `nsctl-local-environment`, `nsctl-onboard` and
+  `nsctl-auth-and-profiles` skills state that a local failure is never an
+  authentication failure and that `login`/`logout`/`whoami` are neither
+  diagnostic steps nor repairs. The property was always true of the code -- the
+  local clients are anonymous by construction and deploy containers carry no
+  token -- but an agent investigating a failed local deploy proposed signing in
+  as its first remedy, because nothing it could read said otherwise.
+- docs: propose NERD024 -- substrate currency. Amends NERD008 (local operation is
+  out of scope for login, entirely) and NERD015 (the skills state the
+  local/cloud credential boundary).
+
 - feat: `nsctl quickstart` is a guided first run. It runs the host checks,
   settles `HMD_HOME`, starts a first environment, offers a stack and offers to
   adopt the user's own repository. Every step is an ordinary nsctl invocation
