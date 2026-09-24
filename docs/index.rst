@@ -31,6 +31,7 @@ resolved and why; see :doc:`how-to/choose-a-container-engine`.
    how-to/artifacts-and-locks
    Import a cloud BOM (cloud tenants) <how-to/import-cloud-bom>
    how-to/test-local-authorization
+   how-to/find-credentials
    how-to/use-agent-skills
    how-to/use-stacks
    how-to/install-cli-plugins

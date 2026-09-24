@@ -67,6 +67,14 @@ func TestEverySuggestedCommandExists(t *testing.T) {
 					found.file, found.text, leftover[0], cmd.CommandPath())
 			}
 			for _, flag := range flags {
+				// cobra registers help on first use rather than at
+				// construction, so Lookup cannot see it on a tree that has not
+				// been executed -- and every command has it. Without this the
+				// guard rejects a correct suggestion, which is worse than the
+				// bug it exists to catch.
+				if flag == "help" {
+					continue
+				}
 				if cmd.Flags().Lookup(flag) == nil && cmd.InheritedFlags().Lookup(flag) == nil {
 					t.Errorf("%s: `nsctl %s` -- %q has no --%s flag",
 						found.file, found.text, cmd.CommandPath(), flag)

@@ -1151,6 +1151,51 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl env credentials
+---------------------
+
+Resolves every declared way in to the environment's instances -- the "access"
+section of each repo class's BACON manifest (nsctl repoclass access) -- filling in
+the instance name, deployment id, environment and Ingress host.
+
+The credential itself is withheld unless --reveal is passed: what is printed by
+default is the URL, the user who signs in, and where the credential lives. An
+entry that could not be resolved is reported with the reason rather than omitted,
+because "declared, and here is why it is not answering yet" is what a reader
+needs after a deploy that has not finished.
+
+Reading a value needs the control plane's Floci; everything else is read from
+local state and works with nothing running.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env credentials [<name>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl env credentials
+     nsctl env credentials dev
+     nsctl env credentials dev --instance superset --reveal
+     nsctl env credentials dev --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--instance`` — Only this instance
+* ``--json`` — Print the result as JSON
+* ``--reveal`` — Print the credential values, not only where they live
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl env delete
 ----------------
 
@@ -1835,6 +1880,121 @@ Inherited flags
 ~~~~~~~~~~~~~~~
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl repoclass access
+----------------------
+
+Write, list or remove the manifest's "access": one entry per way in to a
+deployed instance -- a URL, the user who logs in, and where the credential
+lives. It never holds a credential: a manifest is a file a developer edits and
+may commit, so an entry names a store and a key and "nsctl repoclass validate"
+refuses a literal password.
+
+A url, secret key or secret property may use the placeholders {instance_name},
+{repo_class_name}, {deployment_id}, {environment} and {ingress_host}, which is
+what makes one declaration work in every environment under any instance name.
+"nsctl env credentials <env>" fills them in and resolves the secret.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass access
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass access add superset --url 'http://{ingress_host}/' --username admin \
+         --secret-store secrets-manager \
+         --secret-key '{instance_name}-{deployment_id}-{environment}-admin-credentials' \
+         --secret-property password
+     nsctl repoclass access add api --url 'http://{ingress_host}/api/' --secret-store parameter-store --secret-output secret_name
+     nsctl repoclass access list
+     nsctl repoclass access remove superset
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass access add
+--------------------------
+
+Keyed and idempotent: re-running with the same name replaces that entry
+wholesale rather than adding a second or merging halves of both. --secret-store
+is required with any other --secret-* flag, and a secret names either a key or
+the resource output to read its name from.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass access add <name> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--notes`` — One line a reader needs that the fields do not carry
+* ``--secret-key`` — The secret's name; may use placeholders
+* ``--secret-output`` — A resource output key to read the secret's name from, instead of --secret-key
+* ``--secret-property`` — The field inside a JSON secret, e.g. password
+* ``--secret-store`` — Where the credential lives: secrets-manager or parameter-store
+* ``--url`` — Where it is reached; may use placeholders (required)
+* ``--username`` — The user who logs in, when there is a fixed one
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass access list
+---------------------------
+
+As written, not as resolved: a repository has no instance name and no
+environment, so the placeholders stand. Use "nsctl env credentials <env>" to see
+them filled in against a deployment.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass access list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the declaration as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass access remove
+-----------------------------
+
+Removing the last entry removes the "access" key, so a repo class that declares no front door does not carry an empty list saying so.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass access remove <name>
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
 
 nsctl repoclass build
 ---------------------

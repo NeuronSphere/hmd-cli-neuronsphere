@@ -181,6 +181,133 @@ func (v *validator) structure() {
 	}
 	v.discovery()
 	v.licence()
+	v.access()
+}
+
+// literalSecretKeys are the key names an access entry must never carry.
+//
+// Refused rather than ignored, and with the reason said out loud, because a
+// manifest is a file a developer edits and may commit: a secret in one is a
+// secret in a git history, and it is a worse outcome than the declaration not
+// working. This is the rule internal/cpext already enforces on the
+// control-plane extension credentials block; the words are deliberately the
+// same, because it is the same mistake.
+var literalSecretKeys = map[string]bool{
+	"password": true, "secret_value": true, "token": true,
+	"api_key": true, "apikey": true, "credential": true,
+}
+
+// access checks the shape of the top-level `access` declaration (NERD023
+// SPEC004) and refuses a literal credential in it (SPEC005).
+//
+// What it deliberately does not check: whether the URL answers, whether the
+// secret exists, or whether the username is right. Those are facts about a
+// deployed environment and this runs against a repository -- `nsctl env
+// credentials` is where an entry meets the thing it describes, and it reports
+// an unresolved entry rather than pretending it validated one.
+func (v *validator) access() {
+	raw, ok := v.doc.Get("access")
+	if !ok {
+		return
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		v.add(Error, "access", "must be a list of entries, each naming one way in to the deployed class")
+		return
+	}
+	seen := map[string]bool{}
+	for i, item := range list {
+		path := fmt.Sprintf("access[%d]", i)
+		entry, ok := item.(*Object)
+		if !ok {
+			v.add(Error, path, "must be an object")
+			continue
+		}
+		name, _ := entry.String("name")
+		switch {
+		case strings.TrimSpace(name) == "":
+			v.add(Error, path+".name", "is required: what this way in is called")
+		case seen[name]:
+			// The index stays in the path for a duplicate: switching to the
+			// name here would label two entries identically, and the reader
+			// could not tell which one the next finding is about.
+			v.add(Error, path+".name", "duplicates an earlier entry named %q", name)
+		default:
+			seen[name] = true
+			path = "access." + name
+		}
+		if u, ok := entry.String("url"); !ok || strings.TrimSpace(u) == "" {
+			v.add(Error, path+".url", "is required: where this is reached")
+		} else {
+			v.placeholders(path+".url", u)
+		}
+		for _, key := range entry.Keys() {
+			if literalSecretKeys[strings.ToLower(key)] {
+				v.add(Error, path+"."+key,
+					"is a literal credential. A manifest names where a credential lives and never holds one; "+
+						"store it and name it under `secret`")
+				continue
+			}
+			switch key {
+			case "name", "url", "username", "notes", "secret":
+			default:
+				v.add(Warning, path+"."+key, "is not part of the declaration and is ignored")
+			}
+		}
+		v.accessSecret(path, entry)
+	}
+}
+
+func (v *validator) accessSecret(path string, entry *Object) {
+	raw, ok := entry.Get("secret")
+	if !ok {
+		return
+	}
+	sec, ok := raw.(*Object)
+	if !ok {
+		v.add(Error, path+".secret", "must be an object naming where the credential lives")
+		return
+	}
+	store, _ := sec.String("store")
+	if !accessStores[store] {
+		v.add(Error, path+".secret.store", "is required and must be %s or %s",
+			StoreSecretsManager, StoreParameterStore)
+	}
+	key, _ := sec.String("key")
+	output, _ := sec.String("output")
+	if strings.TrimSpace(key) == "" && strings.TrimSpace(output) == "" {
+		v.add(Error, path+".secret",
+			"names neither `key` nor `output`, so there is nothing to look up")
+	}
+	v.placeholders(path+".secret.key", key)
+	v.placeholders(path+".secret.property", mustString(sec, "property"))
+	for _, k := range sec.Keys() {
+		if literalSecretKeys[strings.ToLower(k)] {
+			v.add(Error, path+".secret."+k,
+				"is a literal credential. A manifest names where a credential lives and never holds one")
+			continue
+		}
+		switch k {
+		case "store", "key", "property", "output":
+		default:
+			v.add(Warning, path+".secret."+k, "is not part of the declaration and is ignored")
+		}
+	}
+}
+
+// placeholders reports a substitution the resolver cannot fill. Empty rather
+// than a guess is the failure mode being prevented: a URL with a hole in it, or
+// a secret lookup against a truncated name.
+func (v *validator) placeholders(path, template string) {
+	for _, bad := range UnknownPlaceholders(template) {
+		v.add(Error, path, "uses unknown placeholder %q; known are %s",
+			bad, strings.Join(AccessPlaceholders, ", "))
+	}
+}
+
+func mustString(o *Object, key string) string {
+	s, _ := o.String(key)
+	return s
 }
 
 // licence checks the shape of the `license` declaration (NERD017 SPEC011)

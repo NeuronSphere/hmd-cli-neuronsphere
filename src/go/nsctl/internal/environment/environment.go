@@ -327,6 +327,11 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		}
 	}
 
+	// Asked once, at the end, because the answer depends on what the deploy
+	// declared and a start that deployed nothing has nothing to point at.
+	if declared, err := manifest.Load(opts.Home, env.Slug, opts.Lookup); err == nil && declared != nil {
+		f.Access = declaresAccess(opts, declared.Repos)
+	}
 	for _, line := range readySummary(env, mode, nil, f) {
 		opts.step("%s", line)
 	}
@@ -469,6 +474,10 @@ type found struct {
 	Services []string
 	// UIHosts are the Ingress hostnames of the deployed user interfaces.
 	UIHosts []string
+	// Access is true when some declared instance says how it is reached, which
+	// is the only condition under which the summary names `env credentials`
+	// (NERD023 SPEC006).
+	Access bool
 }
 
 func (f *found) foundTrino() {
@@ -550,14 +559,25 @@ func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFat
 		if clusterFatal == nil {
 			lines = append(lines, fmt.Sprintf("  k3s        localhost:%d", env.K3sPort()))
 		}
-		return lines
+		return append(lines, credentialsPointer(env, f)...)
 	}
 	if plan.Database {
 		lines = append(lines,
 			fmt.Sprintf("  database   %s:5432", env.DBContainer),
 			fmt.Sprintf("  dbaccount  http://localhost/%s/hmd_ms_dbaccount/", env.Slug))
 	}
-	return append(lines, fmt.Sprintf("  substrate  %s", mode))
+	lines = append(lines, fmt.Sprintf("  substrate  %s", mode))
+	return append(lines, credentialsPointer(env, f)...)
+}
+
+// credentialsPointer names `env credentials`, and only when something declares
+// access. Printing the credentials themselves here would put them in the
+// scrollback and CI log of every apply, for a value the reader needs once.
+func credentialsPointer(env *registry.Environment, f *found) []string {
+	if f == nil || !f.Access {
+		return nil
+	}
+	return []string{fmt.Sprintf("  credentials  nsctl env credentials %s", env.Slug)}
 }
 
 // serviceURLs renders the discovered service paths as the URLs the proxy serves

@@ -353,3 +353,120 @@ Stack Push Refuses Anonymous
     ${r}=         Run nsctl In Home    ${home}    stack    push    ghcr.io/acme/stacks/x    --from    ${home}
     Should Be Equal As Integers    ${r.rc}    2
     Should Contain    ${r.stderr}    --token
+
+Access Round-Trips Through Describe
+    [Documentation]    NERD023 SPEC004: the access declaration is authored,
+    ...                listed and described, and its placeholders stand in a
+    ...                repository -- there is no instance or environment to
+    ...                resolve them against yet.
+    [Tags]    contract    nerd023
+    ${dir}=       Create Scratch Repo
+    Run nsctl    repoclass    --path    ${dir}    init    acme-ui    --description    An Acme UI
+    ${a}=         Run nsctl    repoclass    --path    ${dir}    access    add    ui
+    ...    --url    http://{ingress_host}/    --username    admin
+    ...    --secret-store    secrets-manager
+    ...    --secret-key    {instance_name}-{deployment_id}-{environment}-admin-credentials
+    ...    --secret-property    password
+    Should Be Equal As Integers    ${a.rc}    0
+    Should Contain    ${a.stdout}    access
+
+    ${l}=         Run nsctl    repoclass    --path    ${dir}    access    list
+    Should Be Equal As Integers    ${l.rc}    0
+    Should Contain    ${l.stdout}    secrets-manager
+    Should Contain    ${l.stdout}    {ingress_host}
+
+    ${desc}=      Run nsctl    repoclass    --path    ${dir}    describe    --json
+    Should Be Equal As Integers    ${desc.rc}    0
+    Should Contain    ${desc.stdout}    "access"
+    Should Contain    ${desc.stdout}    "store": "secrets-manager"
+
+    ${v}=         Run nsctl    repoclass    --path    ${dir}    validate
+    Should Be Equal As Integers    ${v.rc}    0
+    Should Contain    ${v.stdout}    validate: ok
+
+    # Keyed and idempotent: a second add with the same name replaces it.
+    Run nsctl    repoclass    --path    ${dir}    access    add    ui    --url    http://{ingress_host}/x/
+    ${one}=       Run nsctl    repoclass    --path    ${dir}    access    list
+    ${count}=     Get Line Count    ${one.stdout}
+    Should Be Equal As Integers    ${count}    2
+
+    ${rm}=        Run nsctl    repoclass    --path    ${dir}    access    remove    ui
+    Should Be Equal As Integers    ${rm.rc}    0
+    ${gone}=      Run nsctl    repoclass    --path    ${dir}    access    remove    ui
+    Should Be Equal As Integers    ${gone.rc}    2
+
+Access Refuses An Unknown Placeholder
+    [Documentation]    NERD023 SPEC004: an unknown substitution is refused
+    ...                rather than emptied, because the alternative is a URL
+    ...                with a hole in it or a truncated secret name.
+    [Tags]    contract    nerd023
+    ${dir}=       Create Scratch Repo
+    Run nsctl    repoclass    --path    ${dir}    init    acme-ui    --description    An Acme UI
+    ${r}=         Run nsctl    repoclass    --path    ${dir}    access    add    ui    --url    http://{nope}/
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    unknown placeholder
+    # A refused entry is not written.
+    ${l}=         Run nsctl    repoclass    --path    ${dir}    access    list
+    Should Contain    ${l.stdout}    No access declared
+
+Access Refuses A Secret With Nothing To Look Up
+    [Documentation]    NERD023 SPEC004: the store cannot be inferred, and a
+    ...                secret names either a key or a resource output.
+    [Tags]    contract    nerd023
+    ${dir}=       Create Scratch Repo
+    Run nsctl    repoclass    --path    ${dir}    init    acme-ui    --description    An Acme UI
+    ${nostore}=   Run nsctl    repoclass    --path    ${dir}    access    add    ui
+    ...    --url    http://x/    --secret-key    k
+    Should Be Equal As Integers    ${nostore.rc}    2
+    Should Contain    ${nostore.stderr}    --secret-store is required
+    ${nokey}=     Run nsctl    repoclass    --path    ${dir}    access    add    ui
+    ...    --url    http://x/    --secret-store    parameter-store
+    Should Be Equal As Integers    ${nokey.rc}    2
+    Should Contain    ${nokey.stderr}    names either a key or the resource output
+
+Validate Refuses A Literal Credential In A Manifest
+    [Documentation]    NERD023 SPEC005: a manifest names where a credential
+    ...                lives and never holds one, because a manifest is a file
+    ...                a developer edits and may commit. The authoring verbs
+    ...                cannot produce this, so validate is what catches it.
+    [Tags]    contract    nerd023
+    ${dir}=       Create Scratch Repo
+    ${manifest}=  Set Variable    ${dir}${/}meta-data${/}manifest.json
+    Create Directory    ${dir}${/}meta-data
+    Create File    ${manifest}    {"name":"acme-ui","description":"d","build":{},"access":[{"name":"ui","url":"http://x/","password":"hunter2"}]}
+    Create File    ${dir}${/}meta-data${/}VERSION    0.1
+    ${v}=         Run nsctl    repoclass    --path    ${dir}    validate
+    Should Be Equal As Integers    ${v.rc}    1
+    Should Contain    ${v.stdout}    is a literal credential
+    Should Contain    ${v.stdout}    never holds one
+
+Env Credentials Needs An HMD_HOME And Says So
+    [Documentation]    NERD023 SPEC006. Reading where a credential lives is a
+    ...                read of local state, so the only prerequisite is a home.
+    [Tags]    contract    nerd023
+    ${result}=    Run nsctl    env    credentials
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    HMD_HOME is not set
+
+Env Credentials Reports Nothing Declared Without Failing
+    [Documentation]    An environment whose classes declare no access is a
+    ...                normal state, not an error, and the answer names the verb
+    ...                that would change it.
+    [Tags]    contract    nerd023
+    ${home}=      Create Scratch Home
+    Run nsctl In Home    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home    ${home}    env    credentials    dev
+    Should Be Equal As Integers    ${r.rc}    0
+    Should Contain    ${r.stdout}    declares how to reach it
+    Should Contain    ${r.stdout}    nsctl repoclass access add
+
+Env Credentials Refuses An Instance The Environment Does Not Declare
+    [Documentation]    A typo in --instance is a typo, not an absence of
+    ...                declarations: answering it with "nothing declares access"
+    ...                sends the reader looking for the wrong thing.
+    [Tags]    contract    nerd023
+    ${home}=      Create Scratch Home
+    Run nsctl In Home    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home    ${home}    env    credentials    dev    --instance    nope
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    declares no instance named

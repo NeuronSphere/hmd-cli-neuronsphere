@@ -92,6 +92,14 @@ func Describe(doc *Object) *Object {
 	if test, ok := doc.Object("test"); ok && test.Len() > 0 {
 		out.Set("test", test)
 	}
+
+	// The access declaration verbatim (NERD023 SPEC004). Reported as written
+	// rather than resolved: describe reads a repository, where an instance name
+	// and an environment do not yet exist, so the placeholders are the honest
+	// answer. `nsctl env credentials` is where they are filled in.
+	if list, ok := doc.Array("access"); ok && len(list) > 0 {
+		out.Set("access", list)
+	}
 	return out
 }
 

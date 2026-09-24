@@ -73,6 +73,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 	env.AddCommand(
 		newEnvListCommand(opts),
 		newEnvStatusCommand(opts),
+		newEnvCredentialsCommand(opts),
 		newEnvStartCommand(opts),
 		newEnvStopCommand(opts),
 		newEnvApplyCommand(opts),

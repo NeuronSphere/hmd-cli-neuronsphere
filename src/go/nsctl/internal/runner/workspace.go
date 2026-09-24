@@ -296,7 +296,15 @@ func (r *Runner) submitProducedResources(ctx context.Context, workspace string, 
 		}
 	}
 
-	if len(resources) == 0 || r.Client == nil || node.RIDNid == "" {
+	if len(resources) == 0 {
+		return 0
+	}
+	// Recorded before submission, and independently of it: a node whose
+	// resources could not be posted still produced them, and the local copy is
+	// what `env credentials` reads.
+	r.recordProducedResources(node.InstanceName, resources)
+
+	if r.Client == nil || node.RIDNid == "" {
 		return 0
 	}
 	if _, err := r.Client.APIOp(ctx, "submit_resources", map[string]any{
@@ -307,4 +315,24 @@ func (r *Runner) submitProducedResources(ctx context.Context, workspace string, 
 		return 0
 	}
 	return len(resources)
+}
+
+// recordProducedResources keeps a node's resource outputs beside the
+// environment. Best effort and quiet on failure: the copy is a convenience for
+// a later read, and a deploy that worked must not be reported as failed because
+// a cache write did not.
+func (r *Runner) recordProducedResources(instance string, resources []any) {
+	if r.OutputDir == "" || instance == "" {
+		return
+	}
+	if err := os.MkdirAll(r.OutputDir, 0o755); err != nil {
+		return
+	}
+	data, err := json.MarshalIndent(resources, "", "  ")
+	if err != nil {
+		return
+	}
+	// Whole-file replacement: a node redeploys as a unit, so its previous
+	// outputs are superseded rather than merged with.
+	_ = os.WriteFile(filepath.Join(r.OutputDir, instance+".json"), data, 0o644)
 }

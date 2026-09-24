@@ -195,6 +195,17 @@ type Runner struct {
 	// only the tail and a provider crash names its cause well above it.
 	LogDir string
 
+	// OutputDir, when set, is where each node's produced resource outputs are
+	// recorded (<OutputDir>/<instance>.json) on the way past.
+	//
+	// They are already read here and posted to submit_resources, and they carry
+	// facts nothing else knows -- a generated username, an endpoint, the name of
+	// the secret a chart wrote. Keeping a copy beside the environment is what
+	// lets `nsctl env credentials` resolve an access declaration that names an
+	// output key without a round trip to the deployment graph, and without the
+	// control plane having to answer at all (NERD023 SPEC004).
+	OutputDir string
+
 	// Succeeded is the instance names the most recent Run settled successfully.
 	// A partial run is normal -- the DAG stops at the first failure -- and a
 	// reconcile snapshot must record exactly what landed: no more, so a failed

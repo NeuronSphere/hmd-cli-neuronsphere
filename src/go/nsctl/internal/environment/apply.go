@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,8 +10,10 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bacon"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/credentials"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
@@ -368,6 +371,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Out: opts.Out, Err: opts.Err,
 		Parallelism: RunnerParallelism(opts.lookup),
 		LogDir:      filepath.Join(env.StatePath(), "logs"),
+		OutputDir:   ResourceOutputDir(env),
 	}
 
 	// Phase A: the substrate.
@@ -465,6 +469,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(succeeded))
+	// Named only when there is something to show. A pointer to an empty table is
+	// noise, and the alternative -- printing the credentials here -- puts them in
+	// scrollback and CI logs for every reader of every apply (NERD023 SPEC006).
+	if declaresAccess(opts, declaredRepos) {
+		opts.step("  credentials  nsctl env credentials %s", env.Slug)
+	}
 	if purged {
 		if err := ClearPurged(opts.Home, env.DeploymentID); err != nil {
 			opts.warn("could not clear the purge marker for %q: %v", env.DeploymentID, err)
@@ -796,4 +806,24 @@ func refreshSpawnedAliases(ctx context.Context, opts *Options, reg *registry.Reg
 	if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
 		opts.warn("%v", err)
 	}
+}
+
+// declaresAccess reports whether any declared instance says how it is reached.
+//
+// Read through the same resolver a deploy uses and never fetching, so asking the
+// question costs a few stats. A class whose tree is not on this machine is not an
+// error here: it simply contributes no declaration.
+func declaresAccess(opts *Options, repos []manifest.Repo) bool {
+	if len(repos) == 0 {
+		return false
+	}
+	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
+	repoclass.Seed(resolver, repos)
+	return credentials.Any(repos, func(class string) (*bacon.Store, error) {
+		dir := resolver.Dir(class)
+		if dir == "" {
+			return nil, fmt.Errorf("no tree for %s", class)
+		}
+		return bacon.Open(dir)
+	})
 }

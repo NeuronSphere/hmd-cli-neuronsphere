@@ -133,6 +133,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
 		newRepoClassTestCommand(path),
 		newRepoClassDiscoveryCommand(path),
 		newRepoClassLicenseCommand(path),
+		newRepoClassAccessCommand(path),
 	)
 	return group
 }
@@ -302,6 +303,17 @@ func renderDescribe(out io.Writer, s *bacon.Store, summary *bacon.Object) {
 			fmt.Fprintf(rw, "  %s\t%s/%s %s\n", name, ns, rn, ver)
 		}
 		rw.Flush()
+	}
+	if entries := bacon.ReadAccess(s.Doc); len(entries) > 0 {
+		bacon.SortAccess(entries)
+		fmt.Fprintln(out, "\nAccess:")
+		aw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(aw, "  NAME\tURL\tUSERNAME\tCREDENTIAL")
+		for _, e := range entries {
+			fmt.Fprintf(aw, "  %s\t%s\t%s\t%s\n",
+				e.Name, orDash(e.URL), orDash(e.Username), accessCredentialLabel(e))
+		}
+		aw.Flush()
 	}
 	if disc, ok := summary.Object("discovery"); ok {
 		if caps, ok := disc.Array("capabilities"); ok {
@@ -628,4 +640,22 @@ func stackFindings(dir string) []bacon.Finding {
 		}
 	}
 	return out
+}
+
+// accessCredentialLabel is what an access entry says about its credential, and
+// deliberately never the credential: a repository has no environment to resolve
+// one in, and `nsctl env credentials --reveal` is the one thing that prints a
+// value.
+func accessCredentialLabel(e bacon.AccessEntry) string {
+	if e.Secret == nil {
+		return "none"
+	}
+	where := e.Secret.Key
+	if e.Secret.Output != "" {
+		where = "output:" + e.Secret.Output
+	}
+	if e.Secret.Property != "" {
+		where += "#" + e.Secret.Property
+	}
+	return e.Secret.Store + " " + where
 }

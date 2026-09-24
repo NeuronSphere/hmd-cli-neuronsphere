@@ -171,6 +171,76 @@ A bound role cannot also configure a new dependency instance, because it
 does not create one. Profiles filter optional entries; required dependencies
 remain required. An ungated companion is included even with ``--lean``.
 
+How a deployed instance is reached
+----------------------------------
+
+A top-level ``access`` list says how a deployed instance of the class is
+reached, who signs in, and **where** the credential lives. It never holds one::
+
+   "access": [
+     {
+       "name": "superset",
+       "url": "http://{ingress_host}/",
+       "username": "admin",
+       "secret": {
+         "store": "secrets-manager",
+         "key": "{instance_name}-{deployment_id}-{environment}-admin-credentials",
+         "property": "password"
+       },
+       "notes": "Self-registration is off; admin is the only account."
+     }
+   ]
+
+Author it with ``nsctl repoclass access add``, inspect it with ``access list``
+or ``describe``, and resolve it against a deployment with
+``nsctl env credentials <env>``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``name``
+     - What this way in is called; the entry's key, so a second ``add`` with the
+       same name replaces it
+   * - ``url``
+     - Where it is reached, as a template
+   * - ``username``
+     - The user who signs in, when there is a fixed one
+   * - ``notes``
+     - One line a reader needs that the other fields do not carry
+   * - ``secret.store``
+     - ``secrets-manager`` or ``parameter-store``; **required**, never inferred
+   * - ``secret.key``
+     - The secret's name, as a template
+   * - ``secret.property``
+     - The field to take out of a JSON secret, e.g. ``password``
+   * - ``secret.output``
+     - A resource-output key to read the secret's name from, instead of
+       ``secret.key``
+
+``url``, ``secret.key`` and ``secret.property`` may use the placeholders
+``{instance_name}``, ``{repo_class_name}``, ``{deployment_id}``,
+``{environment}`` and ``{ingress_host}``. That is what makes one declaration
+work in every environment under any instance name; an unknown placeholder is a
+validation error rather than an empty substitution.
+
+``secret.store`` is required because it cannot be inferred.
+``hmd_lib_secrets_backend.create_secret()`` writes SSM Parameter Store whatever
+its name suggests, while a chart's ``ExternalSecret`` may resolve through the
+Secrets Manager ``ClusterSecretStore``. The two are separate namespaces, so a
+reader that guesses reports "does not exist" against a secret that is present in
+the other one.
+
+Where the producing class publishes the name itself — a ``resources_output``
+entry's ``secret_name`` — name that key with ``secret.output`` instead of
+restating a template. The published name wins: nsctl re-deriving it would be
+nsctl disagreeing with the thing that wrote the secret.
+
+Validation **refuses** a literal ``password``, ``token``, ``api_key`` or
+``secret_value`` anywhere in the declaration. A manifest is a file a developer
+edits and may commit, so a secret in one is a secret in a git history.
+
 The lock
 --------
 

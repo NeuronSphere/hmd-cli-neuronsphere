@@ -34,6 +34,14 @@ manifest -- and then stops. **Declaring is not deploying**::
 
 or, for one command, ``nsctl stack add observability --env dev --apply``.
 
+A stack's workloads say how they are reached through their own classes'
+``access`` declarations, so once the instances are applied::
+
+   nsctl env credentials dev
+
+lists their URLs and where their credentials live. See
+:doc:`find-credentials`.
+
 Profiles and names
 ------------------
 
