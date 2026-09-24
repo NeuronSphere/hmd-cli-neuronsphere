@@ -38,6 +38,11 @@
   local clients are anonymous by construction and deploy containers carry no
   token -- but an agent investigating a failed local deploy proposed signing in
   as its first remedy, because nothing it could read said otherwise.
+- fix: `go test -race` no longer reports a data race across most of the `cmd`
+  package, which had failed every release build since the command tree was
+  grouped. `cobra.EnableCommandSorting` is package-level in cobra and was set
+  inside `newRoot`, which every parallel test calls; it is set once in `init`
+  instead.
 - docs: propose NERD024 -- substrate currency. Amends NERD008 (local operation is
   out of scope for login, entirely) and NERD015 (the skills state the
   local/cloud credential boundary).

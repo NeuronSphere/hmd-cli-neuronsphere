@@ -103,6 +103,20 @@ func NewRootCommandFor(version string, process hmdenv.Lookup, argv []string, war
 	return root
 }
 
+// Commands are listed in the order they are added rather than alphabetically.
+// Within a group the useful order is not the alphabet: "Start here" has to
+// begin with quickstart, which sorts third.
+//
+// In init rather than in newRoot, where it was: the flag is package-level in
+// cobra, newRoot is called once per test, and the tests run in parallel -- so
+// every parallel construction of a tree wrote the same global and `go test
+// -race` reported a data race across most of this package, which is what the
+// release build runs. Writing it once, before any goroutine exists, says the
+// same thing with no write to race on.
+func init() {
+	cobra.EnableCommandSorting = false
+}
+
 func newRoot(version string, process hmdenv.Lookup) (*cobra.Command, *Options, hmdenv.Lookup) {
 	if process == nil {
 		process = os.Getenv
@@ -147,12 +161,6 @@ above that is a RepoClass you add.`,
 
 	root.PersistentFlags().StringVar(&homeFlag, "home", "",
 		"Path to HMD_HOME (overrides $HMD_HOME)")
-
-	// Listed in the order they are added rather than alphabetically. Within a
-	// group the useful order is not the alphabet: "Start here" has to begin with
-	// quickstart, which sorts third. Package-level in cobra, and set here
-	// because this is the only place that builds a tree.
-	cobra.EnableCommandSorting = false
 
 	// Grouped so that --help leads with what a first run needs.
 	//
