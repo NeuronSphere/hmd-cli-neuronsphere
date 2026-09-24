@@ -91,6 +91,16 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
     ``.toml``) naming its companions, ``local.stack: true`` in that section,
     and a ``neuronsphere.lock`` generated from it.
 
+    .. note::
+
+        Because a stack is an ordinary RepoClass, it declares its front door and
+        credentials with NERD023 SPEC004's top-level ``access`` block and nothing
+        stack-specific.  A stack's reported access is its own entries together
+        with those of the instances it declared -- which the environment
+        manifest's stack record already identifies -- so the declaration belongs
+        to each workload's own RepoClass and applies however that instance
+        arrived.  A stack authored later inherits it without restating it.
+
     ``local.stack`` reverses this spec's original rule that nothing marks a
     stack, "because the two files are the declaration". That held only while
     every stack was an instance, which made the distinction cost nothing. It

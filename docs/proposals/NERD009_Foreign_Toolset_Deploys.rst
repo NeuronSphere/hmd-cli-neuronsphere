@@ -608,6 +608,13 @@ build``.
     :id: HMD_CLI_NEURONSPHERE_NERD009_SPEC009
     :status: proposed
 
+    .. note::
+
+        Carried forward by NERD023 SPEC008, which schedules this verb as the
+        deterministic half of a newcomer's repository adoption and requires it
+        unchanged. The contract below is the contract; NERD023 adds a consumer,
+        not an amendment.
+
     ``nsctl repoclass detect`` shall inspect the repository and print a
     *mechanism classification* -- what deploys this repo, what image it runs in,
     what could not be decided, and what will not be guessed -- with the file and
@@ -669,6 +676,13 @@ build``.
 .. spec:: What detection refuses to infer
     :id: HMD_CLI_NEURONSPHERE_NERD009_SPEC010
     :status: proposed
+
+    .. note::
+
+        Required unchanged by NERD023 SPEC008. The refusals here are what let
+        an adoption skill propose the judgement half safely; weakening one to
+        make a guided first run feel smoother would move the failure to a
+        newcomer's first ``env apply``.
 
     ``detect --apply`` shall write **no ``deploy.dependencies`` entry, no
     ``deploy.resources`` entry, and no ``meta-data/resources/*.yaml``** -- not a

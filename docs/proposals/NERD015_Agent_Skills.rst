@@ -106,6 +106,14 @@ Scope and terminology
     run ``describe --json`` before and after each edit, write only through CLI
     verbs, and obtain explicit human confirmation before adding a dependency.
 
+    .. note::
+
+        NERD023 SPEC008 implements ``detect``, so this condition is met and the
+        skill is bundled there.  The four obligations in the paragraph above are
+        the skill's contract and remain binding.  ``nsctl-onboard`` additionally
+        names ``nsctl quickstart``, which is the newcomer path the CLI itself
+        now offers; the skill orients, the command acts.
+
     Each skill shall have a narrow description that names the requests that
     should activate it.  It shall use instructions rather than scripts unless
     deterministic local processing is necessary.  A bundled skill shall name
