@@ -400,10 +400,8 @@ unaffected; environment services are **prefixed** with the environment name:
      - control-plane artifact-lib
    * - ``http://localhost/<env>/<service>/``
      - that environment's services
-   * - ``http://localhost:<19080+n>``
-     - an Ingress-exposed UI (Airflow, Argo, Superset), on a shared band
    * - ``http://<app>.local.neuronsphere.io/``
-     - the same UI by hostname, for the default environment
+     - that environment's Ingress-exposed UIs (Airflow, Argo, Superset)
    * - ``http://localhost:4566``
      - control-plane Floci (nginx ``stream``)
    * - ``http://localhost:<19000+4n>``
@@ -421,7 +419,7 @@ deployed Trino shows no Trino route, and the services and UIs it does have are
 listed by name.
 
 Non-HTTP protocols (Trino, the k3s API, Floci's AWS wire protocol) get L4
-``stream`` listeners rather than HTTP locations. The whole ``19000-19111`` range
+``stream`` listeners rather than HTTP locations. The whole ``19000-19079`` range
 is published by ``hmd_proxy`` up front — a compose ``ports:`` list is static —
 and individual listeners inside it are added and removed at runtime with an
 nginx reload, never a container restart. That is 16 environments × 4 slots, plus
@@ -454,23 +452,18 @@ UIs are reached the way the cloud reaches them: through the chart's own
 answer to the cloud's ``alb`` ingress class so charts deploy unmodified, and
 ``hmd_proxy`` fronts it.
 
-**Every UI is also published on a host port**, and that is the address a start
-reports first, because it works on a machine that has never been told to
-resolve anything (``NERD025`` SPEC001). Ports come from a band shared across
-environments rather than divided among them: ``hmd_proxy`` publishes its whole
-range up front, so a per-environment block would cost a hundred and thirty-six
-extra port bindings and in-use probes at every start to buy capacity for
-sixteen simultaneous environments nobody runs.
+Two things about the hostname are worth knowing. ``hmd-cli-helm`` renders
+``alb.hostname`` with the literal ``local`` in *every* environment, so the
+wildcard vhost is ``*.local.neuronsphere.io`` -- written as ``*.<env>.`` it
+matched nothing at all in any environment not named ``local``. And because
+every environment renders the same hostnames, only the default environment
+claims that wildcard; a second claim is a conflicting ``server_name`` that
+nginx resolves by preferring whichever fragment it read first.
 
-The hostname still works, and is still what the cloud uses. Two things are
-worth knowing about it. ``hmd-cli-helm`` renders ``alb.hostname`` with the
-literal ``local`` in *every* environment, so the wildcard vhost is
-``*.local.neuronsphere.io`` — written as ``*.<env>.`` it matched nothing at all
-in any environment not named ``local``. And because every environment renders
-the same hostnames, only the default environment claims that wildcard; a second
-claim is a conflicting ``server_name`` that nginx resolves by preferring
-whichever fragment it read first. Other environments are reached on their
-ports, which are allocated per environment and cannot collide.
+A UI is **not** served on a host port. That was tried and withdrawn (NERD025
+SPEC001): a port costs a rewritten ``Host`` header, which ``proxy_redirect``
+patches for redirects and cannot patch for an absolute URL inside a page, and
+it diverges from how the cloud reaches the same chart.
 
 Making the hostname resolve is one step for the whole suffix, wildcard
 included, via ``nsctl dns install`` — see :doc:`proposals/NERD026_Local_Name_Resolution`.

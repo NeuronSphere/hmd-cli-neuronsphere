@@ -9,7 +9,7 @@ import (
 
 func testEnv() Env {
 	// The live environment: slot 8, so Trino 19033 and k3s 19072.
-	return Env{Slug: "local", AccountID: "000000000001", TrinoPort: 19033, K3sPort: 19072, SparePort: 19035, IsDefault: true}
+	return Env{Slug: "local", AccountID: "000000000001", TrinoPort: 19033, K3sPort: 19072, IsDefault: true}
 }
 
 func readFragment(t *testing.T, path string) string {
@@ -89,7 +89,7 @@ func TestEnvVhostForwardsHostAndUpgrades(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080", nil); err != nil {
+	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080"); err != nil {
 		t.Fatal(err)
 	}
 	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
@@ -106,28 +106,6 @@ func TestEnvVhostForwardsHostAndUpgrades(t *testing.T) {
 	}
 }
 
-// A port route sets Host rather than forwarding it, because the browser sends
-// localhost:<port>, which matches no Ingress rule.
-func TestPortVhostSetsHostAndUndoesItOnRedirects(t *testing.T) {
-	t.Parallel()
-
-	r := New(t.TempDir(), fakeEnv(nil))
-	host := IngressHostFor("airflow")
-	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080", []PortRoute{{Port: 19035, IngressHost: host}}); err != nil {
-		t.Fatal(err)
-	}
-	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
-
-	if !strings.Contains(body, "proxy_set_header Host "+host+";") {
-		t.Errorf("Host is not set to the Ingress host:\n%s", body)
-	}
-	// Otherwise an absolute Location sends the browser to a name it cannot
-	// resolve.
-	if !strings.Contains(body, "proxy_redirect http://"+host+"/ http://localhost:19035/;") {
-		t.Errorf("the redirect is not undone:\n%s", body)
-	}
-}
-
 // The wildcard has to match what the charts actually render, which is the
 // literal "local" -- not the environment's own slug. Written as *.<slug>. it
 // matched nothing at all in any environment not named `local`.
@@ -135,7 +113,7 @@ func TestTheWildcardVhostMatchesWhatTheChartsRender(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080", nil); err != nil {
+	if err := r.WriteEnvVhosts(testEnv(), "1.2.3.4:31080"); err != nil {
 		t.Fatal(err)
 	}
 	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
@@ -153,19 +131,14 @@ func TestOnlyTheDefaultEnvironmentClaimsTheWildcard(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
-	dev := Env{Slug: "dev", AccountID: "000000000002", TrinoPort: 19005, K3sPort: 19065, SparePort: 19007}
-	host := IngressHostFor("airflow")
-	if err := r.WriteEnvVhosts(dev, "1.2.3.4:31080", []PortRoute{{Port: 19081, IngressHost: host}}); err != nil {
+	dev := Env{Slug: "dev", AccountID: "000000000002", TrinoPort: 19005, K3sPort: 19065}
+	if err := r.WriteEnvVhosts(dev, "1.2.3.4:31080"); err != nil {
 		t.Fatal(err)
 	}
 	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("dev")))
 
 	if strings.Contains(body, "server_name *.") {
 		t.Errorf("a non-default environment claimed the wildcard:\n%s", body)
-	}
-	// It still gets its port route, which is how it is reached at all.
-	if !strings.Contains(body, "listen 19081;") {
-		t.Errorf("the port route is missing:\n%s", body)
 	}
 }
 
@@ -243,7 +216,7 @@ func TestRemoveEnvRoutesRemovesEveryFragment(t *testing.T) {
 	if err := r.WriteEnvStreams(env, []StreamEntry{{Port: 19033, Upstream: "x:1"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.WriteEnvVhosts(env, "x:1", nil); err != nil {
+	if err := r.WriteEnvVhosts(env, "x:1"); err != nil {
 		t.Fatal(err)
 	}
 

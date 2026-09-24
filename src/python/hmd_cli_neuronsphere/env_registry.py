@@ -56,15 +56,6 @@ MAX_ENVS = 16
 # reached through hmd_proxy at all, and why this is a band rather than a fifth
 # slot port.
 K3S_PORTS_PER_ENV = 1
-# A third band, above the k3s one, shared by every environment rather than
-# divided among them: the host ports Ingress-exposed user interfaces are served
-# on, so a browser reaches a UI without resolving its hostname (NERD025
-# SPEC001). Shared because hmd_proxy publishes the whole band up front and every
-# port in it costs a binding and an in-use probe at each start -- a per-env block
-# would triple the band to buy capacity for sixteen simultaneous environments
-# nobody runs. nsctl owns the allocation; this constant only has to agree with
-# `registry.MaxUIPorts` so the published range covers it.
-MAX_UI_PORTS = 32
 
 # Route paths owned by the control plane (and nginx internals). An env slug may
 # not shadow one, or `/<slug>/` would swallow a control-plane route.
@@ -687,5 +678,4 @@ def env_port_range() -> str:
     if override:
         return override
     base = int(os.environ.get("HMD_LOCAL_ENV_PORT_BASE", DEFAULT_PORT_BASE))
-    width = MAX_ENVS * (PORTS_PER_ENV + K3S_PORTS_PER_ENV) + MAX_UI_PORTS
-    return f"{base}-{base + width - 1}"
+    return f"{base}-{base + MAX_ENVS * (PORTS_PER_ENV + K3S_PORTS_PER_ENV) - 1}"

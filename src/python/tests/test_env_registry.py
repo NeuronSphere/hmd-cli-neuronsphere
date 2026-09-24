@@ -154,20 +154,10 @@ class PortSlotTests(_TempHome):
             hi,
             er.DEFAULT_PORT_BASE
             + er.MAX_ENVS * (er.PORTS_PER_ENV + er.K3S_PORTS_PER_ENV)
-            + er.MAX_UI_PORTS
             - 1,
         )
         env = er.create_env("dev2")
         self.assertTrue(lo <= env.floci_port <= hi and lo <= env.spare_port <= hi)
-
-    def test_the_published_range_covers_the_shared_ui_band(self):
-        """A UI port outside the published range is a URL nothing answers."""
-        lo, hi = (int(p) for p in er.env_port_range().split("-"))
-        band = er.DEFAULT_PORT_BASE + er.MAX_ENVS * (
-            er.PORTS_PER_ENV + er.K3S_PORTS_PER_ENV
-        )
-        for idx in range(er.MAX_UI_PORTS):
-            self.assertTrue(lo <= band + idx <= hi, f"UI port {band + idx} unpublished")
 
     def test_the_published_range_covers_every_k3s_port(self):
         """A listener outside the range hmd_proxy publishes is unreachable."""

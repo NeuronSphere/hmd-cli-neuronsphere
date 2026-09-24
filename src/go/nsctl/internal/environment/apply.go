@@ -736,7 +736,7 @@ func provisionNewCluster(ctx context.Context, opts *Options, reg *registry.Regis
 	opts.step("Provisioning the cluster the substrate created...")
 	routerEnv := router.Env{
 		Slug: env.Slug, AccountID: env.AccountID,
-		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(), SparePort: env.SparePort(),
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(),
 		IsDefault: env.IsDefault(),
 	}
 	// Resolved now rather than passed in: the database is a Phase A node too,
@@ -866,7 +866,7 @@ func reconcileDBAccountForApply(ctx context.Context, opts *Options, reg *registr
 	r := router.New(opts.Home, opts.Lookup)
 	routerEnv := router.Env{
 		Slug: env.Slug, AccountID: env.AccountID,
-		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(), SparePort: env.SparePort(),
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(),
 		IsDefault: env.IsDefault(),
 	}
 

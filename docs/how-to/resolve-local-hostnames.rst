@@ -1,30 +1,36 @@
 Resolve the local hostnames
 ===========================
 
-Most of a local NeuronSphere needs nothing here. User interfaces are published
-on host ports, and ``nsctl`` dials Floci's own hostnames on loopback itself, so
-a first run needs no privileged step and no ``/etc/hosts`` entry.
+Starting a platform and deploying to it need nothing here: ``nsctl`` dials
+Floci's own hostnames on loopback itself, so a first run needs no privileged
+step and no ``/etc/hosts`` entry.
 
-Three things still want a real name on the host:
+Reaching things by name does. Four of them:
 
 - the identity provider's issuer (``auth.local.neuronsphere.io``),
 - the package registry (``registry.local.neuronsphere.io``) and any
   control-plane extension,
 - the legacy ``hmd build`` and ``push-artifact``, which follow Floci's
-  presigned URLs through a client that has no loopback redirect.
+  presigned URLs through a client that has no loopback redirect,
+- **every user interface** an environment deploys -- Airflow, Argo, Superset --
+  reached at ``http://<instance>.local.neuronsphere.io/``.
 
-The first two cannot be reached on a port for the same reason: each is read by
+The first two could not be reached on a port even in principle: each is read by
 a browser, by a sibling container and by a cluster pod, and all three must
 resolve the *same string*. ``http://localhost:<port>`` can never be that
 string, because inside a pod ``localhost`` is the pod.
+
+User interfaces could have been, and briefly were. It was withdrawn: serving a
+UI on a port means rewriting the ``Host`` header the Ingress rule is matched
+on, which holds for redirects and not for an absolute URL emitted inside a
+page, and it is not how the cloud reaches the same chart.
 
 Point this machine at the local resolver
 ----------------------------------------
 
 Start the resolver with the control plane::
 
-   export HMD_LOCAL_NEURONSPHERE_ENABLE_DNS=true
-   nsctl control-plane start
+   nsctl control-plane start   # the resolver runs by default
 
 Then print the one privileged step and run it yourself::
 
@@ -55,7 +61,7 @@ It listens on **19153**, not the obvious 5353. mDNS holds 5353 on macOS, and
 not only ``mDNSResponder`` -- Chrome and Spotify take it too. They share it
 with ``SO_REUSEPORT``, which Docker's port publisher does not set, so
 publishing 5353 fails outright on a typical Mac. 19153 sits above the
-``19000-19111`` band the proxy publishes and below the 49152 ephemeral floor,
+``19000-19079`` band the proxy publishes and below the 49152 ephemeral floor,
 so nothing else claims it. ``HMD_LOCAL_DNS_PORT`` overrides it, and
 ``nsctl dns install`` prints whatever port is in force.
 
@@ -75,8 +81,8 @@ If it does not work
 
 Some managed configurations -- a corporate VPN, an enterprise resolver --
 take precedence over per-domain resolver settings. Where that happens the
-behaviour degrades to what it was before: reach user interfaces on their ports
-(``nsctl env status`` lists them), and add the fixed names to ``/etc/hosts``.
+behaviour degrades to what it was before: add the names to ``/etc/hosts``.
+``nsctl env start`` prints every UI hostname it found, so the list is to hand.
 
 A resolver file pointing at a port nothing listens on adds latency to every
 lookup in the suffix. ``nsctl dns status`` is what makes that visible.

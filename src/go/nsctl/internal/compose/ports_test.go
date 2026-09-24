@@ -91,18 +91,17 @@ func TestCheckReservedIgnoresTheProxyItself(t *testing.T) {
 }
 
 // port_validator.parse_host_port returns None for a range, so the Python never
-// probes the 19000-19111 band at all. Expanding it is the point.
+// probes the 19000-19079 band at all. Expanding it is the point.
 func TestHostPortsExpandsRanges(t *testing.T) {
 	t.Parallel()
 
 	p := parseControlPlane(t, controlPlaneEnv())
 	ports := HostPorts(p, map[string]bool{"deployment-gui": true})
 
-	if len(ports) != 116 {
-		t.Errorf("got %d host ports, want 116 (80, 4566, 18080, the 112-wide band, and the resolver)", len(ports))
+	if len(ports) != 84 {
+		t.Errorf("got %d host ports, want 84 (80, 4566, 18080, the 80-wide band, and the resolver)", len(ports))
 	}
-	// 19080 is the first shared user-interface port, 19111 the last.
-	want := map[int]bool{80: true, 4566: true, 18080: true, 19000: true, 19003: true, 19079: true, 19080: true, 19111: true}
+	want := map[int]bool{80: true, 4566: true, 18080: true, 19000: true, 19003: true, 19079: true}
 	have := map[int]bool{}
 	for _, p := range ports {
 		have[p] = true

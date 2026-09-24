@@ -8,6 +8,7 @@ package environment
 import (
 	"context"
 	"fmt"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"io"
 	"net"
@@ -133,7 +134,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 
 	routerEnv := router.Env{
 		Slug: env.Slug, AccountID: env.AccountID,
-		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(), SparePort: env.SparePort(),
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(),
 		IsDefault: env.IsDefault(),
 	}
 
@@ -478,11 +479,6 @@ type found struct {
 	Services []string
 	// UIHosts are the Ingress hostnames of the deployed user interfaces.
 	UIHosts []string
-	// UIPorts maps those hostnames to the host port hmd_proxy serves each one
-	// at, for the UIs that got one. The port is what the summary leads with:
-	// it works on a machine that has never been told to resolve the hostname
-	// (NERD025 SPEC001), which is now the machine we expect.
-	UIPorts map[string]int
 	// Access is true when some declared instance says how it is reached, which
 	// is the only condition under which the summary names `env credentials`
 	// (NERD023 SPEC006).
@@ -518,67 +514,6 @@ func (f *found) foundUIHosts(hosts []string) {
 	if f != nil {
 		f.UIHosts = hosts
 	}
-}
-
-func (f *found) foundUIPorts(ports map[string]int) {
-	if f != nil && len(ports) > 0 {
-		f.UIPorts = ports
-	}
-}
-
-// assignUIPorts gives every Ingress hostname a published host port and records
-// the assignment in the registry.
-//
-// Sorted first, so the order UIs were discovered in cannot decide which port
-// each one gets. Persisted, because the port is an address a user bookmarks and
-// registry.Environment hands out a *copy* of the registry's value -- an
-// assignment made here is lost on the next start unless it is written back.
-// Only the port map is written back, so a field some other caller changed in
-// the meantime is not reverted along with it.
-//
-// A host that cannot be given a port is reported and skipped, never dropped
-// silently: it is still reachable by name, and the warning says so.
-func assignUIPorts(opts *Options, reg *registry.Registry, env *registry.Environment, hosts []string) ([]router.PortRoute, map[string]int) {
-	if len(hosts) == 0 || env == nil || reg == nil {
-		return nil, nil
-	}
-	ordered := append([]string(nil), hosts...)
-	sort.Strings(ordered)
-
-	before := len(env.UIPorts)
-	routes := make([]router.PortRoute, 0, len(ordered))
-	ports := make(map[string]int, len(ordered))
-	for _, host := range ordered {
-		port, err := reg.AssignUIPort(env, host)
-		if err != nil {
-			opts.warn("%v", err)
-			continue
-		}
-		routes = append(routes, router.PortRoute{Port: port, IngressHost: host})
-		ports[host] = port
-	}
-	if len(env.UIPorts) != before {
-		if e, ok := reg.Environments[env.Slug]; ok {
-			e.UIPorts = env.UIPorts
-			reg.Environments[env.Slug] = e
-		}
-		if err := reg.Save(opts.Home); err != nil {
-			opts.warn("could not record the UI host ports, so they may move on a later start: %v", err)
-		}
-	}
-	return routes, ports
-}
-
-// withoutPort narrows a list of unresolvable hostnames to those that have no
-// host port either, which are the only ones actually out of reach.
-func withoutPort(hosts []string, ports map[string]int) []string {
-	var out []string
-	for _, h := range hosts {
-		if _, ok := ports[h]; !ok {
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 // summaryListCap is how many endpoints a summary lists before it says how many
@@ -681,11 +616,6 @@ func serviceURLs(slug string, f *found) []string {
 }
 
 // uiURLs renders the discovered Ingress hostnames as browsable URLs.
-//
-// The port is preferred where there is one, because it is the address that
-// works without any name resolution at all. The hostname is still printed
-// beside it -- a bare port says nothing about which UI it serves -- and remains
-// the whole answer for a UI that got no port.
 func uiURLs(f *found) []string {
 	if f == nil || len(f.UIHosts) == 0 {
 		return nil
@@ -694,10 +624,6 @@ func uiURLs(f *found) []string {
 	sort.Strings(hosts)
 	urls := make([]string, 0, len(hosts))
 	for _, h := range hosts {
-		if port, ok := f.UIPorts[h]; ok {
-			urls = append(urls, fmt.Sprintf("http://localhost:%d/  (%s)", port, h))
-			continue
-		}
 		urls = append(urls, "http://"+h+"/")
 	}
 	return urls
@@ -782,41 +708,31 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 	}
 
 	// The ingress controller, which fronts every UI the charts expose.
-	//
-	// The Ingress hosts are read before the vhost is written, not after: each
-	// one is given a published host port as well as a place in the wildcard
-	// vhost, so a browser reaches it without resolving anything at all
-	// (NERD025 SPEC001).
 	hosts := ops.IngressHosts(ctx)
 	f.foundUIHosts(hosts)
-	portRoutes, uiPorts := assignUIPorts(opts, reg, env, hosts)
-	f.foundUIPorts(uiPorts)
 
 	traefik := k3s.TraefikNodePortSpec(router.TraefikNodePortService, router.TraefikNamespace, router.TraefikNodePort)
 	if err := ops.EnsureNodePort(ctx, traefik); err != nil {
 		opts.warn("%v", err)
 	} else {
 		upstream := k3s.NodePortAddress(clusterIP, router.TraefikNodePort)
-		if err := r.WriteEnvVhosts(routerEnv, upstream, portRoutes); err != nil {
+		if err := r.WriteEnvVhosts(routerEnv, upstream); err != nil {
 			opts.warn("%v", err)
-		} else {
-			if env.IsDefault() {
-				opts.step("  UIs served at *.%s.%s", router.HelmLocalSlug, router.IngressDomain)
-			}
-			for _, pr := range portRoutes {
-				opts.step("    %s on http://localhost:%d/", pr.IngressHost, pr.Port)
-			}
+		} else if env.IsDefault() {
+			opts.step("  UIs served at *.%s.%s", router.HelmLocalSlug, router.IngressDomain)
 		}
 	}
 	if changed := ops.NormalizeIngressPaths(ctx); len(changed) > 0 {
 		opts.step("  rewrote ALB wildcard paths on %s", strings.Join(changed, ", "))
 	}
 
-	// A UI that got a port is reachable whether or not its name resolves, so
-	// only the ones that did not are worth a word -- and that is now a note
-	// about an alternative address, not an instruction to edit a file.
-	if missing := withoutPort(unresolvableHosts(hosts), uiPorts); len(missing) > 0 {
-		opts.warn("these UI hostnames do not resolve and have no host port, so they are unreachable from this machine: %s\n  Give the host the names with `nsctl dns install`, or add them to /etc/hosts.\n", strings.Join(missing, " "))
+	// A UI is reached by name, the way the cloud reaches it. The name has to
+	// resolve on this machine, and that costs one step, once -- not a port per
+	// interface and not a line per hostname.
+	if missing := unresolvableHosts(hosts); len(missing) > 0 {
+		opts.warn("these UI hostnames do not resolve, so they are unreachable from this machine:\n    %s\n"+
+			"  Run `nsctl dns install` once and every name under %s resolves, including ones not deployed yet.\n",
+			strings.Join(missing, " "), dnsd.DefaultSuffix)
 	}
 	// A Floci Lambda has no /etc/hosts and no CoreDNS: it reaches an
 	// Ingress-served API -- ms-transform submitting to Argo -- only if the
@@ -1053,23 +969,6 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		// startCluster), and they were computed before this deploy ran.
 		if hosts := ops.IngressHosts(ctx); len(hosts) > 0 {
 			f.foundUIHosts(hosts)
-			// A UI this deploy added has no host port yet, and the vhost
-			// fragment was written before it existed. Both are redone here for
-			// the same reason the aliases are -- otherwise reaching a
-			// just-deployed UI without resolving its name would take a second
-			// `nsctl env start` nobody knows to run.
-			portRoutes, uiPorts := assignUIPorts(opts, reg, env, hosts)
-			f.foundUIPorts(uiPorts)
-			if clusterIP := d.ContainerIP(ctx, cluster, reg.ControlPlane.Network); clusterIP != "" {
-				upstream := k3s.NodePortAddress(clusterIP, router.TraefikNodePort)
-				if err := r.WriteEnvVhosts(routerEnv, upstream, portRoutes); err != nil {
-					opts.warn("%v", err)
-				} else {
-					for _, pr := range portRoutes {
-						opts.step("    %s on http://localhost:%d/", pr.IngressHost, pr.Port)
-					}
-				}
-			}
 			if reconnected, err := d.EnsureNetworkAliases(ctx, router.ProxyContainer, reg.ControlPlane.Network, hosts); err != nil {
 				opts.warn("could not alias the UI hostnames on %s: %v", router.ProxyContainer, err)
 			} else if reconnected {

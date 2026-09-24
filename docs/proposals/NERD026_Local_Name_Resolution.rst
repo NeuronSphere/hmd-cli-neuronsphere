@@ -22,11 +22,9 @@ NERD026 Local Name Resolution
 Motivation
 ----------
 
-:doc:`NERD025_Port_First_Addressing` removes the *growing* half of the
-``/etc/hosts`` problem: user interfaces get a port, so deploying more of them
-costs nothing. What it deliberately does not remove is the residue -- the
-names that cannot become ports because more than one kind of consumer reads
-them:
+:doc:`NERD025_Port_First_Addressing` removes the ``/etc/hosts`` requirement
+from everything that starts or deploys a platform. What is left is every name
+a person actually opens, and the names more than one kind of consumer reads:
 
 - **The identity provider's issuer.** ``internal/authd/authd.go:9-17`` spells
   out why: the ``iss`` claim has to be a single string however the server was
@@ -39,6 +37,10 @@ them:
   tools at different times, and cannot be format-specific.
 - **Control-plane extensions**, which are served by name
   (``internal/cpext/apply.go:265-276``) and whose set is open-ended.
+- **Every Ingress-exposed user interface.** NERD025 SPEC001 briefly served
+  these on ports instead; it was withdrawn, because a port costs a rewritten
+  ``Host`` header, diverges from how the cloud reaches the same chart, and
+  reserved 32 ports to serve a typical three.
 - **A second concurrent control plane.** NERD007 needs a per-home Floci
   hostname and concludes at ``:113-115`` that this "cannot be made invisible to
   the user: ``/etc/hosts`` needs root, and ``nsctl`` deliberately does not."
@@ -204,8 +206,10 @@ Out of scope
   network aliases on ``hmd_proxy``
   (``internal/container/docker.go:388-421``) and ``coredns-custom`` records in
   the cluster. This document is about the host's leg only.
-- **Making the resolver mandatory.** It is opt-in. After NERD025 a default
-  first run needs nothing from it.
+- **Making the resolver mandatory.** Starting a platform and deploying to it
+  need nothing from it; only reaching a user interface does. It therefore runs
+  by default and is inert until the machine is pointed at it, but nothing
+  refuses to start without it.
 
 Risks
 -----

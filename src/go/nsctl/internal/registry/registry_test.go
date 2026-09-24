@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,155 +165,43 @@ func TestDerivedPorts(t *testing.T) {
 	}
 }
 
-// The whole published band is 19000-19111: 16 slots of 4, then 16 k3s ports,
-// then the shared UI band. A gap or an overlap here would collide two
-// environments on one port.
+// The whole published band is 19000-19079: 16 slots of 4, then 16 k3s ports.
+// A gap or an overlap here would collide two environments on one port.
 func TestThePortBandIsContiguousAndDoesNotOverlap(t *testing.T) {
 	t.Parallel()
 
 	seen := map[int]string{}
-	claim := func(owner, name string, port int) {
-		if prev, dup := seen[port]; dup {
-			t.Errorf("port %d is claimed by both %s and %s %s", port, prev, owner, name)
-		}
-		seen[port] = name
-		if port < 19000 || port > 19111 {
-			t.Errorf("port %d (%s %s) is outside the published 19000-19111 band", port, owner, name)
-		}
-	}
 	for slot := 0; slot < MaxEnvs; slot++ {
 		e := Environment{PortSlot: slot, PortBase: DefaultPortBase}
 		for name, port := range map[string]int{
 			"floci": e.FlociPort(), "trino": e.TrinoPort(),
 			"graph": e.GraphPort(), "spare": e.SparePort(), "k3s": e.K3sPort(),
 		} {
-			claim(fmt.Sprintf("slot %d", slot), name, port)
+			if prev, dup := seen[port]; dup {
+				t.Errorf("port %d is claimed by both %s and slot %d %s", port, prev, slot, name)
+			}
+			seen[port] = name
+			if port < 19000 || port > 19079 {
+				t.Errorf("port %d (slot %d %s) is outside the published 19000-19079 band", port, slot, name)
+			}
 		}
 	}
-	// The UI band is shared, so it is claimed once rather than per slot.
-	shared := Environment{PortBase: DefaultPortBase}
-	for idx := 0; idx < MaxUIPorts; idx++ {
-		claim("shared", fmt.Sprintf("ui%d", idx), shared.UIPortAt(idx))
-	}
-	if want := MaxEnvs*5 + MaxUIPorts; len(seen) != want {
-		t.Errorf("claimed %d distinct ports, want %d", len(seen), want)
+	if len(seen) != MaxEnvs*5 {
+		t.Errorf("claimed %d distinct ports, want %d", len(seen), MaxEnvs*5)
 	}
 }
 
-// The UI band does not move with the port slot -- it is shared, and a per-slot
-// band would have made hmd_proxy publish 216 ports to serve sixteen
-// environments nobody runs at once.
-func TestTheUIBandIsSharedAcrossEnvironments(t *testing.T) {
+// The band is exactly what hmd_proxy publishes. User interfaces are not in it:
+// they are reached by name through :80.
+func TestEnvPortWidthMatchesTheBand(t *testing.T) {
 	t.Parallel()
 
-	a := Environment{PortSlot: 0, PortBase: DefaultPortBase}
-	b := Environment{PortSlot: 9, PortBase: DefaultPortBase}
-	if a.UIPortAt(0) != b.UIPortAt(0) {
-		t.Errorf("the UI band moved with the slot: %d vs %d", a.UIPortAt(0), b.UIPortAt(0))
+	if want := MaxEnvs * (PortsPerEnv + 1); EnvPortWidth != want {
+		t.Errorf("EnvPortWidth = %d, want %d", EnvPortWidth, want)
 	}
-	if got, want := a.UIPortAt(0), 19080; got != want {
-		t.Errorf("UI band starts at %d, want %d (immediately above the k3s band)", got, want)
-	}
-}
-
-// A UI's port is a bookmark, so it has to survive a restart and a re-creation.
-func TestAUIPortIsStableForAHost(t *testing.T) {
-	t.Parallel()
-
-	reg := &Registry{Environments: map[string]Environment{}}
-	e := Environment{Slug: "local", PortSlot: 0, PortBase: DefaultPortBase}
-	first, err := reg.AssignUIPort(&e, "airflow.local.neuronsphere.io")
-	if err != nil {
-		t.Fatalf("AssignUIPort: %v", err)
-	}
-	again, err := reg.AssignUIPort(&e, "airflow.local.neuronsphere.io")
-	if err != nil {
-		t.Fatalf("AssignUIPort again: %v", err)
-	}
-	if first != again {
-		t.Errorf("port moved on re-assignment: %d then %d", first, again)
-	}
-
-	// An environment rebuilt from the persisted map reports the same port.
-	rebuilt := Environment{PortSlot: 0, PortBase: DefaultPortBase, UIPorts: e.UIPorts}
-	if got, ok := rebuilt.UIPort("airflow.local.neuronsphere.io"); !ok || got != first {
-		t.Errorf("UIPort after reload = %d, %v; want %d, true", got, ok, first)
-	}
-	// A host nothing has assigned is not silently given someone else's port.
-	if got, ok := rebuilt.UIPort("superset.local.neuronsphere.io"); ok {
-		t.Errorf("UIPort for an unassigned host = %d, true; want not found", got)
-	}
-}
-
-// Two hosts that hash to the same offset must not land on one port.
-func TestUIPortsDoNotCollide(t *testing.T) {
-	t.Parallel()
-
-	reg := &Registry{Environments: map[string]Environment{}}
-	e := Environment{Slug: "dev", PortSlot: 3, PortBase: DefaultPortBase}
-	seen := map[int]string{}
-	for _, host := range []string{
-		"airflow.local.neuronsphere.io", "argo.local.neuronsphere.io",
-		"superset.local.neuronsphere.io", "web.local.neuronsphere.io",
-		"trino.local.neuronsphere.io", "clickhouse.local.neuronsphere.io",
-		"jupyter.local.neuronsphere.io", "registry.local.neuronsphere.io",
-	} {
-		port, err := reg.AssignUIPort(&e, host)
-		if err != nil {
-			t.Fatalf("AssignUIPort(%q): %v", host, err)
-		}
-		if prev, dup := seen[port]; dup {
-			t.Errorf("port %d assigned to both %s and %s", port, prev, host)
-		}
-		seen[port] = host
-		if lo, hi := e.UIPortAt(0), e.UIPortAt(MaxUIPorts-1); port < lo || port > hi {
-			t.Errorf("port %d for %s is outside the UI band %d-%d", port, host, lo, hi)
-		}
-	}
-}
-
-// The band is shared, so an environment must not be handed a port another
-// environment is already using -- which is reachable today, because two
-// environments deploying one chart produce the same Ingress hostname.
-func TestUIPortsDoNotCollideAcrossEnvironments(t *testing.T) {
-	t.Parallel()
-
-	reg := &Registry{Environments: map[string]Environment{}}
-	a := Environment{Slug: "local", PortSlot: 0, PortBase: DefaultPortBase}
-	aPort, err := reg.AssignUIPort(&a, "airflow.local.neuronsphere.io")
-	if err != nil {
-		t.Fatalf("AssignUIPort a: %v", err)
-	}
-	reg.Environments["local"] = a
-
-	b := Environment{Slug: "dev", PortSlot: 1, PortBase: DefaultPortBase}
-	bPort, err := reg.AssignUIPort(&b, "airflow.local.neuronsphere.io")
-	if err != nil {
-		t.Fatalf("AssignUIPort b: %v", err)
-	}
-	if aPort == bPort {
-		t.Errorf("two environments were given the same UI port %d", aPort)
-	}
-}
-
-// Exhaustion is reported rather than absorbed -- a UI with no port must say so,
-// not go silently unrouted.
-func TestUIPortExhaustionIsReported(t *testing.T) {
-	t.Parallel()
-
-	reg := &Registry{Environments: map[string]Environment{}}
-	e := Environment{Slug: "local", PortSlot: 0, PortBase: DefaultPortBase}
-	for i := 0; i < MaxUIPorts; i++ {
-		if _, err := reg.AssignUIPort(&e, fmt.Sprintf("ui%d.local.neuronsphere.io", i)); err != nil {
-			t.Fatalf("AssignUIPort %d: %v", i, err)
-		}
-	}
-	_, err := reg.AssignUIPort(&e, "one-too-many.local.neuronsphere.io")
-	if err == nil {
-		t.Fatal("assigning one port too many succeeded; want an error naming the limit")
-	}
-	if !strings.Contains(err.Error(), "one-too-many.local.neuronsphere.io") {
-		t.Errorf("error does not name the host that went unrouted: %v", err)
+	lo, hi := ControlPlane{}.EnvPortRange()
+	if lo != 19000 || hi != 19079 {
+		t.Errorf("range = %d-%d, want 19000-19079", lo, hi)
 	}
 }
 
@@ -957,7 +844,7 @@ func TestEnvPortRangeFollowsTheChosenBase(t *testing.T) {
 	if lo != 20000 {
 		t.Errorf("range starts at %d, want 20000", lo)
 	}
-	if want := 20000 + MaxEnvs*(PortsPerEnv+1) + MaxUIPorts - 1; hi != want {
+	if want := 20000 + EnvPortWidth - 1; hi != want {
 		t.Errorf("range ends at %d, want %d", hi, want)
 	}
 	// Width is what matters, and it must not change with the base.

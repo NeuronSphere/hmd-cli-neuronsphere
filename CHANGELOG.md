@@ -12,21 +12,11 @@
   machine that already has the hosts entry is unaffected, and so is nsctl running
   inside a container, where the names are Docker aliases that must not be
   redirected to the container's own loopback.
-- feat: every Ingress-exposed user interface is published on a host port, so
-  reaching one needs no name resolution at all. The mechanism was already
-  written, documented and unit-tested -- `portVhostServer` sets `Host` so Traefik
-  still matches the rule and undoes it on redirects -- and had simply never been
-  called: both writers passed no port routes. The friction it removes is the part
-  that grew, since every UI a deploy exposed used to add another hostname and
-  another `sudo` line.
-- feat: UI ports come from a band shared across environments rather than divided
-  among them, and each assignment is persisted, because the port is an address
-  someone bookmarks. Shared is a cost decision: hmd_proxy publishes its whole
-  range up front, every port in it becomes an individual Engine API binding and
-  an in-use probe at each start, and the band is already eighty. A block of eight
-  per environment would have made it 216 to buy capacity for sixteen simultaneous
-  environments nobody runs; 32 shared ports cover what people actually have open.
-  The published range widens to `19000-19111`.
+- feat: a user interface is reached by name, the way the cloud reaches it, and
+  making that name resolve is one step for every name at once -- `nsctl dns
+  install` -- instead of a privileged edit per hostname. The resolver runs by
+  default, since this is now the only way a UI is reached; it stays inert until
+  the machine is pointed at it.
 - fix: the environment vhost matched nothing in any environment not named
   `local`. `hmd-cli-helm` renders `alb.hostname` with the literal `local` in
   *every* environment, while the vhost was written as `*.<slug>.neuronsphere.io`
@@ -65,9 +55,9 @@
   for want of privilege is not treated as a conflict, so a Linux machine where
   port 80 is merely privileged is not blocked. The engine's own error is
   translated as a backstop.
-- feat: `env status` lists the user interfaces an environment has, which it did
-  not report at all, and a start leads with the port URL and shows the hostname
-  only where it resolves.
+- feat: a start reports every user interface it found at its hostname, and says
+  once -- naming `nsctl dns install` and what it covers -- when those names do
+  not resolve, instead of printing an `/etc/hosts` line per name.
 - fix: compose port entries accept a bind address (`127.0.0.1:19153:19153/udp`),
   which the parser silently could not express. The resolver answers `127.0.0.1`
   for everything it owns and must not be reachable from off the machine. It

@@ -24,17 +24,17 @@ engine runs inside a VM:
   `nsctl` bind-mounts them, and a path the VM does not share mounts as an empty
   directory rather than failing.
 
-There is nothing else to configure. `nsctl` needs no entry in `/etc/hosts` and
-never asks for `sudo`: user interfaces are served on published ports, and the
-host names Floci stamps into its URLs are dialled on loopback by `nsctl` itself.
+Starting a platform and deploying to it need nothing else configured. `nsctl`
+needs no entry in `/etc/hosts` and never asks for `sudo`: the host names Floci
+stamps into its URLs are dialled on loopback by `nsctl` itself, and the ports
+it publishes are chosen around whatever else is already running.
 
-Two things still want those names resolved, and neither is on the path of a
-first run. The legacy `hmd build` and `push-artifact` follow the same presigned
-URLs through a different client, and the identity provider and package registry
-need one hostname that a browser, a container and a cluster pod all resolve
-alike. `nsctl dns install` prints the one step that covers all of them at once,
-including names that do not exist yet; `127.0.0.1 neuronsphere
-neuronsphere-workload` in `/etc/hosts` remains the older, narrower alternative.
+Opening things by name is one step, once. A user interface, the identity
+provider and the package registry are all reached at
+`*.local.neuronsphere.io`, and `nsctl dns install` prints the single command
+that makes every name under it resolve -- including names not yet deployed.
+`127.0.0.1 neuronsphere neuronsphere-workload` in `/etc/hosts` remains the
+older, narrower alternative.
 
 Native Windows is not supported.
 

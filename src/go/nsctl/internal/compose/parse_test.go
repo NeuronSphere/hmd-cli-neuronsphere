@@ -98,16 +98,16 @@ func TestParseProxyPublishesTheWholeBand(t *testing.T) {
 		got[portKey(port)] = true
 		total += port.Count()
 	}
-	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566", "18080-18080:18080-18080", "19000-19111:19000-19111"} {
+	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566", "18080-18080:18080-18080", "19000-19079:19000-19079"} {
 		if !got[want] {
 			t.Errorf("proxy does not publish %s; got %v", want, got)
 		}
 	}
-	// 3 singles plus the 112-wide environment band (16 slots of 4, 16 k3s
-	// ports, then the 32 shared user-interface ports), plus the resolver's UDP
-	// listener.
-	if total != 116 {
-		t.Errorf("proxy publishes %d host ports, want 116", total)
+	// 3 singles plus the 80-wide environment band (16 slots of 4, then 16 k3s
+	// ports), plus the resolver's UDP listener. User interfaces are not here:
+	// they are reached by name through :80.
+	if total != 84 {
+		t.Errorf("proxy publishes %d host ports, want 84", total)
 	}
 	// The resolver is the one published port bound to loopback rather than to
 	// every interface: it answers 127.0.0.1 for its whole suffix, which is an

@@ -34,12 +34,11 @@ const (
 type Env struct {
 	Slug      string
 	AccountID string
-	// TrinoPort, K3sPort and SparePort come from the registry's slot
-	// arithmetic; every one must fall inside the band hmd_proxy publishes or
-	// the listener is unreachable from the host.
+	// TrinoPort and K3sPort come from the registry's slot arithmetic; both
+	// must fall inside the band hmd_proxy publishes or the listener is
+	// unreachable from the host.
 	TrinoPort int
 	K3sPort   int
-	SparePort int
 	IsDefault bool
 }
 
@@ -163,45 +162,6 @@ func vhostServer(serverName, upstream string) string {
 }`, serverName, upstream)
 }
 
-// portVhostServer serves one Ingress-exposed UI at the root of a host port.
-//
-// The wildcard vhost reaches a UI by hostname, which costs the user an
-// /etc/hosts entry. An environment also reserves a spare host port hmd_proxy
-// already publishes, so a UI can be served at http://localhost:<port>/ with no
-// DNS at all.
-//
-// Host is set rather than forwarded, the one difference from vhostServer:
-// Traefik selects the Ingress rule from it and the browser sends
-// localhost:<port>, which matches no rule. proxy_redirect undoes that
-// substitution on the way back, so an absolute Location built from the
-// rewritten Host does not send the browser to a name it cannot resolve.
-func portVhostServer(port int, upstream, ingressHost, publicOrigin string) string {
-	return fmt.Sprintf(`server {
-    listen %d;
-    server_name _;
-    location / {
-        proxy_pass http://%s;
-        proxy_set_header Host %s;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_redirect http://%s/ %s/;
-        proxy_redirect https://%s/ %s/;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }
-}`, port, upstream, ingressHost, ingressHost, publicOrigin, ingressHost, publicOrigin)
-}
-
-// PortRoute additionally serves one Ingress host at a published port.
-type PortRoute struct {
-	Port        int
-	IngressHost string
-}
-
 // WriteEnvVhosts writes an environment's Host-routed vhost fragment.
 //
 // One wildcard block rather than one per app: a wildcard covers every UI the
@@ -220,23 +180,11 @@ type PortRoute struct {
 // collide. Giving each environment its own hostname would mean rewriting the
 // host on the deployed Ingress object, which is a change to what the charts
 // asked for and is deliberately not made here.
-//
-// Port routes go in the same fragment rather than one of their own, because a
-// fragment is rewritten wholesale -- a second writer aimed at a second file
-// would have to be kept in step with removal, and one file keeps writing and
-// removal atomic.
-func (r *Router) WriteEnvVhosts(env Env, upstream string, portRoutes []PortRoute) error {
+func (r *Router) WriteEnvVhosts(env Env, upstream string) error {
 	var blocks []string
 	if env.IsDefault {
 		blocks = append(blocks,
 			wrap(env.Slug+":vhost", vhostServer("*."+HelmLocalSlug+"."+IngressDomain, upstream)))
-	}
-	for _, pr := range portRoutes {
-		origin := "http://localhost:" + strconv.Itoa(pr.Port)
-		blocks = append(blocks, wrap(
-			fmt.Sprintf("%s:vhost:%d", env.Slug, pr.Port),
-			portVhostServer(pr.Port, upstream, pr.IngressHost, origin),
-		))
 	}
 	return r.writeFragment(filepath.Join(r.VhostDir(), EnvFragmentName(env.Slug)), blocks,
 		fmt.Sprintf("environment %q vhosts", env.Slug))

@@ -107,13 +107,13 @@ const portRemedy = "  Move the platform's ports, or free the ones above:\n" +
 	"    HMD_LOCAL_DNS_PORT          the wildcard resolver (19153)\n" +
 	"  80 and 4566 are fixed -- 4566 is baked into every presigned URL Floci returns."
 
-// DNSEnabledEnv turns the wildcard resolver on.
+// DNSEnabledEnv turns the wildcard resolver off.
 //
-// Off by default, and for a reason particular to this one: a resolver nothing
-// points at is a container doing nothing, and pointing a machine at it takes a
-// privileged step nsctl will not take on the user's behalf. Turning it on is
-// therefore a decision the user has already made by the time they run
-// `nsctl dns install`, not a default anyone should inherit.
+// On by default. User interfaces are reached by name -- the way the cloud
+// reaches them -- so the resolver is how they are reached at all, and a
+// default-off resolver would make the common path the one nobody has switched
+// on. It is inert until `nsctl dns install` points the machine at it, so
+// running it costs a container and nothing else.
 const DNSEnabledEnv = "HMD_LOCAL_NEURONSPHERE_ENABLE_DNS"
 
 // AuthContainer is the identity provider's container name and AuthPort the port
@@ -951,13 +951,14 @@ func DNSPort(opts *Options) int {
 	return DefaultDNSPort
 }
 
-// DNSEnabled reports whether the wildcard resolver should run.
+// DNSEnabled reports whether the wildcard resolver should run: true unless
+// explicitly falsy, matching GUIEnabled.
 func DNSEnabled(opts *Options) bool {
 	switch strings.ToLower(strings.TrimSpace(opts.lookup(DNSEnabledEnv))) {
-	case "1", "true", "yes":
-		return true
+	case "0", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // AuthEnabled, AuthHost and AuthIssuerBase read the identity provider's

@@ -166,31 +166,3 @@ func TestChoosePortsReportsExhaustion(t *testing.T) {
 		t.Errorf("error does not say what could not be found: %v", err)
 	}
 }
-
-// An environment's ports are offsets from the band's base, so a moved band has
-// to take them with it or they land outside what hmd_proxy publishes.
-func TestMovingTheBandMovesEveryEnvironment(t *testing.T) {
-	t.Parallel()
-
-	reg := &registry.Registry{Environments: map[string]registry.Environment{
-		"local": {Slug: "local", PortSlot: 0, PortBase: registry.DefaultPortBase},
-		"dev":   {Slug: "dev", PortSlot: 1, PortBase: registry.DefaultPortBase},
-	}}
-	if _, err := ChoosePorts(reg, nil, busy(19050)); err != nil {
-		t.Fatalf("ChoosePorts: %v", err)
-	}
-	lo, hi := reg.ControlPlane.EnvPortRange()
-	for slug, env := range reg.Environments {
-		if env.PortBase != lo {
-			t.Errorf("%s stayed on base %d, want %d", slug, env.PortBase, lo)
-		}
-		for name, port := range map[string]int{
-			"floci": env.FlociPort(), "trino": env.TrinoPort(),
-			"k3s": env.K3sPort(), "ui0": env.UIPortAt(0),
-		} {
-			if port < lo || port > hi {
-				t.Errorf("%s %s port %d is outside the published band %d-%d", slug, name, port, lo, hi)
-			}
-		}
-	}
-}

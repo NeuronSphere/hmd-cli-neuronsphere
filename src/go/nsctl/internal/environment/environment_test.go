@@ -355,32 +355,6 @@ func TestADeadClusterExitsFail(t *testing.T) {
 	}
 }
 
-// A UI that has a port is reported at its port, because that address works on a
-// machine which has never been told to resolve the hostname -- which after
-// NERD025 SPEC001 is the machine we expect.
-func TestTheSummaryLeadsWithAUIsPort(t *testing.T) {
-	t.Parallel()
-
-	env := &registry.Environment{Slug: "dev", PortSlot: 1}
-	f := &found{
-		UIHosts: []string{"superset.local.neuronsphere.io"},
-		UIPorts: map[string]int{"superset.local.neuronsphere.io": 19088},
-	}
-	got := strings.Join(readySummary(env, manifest.SubstrateFull, nil, f), "\n")
-	if !strings.Contains(got, "http://localhost:19088/") {
-		t.Errorf("summary should lead with the port URL, got:\n%s", got)
-	}
-	// The hostname still has to appear, or the reader cannot tell which UI a
-	// bare port belongs to.
-	if !strings.Contains(got, "superset.local.neuronsphere.io") {
-		t.Errorf("summary should still name the UI, got:\n%s", got)
-	}
-	// ...but not as the address to visit.
-	if strings.Contains(got, "http://superset.local.neuronsphere.io/") {
-		t.Errorf("summary should not offer the hostname URL when a port exists, got:\n%s", got)
-	}
-}
-
 // Without a port the hostname is all there is, and it is still correct.
 func TestTheSummaryFallsBackToTheHostname(t *testing.T) {
 	t.Parallel()

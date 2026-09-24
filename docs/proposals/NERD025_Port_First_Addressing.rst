@@ -1,22 +1,23 @@
-.. NERD025 Port-First Addressing
+.. NERD025 Reaching a Local Platform
 
-NERD025 Port-First Addressing
-=============================
+NERD025 Reaching a Local Platform
+=================================
 
 .. req:: Reaching a local service from the host shall cost no privileged change to the machine
     :id: HMD_CLI_NEURONSPHERE_NERD025
     :status: proposed
 
-    A first run of ``nsctl`` shall start a control plane and an environment,
-    and shall make every user interface that environment deploys reachable
-    from a browser, without editing ``/etc/hosts``, without ``sudo``, and
-    without a working name service.
+    A first run of ``nsctl`` shall start a control plane and an environment
+    without editing ``/etc/hosts``, without ``sudo``, without a working name
+    service, and without requiring any port on the machine to be free.
 
-    Where a name is genuinely load-bearing -- one string that a browser, a
-    sibling container and a cluster pod must all resolve to the same place --
-    it shall remain a name, and the cost of resolving it shall be paid once
-    and separately (:doc:`NERD026_Local_Name_Resolution`), never per service
-    and never per deploy.
+    Where a name is load-bearing -- one string that a browser, a sibling
+    container and a cluster pod must all resolve to the same place -- it shall
+    remain a name, and the cost of resolving it shall be paid once and
+    separately (:doc:`NERD026_Local_Name_Resolution`), never per service and
+    never per deploy. A user interface is reached that way too: the cloud
+    reaches it by name, and a local port would be a divergence bought with a
+    rewritten ``Host`` header.
 
     No failure on this path shall be reported as a missing entry in a file the
     user is not required to have edited.
@@ -85,53 +86,50 @@ say "nothing needs an ``/etc/hosts`` entry".
 Design
 ------
 
-.. spec:: Every Ingress-exposed user interface is served on a published port
+.. spec:: A user interface is reached by name, not by port
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: withdrawn
 
-    After a cluster is provisioned and after each deploy, every Ingress host
-    discovered by ``k3s.IngressHosts`` shall be given a ``router.PortRoute``
-    alongside the wildcard vhost it already gets, so the UI answers at
-    ``http://localhost:<port>/`` as well as at its hostname.
+    This specification originally served every Ingress-exposed user interface
+    on a published host port, so a browser could reach it with no name
+    resolution at all, and SPEC002 gave those ports a shared band. Both were
+    built and then withdrawn the same day, before either shipped.
 
-    Both writers shall be wired: ``environment.go:708-718`` on the provisioning
-    path and ``refreshAfterDeploy`` (``:916-977``) on the deploy path, which
-    repeats the same aliasing and must not drift from it.
+    **Why.** It was the weaker of two routes to the same place, and once the
+    resolver of :doc:`NERD026_Local_Name_Resolution` existed there was no
+    reason to keep both:
 
-    The hostname is not withdrawn. It remains correct, remains what the cloud
-    uses, and starts working the moment NERD026 or an ``/etc/hosts`` line makes
-    it resolve. This spec removes the *requirement*, not the capability.
+    - It rewrites ``Host``. The hostname path forwards it verbatim so Traefik
+      picks the Ingress rule; the port path sets it and undoes the substitution
+      on ``Location`` with ``proxy_redirect``. That covers redirects and does
+      nothing for an absolute URL emitted inside an HTML or JavaScript body,
+      which Superset and Airflow both produce.
+    - It is not how the cloud reaches a UI and never will be -- a local-only
+      divergence in a platform whose whole design is that cloud charts run
+      unmodified.
+    - It reserved 32 contiguous host ports to serve a typical two or three.
+      That is the same over-reservation as the 48 dead slot ports, and it made
+      the band materially harder to place once the band became something nsctl
+      chooses (SPEC008).
+    - It was never exercised against a real application. The config generation
+      was unit tested; no Airflow or Superset was ever served through it.
 
-.. spec:: A user interface's port is allocated from a band and persisted
-    :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC002
-    :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    **What replaces it.** Nothing. A UI is reached at
+    ``http://<instance>.local.neuronsphere.io/`` through ``hmd_proxy`` on the
+    HTTP port, exactly as the cloud reaches it through its own Ingress. The one
+    thing that costs is host-side name resolution, which is one step, once, for
+    every name at once -- including names not yet deployed.
 
-    ``PortsPerEnv`` shall not be widened. Slot 0's spare port is the Deployment
-    GUI's published ``19003`` (``internal/status/status.go:33-35``), and
-    ``internal/registry/registry.go:494`` records that the stride therefore
-    cannot be renumbered without moving a port users already have.
+    Because that step is now the only way to reach a user interface, the
+    resolver runs **by default** rather than on request. It is inert until
+    ``nsctl dns install`` points the machine at it, so running it costs a
+    container and nothing else.
 
-    Instead a **UI band** is added above the k3s band, which occupies
-    ``base + MaxEnvs*PortsPerEnv + slot`` (``19064-19079``)::
-
-        UIPortBase = base + MaxEnvs*PortsPerEnv + MaxEnvs   // 19080
-        UIsPerEnv  = 8
-        UIPort(slot, idx) = UIPortBase + slot*UIsPerEnv + idx
-
-    ``HMD_LOCAL_ENV_PORT_RANGE``'s default widens from ``19000-19079`` to
-    ``19000-19215`` so ``hmd_proxy`` -- the only container that publishes host
-    ports -- carries the band.
-
-    The host-to-port assignment shall be **persisted** in the registry, not
-    recomputed. ``internal/registry``'s package doc already gives the rule: a
-    derived value that changes later orphans what was named under the old one.
-    Here the thing named is a URL a user has bookmarked.
-
-    Exhaustion shall be reported, not absorbed. A ninth UI in an environment
-    shall say so, the way ``AllocatePortSlot`` says "all 16 environment port
-    slots are in use", rather than silently going unrouted.
+    **What the detour was worth.** The diagnosis, which stands: the friction
+    was never the hostname. It was that resolving one required editing the
+    machine, and that the cost grew with every deploy. NERD026 removes that
+    without giving up the model.
 
 .. spec:: The Floci names are resolved by ``nsctl``, not by the machine
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC003
@@ -215,21 +213,19 @@ Design
     can cover every environment only if the environment is not its own label.
     NERD026 depends on this.
 
-.. spec:: A start reports the address that works
+.. spec:: A start reports what it found
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD025
     :status: proposed
 
-    ``readySummary`` (``environment.go:551-590``) shall lead with the port URL
-    for each UI, and show the hostname alongside it only when that hostname
-    actually resolves -- which ``unresolvableHosts`` (``:894-913``) already
-    determines and currently uses only to raise a warning.
+    ``readySummary`` reports each user interface at its hostname, and where a
+    hostname does not resolve says so once, naming ``nsctl dns install`` and
+    what it covers -- rather than printing an ``/etc/hosts`` line per name.
 
-    ``env status`` lists no UIs at all today (``internal/status/status.go:305-331``).
-    It shall list them, read from the router's own fragments the way
-    ``StreamsPort`` and ``RoutesService`` (``router/env.go:242-270``) already
-    read what an environment routes -- so it stays cheap and still answers on a
-    stopped environment.
+    ``env status`` lists no user interface at all today. That is left as it
+    was: a UI's address is its Ingress hostname, which the start already
+    reports, and inventing a second place to read it was only worth doing when
+    the address was a port nobody could guess.
 
     This continues NERD023 SPEC003's correction: report what was found, not
     what the port scheme reserves.
