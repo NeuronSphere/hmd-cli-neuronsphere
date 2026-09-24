@@ -89,6 +89,13 @@ local mock; and the **contract** the admin-account service must satisfy.
 - Service-account credentials. Agents are not users; a per-install API key is a
   different mechanism with a different lifetime and does not belong in an
   interactive grant.
+- Local operation, entirely. Signing in is never a precondition for any local
+  verb, and no local path sends a credential: the local deployment-service and
+  librarian clients are anonymous by construction, the deploy containers carry
+  no token, and ``AUTHORIZATION`` defaults to ``NONE`` on every local Lambda.
+  It follows that a failure on a local path is never an authentication failure,
+  and must never be reported in terms that invite that reading -- see NERD024
+  SPEC007, which makes the property legible rather than merely true.
 
 .. spec:: The configuration file and its profiles
     :id: HMD_CLI_NEURONSPHERE_NERD008_SPEC001

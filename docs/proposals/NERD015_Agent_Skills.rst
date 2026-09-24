@@ -228,6 +228,25 @@ Scope and terminology
     retain normal host approval semantics; installing a skill is not consent to
     execute its destructive operations.
 
+.. spec:: State the local/cloud credential boundary where an agent will read it
+    :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC006
+    :links: HMD_CLI_NEURONSPHERE_NERD015
+    :status: proposed
+
+    The bundled skills shall say plainly that local operation needs no
+    credential: a container engine and ``HMD_HOME`` are the only
+    prerequisites, no local verb sends a token, and ``login``, ``logout`` and
+    ``whoami`` are therefore neither diagnostic steps nor repairs for a local
+    failure.  The identity skill shall scope itself to what those verbs are
+    actually for -- a hosted tenant, and private registries.
+
+    This belongs in the skills rather than only in the documentation because
+    the skills are what an agent has in front of it while diagnosing.  The
+    property has always been true of the code; on 2026-09-24 an agent
+    investigating a local deploy failure nonetheless proposed signing in as its
+    first remedy, because nothing it could read said otherwise.  See NERD024
+    SPEC007.
+
 Testing
 -------
 
