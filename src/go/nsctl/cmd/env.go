@@ -17,6 +17,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -37,11 +38,13 @@ func loadRegistry(opts *Options) (*registry.Registry, string, error) {
 
 // reporter builds a status Reporter bound to the real Docker and a real probe.
 func reporter(opts *Options) *status.Reporter {
+	r := router.New(opts.Home, opts.Lookup)
 	return &status.Reporter{
 		Docker:    container.New(),
 		Probe:     status.HTTPProber(3 * time.Second),
 		Lookup:    opts.Lookup,
 		Substrate: substrateOf(opts),
+		Routed:    r.StreamsPort,
 	}
 }
 
@@ -774,7 +777,11 @@ func renderNewEnvironment(cmd *cobra.Command, env *registry.Environment) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Registered environment %q\n", env.Slug)
 	fmt.Fprintf(out, "  account:  %s\n", env.AccountID)
-	fmt.Fprintf(out, "  slot:     %d (Floci %d, Trino %d)\n",
+	// "reserves" rather than a bare list of ports: these are the slot's, held
+	// for this environment whether or not anything ever listens on them, and the
+	// summary at the end of a start is where a service that answers gets named
+	// (NERD023 SPEC003).
+	fmt.Fprintf(out, "  slot:     %d (reserves Floci %d, Trino %d)\n",
 		env.PortSlot, env.FlociPort(), env.TrinoPort())
 	fmt.Fprintf(out, "  cluster:  %s\n", env.K3sCluster)
 	fmt.Fprintf(out, "  state:    %s\n", env.StateDir)

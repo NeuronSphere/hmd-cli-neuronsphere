@@ -227,6 +227,27 @@ func (r *Router) WriteEnvVhosts(env Env, upstream string, portRoutes []PortRoute
 		fmt.Sprintf("environment %q vhosts", env.Slug))
 }
 
+// StreamsPort reports whether an environment's stream fragment carries a
+// listener on a host port.
+//
+// This is the honest record of what an environment routes, and it is why the
+// environment summary and `env status` can stop advertising Trino from the port
+// slot. EnvStreamEntries emits a Trino listener if and only if startCluster
+// found a coordinator, so the fragment answers "is Trino there" without a
+// cluster call -- which `status` needs, because it must stay cheap and must
+// answer on a stopped environment.
+//
+// A missing or unreadable fragment is false, not an error: an environment that
+// has never started routes nothing, which is the same answer.
+func (r *Router) StreamsPort(slug string, port int) bool {
+	data, err := os.ReadFile(filepath.Join(r.StreamDir(), EnvFragmentName(slug)))
+	if err != nil {
+		return false
+	}
+	begin, _ := markers(slug + ":" + strconv.Itoa(port))
+	return strings.Contains(string(data), begin)
+}
+
 // RemoveEnvRoutes deletes every fragment an environment owns.
 func (r *Router) RemoveEnvRoutes(slug string) error {
 	name := EnvFragmentName(slug)

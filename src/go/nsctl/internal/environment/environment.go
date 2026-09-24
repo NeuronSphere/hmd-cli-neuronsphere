@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -225,8 +226,12 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		wrapperImage string
 		clusterFatal error
 	)
+	// What this start finds, as against what the environment reserved. Every
+	// step below that discovers something records it here, and readySummary
+	// reports from it (NERD023 SPEC003).
+	f := &found{}
 	if plan.Cluster {
-		res, cluster, wrapperImage, clusterFatal = startK3s(ctx, opts, reg, env, d, r, routerEnv, target, dbContainer, graphContainer)
+		res, cluster, wrapperImage, clusterFatal = startK3s(ctx, opts, reg, env, d, r, routerEnv, target, dbContainer, graphContainer, f)
 	}
 
 	// dbaccount, before anything that wants a database can ask for one.
@@ -250,7 +255,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	// anything this run did: the fragment is rewritten wholesale on every
 	// start, so an environment that deploys nothing still needs its routes put
 	// back.
-	if err := refreshRoutes(ctx, opts, r, routerEnv, target); err != nil {
+	if err := refreshRoutes(ctx, opts, r, routerEnv, target, f); err != nil {
 		opts.warn("%v", err)
 	}
 	if err := r.Reload(ctx, d.Exec); err != nil {
@@ -259,7 +264,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 
 	if clusterFatal != nil {
 		opts.warn("%v", clusterFatal)
-		for _, line := range readySummary(env, mode, clusterFatal) {
+		for _, line := range readySummary(env, mode, clusterFatal, f) {
 			opts.step("%s", line)
 		}
 		return nserr.Wrap(nserr.Fail, clusterFatal)
@@ -302,7 +307,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 						"\n  Redeploy it with `nsctl env start --force-full-redeploy`", env.K3sCluster)
 			} else if after.State == floci.K3sRunning || after.State == floci.K3sStarted {
 				opts.step("Provisioning the cluster the deploy created...")
-				if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+				if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer, f); err != nil {
 					opts.warn("%v", err)
 				}
 				clusterFatal = floci.VerifyK3sAlive(ctx, d, cluster)
@@ -310,19 +315,19 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		}
 		// The database may only now exist, and the CoreDNS record and routes
 		// were written before it did.
-		if err := refreshAfterDeploy(ctx, opts, reg, env, d, r, routerEnv, target, cluster, names, plan); err != nil {
+		if err := refreshAfterDeploy(ctx, opts, reg, env, d, r, routerEnv, target, cluster, names, plan, f); err != nil {
 			opts.warn("%v", err)
 		}
 		if clusterFatal != nil {
 			opts.warn("%v", clusterFatal)
-			for _, line := range readySummary(env, mode, clusterFatal) {
+			for _, line := range readySummary(env, mode, clusterFatal, f) {
 				opts.step("%s", line)
 			}
 			return nserr.Wrap(nserr.Fail, clusterFatal)
 		}
 	}
 
-	for _, line := range readySummary(env, mode, nil) {
+	for _, line := range readySummary(env, mode, nil, f) {
 		opts.step("%s", line)
 	}
 	return nil
@@ -361,7 +366,7 @@ func sweepWokenEnvironments(ctx context.Context, opts *Options, d floci.WakeDock
 // deploy creates the container this run found missing.
 func startK3s(ctx context.Context, opts *Options, reg *registry.Registry, env *registry.Environment,
 	d *container.Docker, r *router.Router, routerEnv router.Env, target floci.Target,
-	dbContainer, graphContainer string) (res floci.K3sResult, cluster, wrapperImage string, clusterFatal error) {
+	dbContainer, graphContainer string, f *found) (res floci.K3sResult, cluster, wrapperImage string, clusterFatal error) {
 
 	wrapperImage = expectedK3sImage(ctx, opts, d)
 	if clusters, err := floci.NewClusters(ctx, target); err != nil {
@@ -434,13 +439,77 @@ func startK3s(ctx context.Context, opts *Options, reg *registry.Registry, env *r
 		if k3sErr != nil {
 			clusterFatal = k3sErr
 		} else {
-			if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+			if err := startCluster(ctx, opts, d, r, routerEnv, env, cluster, reg.ControlPlane.Network, dbContainer, graphContainer, f); err != nil {
 				opts.warn("%v", err)
 			}
 			clusterFatal = floci.VerifyK3sAlive(ctx, d, cluster)
 		}
 	}
 	return res, cluster, wrapperImage, clusterFatal
+}
+
+// found is what a start actually discovered, as against what the environment
+// reserved.
+//
+// readySummary reports from this because an endpoint derived from a port slot is
+// a claim nothing verified. That reasoning already fixed the k3s line -- see
+// below -- and the trino line was left printing on every full-substrate
+// environment whether or not Trino was ever deployed. Both facts were in hand
+// at the time and thrown away: startCluster takes a different branch when
+// FindTrinoCoordinator answers false, and refreshRoutes reduced the deployed
+// service paths to a count.
+//
+// Every setter tolerates a nil receiver, so a caller that provisions a cluster
+// outside a start -- apply.go's post-deploy recovery, which prints no summary --
+// passes nil rather than a throwaway. NERD023 SPEC003.
+type found struct {
+	// Trino is true when a coordinator was found and its host route written.
+	Trino bool
+	// Services are the DAG-deployed service route paths, from Floci.
+	Services []string
+	// UIHosts are the Ingress hostnames of the deployed user interfaces.
+	UIHosts []string
+}
+
+func (f *found) foundTrino() {
+	if f != nil {
+		f.Trino = true
+	}
+}
+
+func (f *found) foundServices(paths []string) {
+	if f != nil {
+		f.Services = paths
+	}
+}
+
+func (f *found) foundUIHosts(hosts []string) {
+	if f != nil {
+		f.UIHosts = hosts
+	}
+}
+
+// summaryListCap is how many endpoints a summary lists before it says how many
+// more there are. The list exists to show that they are there and what they look
+// like; past a handful it stops being readable and a count says more.
+const summaryListCap = 6
+
+// summaryList renders one label and its values, one per line, under a cap.
+func summaryList(label string, values []string) []string {
+	pad := strings.Repeat(" ", len(label))
+	var lines []string
+	for i, v := range values {
+		if i == summaryListCap && len(values) > summaryListCap+1 {
+			lines = append(lines, fmt.Sprintf("%s... and %d more", pad, len(values)-i))
+			break
+		}
+		if i == 0 {
+			lines = append(lines, label+v)
+			continue
+		}
+		lines = append(lines, pad+v)
+	}
+	return lines
 }
 
 // readySummary is the closing report.
@@ -451,19 +520,33 @@ func startK3s(ctx context.Context, opts *Options, reg *registry.Registry, env *r
 //
 // Under a mode without a cluster the trino and k3s lines are omitted for the
 // same reason, and the database and dbaccount lines say what core does run
-// (NERD014 SPEC007).
-func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFatal error) []string {
+// (NERD014 SPEC007). The trino line is additionally omitted under a mode *with*
+// a cluster when no coordinator was found, which is the ordinary case for an
+// environment that has not been given Trino (NERD023 SPEC003).
+func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFatal error, f *found) []string {
 	plan := planFor(mode)
 	head := "Ready."
 	if clusterFatal != nil {
 		head = "Started, but the k3s cluster is not running. Nothing will schedule."
 	}
-	lines := []string{
-		head,
-		fmt.Sprintf("  services   http://localhost/%s/<service>/", env.Slug),
+	lines := []string{head}
+
+	// The deployed services if any were discovered, and otherwise the shape a
+	// service URL takes. The template is honest -- it says <service> -- and it
+	// is the only thing to say about an environment that deploys none.
+	if svc := serviceURLs(env.Slug, f); len(svc) > 0 {
+		lines = append(lines, summaryList("  services   ", svc)...)
+	} else {
+		lines = append(lines, fmt.Sprintf("  services   http://localhost/%s/<service>/", env.Slug))
 	}
+
 	if plan.Cluster {
-		lines = append(lines, fmt.Sprintf("  trino      localhost:%d", env.TrinoPort()))
+		if f != nil && f.Trino {
+			lines = append(lines, fmt.Sprintf("  trino      localhost:%d", env.TrinoPort()))
+		}
+		if uis := uiURLs(f); len(uis) > 0 {
+			lines = append(lines, summaryList("  uis        ", uis)...)
+		}
 		if clusterFatal == nil {
 			lines = append(lines, fmt.Sprintf("  k3s        localhost:%d", env.K3sPort()))
 		}
@@ -477,10 +560,40 @@ func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFat
 	return append(lines, fmt.Sprintf("  substrate  %s", mode))
 }
 
+// serviceURLs renders the discovered service paths as the URLs the proxy serves
+// them at. Sorted, so a summary of the same environment is the same bytes twice.
+func serviceURLs(slug string, f *found) []string {
+	if f == nil || len(f.Services) == 0 {
+		return nil
+	}
+	paths := append([]string(nil), f.Services...)
+	sort.Strings(paths)
+	urls := make([]string, 0, len(paths))
+	for _, p := range paths {
+		urls = append(urls, fmt.Sprintf("http://localhost/%s/%s/", slug, strings.Trim(p, "/")))
+	}
+	return urls
+}
+
+// uiURLs renders the discovered Ingress hostnames as browsable URLs.
+func uiURLs(f *found) []string {
+	if f == nil || len(f.UIHosts) == 0 {
+		return nil
+	}
+	hosts := append([]string(nil), f.UIHosts...)
+	sort.Strings(hosts)
+	urls := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		urls = append(urls, "http://"+h+"/")
+	}
+	return urls
+}
+
 // startCluster does the work that needs a live cluster: the host routes, the
 // kubeconfig, the operators and the ingress upstream.
 func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *router.Router,
-	routerEnv router.Env, env *registry.Environment, cluster, network, dbContainer, graphContainer string) error {
+	routerEnv router.Env, env *registry.Environment, cluster, network, dbContainer, graphContainer string,
+	f *found) error {
 
 	clusterIP := d.ContainerIP(ctx, cluster, network)
 	if clusterIP == "" {
@@ -546,6 +659,7 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 			opts.warn("%v", err)
 		} else {
 			trinoUpstream = k3s.NodePortAddress(clusterIP, router.TrinoNodePort)
+			f.foundTrino()
 			opts.step("  Trino exposed on host :%d", env.TrinoPort())
 		}
 	}
@@ -573,6 +687,7 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 	// help until each name resolves. Unlike the neuronsphere alias, a missing
 	// UI hostname breaks nothing else, so this warns rather than refusing.
 	hosts := ops.IngressHosts(ctx)
+	f.foundUIHosts(hosts)
 	if missing := unresolvableHosts(hosts); len(missing) > 0 {
 		opts.warn("these UI hostnames do not resolve to loopback, so they are unreachable until /etc/hosts has them:\n\n    127.0.0.1 %s\n", strings.Join(missing, " "))
 	}
@@ -591,7 +706,7 @@ func startCluster(ctx context.Context, opts *Options, d *container.Docker, r *ro
 }
 
 // refreshRoutes routes every DAG-deployed service in the environment.
-func refreshRoutes(ctx context.Context, opts *Options, r *router.Router, routerEnv router.Env, target floci.Target) error {
+func refreshRoutes(ctx context.Context, opts *Options, r *router.Router, routerEnv router.Env, target floci.Target, f *found) error {
 	gateways, err := floci.NewGateways(ctx, target)
 	if err != nil {
 		return err
@@ -603,12 +718,16 @@ func refreshRoutes(ctx context.Context, opts *Options, r *router.Router, routerE
 	if len(routes) == 0 {
 		return nil
 	}
+	paths := make([]string, 0, len(routes))
 	for path, route := range routes {
 		if err := r.UpsertServiceRoute(routerEnv, path, route.RestAPIID, route.StageName); err != nil {
 			opts.warn("%v", err)
+			continue
 		}
+		paths = append(paths, path)
 	}
-	opts.step("  routed %d deployed service(s) under /%s/", len(routes), routerEnv.Slug)
+	f.foundServices(paths)
+	opts.step("  routed %d deployed service(s) under /%s/", len(paths), routerEnv.Slug)
 	return nil
 }
 
@@ -764,7 +883,8 @@ func unresolvableHosts(hosts []string) []string {
 // means every chart addressing the database by name fails to resolve it.
 func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Registry,
 	env *registry.Environment, d *container.Docker, r *router.Router,
-	routerEnv router.Env, target floci.Target, cluster string, names floci.Names, plan startPlan) error {
+	routerEnv router.Env, target floci.Target, cluster string, names floci.Names, plan startPlan,
+	f *found) error {
 
 	var dbContainer, graphContainer string
 	var err error
@@ -805,6 +925,7 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		// proxy's hostname aliases are what let a Floci Lambda reach it (see
 		// startCluster), and they were computed before this deploy ran.
 		if hosts := ops.IngressHosts(ctx); len(hosts) > 0 {
+			f.foundUIHosts(hosts)
 			if reconnected, err := d.EnsureNetworkAliases(ctx, router.ProxyContainer, reg.ControlPlane.Network, hosts); err != nil {
 				opts.warn("could not alias the UI hostnames on %s: %v", router.ProxyContainer, err)
 			} else if reconnected {
@@ -813,7 +934,7 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		}
 	}
 
-	if err := refreshRoutes(ctx, opts, r, routerEnv, target); err != nil {
+	if err := refreshRoutes(ctx, opts, r, routerEnv, target, f); err != nil {
 		opts.warn("%v", err)
 	}
 	return r.Reload(ctx, d.Exec)

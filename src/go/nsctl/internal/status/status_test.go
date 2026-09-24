@@ -146,7 +146,10 @@ func TestEnvironmentStatusResolvesTheK3sContainer(t *testing.T) {
 func TestRoutesUseTheEnvironmentsOwnPorts(t *testing.T) {
 	t.Parallel()
 
-	r := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil)}
+	// Trino routed, so this test is about the slot arithmetic rather than about
+	// whether Trino is there; TestTrinoRouteOnlyWhenRouted owns that.
+	r := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil),
+		Routed: func(string, int) bool { return true }}
 	snap := r.EnvironmentStatus(context.Background(), liveEnv())
 
 	want := map[string]string{
@@ -164,6 +167,51 @@ func TestRoutesUseTheEnvironmentsOwnPorts(t *testing.T) {
 	}
 	if len(snap.RouteOrder) != len(snap.Routes) {
 		t.Errorf("route order has %d entries for %d routes", len(snap.RouteOrder), len(snap.Routes))
+	}
+}
+
+// NERD023 SPEC003: an environment's Trino port belongs to its slot whether or
+// not anything listens on it, so the route is reported from the router's record
+// instead. Asserted in both directions -- the defect this replaces would have
+// passed a routed-only assertion.
+func TestTrinoRouteOnlyWhenRouted(t *testing.T) {
+	t.Parallel()
+
+	env := liveEnv()
+
+	var askedSlug string
+	var askedPort int
+	routed := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil),
+		Routed: func(slug string, port int) bool {
+			askedSlug, askedPort = slug, port
+			return true
+		}}
+	if got := routed.EnvironmentStatus(context.Background(), env).Routes["trino"]; got != "localhost:19033" {
+		t.Errorf("a routed Trino should be reported, got %q", got)
+	}
+	if askedSlug != env.Slug || askedPort != env.TrinoPort() {
+		t.Errorf("asked about %q:%d, want %q:%d", askedSlug, askedPort, env.Slug, env.TrinoPort())
+	}
+
+	absent := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil),
+		Routed: func(string, int) bool { return false }}
+	snap := absent.EnvironmentStatus(context.Background(), env)
+	if got, ok := snap.Routes["trino"]; ok {
+		t.Errorf("an unrouted Trino must not be reported, got %q", got)
+	}
+	// The rest of a full substrate is unaffected.
+	if _, ok := snap.Routes["k3s"]; !ok {
+		t.Errorf("the k3s route should survive, got %v", snap.RouteOrder)
+	}
+	if len(snap.RouteOrder) != len(snap.Routes) {
+		t.Errorf("route order has %d entries for %d routes", len(snap.RouteOrder), len(snap.Routes))
+	}
+
+	// A nil hook reports nothing routed. Unlike Substrate's nil, this default is
+	// restrictive on purpose: a permissive one would reinstate the defect.
+	nilHook := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil)}
+	if got, ok := nilHook.EnvironmentStatus(context.Background(), env).Routes["trino"]; ok {
+		t.Errorf("a nil Routed hook must not report Trino, got %q", got)
 	}
 }
 

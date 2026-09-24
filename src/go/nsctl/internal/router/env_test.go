@@ -219,3 +219,47 @@ func TestRemoveEnvRoutesRemovesEveryFragment(t *testing.T) {
 		t.Errorf("removing an absent environment: %v", err)
 	}
 }
+
+// The stream fragment is the record of what an environment actually routes, so
+// `env status` can report a Trino endpoint only when one exists rather than
+// deriving it from the port slot. NERD023 SPEC003.
+func TestStreamsPortReadsTheFragment(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	env := testEnv()
+
+	// Never started: nothing is routed, and that is an answer rather than an
+	// error -- an environment with no fragment routes nothing.
+	if r.StreamsPort(env.Slug, env.TrinoPort) {
+		t.Error("a missing fragment must not report a route")
+	}
+
+	// k3s only, which is what startCluster writes before Trino is looked for.
+	if err := r.WriteEnvStreams(env, EnvStreamEntries(env, "", "1.2.3.4:6443")); err != nil {
+		t.Fatal(err)
+	}
+	if r.StreamsPort(env.Slug, env.TrinoPort) {
+		t.Error("Trino is not routed, so it must not be reported")
+	}
+	if !r.StreamsPort(env.Slug, env.K3sPort) {
+		t.Error("k3s is routed and should be reported")
+	}
+
+	// Trino found: EnvStreamEntries adds its listener, and the reader sees it.
+	if err := r.WriteEnvStreams(env, EnvStreamEntries(env, "1.2.3.4:31880", "1.2.3.4:6443")); err != nil {
+		t.Fatal(err)
+	}
+	if !r.StreamsPort(env.Slug, env.TrinoPort) {
+		t.Error("a routed Trino should be reported")
+	}
+	// The default environment also keeps the legacy fixed port.
+	if !r.StreamsPort(env.Slug, LegacyTrinoHostPort) {
+		t.Error("the default environment's legacy Trino port should be reported")
+	}
+
+	// Another environment's fragment is not this one's.
+	if r.StreamsPort("other", env.TrinoPort) {
+		t.Error("a slug with no fragment must not read another's")
+	}
+}

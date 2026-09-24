@@ -237,6 +237,21 @@ type Reporter struct {
 	// full for every environment. Injected rather than read here so the
 	// package stays free of HMD_HOME's layout.
 	Substrate func(slug string) manifest.Substrate
+	// Routed answers whether an environment routes a host port, from the
+	// router's own record. Injected for the same reason as Substrate.
+	//
+	// nil means nothing is routed, which is the opposite of Substrate's
+	// permissive default and deliberately so: this exists to stop reporting an
+	// endpoint the environment merely reserved, and a nil that fell back to
+	// "yes" would put the defect straight back (NERD023 SPEC003).
+	Routed func(slug string, port int) bool
+}
+
+func (r *Reporter) routed(slug string, port int) bool {
+	if r.Routed == nil {
+		return false
+	}
+	return r.Routed(slug, port)
 }
 
 func (r *Reporter) substrate(slug string) manifest.Substrate {
@@ -281,7 +296,13 @@ func (r *Reporter) EnvironmentStatus(ctx context.Context, e *registry.Environmen
 		out.addRoute("dbaccount", "http://localhost/"+e.Slug+"/hmd_ms_dbaccount/")
 	}
 	if hasCluster {
-		out.addRoute("trino", "localhost:"+strconv.Itoa(e.TrinoPort()))
+		// Trino only when it is actually routed. The port belongs to the
+		// environment's slot whether or not anything listens on it, and
+		// reporting it from the slot alone advertised a Trino to every
+		// full-substrate environment that had never deployed one.
+		if r.routed(e.Slug, e.TrinoPort()) {
+			out.addRoute("trino", "localhost:"+strconv.Itoa(e.TrinoPort()))
+		}
 		out.addRoute("k3s", "localhost:"+strconv.Itoa(e.K3sPort()))
 	}
 	if r.guiEnabled() {

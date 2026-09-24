@@ -22,6 +22,12 @@ routes. Registration allocates an account and port slot; it does not start
 infrastructure. An unknown name passed to ``env start`` after the first
 registration is refused.
 
+``env status``'s ``Routes`` block lists what the environment actually routes,
+not the ports its slot reserves: a Trino endpoint appears once Trino is
+deployed and not before, and the deployed services and Ingress-exposed UIs are
+named individually. An environment that reports no route for something you
+expected has not deployed it — ``nsctl env plan <name>`` says what is declared.
+
 A command without an explicit name selects ``HMD_LOCAL_ENV``, then the
 registry's default, then ``local``. You can make a newly registered environment
 the default with ``nsctl env add review --default``. Explicit names are useful

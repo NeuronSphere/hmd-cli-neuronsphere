@@ -155,7 +155,11 @@ func TestReadySummaryOmitsTheK3sPortWhenTheClusterIsDead(t *testing.T) {
 
 	env := &registry.Environment{Slug: "local", PortSlot: 8}
 
-	healthy := strings.Join(readySummary(env, manifest.SubstrateFull, nil), "\n")
+	// Trino routed, so that this test is about the k3s line and not about the
+	// trino one; TestReadySummaryReportsTrinoOnlyWhenRouted owns that.
+	routed := &found{Trino: true}
+
+	healthy := strings.Join(readySummary(env, manifest.SubstrateFull, nil, routed), "\n")
 	if !strings.Contains(healthy, "Ready.") {
 		t.Errorf("a healthy summary should lead with Ready., got:\n%s", healthy)
 	}
@@ -165,7 +169,7 @@ func TestReadySummaryOmitsTheK3sPortWhenTheClusterIsDead(t *testing.T) {
 		}
 	}
 
-	dead := strings.Join(readySummary(env, manifest.SubstrateFull, errors.New("it exited")), "\n")
+	dead := strings.Join(readySummary(env, manifest.SubstrateFull, errors.New("it exited"), routed), "\n")
 	if strings.Contains(dead, "k3s        localhost:") {
 		t.Errorf("a dead cluster must not advertise its port, got:\n%s", dead)
 	}
@@ -188,7 +192,9 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 
 	env := &registry.Environment{Slug: "local", PortSlot: 8, DBContainer: "hmd_db-local"}
 
-	none := strings.Join(readySummary(env, manifest.SubstrateNone, nil), "\n")
+	routed := &found{Trino: true}
+
+	none := strings.Join(readySummary(env, manifest.SubstrateNone, nil, routed), "\n")
 	for _, absent := range []string{"trino", "k3s", "database", "dbaccount"} {
 		if strings.Contains(none, absent) {
 			t.Errorf("none should not list %s, got:\n%s", absent, none)
@@ -200,7 +206,7 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 		}
 	}
 
-	core := strings.Join(readySummary(env, manifest.SubstrateCore, nil), "\n")
+	core := strings.Join(readySummary(env, manifest.SubstrateCore, nil, routed), "\n")
 	for _, absent := range []string{"trino", "k3s"} {
 		if strings.Contains(core, absent) {
 			t.Errorf("core should not list %s, got:\n%s", absent, core)
@@ -212,9 +218,105 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 		}
 	}
 
-	full := strings.Join(readySummary(env, manifest.SubstrateFull, nil), "\n")
+	full := strings.Join(readySummary(env, manifest.SubstrateFull, nil, routed), "\n")
 	if strings.Contains(full, "substrate") {
 		t.Errorf("full is the default and should not announce itself, got:\n%s", full)
+	}
+}
+
+// NERD023 SPEC003. Asserted by control in both directions: a test that only
+// checked the routed case would have passed against the defect, which printed
+// the line on every full-substrate environment whether Trino was there or not.
+func TestReadySummaryReportsTrinoOnlyWhenRouted(t *testing.T) {
+	t.Parallel()
+
+	env := &registry.Environment{Slug: "local", PortSlot: 8}
+
+	absent := strings.Join(readySummary(env, manifest.SubstrateFull, nil, &found{}), "\n")
+	if strings.Contains(absent, "trino") {
+		t.Errorf("an environment with no Trino must not advertise one, got:\n%s", absent)
+	}
+	// The rest of a full substrate is unaffected.
+	if !strings.Contains(absent, "k3s        localhost:") {
+		t.Errorf("the k3s line should survive, got:\n%s", absent)
+	}
+
+	routed := strings.Join(readySummary(env, manifest.SubstrateFull, nil, &found{Trino: true}), "\n")
+	if !strings.Contains(routed, "trino      localhost:19033") {
+		t.Errorf("a routed Trino should be reported on the slot's port, got:\n%s", routed)
+	}
+
+	// A nil accumulator is the caller that discovered nothing, not a caller
+	// asking for the old behaviour.
+	if nilf := strings.Join(readySummary(env, manifest.SubstrateFull, nil, nil), "\n"); strings.Contains(nilf, "trino") {
+		t.Errorf("a nil accumulator must not advertise Trino, got:\n%s", nilf)
+	}
+}
+
+// The deployed services and UIs are discovered on every start and were reduced
+// to a count. Report them, capped, because the list is what makes the
+// environment usable without a second command.
+func TestReadySummaryListsWhatWasDiscovered(t *testing.T) {
+	t.Parallel()
+
+	env := &registry.Environment{Slug: "dev", PortSlot: 1}
+
+	empty := strings.Join(readySummary(env, manifest.SubstrateFull, nil, &found{}), "\n")
+	if !strings.Contains(empty, "http://localhost/dev/<service>/") {
+		t.Errorf("with nothing deployed the summary should show the URL shape, got:\n%s", empty)
+	}
+
+	f := &found{
+		Services: []string{"hmd_ms_naming", "hmd_ms_dbaccount"},
+		UIHosts:  []string{"superset.local.neuronsphere.io"},
+	}
+	got := strings.Join(readySummary(env, manifest.SubstrateFull, nil, f), "\n")
+	for _, want := range []string{
+		"http://localhost/dev/hmd_ms_dbaccount/",
+		"http://localhost/dev/hmd_ms_naming/",
+		"http://superset.local.neuronsphere.io/",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("summary should list %s, got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "<service>") {
+		t.Errorf("the URL shape is for an environment with no services, got:\n%s", got)
+	}
+	// Sorted, so the same environment renders the same bytes twice.
+	if i, j := strings.Index(got, "dbaccount"), strings.Index(got, "naming"); i > j {
+		t.Errorf("services should be sorted, got:\n%s", got)
+	}
+}
+
+// Past a handful a list stops being readable and a count says more.
+func TestSummaryListCaps(t *testing.T) {
+	t.Parallel()
+
+	many := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	lines := summaryList("  services   ", many)
+	joined := strings.Join(lines, "\n")
+	if len(lines) != summaryListCap+1 {
+		t.Errorf("want %d lines, got %d:\n%s", summaryListCap+1, len(lines), joined)
+	}
+	if !strings.Contains(joined, "... and 3 more") {
+		t.Errorf("want the remainder as a count, got:\n%s", joined)
+	}
+	if !strings.HasPrefix(lines[0], "  services   a") {
+		t.Errorf("the label belongs on the first line, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "             b") {
+		t.Errorf("later lines align under the label, got %q", lines[1])
+	}
+
+	// Exactly one over the cap is listed rather than replaced by "and 1 more",
+	// which would be longer than the thing it elides.
+	seven := summaryList("  uis        ", many[:summaryListCap+1])
+	if len(seven) != summaryListCap+1 {
+		t.Errorf("want all %d listed, got %d", summaryListCap+1, len(seven))
+	}
+	if strings.Contains(strings.Join(seven, "\n"), "more") {
+		t.Errorf("one over the cap should not be elided, got:\n%s", strings.Join(seven, "\n"))
 	}
 }
 

@@ -713,8 +713,10 @@ func provisionNewCluster(ctx context.Context, opts *Options, reg *registry.Regis
 	graphContainer, _ := d.FlociContainer(ctx, "neptune", env.AccountID,
 		floci.GraphIdentifier(floci.NamesFrom(opts.Lookup, env.DeploymentID, env.Slug)))
 
+	// nil accumulator: this recovery prints no environment summary, so there is
+	// nothing for its discoveries to be reported in. found's setters tolerate it.
 	if err := startCluster(ctx, opts, d, router.New(opts.Home, opts.Lookup), routerEnv, env,
-		cluster, reg.ControlPlane.Network, dbContainer, graphContainer); err != nil {
+		cluster, reg.ControlPlane.Network, dbContainer, graphContainer, nil); err != nil {
 		opts.warn("%v", err)
 	}
 }

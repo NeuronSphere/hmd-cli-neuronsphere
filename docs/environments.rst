@@ -396,6 +396,13 @@ unaffected; environment services are **prefixed** with the environment name:
    * - ``https://localhost:<19064+n>``
      - environment *n*'s k3s API server (what its kubeconfig points at)
 
+The table is the port *scheme*: every slot is reserved for its environment
+whether or not anything listens on it. What ``nsctl env status`` and the summary
+at the end of a start report is narrower — an endpoint appears only when
+something is actually routed there. A full-substrate environment that has never
+deployed Trino shows no Trino route, and the services and UIs it does have are
+listed by name.
+
 Non-HTTP protocols (Trino, the k3s API, Floci's AWS wire protocol) get L4
 ``stream`` listeners rather than HTTP locations. The whole ``19000-19079`` range
 is published by ``hmd_proxy`` up front — a compose ``ports:`` list is static —
