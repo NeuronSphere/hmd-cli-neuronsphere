@@ -1,6 +1,15 @@
 Python CLI compatibility
 ========================
 
+.. warning::
+
+   The Python ``hmd neuronsphere`` CLI is **deprecated and no longer
+   supported**. This repository no longer builds or publishes the
+   ``hmd_cli_neuronsphere`` package, and a release ships ``nsctl`` alone.
+   Read this page as a migration guide: what the two front ends share is
+   what lets an environment created by the old one be adopted by ``nsctl``,
+   not an invitation to keep using it.
+
 ``nsctl`` and ``hmd neuronsphere`` address the same local platform state.
 This lets an existing Python workflow use nsctl's environment operations
 without first creating a different home. It does not make the two command

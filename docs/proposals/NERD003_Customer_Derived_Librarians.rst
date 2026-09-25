@@ -36,9 +36,10 @@ NERD003 Customer-Derived Librarians on Local NeuronSphere
        NERD002 SPEC005, and a repo now declares itself to ``nsctl`` in its
        BACON ``meta-data/manifest.json`` and ``meta-data/resources/*.yaml``
        alone. Read every ``nsplugin.json`` below as naming the declaration a
-       RepoClass already carries. The file is still read by the legacy Python
-       ``hmd neuronsphere`` CLI, which is the entrypoint this proposal was
-       written against.
+       RepoClass already carries, and every ``hmd neuronsphere up`` as naming
+       ``nsctl``: the Python entrypoint this proposal was written against is
+       deprecated and no longer supported, so the requirement now has to be
+       met on the ``nsctl`` path or not at all.
 
 Motivation
 ----------

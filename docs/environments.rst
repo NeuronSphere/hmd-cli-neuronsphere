@@ -149,6 +149,13 @@ renamed; a repo's BOM entry reads the same in every environment.
 Commands
 --------
 
+.. warning::
+
+   Every command in this section belongs to the Python ``hmd neuronsphere``
+   CLI, which is **deprecated and no longer supported**. The ``nsctl``
+   equivalents are in :doc:`reference/commands`; ``nsctl env start`` replaces
+   ``hmd neuronsphere up``.
+
 .. code-block:: bash
 
     hmd neuronsphere up                     # control plane + the default env

@@ -27,9 +27,9 @@ NERD001 Floci-Based Local NeuronSphere Architecture
        BACON ``meta-data/manifest.json`` and its ``meta-data/resources/*.yaml``,
        and ``internal/repoclass`` reads exactly those; an extension runs
        because a manifest names it and for no other reason
-       (NERD009). The ``nsplugin.json`` format
-       itself survives only in the legacy Python ``hmd neuronsphere`` CLI,
-       which still loads and validates it.
+       (NERD009). The ``nsplugin.json`` format is read by nothing that is
+       still supported: the Python ``hmd neuronsphere`` CLI that loaded it is
+       itself deprecated and no longer supported.
 
        Extend mode is also the default now, not Platform mode. The text is
        kept as written as the record of what was proposed.

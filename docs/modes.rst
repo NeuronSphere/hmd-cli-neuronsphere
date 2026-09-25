@@ -1,6 +1,14 @@
 Operating Modes
 ===============
 
+.. warning::
+
+   Both modes on this page belong to the Python ``hmd neuronsphere`` CLI,
+   which is **deprecated and no longer supported**. For current work see
+   :doc:`reference/commands` -- ``nsctl env start`` and the environment
+   substrate it brings up. This page is kept for reading an environment the
+   old entrypoint created.
+
 ``hmd neuronsphere up`` supports two operating modes, controlled by the
 ``HMD_LOCAL_NEURONSPHERE_MODE`` environment variable. Both modes use the same
 ``nsplugin.json`` plugin definitions and the same CLI entrypoint.

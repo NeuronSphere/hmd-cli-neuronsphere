@@ -108,7 +108,7 @@ executables that add a top-level noun. See
 
 The hosted documentation is published at https://neuronsphere.github.io/hmd-cli-neuronsphere/. Start with the [first-environment tutorial](docs/tutorials/first-environment.rst), then see the [repository-adoption tutorial](docs/tutorials/adopt-repository.rst), [how-to guides](docs/how-to/), and generated [command reference](docs/reference/commands.rst).
 
-The Python `hmd neuronsphere` CLI shares the local registry and manifests. It remains supported for plugin-driven workflows; see the compatibility explanation in the hosted documentation. Design proposals remain available under [`docs/proposals/`](docs/proposals/) but are not the new-user path.
+The Python `hmd neuronsphere` CLI is **deprecated and no longer supported**. This repository no longer builds or publishes the `hmd_cli_neuronsphere` package; releases ship the `nsctl` binary alone. It still shares the local registry and manifest formats, so an environment it created can be addressed by `nsctl` -- see the [compatibility explanation](docs/explanation/python-compatibility.rst), which is now a migration guide rather than a description of two supported front ends. Design proposals remain available under [`docs/proposals/`](docs/proposals/) but are not the new-user path.
 
 ## Development
 

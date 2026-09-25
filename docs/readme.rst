@@ -32,7 +32,7 @@ services so they resolve automatically inside the
 so it neither requires an ``/etc/hosts`` entry nor refuses to start without one
 (``NERD025`` SPEC003).
 
-The legacy Python path does still want them. ``hmd build`` and
+The deprecated Python path does still want them. ``hmd build`` and
 ``push-artifact`` follow the presigned S3/API URLs those services return, and
 they resolve the hostname through a different client that has no such
 redirect. Either of these covers it, once::
@@ -55,6 +55,13 @@ Required Environment Variables:
 
 Commands
 ---------------------------------
+
+.. warning::
+
+   The ``hmd neuronsphere`` commands below, and the all-compose service set
+   they start, are **deprecated and no longer supported**. Start a local
+   platform with ``nsctl env start`` instead; see
+   :doc:`tutorials/first-environment` and :doc:`reference/commands`.
 
 - `hmd neuronsphere up`: starts all enabled services in the Local NeuronSphere. On a
   restart it re-syncs the bootstrapped core Resources (idempotently) so newly-defined
