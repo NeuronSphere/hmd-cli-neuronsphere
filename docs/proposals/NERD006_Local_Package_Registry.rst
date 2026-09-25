@@ -30,6 +30,16 @@ NERD006 A Local Package Registry
     **No credential shall ever be written under** ``$HMD_HOME``. Upstream
     credentials live in the host keychain and nowhere else.
 
+.. note::
+
+    **The suffix moved.** Every ``registry.local.neuronsphere.io`` in the
+    examples below is ``registry.ns.local`` now -- see
+    :doc:`NERD026_Local_Name_Resolution` SPEC001, which records the measurement
+    that justified it. Nothing else here changes: the index path, the handback
+    and the upstream are what they were, and the whole point of this document --
+    that an index URL is one string read by a browser, a container and a cluster
+    pod alike -- is why it had to move in one piece.
+
 Motivation
 ----------
 

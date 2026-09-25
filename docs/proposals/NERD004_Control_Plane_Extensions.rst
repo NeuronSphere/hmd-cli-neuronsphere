@@ -31,6 +31,14 @@ NERD004 Extending the Control Plane from ``HMD_HOME``
     distributed without a checkout) and ``NERD006`` (the local package
     registry, which is the worked example).
 
+.. note::
+
+    **The suffix moved.** An extension is served under ``ns.local`` now rather
+    than ``local.neuronsphere.io`` -- see :doc:`NERD026_Local_Name_Resolution`
+    SPEC001. The examples below still show the old name; the mechanism is
+    unchanged, and an extension declaring a host outside the covered suffix is
+    still served, but is reported as needing an ``/etc/hosts`` line of its own.
+
 Motivation
 ----------
 
