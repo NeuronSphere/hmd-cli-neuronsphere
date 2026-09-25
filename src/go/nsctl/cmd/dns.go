@@ -14,27 +14,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newDNSCommand gives the host the local names, for the things that cannot be
-// reached by port.
+// newDNSCommand gives the host the local names.
 //
-// Most of what a local NeuronSphere serves is now reached at a port and needs
-// none of this (NERD025). What is left are the names that must be one string
-// from the browser, a sibling container and a cluster pod alike -- the identity
-// provider's issuer, the package registry, control-plane extensions -- and for
-// those a wildcard resolver replaces an /etc/hosts line per name with one
-// arrangement that covers every name, including ones that do not exist yet.
+// Every user interface is reached this way -- NERD025 SPEC001 briefly served
+// them on ports instead and was withdrawn -- along with the names that must be
+// one string from a browser, a sibling container and a cluster pod alike: the
+// identity provider's issuer, the package registry, control-plane extensions. A
+// wildcard resolver replaces an /etc/hosts line per name with one arrangement
+// that covers every name, including ones that do not exist yet.
 func newDNSCommand(opts *Options) *cobra.Command {
 	dnsCmd := &cobra.Command{
 		Use:   "dns",
 		Short: "Resolve the local NeuronSphere host names on this machine",
 		Long: `Make *.` + dnsd.DefaultSuffix + ` resolve on this machine.
 
-Local NeuronSphere serves its user interfaces on published ports, which need no
-name resolution at all. A few things cannot work that way: an OIDC issuer, a
-package index URL and a control-plane extension's URL are each read by a
-browser, by a container and by a cluster pod, and have to be the same string in
-all three -- which http://localhost:<port> can never be, because inside a pod
-localhost is the pod.
+This is how a local platform is reached by name: a user interface at
+<instance>.` + dnsd.DefaultSuffix + `, the identity provider's issuer, the
+package index, a control-plane extension. Starting a platform and deploying to
+it need none of it -- nsctl dials Floci's own hostnames on loopback itself -- so
+nothing here is required until you want to open something.
+
+Some of these could never have been a port. An OIDC issuer, a package index URL
+and an extension's URL are each read by a browser, by a container and by a
+cluster pod, and have to be the same string in all three -- which
+http://localhost:<port> can never be, because inside a pod localhost is the pod.
 
 Those names used to cost an /etc/hosts line each, forever, because a hosts file
 has no wildcards and so can only name what already exists. A resolver answers

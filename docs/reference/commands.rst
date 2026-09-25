@@ -225,7 +225,7 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--manifest`` — BACON manifest to read (default meta-data/manifest.json)
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
@@ -274,7 +274,7 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
 * ``--spec`` — with an OCI reference, choose the version by a BACON version spec
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
@@ -355,7 +355,7 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — repo class, overriding the one in the artifact
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
 * ``--repo`` — repo whose meta-data names the build to look for (default: ``.``)
@@ -395,7 +395,7 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
@@ -661,7 +661,7 @@ Local flags
 * ``--include-failed`` — Include instances whose last deployment FAILED
 * ``--instance`` — An instance to take, by name. Repeatable (default: ``[]``)
 * ``--librarian-url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--no-deps`` — Take the selection literally, without what fills its roles
 * ``--no-pull`` — Declare without fetching, naming the pulls to run
 * ``--no-stub-roles`` — Refuse a required role nothing local fills, rather than binding it to the core instance
@@ -725,7 +725,7 @@ Local flags
 * ``--instance`` — An instance to take, by name. Repeatable (default: ``[]``)
 * ``--json`` — Print the BOM as the service returned it
 * ``--librarian-url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--no-deps`` — Take the selection literally, without what fills its roles
 * ``--no-stub-roles`` — Refuse a required role nothing local fills, rather than binding it to the core instance
 * ``--profile`` — profile in nsctl.toml whose endpoints to use
@@ -999,6 +999,85 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl dns
+---------
+
+Make *.ns.local resolve on this machine.
+
+This is how a local platform is reached by name: a user interface at
+<instance>.ns.local, the identity provider's issuer, the
+package index, a control-plane extension. Starting a platform and deploying to
+it need none of it -- nsctl dials Floci's own hostnames on loopback itself -- so
+nothing here is required until you want to open something.
+
+Some of these could never have been a port. An OIDC issuer, a package index URL
+and an extension's URL are each read by a browser, by a container and by a
+cluster pod, and have to be the same string in all three -- which
+http://localhost:<port> can never be, because inside a pod localhost is the pod.
+
+Those names used to cost an /etc/hosts line each, forever, because a hosts file
+has no wildcards and so can only name what already exists. A resolver answers
+the whole suffix at once, offline, with no public DNS zone involved.
+
+nsctl prints the one privileged step rather than running it.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl dns
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl dns install
+-----------------
+
+Print the one step that points this machine at the local resolver
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl dns install [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--port`` — Port the local resolver listens on (default: this home's) (default: ``0``)
+* ``--suffix`` — DNS suffix to resolve locally (default: ``ns.local``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl dns status
+----------------
+
+Report whether the local host names resolve
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl dns status [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--suffix`` — DNS suffix to check (default: ``ns.local``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl doctor
 ------------
 
@@ -1091,7 +1170,7 @@ Local flags
 * ``--default`` — Make this the default environment
 * ``--from-repo`` — Build the environment from the repository at this path
 * ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--no-pull`` — Do not fetch the artifacts the declaration names
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -1149,7 +1228,7 @@ Local flags
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
 * ``--from-repo`` — Build the environment from the repository at this path
 * ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
 * ``--prune`` — Undeclare instances this repository no longer asks for. Does not tear them down
@@ -3008,7 +3087,7 @@ Local flags
 * ``--apply`` — Run `nsctl env apply` afterwards
 * ``--env`` — Environment to declare it in (default: the default environment)
 * ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
 * ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 0.1")
@@ -3164,7 +3243,7 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
-* ``--local-url`` — the control plane's Artifact Librarian (default: ``http://localhost/hmd_ms_artifact_lib/``)
+* ``--local-url`` — the control plane's Artifact Librarian
 * ``--spec`` — a BACON version spec to choose the version by
 
 Inherited flags
