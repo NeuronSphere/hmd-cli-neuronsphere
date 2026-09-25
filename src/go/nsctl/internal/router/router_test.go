@@ -423,6 +423,27 @@ func TestReloadValidatesBeforeReloading(t *testing.T) {
 	}
 }
 
+// A container that is not there is not a broken config. The daemon's own words
+// were buried under "the nginx configuration is invalid", which sent the first
+// people to hit it to a file that was fine.
+func TestReloadSaysSoWhenTheContainerIsNotThere(t *testing.T) {
+	t.Parallel()
+
+	r := New("", fakeEnv(nil))
+	err := r.Reload(context.Background(), func(_ context.Context, name string, _ ...string) ([]byte, error) {
+		return []byte("Error response from daemon: No such container: " + name), errors.New("exit status 1")
+	})
+	if err == nil {
+		t.Fatal("a missing container reloaded cleanly")
+	}
+	if !strings.Contains(err.Error(), "hmd_proxy") {
+		t.Errorf("the message does not name the container: %v", err)
+	}
+	if strings.Contains(err.Error(), "configuration is invalid") {
+		t.Errorf("a missing container was reported as a broken config: %v", err)
+	}
+}
+
 func TestReloadStopsWhenTheConfigIsInvalid(t *testing.T) {
 	t.Parallel()
 

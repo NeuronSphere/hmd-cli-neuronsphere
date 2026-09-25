@@ -2,6 +2,38 @@
 
 ## 2026-09-25
 
+- fix: a Floci left holding a deleted data directory is found and recreated.
+  Deleting `HMD_HOME` is what a stuck user reaches for, and it is the one
+  recovery that makes things worse: the containers are named globally and keyed
+  on the home's *path*, so they keep running, and a bind mount is resolved once
+  at container creation, so Floci keeps writing into the directory that was
+  unlinked. The reconciler then leaves it alone -- correctly, since deleting a
+  directory changes no configuration -- and the damage surfaces later and
+  elsewhere. A start now stamps the data directory with a token no container
+  can already hold and asks a Floci it did not just create whether it can read
+  it back; a definite mismatch recreates the container through
+  `compose.Recreate`, which forces one service through the create path that
+  `Up`'s hash comparison cannot reach. The probe exits 0 by itself and carries
+  its answer in its output, because a deleted-and-remade directory leaves the
+  container reading no file at all -- and a bare `cat` would have made that
+  indistinguishable from an unreachable container, which is the one confusion
+  that would have refused to repair the case this exists for. A probe that
+  cannot run changes nothing: recreating a working Floci costs the databases it
+  spawned. Specified as NERD001 SPEC014.
+
+- fix: an environment's router is reloaded under the name it was created with.
+  NERD027 gave each environment a router container of its own and its
+  acceptance run scoped that container's name to the home it belongs to,
+  `hmd_router-<slug>-<hash>`. The rename reached `registry.RouterContainerName`
+  -- which creates, removes, stops and reports it -- and missed a second
+  derivation in `internal/router` that the reload path used, so every
+  `nsctl env start` exec'd `nginx -t` into `hmd_router-<slug>`, a container
+  nothing creates. The first thing a new user saw was a warning blaming their
+  configuration for the daemon's "No such container". The name now has one
+  producer and the reload is a consumer of it. A reload that really does find
+  no container now says that instead of accusing the config, which is a state
+  an environment with no cluster is legitimately in.
+
 - fix: a start proves Floci's object storage instead of assuming it. A Floci
   that answers is not a Floci that works: its state is held in memory and
   flushed to the directory bound at `/app/data`, so when that directory stops

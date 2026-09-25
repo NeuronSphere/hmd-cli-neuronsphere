@@ -407,6 +407,15 @@ func Start(ctx context.Context, opts *Options) error {
 		}
 	}
 
+	// Stamped before anything starts, so a container created below sees it and
+	// a container that is already running can be asked whether it still does.
+	// A failure to write is not a failure to start: it costs the check, not
+	// the platform.
+	dataToken, err := floci.WriteSentinel(reg.ControlPlane.FlociDataDir)
+	if err != nil {
+		opts.warn("%v", err)
+	}
+
 	// Before Floci starts, so it cannot rehydrate the ghosts.
 	if pruned := floci.PruneAPIGatewayGhosts(reg.ControlPlane.FlociDataDir); pruned > 0 {
 		opts.step("  pruned %d unusable API Gateway record(s)", pruned)
@@ -580,6 +589,10 @@ func Start(ctx context.Context, opts *Options) error {
 		if res.Action != compose.ActionSkipped {
 			opts.step("  %s %s", res.Name, res.Action)
 		}
+	}
+
+	if results, err = repairStaleFlociDataDir(ctx, opts, runner, project, results, reg, dataToken); err != nil {
+		return err
 	}
 
 	// Before waiting on Floci, because the wait goes *through* the proxy.

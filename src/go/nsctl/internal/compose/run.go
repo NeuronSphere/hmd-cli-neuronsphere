@@ -272,20 +272,8 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 			return res, nil
 		}
 		// Configuration changed, so the container has to go.
-		//
-		// Recreating Floci is not free: it spawns and supervises the RDS and
-		// Neptune containers backing every account, and its recovery of them on
-		// restart is not reliable -- an instance whose container it cannot
-		// bring back is left reporting `failed`, with a redeploy the only way
-		// out. Observed on the first nsctl start against a platform the Python
-		// CLI created, where no nsctl hash label existed and every container
-		// was therefore recreated. Say so before doing it rather than leaving
-		// the consequence to be discovered as a service answering 500.
-		if s.Key == FlociService {
-			r.warn("recreating %s. Floci's recovery of the databases it spawned is not reliable; if one comes back in state \"failed\", redeploy it with `hmd neuronsphere up --env <name>`.", name)
-		}
-		if err := r.API.ContainerRemove(ctx, existing.ID, container.RemoveOptions{Force: true}); err != nil {
-			return res, fmt.Errorf("removing the outdated container: %w", err)
+		if err := r.removeForRecreate(ctx, s, name, existing.ID); err != nil {
+			return res, err
 		}
 		res.Action = ActionRecreated
 	case client.IsErrNotFound(err):
@@ -294,12 +282,80 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 		return res, fmt.Errorf("inspecting %s: %w", name, err)
 	}
 
-	if err := r.EnsureImage(ctx, s.Image); err != nil {
+	if err := r.createService(ctx, p, s, name, want); err != nil {
 		return res, err
+	}
+	return res, nil
+}
+
+// removeForRecreate takes a container away so the create path can run.
+//
+// Recreating Floci is not free: it spawns and supervises the RDS and Neptune
+// containers backing every account, and its recovery of them on restart is not
+// reliable -- an instance whose container it cannot bring back is left
+// reporting `failed`, with a redeploy the only way out. Observed on the first
+// nsctl start against a platform the Python CLI created, where no nsctl hash
+// label existed and every container was therefore recreated. Say so before
+// doing it rather than leaving the consequence to be discovered as a service
+// answering 500.
+//
+// Shared by both callers on purpose. Recreate below is the one path that
+// removes Floci deliberately, and it is exactly the path that must not be the
+// one that stops warning about it.
+func (r *Runner) removeForRecreate(ctx context.Context, s Service, name, id string) error {
+	if s.Key == FlociService {
+		r.warn("recreating %s. Floci's recovery of the databases it spawned is not reliable; if one comes back in state \"failed\", redeploy it with `hmd neuronsphere up --env <name>`.", name)
+	}
+	if err := r.API.ContainerRemove(ctx, id, container.RemoveOptions{Force: true}); err != nil {
+		return fmt.Errorf("removing the outdated container: %w", err)
+	}
+	return nil
+}
+
+// Recreate forces one service through the create path, whatever state its
+// container is in.
+//
+// Up cannot do this: it reconciles on a configuration hash, and the failures
+// this exists for change no configuration. A data directory deleted out from
+// under a running Floci leaves the hash identical and the container useless
+// (NERD001 SPEC014), and the only way back is a container that resolves its
+// binds again.
+//
+// A service with no container is created rather than treated as an error --
+// the caller wants it running, and how it got there is not their question.
+func (r *Runner) Recreate(ctx context.Context, p *Project, key string) (Result, error) {
+	for _, s := range p.Services {
+		if s.Key != key {
+			continue
+		}
+		name := s.Name(p.Name)
+		res := Result{Service: s.Key, Name: name, Action: ActionRecreated}
+		switch existing, err := r.API.ContainerInspect(ctx, name); {
+		case err == nil:
+			if err := r.removeForRecreate(ctx, s, name, existing.ID); err != nil {
+				return res, err
+			}
+		case client.IsErrNotFound(err):
+			res.Action = ActionCreated
+		default:
+			return res, fmt.Errorf("inspecting %s: %w", name, err)
+		}
+		if err := r.createService(ctx, p, s, name, configHash(p, s)); err != nil {
+			return res, err
+		}
+		return res, nil
+	}
+	return Result{Service: key}, fmt.Errorf("%s has no service named %q", p.Name, key)
+}
+
+// createService pulls the image, creates the container and starts it.
+func (r *Runner) createService(ctx context.Context, p *Project, s Service, name, want string) error {
+	if err := r.EnsureImage(ctx, s.Image); err != nil {
+		return err
 	}
 	cfg, hostCfg, netCfg, err := containerSpec(p, s, want)
 	if err != nil {
-		return res, err
+		return err
 	}
 	created, err := r.API.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, name)
 	if err != nil {
@@ -309,17 +365,17 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 		// the two, or an engine binding differently than expected -- say what
 		// happened in the same terms the probe would have.
 		if port, ok := BindFailure(err); ok {
-			return res, fmt.Errorf(
+			return fmt.Errorf(
 				"creating %s: host port %d is already in use by something outside the local "+
 					"NeuronSphere, so the engine could not publish it. Free that port, or move "+
 					"the platform's -- `nsctl doctor` lists them: %w", name, port, err)
 		}
-		return res, fmt.Errorf("creating %s: %w", name, err)
+		return fmt.Errorf("creating %s: %w", name, err)
 	}
 	if err := r.API.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		return res, fmt.Errorf("starting %s: %w", name, err)
+		return fmt.Errorf("starting %s: %w", name, err)
 	}
-	return res, nil
+	return nil
 }
 
 // Stop stops the project's containers without removing them, so the next start

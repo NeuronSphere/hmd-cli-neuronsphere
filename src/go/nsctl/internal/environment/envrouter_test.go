@@ -193,4 +193,59 @@ func contains(haystack, needle string) bool {
 	})()
 }
 
-var _ = router.EnvRouterContainer
+// nameFlag is the value the run command gave --name.
+func nameFlag(args []string) string {
+	for i, a := range args {
+		if a == "--name" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// The name the reload exec's into is the name the engine was told to create.
+//
+// It was derived in two places and they drifted: the home-scoping NERD027's
+// acceptance run added reached registry.RouterContainerName and not
+// internal/router, so every `nsctl env start` exec'd `nginx -t` into
+// `hmd_router-<slug>`, which nothing creates, and reported the daemon's "No
+// such container" under the headline "the nginx configuration is invalid".
+// Nothing was ever reloaded.
+func TestTheRouterIsReloadedUnderTheNameItWasCreatedWith(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	// Built the way a loaded registry builds it -- the field is json:"-" and is
+	// backfilled from the home and the slug on every read.
+	env := &registry.Environment{Slug: "dev2", Name: "dev2", PortSlot: 1, PortBase: 19000,
+		RouterContainer: registry.RouterContainerName(home, "dev2")}
+
+	d := &fakeRouterDocker{}
+	if err := ensureEnvRouter(context.Background(), d, home, "net", "proj", env, true, false); err != nil {
+		t.Fatalf("ensureEnvRouter: %v", err)
+	}
+	created := nameFlag(d.runArgs)
+	if created == "" {
+		t.Fatalf("the router was not created: %v", d.runArgs)
+	}
+	if created == "hmd_router-"+env.Slug {
+		t.Errorf("the router container is not scoped to its home: %q", created)
+	}
+
+	var execed []string
+	exec := func(_ context.Context, container string, _ ...string) ([]byte, error) {
+		execed = append(execed, container)
+		return nil, nil
+	}
+	if err := router.NewEnv(home, env.Slug, nil).Reload(context.Background(), exec); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if len(execed) == 0 {
+		t.Fatal("the reload exec'd nothing")
+	}
+	for _, got := range execed {
+		if got != created {
+			t.Errorf("the reload exec'd into %q, but the container created is %q", got, created)
+		}
+	}
+}

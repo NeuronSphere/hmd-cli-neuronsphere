@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
 
 func testEnv() Env {
@@ -342,8 +344,14 @@ func TestAnEnvironmentRouterHasItsOwnRootAndContainer(t *testing.T) {
 	if env.CacheDir() == cp.CacheDir() {
 		t.Errorf("the environment router shares the control plane's config root: %s", env.CacheDir())
 	}
-	if got, want := env.ProxyContainerName(), "hmd_router-dev2"; got != want {
+	// The registry's name, not a second derivation of it: it is what creates,
+	// removes and reports that container, and the reload has to exec into the
+	// one that exists.
+	if got, want := env.ProxyContainerName(), registry.RouterContainerName(home, "dev2"); got != want {
 		t.Errorf("container = %q, want %q", got, want)
+	}
+	if env.ProxyContainerName() == "hmd_router-dev2" {
+		t.Error("the environment router's name is not scoped to its home")
 	}
 	if cp.ProxyContainerName() != ProxyContainer {
 		t.Errorf("the control plane's own container name changed: %q", cp.ProxyContainerName())

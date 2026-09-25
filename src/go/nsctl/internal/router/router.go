@@ -29,6 +29,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
 
 // NSDir is where the fragment directory is mounted inside hmd_proxy.
@@ -120,9 +122,6 @@ func NewEnv(home, slug string, lookup Lookup) *Router {
 	return r
 }
 
-// EnvRouterContainer is the container name for an environment's router.
-func EnvRouterContainer(slug string) string { return "hmd_router-" + slug }
-
 // CacheDir is the directory bind-mounted into this router's container:
 // $HMD_HOME/.cache/nginx for the control plane's, and a sibling per environment.
 func (r *Router) CacheDir() string {
@@ -156,9 +155,15 @@ func (r *Router) sigV4Region() string {
 }
 
 // ProxyContainerName is the nginx container to exec into.
+//
+// An environment's is asked of the registry rather than assembled here. It is
+// the same string the registry creates, removes, stops and reports that
+// container under, and a second derivation is how it went wrong before: the
+// home-scoping NERD027's acceptance run added reached the registry's copy and
+// not this one, so every reload exec'd into a container nothing creates.
 func (r *Router) ProxyContainerName() string {
 	if r.Slug != "" {
-		return EnvRouterContainer(r.Slug)
+		return registry.RouterContainerName(r.Home, r.Slug)
 	}
 	if v := r.Lookup("HMD_LOCAL_PROXY_CONTAINER"); v != "" {
 		return v
@@ -688,6 +693,10 @@ func StreamVarName(parts ...string) string {
 // Execer runs a command inside a container and returns its combined output.
 type Execer func(ctx context.Context, container string, args ...string) ([]byte, error)
 
+// noSuchContainer is what the daemon says when the name does not exist. The
+// same phrase internal/container keys "already gone" off.
+const noSuchContainer = "No such container"
+
 // Reload validates the config and then reloads nginx.
 //
 // `nginx -t` runs first because a reload with a bad config leaves the
@@ -700,6 +709,13 @@ type Execer func(ctx context.Context, container string, args ...string) ([]byte,
 func (r *Router) Reload(ctx context.Context, exec Execer) error {
 	name := r.ProxyContainerName()
 	if out, err := exec(ctx, name, "nginx", "-t"); err != nil {
+		// An absent container fails `nginx -t` the same way a broken config
+		// does, and blaming the config sends a reader to a file that is fine.
+		// It is also a legitimate state: an environment with no cluster
+		// publishes no ports, so it has no router at all.
+		if strings.Contains(string(out), noSuchContainer) {
+			return fmt.Errorf("the router container %s is not there, so nothing was reloaded", name)
+		}
 		return fmt.Errorf("the nginx configuration is invalid, so it was not reloaded: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
 	if out, err := exec(ctx, name, "nginx", "-s", "reload"); err != nil {
