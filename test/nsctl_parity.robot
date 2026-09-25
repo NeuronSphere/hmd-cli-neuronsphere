@@ -346,3 +346,51 @@ Both Front Ends Refuse The Same Bad Slug
     Should Not Be Equal As Integers    ${theirs.rc}    0
 
     Registry Should Not List    ${BAD SLUG}
+
+The Proxy Publishes Only What Is Always There
+    [Documentation]    NERD027 SPEC001. hmd_proxy published 84 host ports, of
+    ...                which 47 could never carry a listener. It publishes four
+    ...                now -- the HTTP port, the Floci stream, the Deployment
+    ...                GUI and the resolver -- each alive for as long as the
+    ...                control plane is, so none of them ever needs adding to a
+    ...                running container.
+    ...
+    ...                Asked of Docker rather than of either CLI, because the
+    ...                binding is the fact under test.
+    ${ports}=    Run Process    docker    port    hmd_proxy    stderr=STDOUT
+    Should Be Equal As Integers    ${ports.rc}    0
+    ${lines}=    Get Lines Matching Regexp    ${ports.stdout}    .*->.*
+    ${count}=    Get Line Count    ${lines}
+    # Three TCP ports are published on both stacks, the resolver's UDP listener
+    # on loopback only: seven bindings for four ports.
+    Should Be True    ${count} <= 8    msg=hmd_proxy publishes ${count} bindings; the band is meant to be gone:\n${ports.stdout}
+    Should Contain    ${ports.stdout}    19153/udp
+    # The GUI must be named explicitly. It used to be bound only because 19003
+    # fell inside the band, so nothing else would notice it disappearing.
+    Should Contain    ${ports.stdout}    19003
+
+An Environment Publishes Its Own Ports And Only Those
+    [Documentation]    NERD027 SPEC002. The environment's router carries its k3s
+    ...                API and, where a coordinator was found, its Trino -- and
+    ...                nothing that belongs to any other environment.
+    ${name}=    Set Variable    hmd_router-${ENV}
+    ${ps}=      Run Process    docker    ps    --filter    name\=${name}    --format    {{.Names}}    stderr=STDOUT
+    Should Contain    ${ps.stdout}    ${name}    msg=the environment has no router container
+    ${first}=    Get Line    ${ps.stdout}    0
+    ${ports}=    Run Process    docker    port    ${first.strip()}    stderr=STDOUT
+    Should Be Equal As Integers    ${ports.rc}    0
+    Should Not Be Empty    ${ports.stdout}    msg=the router publishes nothing at all
+    # The k3s API is what its kubeconfig points at, so it is always there while
+    # the cluster is.
+    Should Match Regexp    ${ports.stdout}    19\\d{3}
+
+Recreating An Environment Router Leaves The Proxy Alone
+    [Documentation]    NERD027 SPEC002's whole reason. A port set changing must
+    ...                not touch hmd_proxy, because every service route passes
+    ...                through it -- including the route an in-flight deploy is
+    ...                using to reach ms-deployment.
+    ${before}=    Run Process    docker    inspect    -f    {{.Id}}    hmd_proxy    stderr=STDOUT
+    Rebuild The Environment    ${ENV}
+    ${after}=     Run Process    docker    inspect    -f    {{.Id}}    hmd_proxy    stderr=STDOUT
+    Should Be Equal    ${before.stdout.strip()}    ${after.stdout.strip()}
+    ...    msg=hmd_proxy was recreated by an environment start; a deploy in flight would have been cut
