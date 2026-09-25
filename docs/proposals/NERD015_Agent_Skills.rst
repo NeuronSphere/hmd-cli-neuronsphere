@@ -5,7 +5,7 @@ NERD015 Agent Skills
 
 .. req:: Ship installable agent guidance with the local CLI
     :id: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall bundle a small set of versioned, task-focused Agent Skills
     that teach an AI coding agent how to operate the local NeuronSphere through
@@ -61,7 +61,7 @@ Scope and terminology
 .. spec:: Bundled skills and their boundaries
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     The initial release shall bundle these named skills:
 
@@ -124,7 +124,7 @@ Scope and terminology
 .. spec:: List and inspect bundled skills
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     ``nsctl agent skills list`` shall list the bundled skill name, a one-line
     description and its installed state for each selected host and scope.  It
@@ -141,7 +141,7 @@ Scope and terminology
 .. spec:: Install and remove selected skills
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     The command grammar shall be:
 
@@ -184,7 +184,7 @@ Scope and terminology
 .. spec:: Host locations and project ownership
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     The installer shall use these paths, where ``<skill>`` is the bundled skill
     name:
@@ -212,7 +212,7 @@ Scope and terminology
 .. spec:: Diagnose, do not overreach
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     ``doctor`` shall report whether the requested target locations are usable,
     whether each installed skill has the expected entry point and ownership
@@ -231,7 +231,7 @@ Scope and terminology
 .. spec:: State the local/cloud credential boundary where an agent will read it
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     The bundled skills shall say plainly that local operation needs no
     credential: a container engine and ``HMD_HOME`` are the only

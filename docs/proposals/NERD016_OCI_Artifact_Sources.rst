@@ -5,7 +5,7 @@ NERD016 OCI Artifact Sources
 
 .. req:: Fetch and publish versioned artifacts through any OCI registry
     :id: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall be able to **fetch a versioned artifact from, and publish
     one to, any registry that speaks the OCI Distribution API** -- anonymously
@@ -84,7 +84,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Source reference grammar
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     A source reference is:
 
@@ -123,7 +123,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Anonymous and authenticated pull are one code path
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     Every request is first made with whatever the resolved credential is --
     which, for a free user, is nothing. On ``401`` the client parses the
@@ -150,7 +150,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Retrieval verifies every byte before a consumer sees it
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     A manifest is requested with ``Accept`` naming the OCI image manifest and
     OCI image index media types. An index is refused with a message saying a
@@ -180,7 +180,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Version enumeration is the registry's tag list
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     ``GET /v2/<name>/tags/list`` is followed through ``Link`` pagination until
     exhausted. Tags that are not versions under ``versionspec.IsVersion`` are
@@ -204,7 +204,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Push
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     Publishing is the reverse of SPEC003 and is kept in ``nsctl`` so that a
     publisher's CI needs no second tool. For each blob: ``HEAD`` the digest and
@@ -226,7 +226,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: Credential resolution, and the never-guess rule
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     A credential for host ``H`` is resolved in this order, and the first hit
     wins; its origin is kept as ``Source`` and printed on the fetch line the
@@ -257,7 +257,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: The offline guarantee is enforced by imports
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     ``internal/oci`` is imported only by consumer packages and by the verbs
     that fetch. It is never imported by ``internal/repoclass``,
@@ -296,7 +296,7 @@ helper protocol, and any registry-side listing beyond ``tags/list``.
 .. spec:: A RepoClass build zip is itself an artifact, and a lock entry may name it
     :id: HMD_CLI_NEURONSPHERE_NERD016_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD016
-    :status: proposed
+    :status: implemented
 
     **Amended 2026-09-21** by ``NERD019``: a third party building a stack in
     CI has companions of their own and no librarian to hold them.

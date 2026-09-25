@@ -5,7 +5,7 @@ NERD019 Stack Authoring in CI
 
 .. req:: Author, build and publish a stack from checked-in files, in CI, with no tenant and no running platform
     :id: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     A stack (``NERD017``) shall be **built and published by a plain CI
     workflow** -- GitHub Actions with the repository's own ``GITHUB_TOKEN``
@@ -70,7 +70,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: nsctl stack build writes an OCI image layout
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -93,7 +93,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: Where a pinned zip comes from
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     **Amended 2026-09-21.** Every tier hands over bytes that are published
     whole and annotated from the manifest inside them (``NERD017``
@@ -123,7 +123,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: nsctl stack push publishes a layout, and --bump chooses the version
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -148,7 +148,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: nsctl stack init scaffolds, and derives from an environment or a BOM
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -211,7 +211,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: nsctl lock --resolve pins ranges from what is published
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     ``NERD010`` SPEC003's third tier, deliberately left to ``NERD011`` and
     never wired: ``nsctl lock --resolve`` enumerates each ranged want's
@@ -225,7 +225,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: repoclass validate knows a stack
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     On a manifest with a ``local`` section that names companions,
     ``validate`` additionally runs ``lock --check`` (every want pinned, no
@@ -236,7 +236,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: The reference workflow and the setup action
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     ``stack init`` writes ``.github/workflows/stack.yml`` with three jobs:
 
@@ -264,7 +264,7 @@ the one manual, one-time act, and the workflow says so).
 .. spec:: nsctl repoclass local authors the section by hand
     :id: HMD_CLI_NEURONSPHERE_NERD019_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD019
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 

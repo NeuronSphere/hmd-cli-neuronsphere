@@ -5,7 +5,7 @@ NERD017 Stacks
 
 .. req:: Install a published set of RepoClasses into a local environment with one command
     :id: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     A **stack** is a RepoClass whose repository carries a ``local`` section
     (``NERD010`` SPEC001) and a checked-in ``neuronsphere.lock``, published as
@@ -84,7 +84,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: What a stack is
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     A stack repository is an ordinary RepoClass repository with three
     properties: a ``local`` section in ``meta-data/manifest.json`` (or
@@ -153,7 +153,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: The stack artifact
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     **Amended 2026-09-21.** Each layer also carries
     ``org.opencontainers.image.licenses`` when the class's manifest declares
@@ -201,7 +201,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: nsctl stack add
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -248,7 +248,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: nsctl stack list and stack remove
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     ``stack list [--env]`` prints each stack record: name, version, reference,
     manifest digest, and the instances it bound. It reads the manifest and
@@ -265,7 +265,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: nsctl stack versions and stack pull
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     ``stack versions <ref> [--spec "~= 0.1"] [--offline]`` lists the
     published versions (``NERD016`` SPEC004) and, with ``--spec``, the one
@@ -281,7 +281,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: nsctl stack push
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -309,7 +309,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: The lock gains a digest
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     Each ``[[resolved]]`` entry may carry ``digest = "sha256:<hex>"``, the
     digest of the build zip the ``content_path`` names. The schema version
@@ -328,7 +328,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: Coexistence with the existing resolution tiers
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     A stack changes nothing about how a class resolves. A working tree under
     ``HMD_REPO_HOME`` still pre-empts a cached artifact and is still reported
@@ -355,7 +355,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: The stack record in the environment manifest
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     .. code-block:: yaml
 
@@ -381,7 +381,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: Composition: reuse if present, provide if absent
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC010
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     **Amended 2026-09-21.** A stack is a slice of an environment, never a
     whole one, and slices overlap: observability's S3 sink and the
@@ -416,7 +416,7 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
 .. spec:: Declared licence
     :id: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
     :links: HMD_CLI_NEURONSPHERE_NERD017
-    :status: proposed
+    :status: implemented
 
     Anyone may declare and build a stack under whatever licence they
     choose, and ``nsctl`` records the declaration and enforces nothing. The

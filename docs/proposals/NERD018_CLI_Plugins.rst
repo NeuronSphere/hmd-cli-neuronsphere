@@ -5,7 +5,7 @@ NERD018 CLI Plugins
 
 .. req:: Run a declared executable as one new top-level noun
     :id: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     ``nsctl`` shall run an out-of-tree executable as one new top-level noun --
     ``nsctl <name> <args...>`` -- with every argument after the noun passed
@@ -67,7 +67,7 @@ and plugin-to-plugin dependencies.
 .. spec:: Declaration
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     .. code-block:: toml
 
@@ -93,7 +93,7 @@ and plugin-to-plugin dependencies.
 .. spec:: The plugin artifact
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     One OCI image manifest per version:
 
@@ -134,7 +134,7 @@ and plugin-to-plugin dependencies.
 .. spec:: nsctl plugin install, remove, list, update, push
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -171,7 +171,7 @@ and plugin-to-plugin dependencies.
 .. spec:: Dispatch and reservation
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     At startup, ``nsctl`` reads the declarations for the ``HMD_HOME`` it
     resolves -- ``--home`` when it appears before the first non-flag
@@ -202,7 +202,7 @@ and plugin-to-plugin dependencies.
 .. spec:: The exec protocol
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     ``nsctl <noun> <args...>`` runs the binary with:
 
@@ -243,7 +243,7 @@ and plugin-to-plugin dependencies.
 .. spec:: No discovery
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     Nothing enumerates ``PATH``, the cache directory, ``HMD_REPO_HOME`` or a
     plugin directory. A binary that is present but not declared is not a
@@ -255,7 +255,7 @@ and plugin-to-plugin dependencies.
 .. spec:: Help and the generated reference
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD018
-    :status: proposed
+    :status: implemented
 
     ``nsctl --help`` lists attached plugins in their own group with the
     descriptor's ``summary`` (or ``plugin <noun>`` for a ``path`` build).

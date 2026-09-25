@@ -5,7 +5,7 @@ NERD023 First Run Experience
 
 .. req:: Get a newcomer from download to a working environment
     :id: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: partial
 
     ``nsctl`` shall carry a guided first run that establishes what is present,
     creates an environment, and offers to adopt the user's own repository --
@@ -90,7 +90,7 @@ Scope and terminology
 .. spec:: ``quickstart``: one command from download to an environment
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     ``nsctl quickstart`` shall walk an interactive terminal through, in order:
 
@@ -132,7 +132,7 @@ Scope and terminology
 .. spec:: Help that names a first command
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     The root command tree shall be grouped, the way plugin commands already
     are, so that ``nsctl --help`` presents the commands a first run needs
@@ -147,7 +147,7 @@ Scope and terminology
 .. spec:: Report the services an environment has
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     An environment summary and ``env status`` shall report an endpoint only for
     something that is there.
@@ -170,7 +170,7 @@ Scope and terminology
 .. spec:: The ``access`` declaration
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     BACON shall gain a top-level ``access`` array. Each entry names one way in
     to the deployed RepoClass:
@@ -222,7 +222,7 @@ Scope and terminology
 .. spec:: What an access declaration never carries
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     ``validate`` shall **refuse** an entry carrying a literal ``password``, or
     any literal secret value, and say why: a manifest names where a credential
@@ -239,7 +239,7 @@ Scope and terminology
 .. spec:: ``env credentials``: ask for it, and it is yours
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     ``nsctl env credentials [<env>] [--instance <name>] [--reveal] [--json]``
     shall resolve every ``access`` entry of every instance declared in the
@@ -279,7 +279,7 @@ Scope and terminology
 .. spec:: ``detect``, and the adoption skill it unblocks
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     ``nsctl repoclass detect`` shall be implemented as NERD009 SPEC009 and
     SPEC010 already specify it, with no change to that contract. SPEC010's
