@@ -30,6 +30,8 @@ func DoctorOptions(opts *Options) doctor.Options {
 		CLIEndpoint: d.ContextEndpoint,
 		Hosts:       func() error { return CheckHostsEntries(nil) },
 		Suffix:      func() error { return CheckLocalSuffix(context.Background(), opts) },
+		Images:      func(ctx context.Context) []doctor.Check { return ImageChecks(ctx, opts) },
+		Storage:     func(ctx context.Context) []doctor.Check { return StorageChecks(ctx, opts) },
 	}
 }
 
@@ -76,6 +78,12 @@ func doctorOptions(opts *Options) doctor.Options {
 	// because neither is a reason to refuse a start (NERD025 SPEC004).
 	o.Hosts = nil
 	o.Suffix = nil
+	// Gate does not run these either, but say so here rather than depend on
+	// that: both reach the network, and a start that refused because a machine
+	// is offline -- or because the store it is about to create does not exist
+	// yet -- would be wrong about what it measured.
+	o.Images = nil
+	o.Storage = nil
 	return o
 }
 

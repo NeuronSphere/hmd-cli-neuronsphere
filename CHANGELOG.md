@@ -2,6 +2,21 @@
 
 ## 2026-09-25
 
+- feat: `nsctl doctor` asks the registry whether the images the control plane
+  pins exist, and proves Floci's object store. Both failures were previously
+  invisible until something much later fell over: an image reference Floci
+  cannot resolve is not reported as a configuration error -- Floci answers
+  `CreateDBInstance` with a 404, leaves the instance `failed`, and Terraform
+  polls "Still creating..." until someone kills it -- and a Floci whose storage
+  is broken looks entirely healthy until a deploy dies in `tofu init`. A
+  missing tag now names what the repository does publish and which setting to
+  change; a registry that cannot be reached at all only warns, because being
+  offline is not a misconfiguration. Both rows run from `doctor` and never from
+  the start preflight, which must not refuse a start over the network. Since
+  `quickstart` gates on `doctor`, a first run now stops in ten seconds instead
+  of ten minutes. `doctor`'s table also widens its first column to the longest
+  name instead of letting a long one push the other columns out of line.
+
 - fix: `nsctl quickstart` reports a start that did not happen. It printed a
   warning, carried on and returned success, so a script -- and the shell the
   user was watching -- was told the platform came up. The offline steps still

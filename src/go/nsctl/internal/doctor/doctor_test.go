@@ -48,6 +48,18 @@ func find(checks []Check, name string) (Check, bool) {
 	return Check{}, false
 }
 
+// passingOptions is a Gate that succeeds, so a test about what runs after it is
+// not also a test of the engine checks.
+func passingOptions() Options {
+	ep := dockerhost.Endpoint{Host: "unix:///var/run/docker.sock", Source: dockerhost.SourceDefaultSocket}
+	return Options{
+		Docker:   okCLI{},
+		Resolver: fixedResolver(ep),
+		Connect:  reaching(healthy(), nil),
+		GOOS:     "darwin",
+	}
+}
+
 // The exact shape of the original bug: the CLI answers, so the old preflight
 // passed, and the engine the work needs is unreachable.
 func TestGateFailsWhenTheEngineIsUnreachableThoughTheCLIAnswers(t *testing.T) {
@@ -317,5 +329,66 @@ func TestRunReportsTheLocalSuffix(t *testing.T) {
 	// has nothing to report here and must not invent a failure.
 	if _, ok := find(Run(context.Background(), base), "local names"); ok {
 		t.Error("a nil Suffix must skip the row entirely")
+	}
+}
+
+// Both new seams belong to the diagnostic, not the preflight. Gate is what a
+// start calls before doing anything, and both of these reach the network: one
+// asks a registry, the other asks a store the start may be about to create.
+// Refusing a start on either would be a verdict about something not measured.
+func TestTheNetworkChecksRunFromRunAndNeverFromGate(t *testing.T) {
+	t.Parallel()
+
+	var fromImages, fromStorage int
+	opts := func() Options {
+		o := passingOptions()
+		o.Images = func(context.Context) []Check {
+			fromImages++
+			return []Check{{Name: "image x", Status: StatusFail}}
+		}
+		o.Storage = func(context.Context) []Check {
+			fromStorage++
+			return []Check{{Name: "Floci storage", Status: StatusWarn}}
+		}
+		return o
+	}
+
+	if _, _, err := Gate(context.Background(), opts()); err != nil {
+		t.Fatalf("the gate should pass: %v", err)
+	}
+	if fromImages != 0 || fromStorage != 0 {
+		t.Errorf("Gate ran the network checks: images=%d storage=%d", fromImages, fromStorage)
+	}
+
+	checks := Run(context.Background(), opts())
+	if fromImages != 1 || fromStorage != 1 {
+		t.Errorf("Run did not run them exactly once: images=%d storage=%d", fromImages, fromStorage)
+	}
+	var sawImage, sawStorage bool
+	for _, c := range checks {
+		switch c.Name {
+		case "image x":
+			sawImage = true
+		case "Floci storage":
+			sawStorage = true
+		}
+	}
+	if !sawImage || !sawStorage {
+		t.Errorf("their rows did not reach the report: %v", checks)
+	}
+}
+
+// Nil is a skip, not a crash: a caller that cannot supply one should not have
+// to supply a stub.
+func TestNilNetworkChecksAreSkipped(t *testing.T) {
+	t.Parallel()
+
+	o := passingOptions()
+	o.Images = nil
+	o.Storage = nil
+	for _, c := range Run(context.Background(), o) {
+		if c.Name == "image x" || c.Name == "Floci storage" {
+			t.Errorf("a nil seam produced a row: %v", c)
+		}
 	}
 }

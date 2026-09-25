@@ -104,6 +104,21 @@ type Options struct {
 	// start may proceed fails in exactly the case where the start is what would
 	// have fixed it.
 	Environments func(ctx context.Context) []Check
+	// Images reports whether the registry this home is configured for
+	// publishes the image references the control plane pins. Nil skips it.
+	//
+	// Run only from Run, for the reason Environments is, and for one more: it
+	// asks a registry over the network, and a preflight that refuses a start
+	// because a machine is offline would be wrong about what it measured.
+	Images func(ctx context.Context) []Check
+	// Storage proves the control plane's object store by round trip. Nil skips
+	// it.
+	//
+	// A warning here, though the same proof is fatal inside a start. The
+	// difference is what each is for: a start is about to depend on the store
+	// and must not proceed without it, while doctor is a report, and a platform
+	// that is simply not running has no store to prove and is not broken.
+	Storage func(ctx context.Context) []Check
 }
 
 func (o Options) lookup(key string) string {
@@ -168,6 +183,12 @@ func Run(ctx context.Context, o Options) []Check {
 	checks = append(checks, o.agreement(ctx, ep)...)
 	if o.Environments != nil {
 		checks = append(checks, o.Environments(ctx)...)
+	}
+	if o.Images != nil {
+		checks = append(checks, o.Images(ctx)...)
+	}
+	if o.Storage != nil {
+		checks = append(checks, o.Storage(ctx)...)
 	}
 	// Both name rows are warnings, not failures. Name resolution is reported,
 	// not required (NERD025 SPEC004): nsctl dials the bare Floci names itself and
@@ -386,14 +407,26 @@ func Warned(checks []Check) bool {
 
 // Report prints findings.
 func Report(w io.Writer, checks []Check) {
+	// Widened to the longest name rather than fixed. The widths were chosen
+	// when every row was a short noun; a name that overruns them does not
+	// wrap, it pushes the status and detail columns out of line for that row
+	// alone, which is the one row the reader most needs to scan. The floor
+	// keeps the familiar layout when nothing is long.
+	name := 20
 	for _, c := range checks {
-		fmt.Fprintf(w, "%-20s %-8s %s\n", c.Name, c.Status, firstLine(c.Detail))
+		if len(c.Name) > name {
+			name = len(c.Name)
+		}
+	}
+	indent := name + 9
+	for _, c := range checks {
+		fmt.Fprintf(w, "%-*s %-8s %s\n", name, c.Name, c.Status, firstLine(c.Detail))
 		for _, line := range restLines(c.Detail) {
-			fmt.Fprintf(w, "%-29s %s\n", "", line)
+			fmt.Fprintf(w, "%-*s %s\n", indent, "", line)
 		}
 		for _, line := range strings.Split(strings.TrimRight(c.Remedy, "\n"), "\n") {
 			if line != "" {
-				fmt.Fprintf(w, "%-29s %s\n", "", line)
+				fmt.Fprintf(w, "%-*s %s\n", indent, "", line)
 			}
 		}
 	}
