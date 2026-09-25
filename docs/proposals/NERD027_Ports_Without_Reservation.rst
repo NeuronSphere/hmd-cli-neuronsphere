@@ -84,6 +84,26 @@ Design
     other sign than a refused connection. This is the one place where deleting
     the reservation is not purely subtractive.
 
+    Two things settled while preparing this, both of which the implementation
+    depends on:
+
+    **The GUI becomes a chosen port in its own right.** It already had to become
+    a *recorded* one: closing out NERD025 SPEC008 showed that a moved band left
+    the GUI bound to nothing, so ``registry.PortGUI`` exists and both readers --
+    the vhost writer and ``env status`` -- read it back. Until the band is gone it
+    moves with the band, because that is where it is published from. Once the band
+    goes it joins ``portPlans`` and is probed like every other single port, which
+    is also the moment its default stops being derivable from slot arithmetic.
+
+    **The bundled compose file is generated, not authored.**
+    ``internal/bundled/services/docker-compose.control-plane.yml`` is a copy that
+    ``make generate-local`` overwrites from
+    ``src/python/hmd_cli_neuronsphere/services/docker-compose.control-plane.yml``,
+    and the copy is gitignored. The published port list is therefore edited in the
+    Python tree -- which also means the deprecated front end sees the same four
+    ports, and its own refusal of a moved home (NERD025 SPEC008) is what keeps it
+    from addressing them wrongly.
+
 .. spec:: An environment publishes its own ports
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD027
@@ -107,6 +127,44 @@ Design
     appearing must not disturb the first. It costs one ``nginx:stable-alpine``
     per environment, which is the price of not reserving eighty ports for
     sixteen environments nobody runs.
+
+    How it is created, which the text above leaves open and the code cannot:
+
+    **Not as a compose service.** No environment runs a compose project today.
+    ``hmd_db-<slug>``, ``global-graph-<slug>`` and the cluster are all
+    Floci-spawned and reached by Docker network alias, and ``env.ComposeProject``
+    is recorded in the registry and used by nothing. ``hmd_router-<slug>`` is
+    therefore the first container ``nsctl`` creates for an environment itself,
+    through the ``docker`` CLI, carrying that recorded project as its label --
+    which is exactly what makes SPEC004's ``OurPorts`` clause a one-line change
+    rather than a new mechanism.
+
+    **Its config is its own root.** ``internal/router`` assumes one config
+    directory and one container. The environment's *stream* fragment moves to a
+    per-environment root with a ``stream``-only ``nginx.conf`` -- no ``http``
+    block, no vhosts -- and ``Reload`` becomes slug-scoped. The environment's
+    **HTTP routes and vhosts stay on** ``hmd_proxy``, because they are served
+    through the HTTP port, so ``RemoveEnvRoutes`` spans two roots and
+    ``StreamsPort`` -- which is what ``env status`` reads to decide whether Trino
+    is routed -- follows the fragment to the new root or silently reports every
+    environment as having no Trino.
+
+    **It is recreated only when the set changes**, compared against the running
+    container's own published ports. An ordinary restart with the same set must
+    not churn a ``kubectl`` session for nothing.
+
+    **It is created after the set is known and before the kubeconfig is
+    written.** Both dynamic ports are discovered inside ``startCluster`` -- the
+    k3s upstream first, the Trino coordinator only if one was found -- and
+    ``WriteKubeconfig`` bakes the k3s port into the file every later ``kubectl``
+    uses. The post-deploy path recreates it, because deploying is what makes a
+    Trino coordinator exist.
+
+    **Every lifecycle stage grows a case**, and the removal has to be the sweep
+    that already removes the environment's containers rather than a second one:
+    the purge's catch-all sweep matches a Floci account label, which a container
+    ``nsctl`` created itself does not carry. ``env delete`` must refuse while it
+    is running, for the same reason it refuses on a running database.
 
     The k3s API stays behind a proxy rather than being published by the
     Floci-spawned cluster container. ``registry.go`` records why and it has not
@@ -148,6 +206,22 @@ Design
     start would probe the platform's own listeners, find them busy and move the
     ports out from under the environment that is using them.
 
+    **As scoped, this is a documentary change plus that one clause.**
+    ``CheckExclusivePublisher`` inspects the *bundled compose project*, and the
+    environment router is not a service in it (SPEC002), so the check has nothing
+    to narrow: it keeps refusing any bundled service but the proxy that publishes
+    a port, which is still right. The second, independent encoding of the same
+    rule for control-plane extensions is left alone deliberately -- an extension
+    genuinely may not publish a host port, and nothing here changes that. What
+    changes is the rule as stated in ``compose.ProxyService``'s own comment, which
+    is where a reader looks to find out who may publish, and ``OurPorts``, which
+    is the only place the invariant is load-bearing at runtime.
+
+    The ownership check needs a case too. ``hmd_router-<slug>`` is slug-scoped, so
+    the name is global across homes exactly as the pinned control-plane names are,
+    and two homes running an environment of the same name would otherwise fight
+    over it silently.
+
 .. spec:: Ports are checked per environment, not as a window
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD027
@@ -160,6 +234,18 @@ Design
 
     This is strictly easier than what it replaces: two ports anywhere beat
     eighty in a row.
+
+    **What "moves only its own" means concretely.** The slot arithmetic stays the
+    address (SPEC003), so an environment's ports are derived rather than stored,
+    and a derived port cannot be moved. The environment therefore records an
+    explicit override for the one port that was taken -- beside the port slot it
+    keeps -- and the router publishes that. Re-deriving from a fresh slot would
+    move both of its ports and break the one property the arithmetic is kept for:
+    the same environment name landing on the same ports across machines and
+    re-creations.
+
+    The GUI's port joins ``portPlans`` in the same change, since it is no longer
+    published by the band it used to sit inside (SPEC001).
 
 Alternatives considered
 -----------------------
@@ -196,7 +282,11 @@ Risks
   and a test should assert the proxy publishes it, because nothing else would
   notice until someone opened it.
 - **More containers on a small machine.** One per environment, tiny, but real.
-- **This has not been run against a live engine.** Neither has the branch it
-  builds on. A container-lifecycle change is not something unit tests finish
-  the argument about, and stacking this on an unverified base is how a bad day
-  starts.
+- **This has not been run against a live engine.** A container-lifecycle change
+  is not something unit tests finish the argument about.
+
+  The base is no longer unverified, which was the other half of this risk when it
+  was written: NERD025 and NERD026 are closed out, with the four
+  chosen-port-not-read-back defects fixed and a live run behind them. This is
+  still the change most likely to need a second pass after meeting a real engine,
+  and it is deliberately the last one.
