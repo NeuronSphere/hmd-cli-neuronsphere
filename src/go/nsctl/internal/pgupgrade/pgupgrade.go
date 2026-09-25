@@ -16,6 +16,7 @@ import (
 type Docker interface {
 	pgcheck.Docker
 	PullImage(ctx context.Context, ref string) error
+	Running(ctx context.Context, name string) (bool, error)
 	RemoveContainer(ctx context.Context, name string) error
 	Logs(ctx context.Context, name string, lines int) string
 	VolumeContainers(ctx context.Context, volume string) []container.VolumeUser

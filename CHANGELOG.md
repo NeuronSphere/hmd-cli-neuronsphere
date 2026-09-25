@@ -2,6 +2,14 @@
 
 ## 2026-09-25
 
+- feat: `internal/pgupgrade` performs the Postgres major-version migration that
+  `pgcheck` has only ever been able to name. The gate refuses absolutely while
+  anything is running on a volume it would rewrite -- `--force` reaches a running
+  Floci and nothing else -- and the executor takes a durable dump, proves it
+  carries `pg_dumpall`'s trailer, and only then clears the data directory. A
+  restore's stderr is judged against a closed allowlist, and the databases and
+  roles read before the dump are re-read afterwards and diffed. The command that
+  drives it comes next.
 - refactor: `container.VolumeContainers` answers both questions asked of a volume
   -- what wrote it, and whether anything holds it right now -- from one `ps -a`,
   and reports the state word rather than assuming a row means "running".
