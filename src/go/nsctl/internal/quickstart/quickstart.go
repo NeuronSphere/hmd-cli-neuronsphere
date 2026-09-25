@@ -13,12 +13,14 @@ package quickstart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tty"
 )
@@ -99,14 +101,26 @@ func Run(ctx context.Context, o Options) error {
 	// environment. Adopting a repository and installing skills are filesystem
 	// operations that work with nothing up, and stopping here would deny them to
 	// exactly the user whose first start did not work -- who needs them most.
-	slug, running := f.startEnvironment(ctx)
-	if running {
+	slug, startErr := f.startEnvironment(ctx)
+	if startErr == nil {
 		f.offerStack(ctx, slug)
 	}
 	f.offerRepository(ctx)
 	f.offerSkills(ctx)
-	f.closing(slug)
-	return nil
+	f.closing(slug, startErr)
+	// Reported, having done everything that did not depend on it. A wizard
+	// that prints a warning and exits 0 tells a script -- and the shell the
+	// user is watching -- that the platform came up. It did not.
+	return exitStatus(startErr)
+}
+
+// exitStatus is what a run ends with. Declining is not failing: a user who says
+// no to the start asked for exactly what they got.
+func exitStatus(startErr error) error {
+	if errors.Is(startErr, errDeclined) {
+		return nil
+	}
+	return startErr
 }
 
 // notInteractive prints the sequence instead of half-running it.
@@ -190,7 +204,7 @@ func (f *flow) settleHome() bool {
 
 // startEnvironment starts the first one, reusing env start's own first-run
 // registration rather than a second way to create an environment.
-func (f *flow) startEnvironment(ctx context.Context) (string, bool) {
+func (f *flow) startEnvironment(ctx context.Context) (string, error) {
 	f.section("Starting an environment")
 	fmt.Fprintln(f.Out, "  An environment is an emulated AWS account with its own cluster and")
 	fmt.Fprintln(f.Out, "  database. The first start registers one for you.")
@@ -201,16 +215,29 @@ func (f *flow) startEnvironment(ctx context.Context) (string, bool) {
 	}
 	if !f.confirm(fmt.Sprintf("\n  Start %q now? This pulls images and takes a few minutes", slug), true) {
 		fmt.Fprintf(f.Out, "\n  Skipped. Start it later with `nsctl%s env start %s`.\n", f.homeArg(), slug)
-		return slug, false
+		return slug, errDeclined
 	}
 	if err := f.run(ctx, "env", "start", slug); err != nil {
-		fmt.Fprintf(f.Err, "\nwarning: the environment did not start: %v\n", err)
+		// The error verbatim, not a pointer to somewhere it might be repeated.
+		// A start refuses with what to do about it -- which registry setting is
+		// wrong, which port is taken -- and replacing that with "run doctor"
+		// throws away the answer the user already has.
+		fmt.Fprintf(f.Err, "\nerror: the environment did not start.\n  %v\n", err)
 		fmt.Fprintf(f.Out, "  `nsctl%s doctor` and `nsctl%s env status %s` say more.\n",
 			f.homeArg(), f.homeArg(), slug)
-		return slug, false
+		// Said here because this is the moment a first-run user decides what to
+		// try next, and the thing they reach for is the one that makes it worse
+		// (NERD023 SPEC009).
+		fmt.Fprintf(f.Out, "  %s\n", floci.DoNotDeleteHome)
+		return slug, err
 	}
-	return slug, true
+	return slug, nil
 }
+
+// errDeclined is a start the user said no to. It skips the stack step like any
+// other absent environment, but it is not a failure and must not make
+// quickstart exit non-zero.
+var errDeclined = errors.New("declined")
 
 // offerStack offers a published stack, and only one that resolves.
 func (f *flow) offerStack(ctx context.Context, slug string) {
@@ -302,8 +329,13 @@ func (f *flow) offerSkills(ctx context.Context) {
 	}
 }
 
-func (f *flow) closing(slug string) {
+func (f *flow) closing(slug string, startErr error) {
 	f.section("Where to go next")
+	// Restated here because the failure is by now several screens up, behind
+	// everything the repository and skills steps printed.
+	if startErr != nil && !errors.Is(startErr, errDeclined) {
+		fmt.Fprintf(f.Out, "  Nothing is running: %q did not start. Retry it with the first command below.\n\n", slug)
+	}
 	h := f.homeArg()
 	fmt.Fprintf(f.Out, "  nsctl%s env start %s         start it\n", h, slug)
 	fmt.Fprintf(f.Out, "  nsctl%s env status %s        what is running, and its URLs\n", h, slug)

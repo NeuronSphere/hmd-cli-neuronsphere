@@ -2,6 +2,16 @@
 
 ## 2026-09-25
 
+- fix: `nsctl quickstart` reports a start that did not happen. It printed a
+  warning, carried on and returned success, so a script -- and the shell the
+  user was watching -- was told the platform came up. The offline steps still
+  run, which is the point of not stopping there, but the failure is now printed
+  as a failure with the refusal's own text rather than a pointer to `doctor`, is
+  restated in the closing block by which time it is several screens up, and is
+  the command's exit status. Declining the start is still not a failure. The
+  failure also says that deleting `$HMD_HOME` is not how to start over, since
+  that is the moment a first-run user decides what to try next.
+
 - fix: a Floci left holding a deleted data directory is found and recreated.
   Deleting `HMD_HOME` is what a stuck user reaches for, and it is the one
   recovery that makes things worse: the containers are named globally and keyed

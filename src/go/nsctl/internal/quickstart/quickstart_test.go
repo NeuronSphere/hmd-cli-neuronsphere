@@ -66,13 +66,13 @@ func drive(t *testing.T, answers string, o Options, rec *recorder) string {
 	if !f.settleHome() {
 		return out.String()
 	}
-	slug, running := f.startEnvironment(context.Background())
-	if running {
+	slug, startErr := f.startEnvironment(context.Background())
+	if startErr == nil {
 		f.offerStack(context.Background(), slug)
 	}
 	f.offerRepository(context.Background())
 	f.offerSkills(context.Background())
-	f.closing(slug)
+	f.closing(slug, startErr)
 	return out.String()
 }
 
@@ -333,5 +333,81 @@ func TestAFailedStartStillOffersTheOfflineSteps(t *testing.T) {
 	// And it names how to start it, since it is not running.
 	if !strings.Contains(text, "env start local") {
 		t.Errorf("the closing block should name the start command:\n%s", text)
+	}
+}
+
+// driveErr is drive, returning what Run would have exited with.
+func driveErr(t *testing.T, answers string, o Options, rec *recorder) (string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	o.In = strings.NewReader(answers)
+	o.Out = &out
+	o.Err = &out
+	o.Exec = rec.exec
+	o.Capture = rec.captureFn
+	if o.UserHome == "" {
+		o.UserHome = t.TempDir()
+	}
+	f := &flow{Options: o, p: newPrompter(o), home: o.Home}
+	slug, startErr := f.startEnvironment(context.Background())
+	if startErr == nil {
+		f.offerStack(context.Background(), slug)
+	}
+	f.offerRepository(context.Background())
+	f.offerSkills(context.Background())
+	f.closing(slug, startErr)
+	// Mirrors Run rather than reimplementing it, so the two cannot disagree
+	// about what counts as a failure.
+	return out.String(), exitStatus(startErr)
+}
+
+// Printing a warning and then exiting 0 tells a script -- and the shell the
+// user is watching -- that the platform came up. The offline steps still run;
+// the exit status is what changes.
+func TestAFailedStartIsReportedAsAFailure(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{fail: map[string]error{
+		"env start local": fmt.Errorf("HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/neuronsphere, set in your shell environment"),
+	}}
+	text, err := driveErr(t, "\ny\ny\ny\n", Options{Home: t.TempDir(), Version: "v1", Repo: t.TempDir()}, rec)
+
+	if err == nil {
+		t.Fatal("a failed start must be the wizard's exit status")
+	}
+	// The refusal's own text, verbatim. A start says which setting is wrong;
+	// replacing that with "run doctor" throws away the answer the user has.
+	if !strings.Contains(text, "HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/neuronsphere") {
+		t.Errorf("the failure's own remedy was dropped:\n%s", text)
+	}
+	if strings.Contains(text, "warning: the environment did not start") {
+		t.Errorf("a failed start is still being reported as an aside:\n%s", text)
+	}
+	// And restated at the end, by which point the failure is several screens up.
+	if !strings.Contains(text, "Nothing is running") {
+		t.Errorf("the closing block does not say the environment is not running:\n%s", text)
+	}
+	// The moment a first-run user decides what to try next is the moment to
+	// say that the obvious thing makes it worse.
+	if !strings.Contains(text, "Do not delete $HMD_HOME") {
+		t.Errorf("the failure does not warn against deleting the home:\n%s", text)
+	}
+}
+
+// Declining is not failing. A user who says no to the start asked for exactly
+// what they got, and a non-zero exit would be wrong.
+func TestDecliningTheStartIsNotAFailure(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{}
+	text, err := driveErr(t, "\nn\ny\ny\n", Options{Home: t.TempDir(), Version: "v1", Repo: t.TempDir()}, rec)
+	if err != nil {
+		t.Errorf("declining must not be an error: %v", err)
+	}
+	if rec.ran("env", "start") {
+		t.Error("the start was declined and ran anyway")
+	}
+	if strings.Contains(text, "Nothing is running") {
+		t.Errorf("declining should not be reported as a failed start:\n%s", text)
 	}
 }
