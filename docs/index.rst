@@ -36,6 +36,7 @@ resolved and why; see :doc:`how-to/choose-a-container-engine`.
    how-to/use-agent-skills
    how-to/use-stacks
    how-to/install-cli-plugins
+   how-to/fix-a-start-that-fails
 
 .. toctree::
    :maxdepth: 1

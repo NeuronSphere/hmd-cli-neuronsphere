@@ -404,6 +404,32 @@ The Floci container is configured via environment variables:
 
 Data is persisted to ``$HMD_HOME/floci/data/`` when persistence is enabled.
 
+.. warning::
+
+   **Never delete** ``$HMD_HOME`` **to start over while the platform is running.**
+
+   That directory is bind-mounted into the Floci container, and a bind mount is
+   resolved once, when the container is created. Deleting it does not stop
+   anything: the containers are named globally and keyed on the home's *path*,
+   so they keep running, and Floci goes on writing into the directory that is no
+   longer there. Its in-memory state keeps answering every call, so the platform
+   looks healthy right up until the first thing that touches the disk -- which
+   is usually ``tofu init`` refreshing CDKTF state, several hundred log lines
+   into a deploy, with an S3 ``InternalError`` 500 that names no cause.
+
+   ``nsctl`` detects this on the next start and recreates Floci, but the state
+   it held is gone either way. To start over, use the commands that take the
+   platform down with it:
+
+   .. code-block:: shell
+
+      nsctl control-plane stop    # stop everything, keeping its state
+      nsctl env purge --yes       # destroy every environment and the control plane
+
+   If it has already happened, set ``HMD_HOME`` back to the path you deleted
+   before purging -- the sweep finds the orphaned containers by a hash of that
+   path, so a different one misses all of them.
+
 Floci Lambda Image Resolution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
