@@ -2,6 +2,11 @@
 
 ## 2026-09-25
 
+- feat: `nsctl db upgrade` migrates the local PostgreSQL data directories across
+  a major version -- the repair `nsctl env start` refuses towards, which until
+  now existed only in the deprecated Python CLI. `--dry-run` prints the plan and
+  marks the one irreversible step; `--yes` is required where there is no
+  terminal to ask.
 - feat: `internal/pgupgrade` performs the Postgres major-version migration that
   `pgcheck` has only ever been able to name. The gate refuses absolutely while
   anything is running on a volume it would rewrite -- `--force` reaches a running

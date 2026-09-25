@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/pgcheck"
 )
 
@@ -275,11 +276,15 @@ func restrict(ms []pgcheck.Mismatch, only []string) ([]pgcheck.Mismatch, error) 
 		for _, m := range ms {
 			have = append(have, m.Volume)
 		}
+		// A usage error, not a failure: the command did nothing, and what the
+		// user typed is the thing to change.
 		if len(have) == 0 {
-			return nil, fmt.Errorf("no volume needs migrating, so --volume %s matches nothing",
+			return nil, nserr.New(nserr.Usage,
+				"no volume needs migrating, so --volume %s matches nothing",
 				strings.Join(missing, ", "))
 		}
-		return nil, fmt.Errorf("--volume %s does not need migrating; these do: %s",
+		return nil, nserr.New(nserr.Usage,
+			"--volume %s does not need migrating; these do: %s",
 			strings.Join(missing, ", "), strings.Join(have, ", "))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Volume < out[j].Volume })

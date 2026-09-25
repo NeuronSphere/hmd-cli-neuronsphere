@@ -38,7 +38,7 @@ type ImagePresent func(ctx context.Context, ref string) bool
 //  1. $HMD_CONTAINER_REGISTRY/<repo>:<ver> -- what `hmd build` tagged
 //  2. $HMD_LOCAL_NS_CONTAINER_REGISTRY/<repo>:<ver>
 //  3. each prefix in $HMD_LOCAL_IMAGE_PULL_REGISTRIES
-//  4. ghcr.io/neuronsphere/<repo>:<ver> -- the published registry
+//  4. ghcr.io/hmdlabs/<repo>:<ver> -- the published registry
 //  5. bare <repo>:<ver> -- what Floci is handed
 //
 // Entries whose variable is unset are skipped and duplicates collapse, keeping

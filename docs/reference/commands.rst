@@ -999,6 +999,72 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl db
+--------
+
+Work on the local PostgreSQL data directories
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl db
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl db upgrade
+----------------
+
+Migrates the local databases across a PostgreSQL major version.
+
+Floci recreates a database's container from the currently configured image on
+every start while reusing the instance's volume, so a major version bump leaves
+an old data directory under a new binary. Postgres refuses that outright, and
+Floci still reports the instance available -- so the first symptom is whatever
+connects next failing. `nsctl env start` refuses rather than let that happen,
+and this is the repair it names.
+
+For each affected volume: the old data directory is copied to a backup volume,
+dumped with pg_dumpall using the image that wrote it, cleared so the new image
+initialises it, and the dump replayed. Nothing is cleared until the dump has
+been read back and confirmed complete, and the databases and roles found before
+the dump are looked for again afterwards.
+
+Everything must be stopped first. A container running on a volume this would
+rewrite is refused absolutely; a running Floci is refused because it restarts
+databases on demand, and only that refusal takes --force.
+
+The backup volume is kept. It holds an old-major data directory, so the new
+image cannot read it -- it is there to roll back to, by hand, if the migration
+is not what you wanted.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl db upgrade [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--check`` — 
+* ``--dry-run`` — Report what would be migrated and stop
+* ``--dump-image`` — Image used to read the old data directory (default postgres:<old major>-alpine)
+* ``--force`` — Proceed although Floci is running. Cannot bypass a container running on a volume being migrated
+* ``--keep-dump`` — Leave the dump volume in place after a verified migration
+* ``--volume`` — Migrate only this volume. Repeatable (default: ``[]``)
+* ``--yes`` — Skip the confirmation
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl dns
 ---------
 

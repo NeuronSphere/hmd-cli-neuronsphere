@@ -448,7 +448,7 @@ image under, in order:
 1. ``$HMD_CONTAINER_REGISTRY/<repo>:<version>`` — what ``hmd build`` tagged;
 2. ``$HMD_LOCAL_NS_CONTAINER_REGISTRY/<repo>:<version>``;
 3. each prefix in ``$HMD_LOCAL_IMAGE_PULL_REGISTRIES`` (comma-separated);
-4. ``ghcr.io/neuronsphere/<repo>:<version>`` — the published registry;
+4. ``ghcr.io/hmdlabs/<repo>:<version>`` — the published registry;
 5. the bare ``<repo>:<version>``.
 
 A cached image always wins over a published one, so a local ``hmd build`` is

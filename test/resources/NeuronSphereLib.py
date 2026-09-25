@@ -116,8 +116,8 @@ class NeuronSphereLib:
 
         # Ensure container registry is set (required for image pull references)
         if not os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY"):
-            os.environ["HMD_LOCAL_NS_CONTAINER_REGISTRY"] = "ghcr.io/neuronsphere"
-            logger.info("Set HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/neuronsphere")
+            os.environ["HMD_LOCAL_NS_CONTAINER_REGISTRY"] = "ghcr.io/hmdlabs"
+            logger.info("Set HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/hmdlabs")
 
         # Set HMD_HOSTNAME if missing (used in some compose files)
         if not os.environ.get("HMD_HOSTNAME"):

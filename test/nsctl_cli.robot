@@ -45,6 +45,23 @@ Create Scratch Repo
     Create Directory    ${dir}
     RETURN    ${dir}
 
+Run nsctl In Home Without An Engine
+    [Documentation]    As Run nsctl In Home, but pointed at a container engine
+    ...                that is not there. A contract about what happens when
+    ...                Docker cannot be reached must not depend on whether the
+    ...                machine running the suite happens to have it.
+    [Arguments]    ${home}    @{args}
+    Should Not Be Empty    ${BINARY}    msg=Pass --variable BINARY:<path>; `make test-cli` does.
+    ${result}=    Run Process    ${BINARY}    @{args}
+    ...    env:HMD_HOME=${home}
+    ...    env:DOCKER_HOST=unix:///nonexistent/docker.sock
+    ...    env:DOCKER_CONTEXT=${EMPTY}
+    ...    env:HMD_LOCAL_MS_DEPLOYMENT_URL=http://127.0.0.1:1
+    ...    env:HMD_AUTH_TOKEN=${EMPTY}
+    ...    env:HMD_ARTIFACT_LIBRARIAN_URL=${EMPTY}
+    ...    stdin=${None}
+    RETURN    ${result}
+
 Run nsctl In Home
     [Documentation]    Runs the binary against a scratch HMD_HOME, with stdin
     ...                closed so nothing can block on a prompt.
@@ -484,7 +501,7 @@ Help Leads With What A First Run Needs
     ${start}=     Get Line    ${result.stdout}    ${{ $result.stdout.splitlines().index('Start here:') + 1 }}
     Should Contain    ${start}    quickstart
     # Grouping is presentation only: every command is still listed.
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    agent    artifact    lock    bom
+    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -676,3 +693,38 @@ Dns Status Probes A Name Nothing Has Deployed
     ${result}=    Run nsctl In Home    ${home}    dns    status
     Should Be Equal As Integers    ${result.rc}    0
     Should Contain    ${result.stdout}    wildcard-probe
+
+Db Upgrade Is Listed And Described
+    [Documentation]    The repair for what the start pre-flight refuses has to
+    ...                be findable from `nsctl db --help`, which is where
+    ...                someone arrives after reading that refusal.
+    [Tags]    contract    pgupgrade
+    ${result}=    Run nsctl    db    --help
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    upgrade
+    ${upgrade}=    Run nsctl    db    upgrade    --help
+    Should Be Equal As Integers    ${upgrade.rc}    0
+    Should Contain    ${upgrade.stdout}    --dry-run
+    Should Contain    ${upgrade.stdout}    --yes
+    Should Contain    ${upgrade.stdout}    --volume
+    # --force must say what it cannot do, because that limit is the design.
+    Should Contain    ${upgrade.stdout}    Cannot bypass
+
+Db Upgrade Without HMD_HOME Exits Two
+    [Documentation]    A command that rewrites databases must not guess which
+    ...                home's databases it meant.
+    [Tags]    contract    pgupgrade
+    ${result}=    Run nsctl    db    upgrade    --dry-run
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    HMD_HOME
+
+Db Upgrade Without An Engine Fails Cleanly And Writes Nothing
+    [Documentation]    The failure names Docker rather than surfacing as an
+    ...                empty result, and a run that could not reach an engine
+    ...                leaves no state behind in the home it was given.
+    [Tags]    contract    pgupgrade
+    ${home}=    Create Scratch Home
+    ${result}=    Run nsctl In Home Without An Engine    ${home}    db    upgrade    --dry-run
+    Should Be Equal As Integers    ${result.rc}    1
+    Should Contain    ${result.stderr}    docker
+    Directory Should Not Exist    ${home}${/}floci

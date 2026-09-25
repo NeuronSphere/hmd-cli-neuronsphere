@@ -32,7 +32,7 @@ type Lookup = func(string) string
 //
 // Defaults nest. The bundled file relies on it:
 //
-//	${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3.4}
+//	${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-k3s-floci:0.3.4}
 //
 // which is why this matches braces rather than running a regexp over the line.
 //
