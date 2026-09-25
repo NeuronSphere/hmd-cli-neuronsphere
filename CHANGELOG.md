@@ -2,6 +2,14 @@
 
 ## 2026-09-25
 
+- fix: a Homebrew install now names `nsctl quickstart` as the first command
+  to run. The cask caveat still pointed at `nsctl control-plane start`, which
+  brings up the control plane and stops there -- no host checks, no
+  environment -- and it insisted `HMD_HOME` be exported before anything could
+  run, which `quickstart` has settled on its own since NERD023. The by-hand
+  alternative it keeps is now `nsctl env start`, the sequence the README and
+  the first-environment tutorial document.
+
 - feat: `nsctl doctor` asks the registry whether the images the control plane
   pins exist, and proves Floci's object store. Both failures were previously
   invisible until something much later fell over: an image reference Floci

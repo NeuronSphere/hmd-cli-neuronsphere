@@ -83,12 +83,19 @@ homebrew_casks:
     homepage: https://github.com/neuronsphere/hmd-cli-neuronsphere
     description: "Run the local NeuronSphere: a control plane and the environment substrate deployments sit on"
     caveats: |
-      nsctl needs Docker running, and an HMD_HOME. It does not default one --
-      guessing would put its containers, volumes and network under a name no
-      other HMD tool computes -- so export it or pass --home:
+      nsctl needs Docker running. Start here:
+
+        nsctl quickstart
+
+      It runs the host checks, settles HMD_HOME -- nsctl never guesses one,
+      because a guessed home names containers and volumes no other HMD tool
+      computes -- starts your first environment, and names every command
+      before it runs it.
+
+      By hand instead:
 
         export HMD_HOME=~/hmd
-        nsctl control-plane start
+        nsctl env start
 
       If you use Colima, make sure it is running:
         colima start
