@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 )
 
@@ -139,4 +140,56 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatalf("parsing %q: %v", raw, err)
 	}
 	return u
+}
+
+// Install is called more than once in a process: from PersistentPreRun with the
+// registry as it stands, and again from a start that has just chosen a different
+// Floci port. The last call wins, and none of them writes http.DefaultTransport
+// -- which is what keeps net/http's own read of that global from racing.
+func TestInstallChangesTheRedirectWithoutTouchingTheGlobal(t *testing.T) {
+	before := http.DefaultTransport
+	t.Cleanup(func() { Install(func(string) ([]net.IP, error) { return []net.IP{net.IPv4(172, 18, 0, 5)}, nil }, 0) })
+
+	all := func(string) ([]net.IP, error) { return nil, errors.New("no such host") }
+
+	if got := Install(all, 14566); len(got) != 2 {
+		t.Fatalf("Install redirected %v, want both names", got)
+	}
+	if http.DefaultTransport != before {
+		t.Error("Install wrote http.DefaultTransport; it must only swap the configuration")
+	}
+
+	if got := Install(all, 24566); len(got) != 2 {
+		t.Fatalf("the second Install redirected %v", got)
+	}
+	if http.DefaultTransport != before {
+		t.Error("the second Install wrote http.DefaultTransport")
+	}
+
+	// A machine that resolves the names to a routable address redirects nothing,
+	// and that is a state Install has to be able to return to.
+	routable := func(string) ([]net.IP, error) { return []net.IP{net.IPv4(172, 18, 0, 5)}, nil }
+	if got := Install(routable, 0); got != nil {
+		t.Errorf("Install redirected %v for names that resolve off-loopback", got)
+	}
+}
+
+// Two commands in one process -- which is what the test binary is -- must not
+// race on the global they both install into. The detector caught this only once
+// there were enough parallel tests to collide, which is the usual way.
+func TestConcurrentInstallsDoNotRace(t *testing.T) {
+	original := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	all := func(string) ([]net.IP, error) { return nil, errors.New("no such host") }
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			Install(all, 14566+i)
+		}(i)
+	}
+	wg.Wait()
 }

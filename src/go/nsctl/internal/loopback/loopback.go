@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -126,21 +127,72 @@ func Transport(base http.RoundTripper, hosts map[string]bool, ports map[int]int)
 // transport, including ones added after this, and a presigned URL can surface
 // in any of them -- an opt-in wrapper would be correct in the places someone
 // remembered and silently wrong everywhere else.
+var (
+	cfgMu sync.RWMutex
+	// What to redirect, read at dial time rather than captured.
+	cfgHosts map[string]bool
+	cfgPorts map[int]int
+)
+
+// init wraps http.DefaultTransport once, before anything else can run.
 //
-// Install points http.DefaultTransport at loopback for whichever of Names this
-// machine cannot reach directly, mapping the in-network Floci port to the host
-// port this home publishes. A flociHostPort of 0, or one equal to the
-// in-network port, leaves the port alone.
+// Installed here rather than from Install, and that is the whole of a real data
+// race. Install runs from PersistentPreRun, so a process executing more than one
+// command -- which is exactly what a test binary is -- wrote this global while
+// another goroutine's http.Client.send read it. No lock on this side can fix
+// that, because the reader is net/http.
+//
+// Package load happens on one goroutine before any command or request exists, so
+// the single write is safe. Afterwards the global is never written again: Install
+// swaps only the configuration above, under a lock the dialer also takes.
+//
+// Nothing is resolved here. Until Install says otherwise the configuration is
+// empty and every address passes straight through, so importing this package
+// changes no behaviour by itself.
+func init() {
+	http.DefaultTransport = dynamicTransport(http.DefaultTransport)
+}
+
+// dynamicTransport is Transport with the hosts and ports read per dial instead
+// of captured, so the redirect can change without touching the global again.
+func dynamicTransport(base http.RoundTripper) http.RoundTripper {
+	t, ok := base.(*http.Transport)
+	if !ok {
+		return base
+	}
+	clone := t.Clone()
+	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	clone.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		cfgMu.RLock()
+		hosts, ports := cfgHosts, cfgPorts
+		cfgMu.RUnlock()
+		return d.DialContext(ctx, network, redirect(addr, hosts, ports))
+	}
+	return clone
+}
+
+// Install points the redirect at loopback for whichever of Names this machine
+// cannot reach directly, mapping the in-network Floci port to the host port this
+// home publishes. A flociHostPort of 0, or one equal to the in-network port,
+// leaves the port alone.
+//
+// Called more than once in a process: from PersistentPreRun with the registry as
+// it stands, and again from a start that has just chosen a different Floci port.
+// The last call wins, and no call writes http.DefaultTransport.
 func Install(resolve Resolver, flociHostPort int) []string {
 	hosts := Redirects(Names, resolve)
-	if len(hosts) == 0 {
-		return nil
-	}
 	ports := map[int]int{}
 	if flociHostPort > 0 && flociHostPort != InternalFlociPort {
 		ports[InternalFlociPort] = flociHostPort
 	}
-	http.DefaultTransport = Transport(http.DefaultTransport, hosts, ports)
+
+	cfgMu.Lock()
+	cfgHosts, cfgPorts = hosts, ports
+	cfgMu.Unlock()
+
+	if len(hosts) == 0 {
+		return nil
+	}
 	out := make([]string, 0, len(hosts))
 	for _, name := range Names {
 		if hosts[name] {
