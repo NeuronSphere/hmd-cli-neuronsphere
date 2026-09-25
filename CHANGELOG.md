@@ -2,6 +2,13 @@
 
 ## 2026-09-25
 
+- refactor: `container.VolumeContainers` answers both questions asked of a volume
+  -- what wrote it, and whether anything holds it right now -- from one `ps -a`,
+  and reports the state word rather than assuming a row means "running".
+  `VolumeUserImage` reads it instead of running its own `ps`, with its contract
+  unchanged. Asking twice would let the two answers describe different moments,
+  which is not good enough for a caller about to rewrite a data directory.
+
 - fix: a user interface's link in the start summary carried no port. It was the
   one host-facing URL built by hand rather than through `internal/hosturl`, so on
   a home whose HTTP port had been chosen away from 80 the summary printed a link

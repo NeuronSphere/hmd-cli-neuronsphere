@@ -889,6 +889,55 @@ func (d *Docker) ImageEnv(ctx context.Context, ref string) map[string]string {
 	return envMap(out)
 }
 
+// VolumeUser is one container that mounts a volume: its name, whether it is
+// running, and the image it runs.
+type VolumeUser struct {
+	Name    string
+	Running bool
+	Image   string
+}
+
+// VolumeContainers lists every container that mounts a volume, running or not.
+//
+// Both facts in one call because the two questions asked of a volume -- "what
+// wrote this" and "is anything holding it right now" -- are answered by the
+// same `ps -a`, and asking twice invites the second answer to describe a
+// different moment than the first. A caller about to rewrite a data directory
+// needs them to describe the same one.
+//
+// An unreadable docker is an empty list, not an error. Every caller treats
+// "nothing mounts it" as the permissive answer, so a caller that must refuse on
+// doubt has to establish the volume some other way first -- see
+// pgupgrade.gate, which does.
+func (d *Docker) VolumeContainers(ctx context.Context, volume string) []VolumeUser {
+	if volume == "" {
+		return nil
+	}
+	out, err := d.capture(ctx, "ps", "-a", "--filter", "volume="+volume,
+		"--format", "{{.Names}}\t{{.State}}\t{{.Image}}")
+	if err != nil {
+		return nil
+	}
+	var users []VolumeUser
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		name, rest, _ := strings.Cut(line, "\t")
+		state, image, _ := strings.Cut(rest, "\t")
+		users = append(users, VolumeUser{
+			Name: strings.TrimSpace(name),
+			// `ps` reports the state as a word; "running" is the only one
+			// that means the data directory is live. "restarting" is a
+			// crash-loop, which is not holding it open between attempts --
+			// but it will be again in a second, so it counts as running.
+			Running: state == "running" || state == "restarting",
+			Image:   strings.TrimSpace(image),
+		})
+	}
+	return users
+}
+
 // VolumeUserImage is the image of a container that mounts a volume, or "" when
 // none does.
 //
@@ -898,16 +947,9 @@ func (d *Docker) ImageEnv(ctx context.Context, ref string) map[string]string {
 // an error: "pin this back" is a cheaper remedy to offer than "discard your
 // data".
 func (d *Docker) VolumeUserImage(ctx context.Context, volume string) string {
-	if volume == "" {
-		return ""
-	}
-	out, err := d.capture(ctx, "ps", "-a", "--filter", "volume="+volume, "--format", "{{.Image}}")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
+	for _, u := range d.VolumeContainers(ctx, volume) {
+		if u.Image != "" {
+			return u.Image
 		}
 	}
 	return ""

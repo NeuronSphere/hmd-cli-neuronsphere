@@ -252,3 +252,79 @@ func TestEnsureNetworkAliasesKeepsTheExistingOnes(t *testing.T) {
 		t.Error("an endpoint that already carries every alias was reconnected")
 	}
 }
+
+// The two questions asked of a volume -- what wrote it, and whether anything
+// holds it now -- must come back from one `ps`, and the state word must be read
+// rather than assumed truthy. A caller about to wipe a data directory decides on
+// Running, and `ps` reports "exited" for the normal case of a stopped database.
+func TestVolumeContainersReadsNameStateAndImage(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	args := filepath.Join(dir, "args")
+	script := "#!/bin/sh\n" +
+		"echo \"$*\" >> " + args + "\n" +
+		"printf 'floci-rds-db\\texited\\tpostgres:12-alpine\\n'\n" +
+		"printf 'hmd-pg-upgrade-db\\trunning\\tpostgres:14-alpine\\n'\n" +
+		"printf 'flaky\\trestarting\\tpostgres:14-alpine\\n'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := (&Docker{Bin: bin}).VolumeContainers(context.Background(), "floci-rds-db")
+	want := []VolumeUser{
+		{Name: "floci-rds-db", Running: false, Image: "postgres:12-alpine"},
+		{Name: "hmd-pg-upgrade-db", Running: true, Image: "postgres:14-alpine"},
+		{Name: "flaky", Running: true, Image: "postgres:14-alpine"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d containers, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("container %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// One `ps -a`, filtered by volume: a second call would describe a second
+	// moment, which is the thing this method exists to prevent.
+	recorded, _ := os.ReadFile(args)
+	if want := "ps -a --filter volume=floci-rds-db"; !strings.Contains(string(recorded), want) {
+		t.Errorf("did not run %q; ran: %s", want, recorded)
+	}
+	if n := strings.Count(string(recorded), "\n"); n != 1 {
+		t.Errorf("asked docker %d times, want 1: %s", n, recorded)
+	}
+}
+
+// A docker that will not answer is "nothing mounts it". Every caller reads that
+// as the permissive answer, so a caller that must refuse on doubt has to
+// establish the volume some other way -- and this contract is what says so.
+func TestVolumeContainersTreatsAnUnreadableDockerAsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := (&Docker{Bin: bin}).VolumeContainers(context.Background(), "v"); got != nil {
+		t.Errorf("want no containers, got %+v", got)
+	}
+	if got := (&Docker{Bin: bin}).VolumeContainers(context.Background(), ""); got != nil {
+		t.Errorf("an empty volume name must not be asked about, got %+v", got)
+	}
+}
+
+// VolumeUserImage now reads VolumeContainers, and its contract is unchanged:
+// the first non-empty image, skipping a row that carries none.
+func TestVolumeUserImageStillReturnsTheFirstNonEmptyImage(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	script := "#!/bin/sh\n" +
+		"printf 'no-image\\texited\\t\\n'\n" +
+		"printf 'writer\\texited\\tpostgres:12-alpine\\n'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := (&Docker{Bin: bin}).VolumeUserImage(context.Background(), "v"); got != "postgres:12-alpine" {
+		t.Errorf("VolumeUserImage = %q, want postgres:12-alpine", got)
+	}
+}
