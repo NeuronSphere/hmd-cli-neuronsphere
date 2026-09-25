@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -14,6 +15,21 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci/ocitest"
 )
+
+// isolated gives a client connections of its own.
+//
+// oci.New leaves Transport nil, so every client shares http.DefaultTransport --
+// deliberately, because that is where the Floci host-name redirect is installed
+// (NERD025 SPEC003). In tests that sharing is a hazard: httptest.Server.Close
+// calls CloseIdleConnections on http.DefaultTransport, so one parallel test
+// tearing its registry down breaks a request another test is in the middle of,
+// as "http: HTTP/1.x transport connection broken: http: CloseIdleConnections
+// called". It surfaced on a release runner rather than locally, which is the
+// usual way with a window this narrow.
+func isolated(c *Client) *Client {
+	c.HTTP.Transport = &http.Transport{}
+	return c
+}
 
 const (
 	testArtifactType = "application/vnd.example.thing.v1+json"
@@ -64,7 +80,7 @@ func TestFetchAnonymousThroughTheChallenge(t *testing.T) {
 	reg := ocitest.New(t)
 	m, blobs, d := publish(t, reg, "hmdlabs/stacks/x", "0.1.0")
 
-	c := New(Credential{})
+	c := isolated(New(Credential{}))
 	b, err := c.Fetch(context.Background(), ref(t, reg, "hmdlabs/stacks/x:0.1.0"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +130,7 @@ func TestFetchByDigestAndByAtTag(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
 	_, _, d := publish(t, reg, "x/y", "1.0")
-	c := New(Credential{})
+	c := isolated(New(Credential{}))
 
 	byDigest, err := c.Fetch(context.Background(), ref(t, reg, "x/y@"+d.String()))
 	if err != nil {
@@ -140,7 +156,7 @@ func TestFetchPrivateNeedsBasicAndReportsTheSource(t *testing.T) {
 
 	// Anonymous: the realm refuses, and the message says the package may be
 	// private rather than pretending it does not exist.
-	_, err := New(Credential{Source: "anonymous"}).Fetch(context.Background(), r)
+	_, err := isolated(New(Credential{Source: "anonymous"})).Fetch(context.Background(), r)
 	var oe *Error
 	if !errors.As(err, &oe) || !oe.Unauthorized() {
 		t.Fatalf("anonymous: err = %v, want an unauthorized *Error", err)
@@ -150,13 +166,13 @@ func TestFetchPrivateNeedsBasicAndReportsTheSource(t *testing.T) {
 	}
 
 	// Wrong secret: the message names the credential's source, never the secret.
-	_, err = New(Credential{Username: "alice", Secret: "wrong", Source: "--token"}).Fetch(context.Background(), r)
+	_, err = isolated(New(Credential{Username: "alice", Secret: "wrong", Source: "--token"})).Fetch(context.Background(), r)
 	if err == nil || !strings.Contains(err.Error(), "--token") || strings.Contains(err.Error(), "wrong") {
 		t.Errorf("rejected credential message must name its source and not the secret: %v", err)
 	}
 
 	// Right secret: exchanged at the realm with Basic, then Bearer.
-	b, err := New(Credential{Username: "alice", Secret: "s3cret", Source: "--token"}).Fetch(context.Background(), r)
+	b, err := isolated(New(Credential{Username: "alice", Secret: "s3cret", Source: "--token"})).Fetch(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +188,7 @@ func TestStaticBearerIsSentFirstAndOfferedOnChallenge(t *testing.T) {
 	reg := ocitest.New(t, ocitest.RequireToken(DefaultUser, "login-jwt"))
 	publish(t, reg, "acme/x", "1.0")
 
-	c := New(Credential{Bearer: "login-jwt", Source: "profile acme"})
+	c := isolated(New(Credential{Bearer: "login-jwt", Source: "profile acme"}))
 	if _, err := c.Fetch(context.Background(), ref(t, reg, "acme/x:1.0")); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +201,7 @@ func TestTokenIsNeverSentToAnotherHost(t *testing.T) {
 	publish(t, first, "a/b", "1.0")
 	publish(t, second, "a/b", "1.0")
 
-	c := New(Credential{Username: "u", Secret: "p", Source: "--token"})
+	c := isolated(New(Credential{Username: "u", Secret: "p", Source: "--token"}))
 	if _, err := c.Fetch(context.Background(), ref(t, first, "a/b:1.0")); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +220,7 @@ func TestBlobMismatchIsATypedFailure(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
 	m, _, _ := publish(t, reg, "x/y", "1.0")
-	c := New(Credential{})
+	c := isolated(New(Credential{}))
 	r := ref(t, reg, "x/y:1.0")
 
 	// The descriptor claims a digest the registry has under another name.
@@ -230,7 +246,7 @@ func TestManifestDigestMismatchIsRefused(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
 	publish(t, reg, "x/y", "1.0")
-	c := New(Credential{})
+	c := isolated(New(Credential{}))
 
 	// Ask by a digest the registry does not have: 404, not a mismatch.
 	_, err := c.Fetch(context.Background(), ref(t, reg, "x/y@sha256:"+strings.Repeat("1", 64)))
@@ -246,7 +262,7 @@ func TestIndexIsRefused(t *testing.T) {
 	index, _ := json.Marshal(map[string]any{"schemaVersion": 2, "mediaType": v1.MediaTypeImageIndex, "manifests": []any{}})
 	reg.PutRaw("x/multi", "1.0", v1.MediaTypeImageIndex, index, nil)
 
-	_, err := New(Credential{}).Fetch(context.Background(), ref(t, reg, "x/multi:1.0"))
+	_, err := isolated(New(Credential{})).Fetch(context.Background(), ref(t, reg, "x/multi:1.0"))
 	if err == nil || !strings.Contains(err.Error(), "index") {
 		t.Fatalf("err = %v, want an index refusal", err)
 	}
@@ -255,7 +271,7 @@ func TestIndexIsRefused(t *testing.T) {
 func TestNotFoundSaysPackageMayBePrivate(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
-	_, err := New(Credential{Source: "anonymous"}).Fetch(context.Background(), ref(t, reg, "x/absent:1.0"))
+	_, err := isolated(New(Credential{Source: "anonymous"})).Fetch(context.Background(), ref(t, reg, "x/absent:1.0"))
 	var oe *Error
 	if !errors.As(err, &oe) || !oe.NotFound() {
 		t.Fatalf("err = %v, want not-found *Error", err)
@@ -271,7 +287,7 @@ func TestTagsPaginatesFiltersAndSorts(t *testing.T) {
 	for _, tag := range []string{"0.1.0", "0.10.0", "0.2.0", "latest", "main", "0.2.1"} {
 		publish(t, reg, "x/y", tag)
 	}
-	c := New(Credential{})
+	c := isolated(New(Credential{}))
 	got, err := c.Tags(context.Background(), ref(t, reg, "x/y"))
 	if err != nil {
 		t.Fatal(err)
@@ -302,7 +318,7 @@ func TestTagsPaginatesFiltersAndSorts(t *testing.T) {
 func TestTagsOfUnknownRepositoryIsNotFound(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
-	_, err := New(Credential{}).Tags(context.Background(), ref(t, reg, "x/nothing"))
+	_, err := isolated(New(Credential{})).Tags(context.Background(), ref(t, reg, "x/nothing"))
 	var oe *Error
 	if !errors.As(err, &oe) || !oe.NotFound() {
 		t.Fatalf("err = %v, want not-found", err)
@@ -315,7 +331,7 @@ func TestPushRoundTripSkipsPresentBlobs(t *testing.T) {
 	m, blobs, _ := publish(t, reg, "seed/x", "1.0") // only so the blob bytes exist somewhere
 	_ = m
 
-	c := New(Credential{Username: "ci", Secret: "pat", Source: "--token"})
+	c := isolated(New(Credential{Username: "ci", Secret: "pat", Source: "--token"}))
 	target := ref(t, reg, "hmdlabs/stacks/new:2.0")
 
 	config := blobs[m.Config.Digest]
@@ -356,7 +372,7 @@ func TestPushRoundTripSkipsPresentBlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	back, err := New(Credential{Username: "ci", Secret: "pat"}).Fetch(context.Background(), target)
+	back, err := isolated(New(Credential{Username: "ci", Secret: "pat"})).Fetch(context.Background(), target)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +394,7 @@ func TestPushRoundTripSkipsPresentBlobs(t *testing.T) {
 func TestPushRetriesWithoutArtifactType(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge(), ocitest.RejectArtifactType())
-	c := New(Credential{Username: "u", Secret: "p"})
+	c := isolated(New(Credential{Username: "u", Secret: "p"}))
 	target := ref(t, reg, "x/old:1.0")
 
 	config := []byte(`{}`)
@@ -409,7 +425,7 @@ func TestPushRetriesWithoutArtifactType(t *testing.T) {
 func TestPushRefusesAnonymousBeforeAnyRequest(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
-	c := New(Credential{Source: "anonymous"})
+	c := isolated(New(Credential{Source: "anonymous"}))
 	_, err := c.PushBlob(context.Background(), ref(t, reg, "x/y:1.0"), testConfigType, bytes.NewReader([]byte("{}")), 2)
 	if !errors.Is(err, ErrNoCredential) {
 		t.Fatalf("err = %v, want ErrNoCredential", err)
