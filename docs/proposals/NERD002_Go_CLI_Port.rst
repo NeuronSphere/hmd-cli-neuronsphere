@@ -16,8 +16,10 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     service so ``hmd-ms-deployment`` submits deployments to a workflow engine
     locally exactly as it submits them to Argo in the cloud. The
     ``nsplugin.json`` format, the BACON ``manifest.json`` contract, and the
-    ``$HMD_HOME`` on-disk layout are unchanged. The Python ``hmd neuronsphere``
-    surface coexists throughout the port. All other ``hmd-cli-*`` packages,
+    ``$HMD_HOME`` on-disk layout are unchanged (amended 2026-09-25: SPEC005
+    withdrew ``nsplugin.json`` and ``nsctl load-plugin`` with it; ``nsctl``
+    reads no plugin index, and the format survives only in the Python CLI).
+    The Python ``hmd neuronsphere`` surface coexists throughout the port. All other ``hmd-cli-*`` packages,
     all ``hmd-ms-*`` microservices, and all ``hmd-inf-*`` repos remain Python.
 
     *Implemented 2026-09-07, and the gate was run rather than argued.* A machine
@@ -708,7 +710,10 @@ lines, reachable only from platform mode), and ``local_storage_provisioner.py``
 ``deploy.default_configuration`` and ``pre_build_artifacts``),
 ``config_local.json``, the ``hmd_lang_deployment.change_set`` variant-C entry
 shape, ``$HMD_HOME/.config/hmd.env``, and every ``HMD_*`` /
-``HMD_LOCAL_NEURONSPHERE_ENABLE_*`` environment variable.
+``HMD_LOCAL_NEURONSPHERE_ENABLE_*`` environment variable. (Amended
+2026-09-25: ``nsplugin.json`` is the one exception. SPEC005 withdrew it and
+``nsctl`` reads no plugin index, so the format is unchanged only in the sense
+that the Python CLI still reads it.)
 
 Architecture Overview
 ---------------------

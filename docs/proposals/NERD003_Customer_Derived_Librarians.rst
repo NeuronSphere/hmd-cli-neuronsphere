@@ -29,6 +29,17 @@ NERD003 Customer-Derived Librarians on Local NeuronSphere
     ``hmd-cli-neuronsphere`` for a new customer librarian -- the contract
     is fully data-driven from the customer's manifest and nsplugin files.
 
+    .. note::
+
+       **Amended 2026-09-25.** The goal stands; the mechanism named
+       throughout does not. ``src/local/nsplugin.json`` was withdrawn with
+       NERD002 SPEC005, and a repo now declares itself to ``nsctl`` in its
+       BACON ``meta-data/manifest.json`` and ``meta-data/resources/*.yaml``
+       alone. Read every ``nsplugin.json`` below as naming the declaration a
+       RepoClass already carries. The file is still read by the legacy Python
+       ``hmd neuronsphere`` CLI, which is the entrypoint this proposal was
+       written against.
+
 Motivation
 ----------
 
@@ -150,6 +161,14 @@ Docker image -- no error, no warning.
     :id: HMD_CLI_NEURONSPHERE_NERD003_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD003
     :status: proposed
+
+    .. note::
+
+       **Amended 2026-09-25.** The first of the four files below,
+       ``src/local/nsplugin.json``, is withdrawn (NERD002 SPEC005); what it
+       declared belongs in the manifest and resource declarations the other
+       files already carry. The requirement this section states -- a contract
+       data-driven enough to need no per-customer code -- is unchanged.
 
     A customer's derived-librarian repo declares itself as a local NeuronSphere
     HMDMS plugin by shipping the four files below. The contract is fully
@@ -482,7 +501,17 @@ Docker image -- no error, no warning.
 .. spec:: Plugin discovery for customer repos outside the standard projects directory
     :id: HMD_CLI_NEURONSPHERE_NERD003_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD003
-    :status: proposed
+    :status: withdrawn
+
+    .. warning::
+
+       **Withdrawn 2026-09-25.** ``nsctl`` implements no plugin discovery
+       (NERD002 SPEC005): no path list is scanned and nothing enumerates
+       candidates. A checkout outside ``$HMD_REPO_HOME`` is reached by naming
+       it -- ``nsctl env add --from-repo <dir>``, NERD010's repo-rooted
+       environments -- which answers this section's case without
+       ``HMD_LOCAL_PLUGINS`` or ``LocalPluginLoader``, neither of which is
+       ported.
 
     Customer librarian repos commonly live outside ``$HMD_REPO_HOME`` (in a
     customer-internal workspace or product monorepo). The existing

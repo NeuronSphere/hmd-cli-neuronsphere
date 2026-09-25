@@ -18,6 +18,22 @@ NERD001 Floci-Based Local NeuronSphere Architecture
     from the same nsplugin definitions. The ``hmd neuronsphere up`` command remains
     the single entrypoint.
 
+    .. note::
+
+       **Amended 2026-09-25.** ``nsplugin.json`` was withdrawn with
+       NERD002 SPEC005, so every specification below that
+       derives behaviour from a plugin definition names a file ``nsctl`` does
+       not read. A RepoClass declares what it produces and consumes in its
+       BACON ``meta-data/manifest.json`` and its ``meta-data/resources/*.yaml``,
+       and ``internal/repoclass`` reads exactly those; an extension runs
+       because a manifest names it and for no other reason
+       (NERD009). The ``nsplugin.json`` format
+       itself survives only in the legacy Python ``hmd neuronsphere`` CLI,
+       which still loads and validates it.
+
+       Extend mode is also the default now, not Platform mode. The text is
+       kept as written as the record of what was proposed.
+
 Motivation
 ----------
 
@@ -476,7 +492,20 @@ Per-Repo Local Deployment Overrides
 .. spec:: Per-repo local deployment overrides via nsplugin.json
     :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+    :status: withdrawn
+
+    .. warning::
+
+       **Withdrawn 2026-09-25.** ``nsplugin.json`` was withdrawn with
+       NERD002 SPEC005: it restated resources, databases and
+       dependencies the BACON manifest and ``meta-data/resources/*.yaml``
+       already carried, so it was a second place to say one thing and it went
+       stale. How a repo deploys locally is settled by its own manifest and by the
+       environment manifest that names its checkout
+       (NERD010), not by a ``local_deploy``
+       section in a parallel inventory.
+
+       The schema below is kept as the record of what was proposed.
 
     Each repo that needs a local override declares it in its own
     ``nsplugin.json`` via an optional ``local_deploy`` section. There is
@@ -564,7 +593,19 @@ Plugin-Declared Volumes
 .. spec:: Plugin-declared volumes for local storage
     :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC013
     :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+    :status: withdrawn
+
+    .. warning::
+
+       **Withdrawn 2026-09-25.** ``nsplugin.json`` was withdrawn with
+       NERD002 SPEC005: it restated resources, databases and
+       dependencies the BACON manifest and ``meta-data/resources/*.yaml``
+       already carried, so it was a second place to say one thing and it went
+       stale. Storage a workload needs is declared where the workload is declared --
+       its chart values and its resource declarations -- rather than in a
+       ``volumes`` field on a plugin index.
+
+       The schema below is kept as the record of what was proposed.
 
     Plugins declare their persistent volume requirements in ``nsplugin.json``
     using an optional ``volumes`` field. This enables the creation of static
@@ -600,7 +641,19 @@ nsplugin Schema Extensions
 .. spec:: nsplugin.json extended with volumes and local_deploy
     :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD001
-    :status: proposed
+    :status: withdrawn
+
+    .. warning::
+
+       **Withdrawn 2026-09-25.** ``nsplugin.json`` was withdrawn with
+       NERD002 SPEC005: it restated resources, databases and
+       dependencies the BACON manifest and ``meta-data/resources/*.yaml``
+       already carried, so it was a second place to say one thing and it went
+       stale. Both fields this section adds belong to specifications that are
+       themselves withdrawn above, so the extension has nothing left to
+       extend.
+
+       The schema below is kept as the record of what was proposed.
 
     The ``nsplugin.json`` schema gains two optional additive fields:
     ``volumes`` (SPEC013) for storage declarations and ``local_deploy``
