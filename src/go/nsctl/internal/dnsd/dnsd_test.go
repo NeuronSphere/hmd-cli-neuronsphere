@@ -324,3 +324,24 @@ func TestTheProbeNameIsNeverReused(t *testing.T) {
 		}
 	}
 }
+
+// The warning names the parent the file must not be filed under, and it is
+// derived so it cannot outlive the suffix. It said "not to neuronsphere.io"
+// long after the suffix stopped being under neuronsphere.io -- advice that was
+// merely irrelevant, where the real hazard had become `local`, the whole mDNS
+// TLD.
+func TestParentOfNamesTheSubtreeToAvoid(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct{ suffix, want string }{
+		{"ns.local", "local"},
+		{"local.neuronsphere.io", "neuronsphere.io"},
+		{"NS.Local.", "local"},
+		// Nothing above it: naming itself is better than naming "".
+		{"local", "local"},
+	} {
+		if got := ParentOf(tt.suffix); got != tt.want {
+			t.Errorf("ParentOf(%q) = %q, want %q", tt.suffix, got, tt.want)
+		}
+	}
+}

@@ -617,18 +617,29 @@ Dns Install Prints A Sudo Line And Runs Nothing
     Should Be Equal As Integers    ${result.rc}    0
     Should Contain    ${result.stdout}    sudo
     Should Contain    ${result.stdout}    does not run it for you
+    # Whatever the platform's step is, nsctl must not have taken it.
     ${after}=    Run Keyword And Return Status    Directory Should Exist    /etc/resolver
     Should Be Equal    ${before}    ${after}    msg=dns install must not create /etc/resolver itself
 
-Dns Install Scopes The Resolver File To The Suffix Itself
-    [Documentation]    A resolver file captures its whole subtree, so filing it
-    ...                under the parent name would capture something that is not
-    ...                ours. The narrow suffix is a correctness requirement, not
-    ...                tidiness. NERD026 SPEC002.
+Dns Install Scopes The Resolver To The Suffix Itself
+    [Documentation]    A resolver file captures its whole subtree, so scoping it
+    ...                to the parent would capture something that is not ours --
+    ...                every mDNS name on the machine, under `local`. The narrow
+    ...                suffix is a correctness requirement, not tidiness.
+    ...                NERD026 SPEC002.
+    ...
+    ...                The privileged step itself is platform-specific -- a
+    ...                resolver file on macOS, a systemd-resolved routing domain
+    ...                on Linux -- so this asserts the scoping it states rather
+    ...                than the shape of one platform's command. Asserting
+    ...                /etc/resolver here is what failed this suite on Linux.
     ${result}=    Run nsctl    dns    install
     Should Be Equal As Integers    ${result.rc}    0
-    Should Contain    ${result.stdout}    /etc/resolver/
+    Should Contain    ${result.stdout}    It is scoped to
     Should Contain    ${result.stdout}    not to
+    # Named for the suffix, never for the subtree above it.
+    Should Contain    ${result.stdout}    ns.local
+    Should Not Contain    ${result.stdout}    scoped to local,
 
 Dns Install Prints The Port This Home Serves
     [Documentation]    The resolver's port is chosen when the default is taken

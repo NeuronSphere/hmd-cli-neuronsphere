@@ -344,6 +344,22 @@ func ResolverFile(suffix string, port int) (string, string) {
 		fmt.Sprintf("nameserver 127.0.0.1\nport %d\n", port)
 }
 
+// ParentOf is the suffix one label up -- the name this resolver must *not* be
+// filed under.
+//
+// A resolver file captures its whole subtree, so filing `ns.local` under `local`
+// would route every mDNS name the machine resolves into a server that answers
+// 127.0.0.1 for anything it is asked. Under the old suffix the same mistake
+// would have captured the real public neuronsphere.io. Derived rather than
+// written down, so the warning cannot outlive the suffix it describes.
+func ParentOf(suffix string) string {
+	suffix = strings.Trim(strings.ToLower(suffix), ".")
+	if _, parent, found := strings.Cut(suffix, "."); found && parent != "" {
+		return parent
+	}
+	return suffix
+}
+
 // InstallStep is the one privileged command for a platform.
 //
 // Printed, never run: nsctl does not take root and does not edit the user's

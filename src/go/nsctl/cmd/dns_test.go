@@ -132,3 +132,40 @@ func TestDNSStatusReportsTheProbeNameItUsed(t *testing.T) {
 		t.Errorf("the report does not name the wildcard probe it used:\n%s", out)
 	}
 }
+
+// The contract suite can only assert the platform it runs on, and asserting a
+// macOS resolver-file path there passed locally and failed the release on Linux.
+// Both branches are checked here instead, against the properties that must hold
+// on every platform.
+func TestTheInstallTextHoldsOnEveryPlatform(t *testing.T) {
+	t.Parallel()
+
+	for _, goos := range []string{"darwin", "linux", "plan9"} {
+		out := installText(goos, "ns.local", 19153)
+
+		for _, want := range []string{
+			"does not run it for you", // nsctl prints, never runs
+			"It is scoped to ns.local",
+			"19153", // the port actually served
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: install text lacks %q:\n%s", goos, want, out)
+			}
+		}
+		// Scoped to the suffix, never to the subtree above it.
+		if strings.Contains(out, "scoped to local,") {
+			t.Errorf("%s: scoped to the parent, which would capture every mDNS name:\n%s", goos, out)
+		}
+		if !strings.Contains(out, "not to local") {
+			t.Errorf("%s: does not name the subtree it avoids:\n%s", goos, out)
+		}
+	}
+
+	// The privileged step itself is the part that differs.
+	if strings.Contains(installText("linux", "ns.local", 19153), "/etc/resolver") {
+		t.Error("the Linux step names /etc/resolver, which does not exist there")
+	}
+	if !strings.Contains(installText("darwin", "ns.local", 19153), "/etc/resolver/ns.local") {
+		t.Error("the macOS step does not name the resolver file")
+	}
+}

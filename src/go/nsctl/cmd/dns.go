@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
@@ -77,6 +78,27 @@ func resolvedDNSPort(opts *Options) int {
 	return dnsd.DefaultPort
 }
 
+// installText is everything `dns install` prints.
+//
+// Split out and given its platform so both branches can be asserted from a unit
+// test on either machine. The contract suite can only check the platform it runs
+// on, and asserting a macOS resolver-file path there passed locally and failed
+// the release on Linux, where the step is a systemd-resolved routing domain.
+func installText(goos, suffix string, port int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Run this once. nsctl does not run it for you: it needs root, and it\n")
+	fmt.Fprintf(&b, "changes a file that belongs to you.\n\n")
+	fmt.Fprintf(&b, "    %s\n\n", dnsd.InstallStep(goos, suffix, port))
+	// The subtree it must NOT be scoped to, named from the suffix rather than
+	// written down: a resolver captures everything below the name it is filed
+	// under, so `local` would swallow every mDNS name on this machine exactly as
+	// `neuronsphere.io` would once have swallowed the public site.
+	fmt.Fprintf(&b, "It is scoped to %s, not to %s, so it cannot\n", suffix, dnsd.ParentOf(suffix))
+	fmt.Fprintf(&b, "capture any name outside the local platform.\n\n")
+	fmt.Fprintf(&b, "Then check it with `nsctl dns status`.\n")
+	return b.String()
+}
+
 func newDNSInstallCommand(opts *Options) *cobra.Command {
 	var suffix string
 	var port int
@@ -92,12 +114,7 @@ func newDNSInstallCommand(opts *Options) *cobra.Command {
 			if port == 0 {
 				port = resolvedDNSPort(opts)
 			}
-			fmt.Fprintf(out, "Run this once. nsctl does not run it for you: it needs root, and it\n")
-			fmt.Fprintf(out, "changes a file that belongs to you.\n\n")
-			fmt.Fprintf(out, "    %s\n\n", dnsd.InstallStep(runtime.GOOS, suffix, port))
-			fmt.Fprintf(out, "It is scoped to %s, not to neuronsphere.io, so it cannot\n", suffix)
-			fmt.Fprintf(out, "capture any name outside the local platform.\n\n")
-			fmt.Fprintf(out, "Then check it with `nsctl dns status`.\n")
+			fmt.Fprint(out, installText(runtime.GOOS, suffix, port))
 			return nil
 		},
 	}
