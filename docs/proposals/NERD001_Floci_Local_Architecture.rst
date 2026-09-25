@@ -1039,6 +1039,62 @@ Phased Migration Strategy
     - Migrate individual repos incrementally to use the shared factory.
     - Add Floci-specific resource provisioning (Secrets Manager, IAM roles).
 
+Floci's Persistent State
+------------------------
+
+.. spec:: The data directory bound into Floci is nsctl's to verify
+    :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC014
+    :links: HMD_CLI_NEURONSPHERE_NERD001
+    :status: implemented
+
+    Floci runs in ``persistent`` storage mode with ``/app/data`` bind-mounted
+    from ``$HMD_HOME/floci/data``. A bind mount is resolved **once**, when the
+    container is created. Nothing re-resolves it afterwards, and nothing in
+    Docker reports that it has gone stale.
+
+    So if that host directory is deleted or replaced while the container runs --
+    which is what a stuck user does when they delete ``$HMD_HOME`` to start
+    over -- the container keeps the old, unlinked directory. Floci's in-memory
+    state still answers: ``CreateBucket`` is idempotent and reports the bucket
+    it loaded at startup, so provisioning passes. Every *disk* access fails, and
+    Floci raises it as an S3 ``InternalError`` 500 in whatever happens to read
+    next. In the incident that motivated this specification, that was
+    ``tofu init`` refreshing CDKTF state, roughly 950 log lines into a deploy,
+    with nothing in the message connecting it to a deleted directory.
+
+    The container-level reconciler cannot catch this on its own: it compares a
+    configuration hash, and deleting a directory changes no configuration. A
+    running container with a matching hash is left alone, which is correct in
+    every other case and exactly wrong in this one.
+
+    **nsctl must therefore, on every control-plane start:**
+
+    1. **Detect** that the running Floci is bound to a directory that is no
+       longer this ``HMD_HOME``'s, and recreate the container rather than reuse
+       it. A synthesized registry -- no ``registry.json`` -- together with
+       containers still carrying this home's compose-project label has exactly
+       one cause, because the project name is a hash of the home *path* and so
+       survives the directory being deleted and remade.
+    2. **Prove the object store by round trip** before any deploy depends on
+       it: write a token to the CDKTF state bucket, read it back, compare the
+       bytes, delete it. A reachable Floci is not a working Floci, and the
+       difference is only visible by touching the disk.
+    3. **Treat a failed proof as fatal.** The state bucket is a hard
+       precondition for the first CDKTF node; continuing only moves the failure
+       somewhere unrecognisable.
+
+    **Detection acts only on a definite signal.** A probe that cannot reach an
+    answer warns and changes nothing. A false positive here recreates a Floci
+    that was working, and the cost of that is real: Floci's recovery of the RDS
+    and Neptune containers it spawned is unreliable, and an instance it cannot
+    bring back reports ``failed`` with a redeploy the only way out.
+
+    That cost does not apply to the case above, and the code should say why --
+    the records Floci would need in order to recover those containers lived in
+    the directory that was deleted. There is nothing to preserve, and a
+    recreated Floci is strictly better than one that answers 500 to every
+    object.
+
 Key Design Decisions
 --------------------
 

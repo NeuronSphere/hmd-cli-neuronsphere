@@ -174,3 +174,70 @@ func TestLayeredToleratesANilProcessLookup(t *testing.T) {
 		t.Errorf("lookup(HMD_DID) = %q, want the file value", got)
 	}
 }
+
+// OriginOf must agree with Layered about *which* source answers, or a message
+// built from it sends the reader to the wrong file. The cases are Layered's
+// own: the shell wins, an empty value in the shell is not an answer, and the
+// file is consulted only when the shell had nothing.
+func TestOriginOfAgreesWithLayeredAboutWhoAnswered(t *testing.T) {
+	t.Parallel()
+
+	const key = "HMD_LOCAL_NS_CONTAINER_REGISTRY"
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(home), []byte(key+"=from-file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		process    map[string]string
+		home       string
+		wantValue  string
+		wantOrigin string
+	}{
+		{"the shell wins over the file", map[string]string{key: "from-shell"}, home, "from-shell", OriginShell},
+		{"an empty shell value is not an answer", map[string]string{key: ""}, home, "from-file", Path(home)},
+		{"the file answers when the shell is silent", nil, home, "from-file", Path(home)},
+		{"neither means nsctl's default", nil, t.TempDir(), "", OriginDefault},
+		{"no home at all means nsctl's default", nil, "", "", OriginDefault},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lookup := func(k string) string { return tt.process[k] }
+			value, origin := OriginOf(tt.home, lookup, key)
+			if value != tt.wantValue || origin != tt.wantOrigin {
+				t.Errorf("OriginOf = (%q, %q), want (%q, %q)", value, origin, tt.wantValue, tt.wantOrigin)
+			}
+			// The value must be the one a caller would actually get.
+			file, err := Load(tt.home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := Layered(lookup, file)(key); got != value {
+				t.Errorf("OriginOf reports %q but Layered resolves %q", value, got)
+			}
+		})
+	}
+}
+
+// OriginOf explains a failure; it must not become one. An hmd.env that cannot
+// be parsed still yields an answer.
+func TestOriginOfSurvivesAnUnreadableHmdEnv(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(home), []byte("this is not a dotenv line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := OriginOf(home, nil, "ANY"); origin != OriginDefault {
+		t.Errorf("origin = %q, want %q", origin, OriginDefault)
+	}
+	if value, origin := OriginOf(home, func(string) string { return "v" }, "ANY"); value != "v" || origin != OriginShell {
+		t.Errorf("a shell value must still be reported: got (%q, %q)", value, origin)
+	}
+}

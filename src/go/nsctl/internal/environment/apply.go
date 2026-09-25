@@ -208,7 +208,8 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// Floci spawns its database backend from an image reference pinned into its
 	// own configuration, and a reference that resolves nowhere fails the
 	// instance while the deploy polls indefinitely. Catch it in seconds here.
-	for _, problem := range floci.EnsureBackendImages(ctx, d, floci.ContainerName, opts.step) {
+	for _, problem := range floci.EnsureBackendImages(ctx, d, floci.ContainerName, opts.step,
+		floci.RegistryHint{Home: opts.Home, Lookup: opts.Lookup}) {
 		return nserr.New(nserr.Usage, "%s", problem)
 	}
 

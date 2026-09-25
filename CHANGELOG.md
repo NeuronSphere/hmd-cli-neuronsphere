@@ -2,6 +2,18 @@
 
 ## 2026-09-25
 
+- fix: a pull failure now names what is set, and where it was set. The message
+  for an image Floci cannot resolve named `HMD_LOCAL_NS_CONTAINER_REGISTRY` and
+  stopped there, which left no way to tell whether the variable was set at all,
+  still less in a shell profile rather than somewhere under `HMD_HOME`. A
+  first-run user read it, reasonably concluded their home was bad, and deleted
+  it -- which cannot clear a shell variable, and cost them the failure below.
+  The message now carries the value, its origin (`hmdenv.OriginOf`: the shell,
+  this home's `.config/hmd.env`, or nsctl's own default), the
+  `ghcr.io/hmdlabs` nsctl would have used, and -- when the setting is one
+  deleting `HMD_HOME` cannot reach -- that deleting it is not how to start
+  over. `nsctl control-plane stop` and `nsctl env purge` are.
+
 - fix: three defects a live rehearsal of `nsctl db upgrade` found. The backup and
   dump volumes no longer carry `floci-rds-` anywhere in their names, and the
   detector skips a migration's own artifacts, so a successful migration stops

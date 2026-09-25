@@ -298,6 +298,63 @@ Scope and terminology
     newcomer's first ``env apply`` failing on a role they never chose is the
     worst outcome available, produced by guessing helpfully.
 
+.. spec:: A failure names the setting, its value, and where it was set
+    :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC009
+    :links: HMD_CLI_NEURONSPHERE_NERD023
+    :status: implemented
+
+    When a configuration override is what makes a first start impossible,
+    naming the variable is not enough. The message shall carry:
+
+    - the value the variable resolved to,
+    - **where that value came from** -- the shell environment, this home's
+      ``.config/hmd.env``, or nsctl's own default,
+    - what nsctl would have used instead, and the one-line remedy.
+
+    This is not polish. A first-run user hit
+    ``HMD_LOCAL_NS_CONTAINER_REGISTRY`` pointing at a registry that does not
+    publish the pinned database image. The message named the variable and
+    nothing else, so the setting stayed invisible: there was no way to tell,
+    from what nsctl printed, that anything was set at all, still less that it
+    was set in a shell profile rather than somewhere under ``HMD_HOME``. The
+    user reasonably concluded the *home* was bad and deleted it -- which could
+    not have cleared a shell variable, and instead walked them into
+    NERD001 SPEC014.
+
+    **Any message a stuck first-run user reads shall say that deleting
+    ``$HMD_HOME`` is not how to start over**, and shall name
+    ``nsctl control-plane stop`` and ``nsctl env purge`` instead. Deleting the
+    home leaves the platform's containers running and writing into a directory
+    that no longer exists; it is the one recovery that makes things strictly
+    worse, and it is the one an undirected user reaches for.
+
+    Where the answer is cheap to obtain before anything is attempted,
+    ``nsctl doctor`` shall obtain it: a registry that cannot serve the
+    references the control plane pins is a ten-second failure, not a
+    ten-minute one. Unreachable is not misconfigured, so being offline warns
+    and does not fail.
+
+.. spec:: ``quickstart`` reports a start that did not happen
+    :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC010
+    :links: HMD_CLI_NEURONSPHERE_NERD023
+    :status: implemented
+
+    A failed ``env start`` shall not end the wizard. Adopting a repository and
+    installing skills are filesystem operations that work with nothing running,
+    and stopping there would deny them to exactly the user whose first start did
+    not work -- SPEC001's reasoning, unchanged.
+
+    It shall, however, be reported as a failure and not as an aside:
+
+    - the error is printed as a failure, with any remedy it carries printed
+      verbatim rather than replaced by a pointer to ``nsctl doctor``;
+    - the closing summary restates that no environment is running, and gives
+      the command to retry;
+    - ``quickstart`` exits non-zero.
+
+    A wizard that prints a warning and then exits ``0`` tells a script that the
+    platform came up. It did not.
+
 Testing
 -------
 

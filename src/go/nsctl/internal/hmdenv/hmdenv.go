@@ -94,6 +94,45 @@ func Layered(process Lookup, file map[string]string) Lookup {
 	}
 }
 
+// Origin names where a key's effective value came from.
+//
+// A message that says only "check HMD_LOCAL_NS_CONTAINER_REGISTRY" leaves the
+// reader no way to tell whether anything is set at all, still less where. That
+// is not hypothetical: a first-run user read exactly that message, concluded
+// their HMD_HOME was bad and deleted it -- which cannot clear a shell variable,
+// and cost them a Floci bound to a directory that no longer existed
+// (NERD023 SPEC009).
+const (
+	// OriginShell is the process environment, which Layered prefers.
+	OriginShell = "your shell environment"
+	// OriginDefault is nsctl's own default: the key is set nowhere.
+	OriginDefault = "nsctl's own default"
+)
+
+// OriginOf resolves a key the way Layered does and reports where the answer
+// came from. The value is "" exactly when the origin is OriginDefault.
+//
+// It re-reads hmd.env rather than taking an already-layered Lookup, because a
+// Lookup has by then forgotten which of its two sources answered -- and that is
+// the whole question. This only runs on an error path, so the read costs
+// nothing that matters. An unreadable hmd.env is reported as the shell's answer
+// or as the default: OriginOf explains a failure and must not become one.
+func OriginOf(home string, process Lookup, key string) (value, origin string) {
+	if process != nil {
+		if v := process(key); v != "" {
+			return v, OriginShell
+		}
+	}
+	file, err := Load(home)
+	if err != nil {
+		return "", OriginDefault
+	}
+	if v := file[key]; v != "" {
+		return v, Path(home)
+	}
+	return "", OriginDefault
+}
+
 // Parse reads dotenv-style content: KEY=VALUE, one per line, with an optional
 // `export ` prefix, # comments, blank lines, and single- or double-quoted
 // values. Escape sequences inside double quotes (\n, \t, \\, \") are expanded;

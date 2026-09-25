@@ -3,8 +3,13 @@ package floci
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 type fakeImages struct {
@@ -41,7 +46,7 @@ func TestAnUncachedBackendImageIsPulledRatherThanRefused(t *testing.T) {
 		present: map[string]bool{},
 		failing: map[string]bool{},
 	}
-	if problems := EnsureBackendImages(context.Background(), f, "floci", nil); len(problems) > 0 {
+	if problems := EnsureBackendImages(context.Background(), f, "floci", nil, RegistryHint{}); len(problems) > 0 {
 		t.Fatalf("a pullable image must not stop a start: %v", problems)
 	}
 	if len(f.pulled) != 2 {
@@ -62,7 +67,7 @@ func TestAnUnpullableBackendImageStillStopsTheStart(t *testing.T) {
 		present: map[string]bool{},
 		failing: map[string]bool{ref: true},
 	}
-	problems := EnsureBackendImages(context.Background(), f, "floci", nil)
+	problems := EnsureBackendImages(context.Background(), f, "floci", nil, RegistryHint{})
 	if len(problems) != 1 {
 		t.Fatalf("want one problem, got %v", problems)
 	}
@@ -87,10 +92,78 @@ func TestACachedBackendImageIsNotPulledAgain(t *testing.T) {
 		present: map[string]bool{ref: true},
 		failing: map[string]bool{},
 	}
-	if problems := EnsureBackendImages(context.Background(), f, "floci", nil); len(problems) > 0 {
+	if problems := EnsureBackendImages(context.Background(), f, "floci", nil, RegistryHint{}); len(problems) > 0 {
 		t.Fatalf("unexpected problems: %v", problems)
 	}
 	if len(f.pulled) != 0 {
 		t.Errorf("a cached image was pulled anyway: %v", f.pulled)
+	}
+}
+
+// The incident this was written for. A first-run user had
+// HMD_LOCAL_NS_CONTAINER_REGISTRY inherited from an older install, pointing at
+// an org that publishes no 0.3.12 of the database image. The message named the
+// variable and nothing else, so there was no way to tell it was set at all --
+// and they deleted HMD_HOME instead, which cannot clear a shell variable and
+// cost them a Floci bound to a directory that no longer existed.
+func TestAPullFailureNamesTheOverridesValueAndWhereItWasSet(t *testing.T) {
+	t.Parallel()
+
+	ref := "ghcr.io/neuronsphere/hmd-postgres-base:0.3.12"
+	f := &fakeImages{
+		env:     map[string]string{rdsImageEnv: ref},
+		present: map[string]bool{},
+		failing: map[string]bool{ref: true},
+	}
+	shell := map[string]string{RegistryEnv: "ghcr.io/neuronsphere"}
+	problems := EnsureBackendImages(context.Background(), f, "floci", nil,
+		RegistryHint{Home: t.TempDir(), Lookup: func(k string) string { return shell[k] }})
+	if len(problems) != 1 {
+		t.Fatalf("want one problem, got %v", problems)
+	}
+	for _, want := range []string{
+		ref,                         // what failed
+		"ghcr.io/neuronsphere",      // what the variable is set to
+		hmdenv.OriginShell,          // where it was set
+		repoclass.PublishedRegistry, // what nsctl would have used
+		"Do not delete $HMD_HOME",   // the recovery that makes it worse
+		"nsctl control-plane stop",  // the one that does not
+	} {
+		if !strings.Contains(problems[0], want) {
+			t.Errorf("the message does not name %q:\n%s", want, problems[0])
+		}
+	}
+}
+
+// An override set in this home's hmd.env is named by path, not as "your shell":
+// the remedy is a different file, and saying the wrong one sends the reader
+// looking where the value is not. Deleting HMD_HOME *would* clear this one, so
+// the warning against doing so is not repeated here.
+func TestAPullFailureNamesTheHmdEnvFileWhenThatIsWhereItWasSet(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hmdenv.Path(home), []byte(RegistryEnv+"=ghcr.io/neuronsphere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ref := "ghcr.io/neuronsphere/hmd-postgres-base:0.3.12"
+	f := &fakeImages{
+		env:     map[string]string{rdsImageEnv: ref},
+		present: map[string]bool{},
+		failing: map[string]bool{ref: true},
+	}
+	problems := EnsureBackendImages(context.Background(), f, "floci", nil, RegistryHint{Home: home})
+	if len(problems) != 1 {
+		t.Fatalf("want one problem, got %v", problems)
+	}
+	if !strings.Contains(problems[0], hmdenv.Path(home)) {
+		t.Errorf("the message does not name the file it was set in:\n%s", problems[0])
+	}
+	if strings.Contains(problems[0], hmdenv.OriginShell) {
+		t.Errorf("the message blames the shell for a value in hmd.env:\n%s", problems[0])
 	}
 }
