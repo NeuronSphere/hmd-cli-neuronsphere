@@ -160,8 +160,8 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
-	if err := prov.Provision(ctx, names, env.DBContainer); err != nil {
-		opts.warn("%v", err)
+	if err := provisionEnvironment(ctx, prov, names, env.DBContainer, opts.warn); err != nil {
+		return err
 	}
 
 	// The database, before anything that needs it resolves. Floci leaves the
@@ -1055,6 +1055,49 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 // a differently-named environment still fails exactly as described, and a
 // removed warning would leave that unexplained. Delete this, its two callers
 // and the bullets in docs/nsctl.rst and the README once the image has it.
+// provisionEnvironment creates the account resources, and decides which of
+// them a start may proceed without.
+//
+// The split is deliberate, and replaces a blanket warn-and-continue. The admin
+// database secret is only needed by a database-account deploy, and a substrate
+// that deploys no database (see planFor) starts fine without it -- refusing
+// there would forbid a state that is not broken.
+//
+// The CDKTF state bucket is different in kind. Apply runs in every substrate
+// mode -- SubstrateNone skips the infrastructure steps, not the deploy -- and
+// every node it runs, substrate or declared, reaches `tofu init`, which can do
+// nothing at all without the bucket. And a failure here is never only about
+// the bucket: EnsureBucket tolerates one that already exists, so it fails only
+// when Floci itself cannot serve S3, and CheckStorage fails only when Floci
+// answers without being able to touch its disk. Neither is a state any start
+// should continue from.
+//
+// Warning and continuing does not produce a working environment. It only moves
+// the failure several hundred log lines from its cause, which is how the
+// incident this split was written for came to be reported as a Terraform
+// problem.
+//
+// Narrowed to an interface for the same reason internal/floci narrows its own
+// Docker dependencies: the asymmetry is the thing worth a test, and a test of
+// it should not have to stand up an AWS SDK client.
+type accountProvisioner interface {
+	AdminDBSecret(ctx context.Context, names floci.Names, dbHost string) error
+	TFStateBucket(hmdRegion string) string
+	EnsureBucket(ctx context.Context, name string) error
+	CheckStorage(ctx context.Context, bucket string) error
+}
+
+func provisionEnvironment(ctx context.Context, prov accountProvisioner, names floci.Names, dbContainer string, warn func(string, ...any)) error {
+	if err := prov.AdminDBSecret(ctx, names, dbContainer); err != nil {
+		warn("%v", err)
+	}
+	bucket := prov.TFStateBucket(names.Region)
+	if err := prov.EnsureBucket(ctx, bucket); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	return nserr.Wrap(nserr.Fail, prov.CheckStorage(ctx, bucket))
+}
+
 const DeployableSlug = "local"
 
 // WarnUndeployableSlug names the defect above before it costs a deploy.

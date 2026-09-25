@@ -1,6 +1,7 @@
 package floci
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -56,6 +57,48 @@ type fakeS3 struct {
 	buckets  map[string]bool
 	created  []string
 	failWith error
+
+	// The object side, for CheckStorage. objects is lazily made, so the zero
+	// value is a working store; the rest make it behave like a Floci that
+	// answers from memory but cannot reach its disk.
+	objects  map[string][]byte
+	putErr   error
+	getErr   error
+	corrupt  []byte
+	deleted  []string
+	getCalls int
+}
+
+func (f *fakeS3) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	if f.putErr != nil {
+		return nil, f.putErr
+	}
+	body, err := io.ReadAll(in.Body)
+	if err != nil {
+		return nil, err
+	}
+	if f.objects == nil {
+		f.objects = map[string][]byte{}
+	}
+	f.objects[aws.ToString(in.Key)] = body
+	return &s3.PutObjectOutput{}, nil
+}
+
+func (f *fakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	f.getCalls++
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	body := f.objects[aws.ToString(in.Key)]
+	if f.corrupt != nil {
+		body = f.corrupt
+	}
+	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(body))}, nil
+}
+
+func (f *fakeS3) DeleteObject(_ context.Context, in *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
+	f.deleted = append(f.deleted, aws.ToString(in.Key))
+	return &s3.DeleteObjectOutput{}, nil
 }
 
 func (f *fakeS3) CreateBucket(_ context.Context, in *s3.CreateBucketInput, _ ...func(*s3.Options)) (*s3.CreateBucketOutput, error) {

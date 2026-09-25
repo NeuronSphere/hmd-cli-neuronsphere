@@ -305,6 +305,18 @@ already home-scoped for this exact reason -- ``ns-<hash>-env-<slug>``,
 the slug, and the registry file is byte-for-byte shared with the Python front
 end -- a new key would break that parity for a value that can be recomputed.
 
+**One producer, several consumers.** Derived is not the same as derived twice.
+The rename reached ``registry.RouterContainerName``, which is what creates,
+removes, stops and reports the container, and missed a second derivation in
+``internal/router`` that the reload path used -- so every ``nsctl env start``
+exec'd ``nginx -t`` into ``hmd_router-<slug>``, a container nothing creates, and
+reported the daemon's "No such container" under the headline "the nginx
+configuration is invalid". The stream config was never reloaded, which the
+acceptance run could not see because a router recreated for a changed port set
+reads its config at startup anyway; a start that leaves the container alone and
+only rewrites its upstreams is where it bites. The reload path is a consumer of
+the name like creation and removal are, and derives nothing of its own.
+
 What the run did not settle
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

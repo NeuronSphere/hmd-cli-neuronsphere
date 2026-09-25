@@ -663,6 +663,13 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := prov.Provision(ctx, names, floci.ControlPlaneDBAlias); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
+	// Reachable is not working. Prove the bucket the first CDKTF node will
+	// refresh its state from before anything depends on it, so a Floci whose
+	// data directory has gone out from under it fails here rather than as an
+	// unattributable S3 500 inside `tofu init` (NERD001 SPEC014).
+	if err := prov.CheckStorage(ctx, prov.TFStateBucket(names.Region)); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
 
 	restoreEnvironmentState(ctx, opts, docker, reg, runningBefore)
 

@@ -2,6 +2,21 @@
 
 ## 2026-09-25
 
+- fix: a start proves Floci's object storage instead of assuming it. A Floci
+  that answers is not a Floci that works: its state is held in memory and
+  flushed to the directory bound at `/app/data`, so when that directory stops
+  being reachable every control-plane call still succeeds while every disk
+  access fails. `CreateBucket` is the worst possible probe for this, being
+  idempotent -- it reports the bucket Floci loaded at startup and says nothing
+  about whether anything can be read out of it. `CheckStorage` now writes a
+  token to the CDKTF state bucket, reads it back, compares the bytes and
+  deletes it, so a broken store fails the start by name rather than surfacing
+  ~950 log lines later as an S3 `InternalError` 500 inside `tofu init`.
+  Provisioning an environment no longer swallows its own errors either: the
+  admin database secret still only warns, because a substrate that deploys no
+  database starts fine without it, but the state bucket and the storage proof
+  are fatal. Specified as NERD001 SPEC014.
+
 - fix: a pull failure now names what is set, and where it was set. The message
   for an image Floci cannot resolve named `HMD_LOCAL_NS_CONTAINER_REGISTRY` and
   stopped there, which left no way to tell whether the variable was set at all,
