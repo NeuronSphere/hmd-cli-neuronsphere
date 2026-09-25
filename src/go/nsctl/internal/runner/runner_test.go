@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,7 +79,15 @@ func testRunner(t *testing.T, d *fakeDocker, repoHome string) *Runner {
 			LocalProxy: "http://hmd_proxy/local", K3sCluster: "ns-local-abc",
 			RepoHome: repoHome, DeploymentID: "local", Region: "reg1", CustomerCode: "hmdtr1",
 		},
-		Out: os.NewFile(0, os.DevNull), Err: os.NewFile(0, os.DevNull),
+		// io.Discard, not os.NewFile(0, os.DevNull). That does not open
+		// /dev/null -- it wraps file descriptor 0, the process's stdin, and
+		// merely names it "/dev/null". os.NewFile installs a finalizer that
+		// closes the descriptor it wraps, so every collected helper closed fd 0;
+		// the next open reused that number and a later finalizer closed it out
+		// from under its owner. It surfaced as `bad file descriptor` on whatever
+		// directory copyTree happened to be walking, in about one run in three.
+		// (It also put stdin into non-blocking mode for the whole process.)
+		Out: io.Discard, Err: io.Discard,
 	}
 }
 
