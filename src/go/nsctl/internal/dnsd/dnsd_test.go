@@ -1,10 +1,43 @@
 package dnsd
 
 import (
+	"context"
 	"encoding/binary"
+	"net"
 	"strings"
 	"testing"
 )
+
+// serve runs a resolver on an ephemeral loopback port and returns its address.
+// The rest of this file exercises respond() directly, which is enough for the
+// wire format; Answers has to go over a socket, because "is anything there" is
+// the question it exists to ask.
+func serve(t *testing.T, s *Server) string {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listening: %v", err)
+	}
+	addr := pc.LocalAddr().String()
+	pc.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ready := make(chan struct{})
+	go func() {
+		close(ready)
+		_ = s.ListenAndServe(ctx, addr)
+	}()
+	<-ready
+	// The listener is opened inside ListenAndServe, so retry the first probe
+	// rather than racing it.
+	for i := 0; i < 100; i++ {
+		if err := Answers(ctx, addr, "ready-probe."+s.Suffix); err == nil {
+			break
+		}
+	}
+	return addr
+}
 
 // query builds a minimal, well-formed DNS question on the wire.
 func query(name string, qtype uint16) []byte {
@@ -206,7 +239,7 @@ func TestTheDefaultPortAvoidsMDNS(t *testing.T) {
 	}
 	// Outside the band hmd_proxy publishes, which a second container could not
 	// bind at all.
-	if DefaultPort >= 19000 && DefaultPort <= 19111 {
+	if DefaultPort >= 19000 && DefaultPort <= 19079 {
 		t.Errorf("DefaultPort = %d collides with the published environment band", DefaultPort)
 	}
 }
@@ -227,5 +260,32 @@ func TestInstallStepIsPlatformSpecific(t *testing.T) {
 	}
 	if other := InstallStep("plan9", DefaultSuffix, DefaultPort); !strings.Contains(other, "plan9") {
 		t.Errorf("an unknown platform should say so by name, got:\n%s", other)
+	}
+}
+
+// `dns status` and the doctor row have two different failures to tell apart: the
+// resolver is not running, or the machine is not pointed at it. They need opposite
+// fixes, and one message naming `dns install` for both sends a user whose control
+// plane is down to edit a file that was already correct (NERD026 SPEC003).
+//
+// Answers reports the first of those: does the resolver itself answer, asked
+// directly rather than through the system resolver.
+func TestAnswersReportsTheResolverItself(t *testing.T) {
+	addr := serve(t, New("ns.local"))
+
+	if err := Answers(context.Background(), addr, "wildcard-probe.ns.local"); err != nil {
+		t.Errorf("Answers against a running resolver = %v, want nil", err)
+	}
+
+	// A port nothing listens on is the resolver being down, not the machine
+	// being unconfigured.
+	if err := Answers(context.Background(), "127.0.0.1:1", "wildcard-probe.ns.local"); err == nil {
+		t.Error("Answers against a closed port = nil, want an error")
+	}
+
+	// A resolver that is up but does not own the name is also a failure, and a
+	// different one from silence: this is what a suffix mismatch looks like.
+	if err := Answers(context.Background(), addr, "probe.example.com"); err == nil {
+		t.Error("Answers for a name outside the suffix = nil, want an error")
 	}
 }

@@ -64,7 +64,7 @@ func TestChoosePortsMovesOffATakenPort(t *testing.T) {
 	}
 }
 
-// The band needs a contiguous window, so one busy port inside it moves all 112.
+// The band needs a contiguous window, so one busy port inside it moves all 80.
 func TestChoosePortsMovesTheWholeBandForOneBusyPort(t *testing.T) {
 	t.Parallel()
 
@@ -164,5 +164,65 @@ func TestChoosePortsReportsExhaustion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "free host port") {
 		t.Errorf("error does not say what could not be found: %v", err)
+	}
+}
+
+// The resolver is published as 127.0.0.1:<port>/udp, and it is the one binding
+// whose protocol and interface actually differ from the rest. Probing it as TCP
+// on 0.0.0.0 asks a question the engine never asks: a UDP listener answers no
+// TCP bind, so the port reads as free and the engine's own bind then fails. This
+// is precisely what BindProber exists to prevent (NERD025 SPEC007, SPEC008).
+func TestTheResolverPortIsProbedAsItIsPublished(t *testing.T) {
+	t.Parallel()
+
+	var asked []compose.HostBinding
+	probe := func(b compose.HostBinding) bool {
+		asked = append(asked, b)
+		return false
+	}
+	reg := &registry.Registry{}
+	if _, err := ChoosePorts(reg, nil, probe); err != nil {
+		t.Fatalf("ChoosePorts: %v", err)
+	}
+
+	var seen bool
+	for _, b := range asked {
+		if b.Port == 19153 {
+			seen = true
+			if b.Protocol != "udp" {
+				t.Errorf("the resolver was probed as %q, want udp", b.Protocol)
+			}
+			if b.HostIP != "127.0.0.1" {
+				t.Errorf("the resolver was probed on %q, want 127.0.0.1", b.HostIP)
+			}
+		}
+	}
+	if !seen {
+		t.Errorf("the resolver's port was never probed: %v", asked)
+	}
+}
+
+// The Deployment GUI is published only because 19003 falls inside the band, so a
+// band that moved took it off the host with no sign but a refused connection.
+// It is slot 0's spare, so it moves with the band (NERD027 SPEC001 publishes it
+// in its own right and removes the coupling).
+func TestAMovedBandTakesTheGUIWithIt(t *testing.T) {
+	t.Parallel()
+
+	// Everything in the default band is held, so the band has to move.
+	probe := func(b compose.HostBinding) bool {
+		return b.Port >= registry.DefaultPortBase && b.Port < registry.DefaultPortBase+registry.EnvPortWidth
+	}
+	reg := &registry.Registry{}
+	if _, err := ChoosePorts(reg, nil, probe); err != nil {
+		t.Fatalf("ChoosePorts: %v", err)
+	}
+
+	base := reg.ControlPlane.Port(registry.PortEnvBase)
+	if base == registry.DefaultPortBase {
+		t.Fatalf("the band did not move: %d", base)
+	}
+	if got, want := reg.ControlPlane.Port(registry.PortGUI), base+3; got != want {
+		t.Errorf("the GUI is on %d, want %d -- slot 0's spare inside the moved band", got, want)
 	}
 }

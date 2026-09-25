@@ -159,7 +159,7 @@ secrets, not just the deployment graph's availability.`,
 			if err != nil {
 				return err
 			}
-			snap := reporter(opts).ControlPlaneStatus(cmd.Context(), reg)
+			snap := reporter(opts, reg).ControlPlaneStatus(cmd.Context(), reg)
 			if len(snap.RunningEnvs) > 0 && !force {
 				return nserr.New(nserr.InUse,
 					"%s still running. Stopping the control plane would take their emulated AWS with it.\nStop them first with `nsctl env stop <name>`, or pass --force.",
@@ -195,7 +195,7 @@ func newControlPlaneStatusCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			rep := reporter(opts)
+			rep := reporter(opts, reg)
 			snap := rep.ControlPlaneStatus(cmd.Context(), reg)
 			// Best effort: an unreadable or invalid manifest is worth a note
 			// rather than a failed status, which is the command a user runs to

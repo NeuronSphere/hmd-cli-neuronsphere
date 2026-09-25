@@ -404,3 +404,33 @@ func TestTheProxyAnswersForTheIssuerHostname(t *testing.T) {
 		t.Errorf("aliases = %v, want the identity provider's issuer hostname", s.Networks[0].Aliases)
 	}
 }
+
+// The resolver's listener, the port the proxy publishes and the port nginx
+// streams to are one number. It was three places, and only two of them followed
+// HMD_LOCAL_DNS_PORT: the container's own --addr was a literal, so a home whose
+// resolver had moved published 19154 and served 19153, and the suffix stopped
+// resolving with nothing to see but a timeout (NERD026 SPEC001).
+func TestTheResolverListensOnThePortItIsPublishedOn(t *testing.T) {
+	t.Parallel()
+
+	const moved = "19154"
+	env := controlPlaneEnv()
+	env["HMD_LOCAL_DNS_PORT"] = moved
+	p := parseControlPlane(t, env)
+
+	dnsd := service(t, p, "dnsd")
+	if got := strings.Join(dnsd.Command, " "); !strings.Contains(got, ":"+moved) {
+		t.Errorf("the resolver's listener does not follow the chosen port: %q", got)
+	}
+
+	proxy := service(t, p, "proxy")
+	var published bool
+	for _, port := range proxy.Ports {
+		if port.Protocol == "udp" && port.HostStart == 19154 {
+			published = true
+		}
+	}
+	if !published {
+		t.Errorf("the proxy does not publish the chosen resolver port: %v", proxy.Ports)
+	}
+}

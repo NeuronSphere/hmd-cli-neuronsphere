@@ -564,7 +564,7 @@ func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFat
 	if svc := serviceURLs(env.Slug, f); len(svc) > 0 {
 		lines = append(lines, summaryList("  services   ", svc)...)
 	} else {
-		lines = append(lines, fmt.Sprintf("  services   http://localhost/%s/<service>/", env.Slug))
+		lines = append(lines, fmt.Sprintf("  services   %s/<service>/", hosturl.Route(env.Slug)))
 	}
 
 	if plan.Cluster {
@@ -583,7 +583,7 @@ func readySummary(env *registry.Environment, mode manifest.Substrate, clusterFat
 		lines = append(lines, fmt.Sprintf("  database   %s:5432", env.DBContainer))
 		if f != nil && f.DBAccount {
 			lines = append(lines,
-				fmt.Sprintf("  dbaccount  http://localhost/%s/hmd_ms_dbaccount/", env.Slug))
+				fmt.Sprintf("  dbaccount  %s/", hosturl.Route(env.Slug+"/hmd_ms_dbaccount")))
 		}
 	}
 	lines = append(lines, fmt.Sprintf("  substrate  %s", mode))
@@ -616,6 +616,11 @@ func serviceURLs(slug string, f *found) []string {
 }
 
 // uiURLs renders the discovered Ingress hostnames as browsable URLs.
+//
+// Through hosturl, for serviceURLs' reason: a UI is reached at its own hostname
+// but served by the same proxy on the same HTTP port, so a home whose port moved
+// needs it in the link. Built by hand, this was the one host-facing URL in the
+// summary that did not follow the port (NERD025 SPEC006, SPEC008).
 func uiURLs(f *found) []string {
 	if f == nil || len(f.UIHosts) == 0 {
 		return nil
@@ -624,7 +629,7 @@ func uiURLs(f *found) []string {
 	sort.Strings(hosts)
 	urls := make([]string, 0, len(hosts))
 	for _, h := range hosts {
-		urls = append(urls, "http://"+h+"/")
+		urls = append(urls, hosturl.HostBase(h)+"/")
 	}
 	return urls
 }

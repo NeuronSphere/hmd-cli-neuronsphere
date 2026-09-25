@@ -706,7 +706,7 @@ func BindFailure(err error) (int, bool) {
 }
 
 // portSpec expands ranges into individual bindings, which is what the Engine
-// API takes -- the 19000-19111 band becomes 112 entries.
+// API takes -- the 19000-19079 band becomes 80 entries.
 func portSpec(ports []Port) (nat.PortSet, nat.PortMap, error) {
 	exposed := nat.PortSet{}
 	bindings := nat.PortMap{}

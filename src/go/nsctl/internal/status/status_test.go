@@ -462,3 +462,32 @@ func TestDBAccountRouteOnlyWhenRouted(t *testing.T) {
 		t.Errorf("the services route should survive, got %v", snap.RouteOrder)
 	}
 }
+
+// The GUI's port is chosen like every other published port, and `env status` has
+// to report the one that was chosen. It read the process environment and the
+// constant only, so on a home whose GUI had moved it printed a link to a port
+// nothing answers (NERD025 SPEC008, NERD027 SPEC001).
+func TestTheGUIRouteUsesTheChosenPort(t *testing.T) {
+	t.Parallel()
+
+	r := &Reporter{
+		Docker:       &fakeDocker{},
+		Lookup:       fakeEnv(nil),
+		ControlPlane: registry.ControlPlane{Ports: map[string]int{registry.PortGUI: 19004}},
+	}
+	env := r.EnvironmentStatus(context.Background(), &registry.Environment{Slug: "local", PortSlot: 0})
+	if got := env.Routes["deployment_gui"]; got != "http://localhost:19004" {
+		t.Errorf("deployment_gui = %q, want the chosen 19004", got)
+	}
+
+	// The user's own override still wins over what was probed.
+	over := &Reporter{
+		Docker:       &fakeDocker{},
+		Lookup:       fakeEnv(map[string]string{"HMD_LOCAL_GUI_HOST_PORT": "19999"}),
+		ControlPlane: registry.ControlPlane{Ports: map[string]int{registry.PortGUI: 19004}},
+	}
+	envOver := over.EnvironmentStatus(context.Background(), &registry.Environment{Slug: "local", PortSlot: 0})
+	if got := envOver.Routes["deployment_gui"]; got != "http://localhost:19999" {
+		t.Errorf("an override should win, got %q", got)
+	}
+}

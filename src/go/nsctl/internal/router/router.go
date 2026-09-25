@@ -310,8 +310,11 @@ func (r *Router) WriteControlPlaneRoutes(services map[string]string, stage, upst
 //
 // The resolver is streamed for the reason every other container is: hmd_proxy
 // is the only service that may publish a host port (compose.ProxyService), and
-// that invariant is checked. dnsPort of 0 leaves it out, which is the default
-// -- the resolver is opt-in.
+// that invariant is checked. dnsPort of 0 leaves it out -- which is what a
+// control plane running with the resolver disabled passes, not the default: the
+// resolver runs unless it is explicitly turned off, because reaching a user
+// interface by name is now the only way to reach one at all (NERD025 SPEC001's
+// withdrawal, NERD026 SPEC001).
 func (r *Router) WriteControlPlaneStreams(flociHost string, dnsHost string, dnsPort int) error {
 	blocks := []string{wrap("floci", streamServer(FlociStreamPort, flociHost+":4566", "ns_floci"))}
 	if dnsPort > 0 && dnsHost != "" {

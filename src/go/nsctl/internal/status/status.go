@@ -252,6 +252,14 @@ type Reporter struct {
 	// deployed, so reporting its route from the mode advertises an endpoint
 	// nothing answers (NERD024 SPEC001).
 	RoutedService func(slug, service string) bool
+	// ControlPlane is the shared half's recorded state, for the host ports this
+	// home actually publishes. The zero value answers the historical defaults
+	// through Port(), so a caller that has no registry behaves as before.
+	//
+	// Needed because a published port is now *chosen* around whatever else is on
+	// the machine (NERD025 SPEC008): reporting the GUI from the constant printed
+	// a link to a port nothing answers on any home where 19003 had moved.
+	ControlPlane registry.ControlPlane
 }
 
 func (r *Reporter) routed(slug string, port int) bool {
@@ -454,10 +462,13 @@ func (r *Reporter) guiEnabled() bool {
 // failing, matching bom_seeder.gui_port -- a typo in one environment variable
 // should not stop status reporting.
 func (r *Reporter) guiPort() int {
-	if raw := r.lookup("HMD_LOCAL_GUI_HOST_PORT"); raw != "" {
+	if raw := r.lookup(registry.GUIPortEnv); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			return n
 		}
+	}
+	if p := r.ControlPlane.Port(registry.PortGUI); p > 0 {
+		return p
 	}
 	return DefaultGUIPort
 }

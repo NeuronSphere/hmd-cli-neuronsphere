@@ -606,3 +606,62 @@ Adopt Skill Is Bundled Now That Detect Exists
     Should Contain    ${body}    repoclass detect
     Should Contain    ${body}    --json
     Should Contain    ${body}    explicit confirmation
+
+Dns Install Prints A Sudo Line And Runs Nothing
+    [Documentation]    nsctl prints the one privileged step and does not take
+    ...                it. It needs root, and it changes a file that belongs to
+    ...                the user -- the same posture NERD023 takes toward a shell
+    ...                profile. NERD026 SPEC002.
+    ${before}=    Run Keyword And Return Status    Directory Should Exist    /etc/resolver
+    ${result}=    Run nsctl    dns    install
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    sudo
+    Should Contain    ${result.stdout}    does not run it for you
+    ${after}=    Run Keyword And Return Status    Directory Should Exist    /etc/resolver
+    Should Be Equal    ${before}    ${after}    msg=dns install must not create /etc/resolver itself
+
+Dns Install Scopes The Resolver File To The Suffix Itself
+    [Documentation]    A resolver file captures its whole subtree, so filing it
+    ...                under the parent name would capture something that is not
+    ...                ours. The narrow suffix is a correctness requirement, not
+    ...                tidiness. NERD026 SPEC002.
+    ${result}=    Run nsctl    dns    install
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    /etc/resolver/
+    Should Contain    ${result.stdout}    not to
+
+Dns Install Prints The Port This Home Serves
+    [Documentation]    The resolver's port is chosen when the default is taken
+    ...                (NERD025 SPEC008), and a resolver file pointing at a port
+    ...                nothing listens on fails silently and adds latency to
+    ...                every lookup in the suffix.
+    ${home}=    Create Scratch Home
+    ${registry}=    Join Path    ${home}    .cache    neuronsphere    environments.json
+    Create File    ${registry}    {"control_plane": {"ports": {"dns": 19154}}, "environments": {}, "version": 1}
+    ${result}=    Run nsctl In Home    ${home}    dns    install
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    19154
+    Should Not Contain    ${result.stdout}    19153
+
+Dns Status Tells The Two Failures Apart
+    [Documentation]    A resolver that is not running and a machine that is not
+    ...                pointed at one need opposite fixes. One message naming
+    ...                `dns install` for both sends a user whose control plane is
+    ...                down to edit a file that was already correct.
+    ...                NERD026 SPEC003.
+    ${home}=    Create Scratch Home
+    ${registry}=    Join Path    ${home}    .cache    neuronsphere    environments.json
+    Create File    ${registry}    {"control_plane": {"ports": {"dns": 19154}}, "environments": {}, "version": 1}
+    ${result}=    Run nsctl In Home    ${home}    dns    status
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    control-plane start
+    Should Contain    ${result.stdout}    19154
+
+Dns Status Probes A Name Nothing Has Deployed
+    [Documentation]    Resolving a name that was never configured anywhere is the
+    ...                property a hosts file cannot have, and therefore the one
+    ...                worth asserting. NERD026 SPEC003.
+    ${home}=    Create Scratch Home
+    ${result}=    Run nsctl In Home    ${home}    dns    status
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Contain    ${result.stdout}    wildcard-probe

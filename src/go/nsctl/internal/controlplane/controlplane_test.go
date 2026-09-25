@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
@@ -166,7 +168,7 @@ func TestGUIEnabledAndPort(t *testing.T) {
 			if got := GUIEnabled(opts); got != tt.wantEnabled {
 				t.Errorf("GUIEnabled = %v, want %v", got, tt.wantEnabled)
 			}
-			if got := GUIPort(opts); got != tt.wantPort {
+			if got := GUIPort(opts, nil); got != tt.wantPort {
 				t.Errorf("GUIPort = %d, want %d", got, tt.wantPort)
 			}
 		})
@@ -510,26 +512,121 @@ func TestTheProxyCheckRefusesOnlyWhenItKnows(t *testing.T) {
 // incomplete (NERD023 SPEC002). The port refusal names every override, and each
 // one has to be a variable something actually reads -- a remedy naming a
 // variable nothing honours is worse than no remedy.
+//
+// Asserted against the readers rather than against literals. The old version of
+// this test spelled the names out a second time, which proves only that two
+// strings in the test file agree with each other: renaming the variable a reader
+// honours would have left it green.
 func TestThePortRemedyNamesRealOverrides(t *testing.T) {
 	t.Parallel()
 
-	// DNSPortEnv is a constant here, so this one cannot drift silently.
-	if !strings.Contains(portRemedy, DNSPortEnv) {
-		t.Errorf("the remedy does not name %s:\n%s", DNSPortEnv, portRemedy)
-	}
-	for _, want := range []string{
-		"HMD_LOCAL_ENV_PORT_BASE",
-		"HMD_LOCAL_ENV_PORT_RANGE",
-		"HMD_LOCAL_TRINO_HOST_PORT",
-		"HMD_LOCAL_GUI_HOST_PORT",
-	} {
-		if !strings.Contains(portRemedy, want) {
-			t.Errorf("the remedy does not name %s:\n%s", want, portRemedy)
+	// Read by Go. The constants are the same identifiers the readers use --
+	// registry.portBase, GUIPort, DNSPort -- so a rename cannot desynchronise
+	// them.
+	for _, name := range []string{registry.EnvPortBaseEnv, registry.GUIPortEnv, DNSPortEnv} {
+		if !strings.Contains(portRemedy, name) {
+			t.Errorf("the remedy does not name %s:\n%s", name, portRemedy)
 		}
 	}
-	// 80 and 4566 are fixed. Offering an override for them would send the
-	// reader looking for a variable that does not exist.
-	if !strings.Contains(portRemedy, "fixed") {
-		t.Errorf("the remedy does not say that 80 and 4566 cannot be moved:\n%s", portRemedy)
+
+	// Read by the bundled compose file, which is the other kind of reader. This
+	// is the half that could genuinely drift, so it is checked against the file.
+	data, err := bundled.Read(bundled.ControlPlaneComposeFile)
+	if err != nil {
+		t.Fatalf("reading the bundled compose file: %v", err)
+	}
+	for _, name := range []string{
+		registry.EnvPortRangeEnv, registry.TrinoPortEnv, registry.GUIPortEnv,
+		registry.HTTPPortEnv, registry.FlociPortEnv, DNSPortEnv,
+	} {
+		if !strings.Contains(portRemedy, name) {
+			t.Errorf("the remedy does not name %s:\n%s", name, portRemedy)
+		}
+		if !strings.Contains(string(data), name) {
+			t.Errorf("%s is named in the remedy but the compose file never reads it", name)
+		}
+	}
+
+	// 80 and 4566 were once fixed and the refusal said so. Since NERD025 SPEC008
+	// they are chosen like the rest, so a remedy still calling them fixed sends
+	// the reader to free a port that nsctl would have moved off by itself.
+	if strings.Contains(portRemedy, "fixed") {
+		t.Errorf("the remedy still claims a port is fixed:\n%s", portRemedy)
+	}
+}
+
+// A port this home recorded is a port something else on the machine already
+// holds, so the config writers have to read it back. They did not: compose
+// published reg.ControlPlane.Port(PortDNS) while nginx listened on whatever the
+// process environment said, so a home whose resolver had moved published one
+// port and streamed to another -- and the hostname silently stopped resolving
+// (NERD025 SPEC008, NERD026 SPEC001).
+func TestTheResolverPortIsReadBackFromTheRegistry(t *testing.T) {
+	t.Parallel()
+
+	reg := &registry.Registry{ControlPlane: registry.ControlPlane{
+		Ports: map[string]int{registry.PortDNS: 19154},
+	}}
+
+	if got := DNSPort(testOptions("", nil), reg); got != 19154 {
+		t.Errorf("DNSPort = %d, want the recorded 19154", got)
+	}
+	// The user's own statement still wins over what was probed.
+	over := testOptions("", map[string]string{DNSPortEnv: "15353"})
+	if got := DNSPort(over, reg); got != 15353 {
+		t.Errorf("DNSPort with an override = %d, want 15353", got)
+	}
+	// A home that recorded nothing keeps the historical port.
+	if got := DNSPort(testOptions("", nil), &registry.Registry{}); got != DefaultDNSPort {
+		t.Errorf("DNSPort with an empty registry = %d, want %d", got, DefaultDNSPort)
+	}
+}
+
+// The Deployment GUI's port has the same shape, and one extra hazard: it was
+// published only because 19003 fell inside the environment band, so a moved band
+// took the GUI off the host with no sign but a refused connection.
+func TestTheGUIPortIsReadBackFromTheRegistry(t *testing.T) {
+	t.Parallel()
+
+	reg := &registry.Registry{ControlPlane: registry.ControlPlane{
+		Ports: map[string]int{registry.PortGUI: 19004},
+	}}
+
+	if got := GUIPort(testOptions("", nil), reg); got != 19004 {
+		t.Errorf("GUIPort = %d, want the recorded 19004", got)
+	}
+	over := testOptions("", map[string]string{"HMD_LOCAL_GUI_HOST_PORT": "19999"})
+	if got := GUIPort(over, reg); got != 19999 {
+		t.Errorf("GUIPort with an override = %d, want 19999", got)
+	}
+	if got := GUIPort(testOptions("", nil), &registry.Registry{}); got != DefaultGUIPort {
+		t.Errorf("GUIPort with an empty registry = %d, want %d", got, DefaultGUIPort)
+	}
+}
+
+// hosturl and the dial redirect are resolved once per process, from the registry
+// as it stood before the command ran (cmd/root.go applyHostPorts). A start that
+// *moves* a port invalidates both: every URL the rest of the start prints would
+// name the old port, and the redirect would aim Floci's presigned URLs at a port
+// nothing publishes any more. "Resolved once per process" is right; resolved
+// before the ports were chosen is not (NERD025 SPEC008).
+func TestTheChosenPortsReachTheURLsThisStartPrints(t *testing.T) {
+	hosturl.Reset()
+	defer hosturl.Reset()
+
+	reg := &registry.Registry{ControlPlane: registry.ControlPlane{
+		Ports: map[string]int{registry.PortHTTP: 8080, registry.PortFloci: 14566},
+	}}
+
+	applyChosenPorts(reg)
+
+	if got := hosturl.Base(); got != "http://localhost:8080" {
+		t.Errorf("hosturl.Base after the ports moved = %q, want :8080", got)
+	}
+	if got := hosturl.Floci(); got != "http://localhost:14566" {
+		t.Errorf("hosturl.Floci after the ports moved = %q, want :14566", got)
+	}
+	if got := MSDeploymentURL(); got != "http://localhost:8080/hmd_ms_deployment" {
+		t.Errorf("the deployment route = %q, want the moved port", got)
 	}
 }

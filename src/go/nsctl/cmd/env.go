@@ -37,9 +37,13 @@ func loadRegistry(opts *Options) (*registry.Registry, string, error) {
 }
 
 // reporter builds a status Reporter bound to the real Docker and a real probe.
-func reporter(opts *Options) *status.Reporter {
+//
+// reg carries the host ports this home publishes, which are chosen rather than
+// fixed (NERD025 SPEC008) -- a report built without it names the defaults and so
+// can name a port nothing answers on.
+func reporter(opts *Options, reg *registry.Registry) *status.Reporter {
 	r := router.New(opts.Home, opts.Lookup)
-	return &status.Reporter{
+	rep := &status.Reporter{
 		Docker:        container.New(),
 		Probe:         status.HTTPProber(3 * time.Second),
 		Lookup:        opts.Lookup,
@@ -47,6 +51,10 @@ func reporter(opts *Options) *status.Reporter {
 		Routed:        r.StreamsPort,
 		RoutedService: r.RoutesService,
 	}
+	if reg != nil {
+		rep.ControlPlane = reg.ControlPlane
+	}
+	return rep
 }
 
 // substrateOf answers an environment's recorded substrate by slug, full when
@@ -423,7 +431,7 @@ func newEnvStatusCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
-			snap := reporter(opts).EnvironmentStatus(cmd.Context(), e)
+			snap := reporter(opts, reg).EnvironmentStatus(cmd.Context(), e)
 			renderEnvStatus(cmd.OutOrStdout(), snap)
 			return nil
 		},

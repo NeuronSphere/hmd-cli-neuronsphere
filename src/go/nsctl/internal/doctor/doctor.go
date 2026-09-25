@@ -82,6 +82,15 @@ type Options struct {
 	CLIEndpoint func(ctx context.Context) (string, error)
 	// Hosts verifies the /etc/hosts entries. Nil skips it.
 	Hosts func() error
+	// Suffix verifies that the wildcard local suffix resolves on this machine.
+	// Nil skips it.
+	//
+	// A separate row from Hosts, because they fail independently and are fixed
+	// differently: Hosts is the two bare single-label names that no
+	// suffix-scoped resolver can claim and that nsctl dials itself (NERD026
+	// SPEC004), while this is every user interface, the OIDC issuer and the
+	// package index -- reported, never required (NERD026 SPEC003).
+	Suffix func() error
 	// Environments reports whether each running environment's substrate is
 	// current and answering (NERD024 SPEC006). Nil skips it.
 	//
@@ -165,6 +174,20 @@ func Run(ctx context.Context, o Options) []Check {
 			checks = append(checks, Check{Name: "host names", Status: StatusFail, Detail: err.Error()})
 		} else {
 			checks = append(checks, Check{Name: "host names", Status: StatusOK, Detail: "resolve to loopback"})
+		}
+	}
+	if o.Suffix != nil {
+		if err := o.Suffix(); err != nil {
+			checks = append(checks, Check{
+				Name:   "local names",
+				Status: StatusFail,
+				Detail: err.Error(),
+				Remedy: "`nsctl dns status` says which of the two it is; `nsctl dns install` prints the one step that points this machine at the resolver",
+			})
+		} else {
+			checks = append(checks, Check{
+				Name: "local names", Status: StatusOK, Detail: "the wildcard suffix resolves",
+			})
 		}
 	}
 	return checks

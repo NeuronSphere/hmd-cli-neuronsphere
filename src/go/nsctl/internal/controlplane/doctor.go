@@ -2,13 +2,18 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"runtime"
+	"strconv"
 
 	"github.com/docker/docker/client"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dockerhost"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/doctor"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
 
 // DoctorOptions assembles the checks from an Options, so the start preflight
@@ -24,15 +29,53 @@ func DoctorOptions(opts *Options) doctor.Options {
 		Connect:     ConnectEngine,
 		CLIEndpoint: d.ContextEndpoint,
 		Hosts:       func() error { return CheckHostsEntries(nil) },
+		Suffix:      func() error { return CheckLocalSuffix(context.Background(), opts) },
 	}
+}
+
+// CheckLocalSuffix reports whether the wildcard local suffix resolves on this
+// machine, and when it does not, which of the two failures it is.
+//
+// They need opposite fixes: the resolver is not running (nothing answers on its
+// port), or the machine is not pointed at it (it answers, and the system
+// resolver still does not). A single message covering both would tell a user
+// whose control plane is down to edit a resolver file that was already correct.
+//
+// The name probed has deliberately never been deployed: resolving it proves the
+// wildcard, which is the property /etc/hosts cannot have and therefore the one
+// worth asserting (NERD026 SPEC003).
+func CheckLocalSuffix(ctx context.Context, opts *Options) error {
+	suffix := dnsd.DefaultSuffix
+	probe := "wildcard-probe." + suffix
+
+	if ips, err := net.LookupIP(probe); err == nil && len(ips) > 0 {
+		return nil
+	}
+
+	// Best effort: a home that cannot be read still reports the default port,
+	// which is the right thing to name in the failure.
+	var reg *registry.Registry
+	if opts.Home != "" {
+		if loaded, err := registry.Load(opts.Home, opts.Lookup); err == nil {
+			reg = loaded
+		}
+	}
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(DNSPort(opts, reg)))
+	if err := dnsd.Answers(ctx, addr, probe); err != nil {
+		return fmt.Errorf("%s does not resolve, and nothing answers on %s either -- the resolver is not running", probe, addr)
+	}
+	return fmt.Errorf("%s does not resolve, though the resolver on %s answers for it -- this machine is not pointed at it", probe, addr)
 }
 
 func doctorOptions(opts *Options) doctor.Options {
 	o := DoctorOptions(opts)
 	// The start reports unresolvable host names itself, as a notice tied to the
 	// names it actually had to redirect (see Start), so running the check here
-	// too would say the same thing twice; Gate does not call this anyway.
+	// too would say the same thing twice. Belt and braces either way: Gate runs
+	// neither of these rows -- they belong to the diagnostic, not the preflight,
+	// because neither is a reason to refuse a start (NERD025 SPEC004).
 	o.Hosts = nil
+	o.Suffix = nil
 	return o
 }
 

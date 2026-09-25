@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-09-25
+
+- fix: a user interface's link in the start summary carried no port. It was the
+  one host-facing URL built by hand rather than through `internal/hosturl`, so on
+  a home whose HTTP port had been chosen away from 80 the summary printed a link
+  to nothing. The remaining `http://localhost` literals -- the services shape, the
+  dbaccount route, the proxy probe's base URL -- go through the same place now.
+- fix: the wildcard resolver did not survive being moved. Its port is chosen when
+  19153 is already held, and the chosen value reached the published port and the
+  nginx upstream but not the resolver's own listener, which was a literal in the
+  container's command: the proxy published one port and served another, and the
+  suffix stopped resolving with nothing to see but a timeout. `nsctl dns install`
+  printed the same stale default, telling the user to point their machine at a
+  port nothing listens on.
+- fix: a moved port did not reach the URLs the moving start went on to print.
+  `internal/hosturl` and the Floci dial redirect are resolved once per process,
+  from the registry as it stood before the command ran -- which is the right shape
+  and the wrong moment for the start that changes them. They are re-resolved as
+  soon as the ports are settled.
+- fix: a moved environment band took the Deployment GUI off the host. The GUI is
+  published only because 19003 falls inside the band, so moving the band left it
+  bound to nothing, with no other sign than a refused connection. It is now a
+  recorded port that moves with the band, and both readers -- the vhost writer and
+  `env status` -- read it back from the registry instead of from a constant.
+- fix: the resolver's port was probed as TCP on 0.0.0.0 while being published as
+  `127.0.0.1:<port>/udp`. That asks the one question the engine never asks, which
+  is the defect the bind probe exists to prevent, one layer up.
+- fix: the port refusal claimed 80 and 4566 are fixed. They stopped being fixed
+  when the ports became chosen, so the advice sent the reader to free a port nsctl
+  would have moved off by itself. Every name in the remedy is now the constant the
+  reader honours rather than a literal written a second time, and the four read by
+  the compose file are asserted against that file.
+- feat: `nsctl dns status` tells the two failures apart. "The resolver is not
+  running" and "this machine is not pointed at it" need opposite fixes, and one
+  message naming `dns install` for both sent a user whose control plane was down to
+  edit a file that was already correct. It asks two independent questions -- does
+  the resolver answer on its own port, does the name resolve through the system
+  resolver -- which also surfaces the third case worth knowing: the name resolves
+  while the resolver is down, so something else is answering and names that have
+  not been deployed yet will not resolve. A `local names` row reports the same in
+  `nsctl doctor`, separate from the `host names` row, because the two fail
+  independently and are fixed differently.
+- docs: NERD025 SPEC003/004/006/007/008 and NERD026 SPEC001-004 are recorded as
+  implemented, each amended with what building it actually settled. NERD026 SPEC005
+  stays proposed: it is blocked on NERD007 SPEC002, since there is no per-home
+  Floci hostname yet to place under the suffix. The environment band is 80 ports
+  wide, not 112 -- that figure belonged to the withdrawn per-UI-port band and was
+  stale in two documents and six comments.
+
 ## 2026-09-24
 
 - feat: a first run no longer needs `/etc/hosts` or `sudo`. `control-plane start`

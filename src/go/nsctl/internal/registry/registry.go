@@ -118,14 +118,33 @@ type Environment struct {
 //
 // Named rather than derived from a single base, because they are not one
 // arithmetic family: 80 is a web port, 4566 is what Floci answers on, and the
-// environment band is 112 contiguous ports. A base offset that fitted all three
+// environment band is 80 contiguous ports. A base offset that fitted all three
 // would be a fiction.
 const (
 	PortHTTP    = "http"
 	PortFloci   = "floci"
 	PortTrino   = "trino"
 	PortDNS     = "dns"
+	PortGUI     = "gui"
 	PortEnvBase = "env_base"
+)
+
+// The environment variables that override a published port.
+//
+// Declared beside the ports they move, so a refusal that names one and the
+// reader that honours it are the same identifier. A remedy naming a variable
+// nothing reads is worse than no remedy at all (NERD023 SPEC002, NERD025
+// SPEC007), and writing the name twice is how that happens.
+//
+// EnvPortRangeEnv, TrinoPortEnv, HTTPPortEnv and FlociPortEnv are read by the
+// bundled compose file rather than by Go; the tests assert they appear there.
+const (
+	EnvPortBaseEnv  = "HMD_LOCAL_ENV_PORT_BASE"
+	EnvPortRangeEnv = "HMD_LOCAL_ENV_PORT_RANGE"
+	TrinoPortEnv    = "HMD_LOCAL_TRINO_HOST_PORT"
+	GUIPortEnv      = "HMD_LOCAL_GUI_HOST_PORT"
+	HTTPPortEnv     = "HMD_LOCAL_HTTP_PORT"
+	FlociPortEnv    = "HMD_LOCAL_FLOCI_PORT"
 )
 
 // defaultControlPlanePorts are the ports a home takes when they are free. They
@@ -135,6 +154,7 @@ var defaultControlPlanePorts = map[string]int{
 	PortFloci:   4566,
 	PortTrino:   18080,
 	PortDNS:     19153,
+	PortGUI:     19003,
 	PortEnvBase: DefaultPortBase,
 }
 
@@ -392,7 +412,7 @@ func legacyClusterName(home string) string {
 }
 
 func portBase(lookup Lookup) int {
-	if v := lookup("HMD_LOCAL_ENV_PORT_BASE"); v != "" {
+	if v := lookup(EnvPortBaseEnv); v != "" {
 		var n int
 		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
 			return n

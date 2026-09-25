@@ -21,6 +21,10 @@ const ephemeralFloor = 32768
 // listener on loopback answers immediately or is not there.
 const defaultProbeTimeout = 200 * time.Millisecond
 
+// guiSpareOffset is where the Deployment GUI sits inside slot 0: the spare port,
+// which is why its default is 19003 and not a number of its own.
+const guiSpareOffset = 3
+
 // PortChoice is one port that had to move, for a report the reader can act on.
 type PortChoice struct {
 	Name string
@@ -35,6 +39,13 @@ func (c PortChoice) String() string {
 // portPlan is how one published port is chosen.
 type portPlan struct {
 	name string
+	// proto and hostIP are how the port is *published*, and therefore how it has
+	// to be probed. The resolver is the one that differs -- 127.0.0.1:<port>/udp
+	// -- and probing it as TCP on 0.0.0.0 asks a question the engine never asks:
+	// a UDP listener answers no TCP bind, so the port reads free and the engine's
+	// own bind then fails (NERD025 SPEC007).
+	proto  string
+	hostIP string
 	// altStart is where the search begins when the preferred port is taken.
 	//
 	// Not simply "the next port up". Scanning 81..1023 for an alternative to 80
@@ -47,15 +58,15 @@ type portPlan struct {
 
 // portPlans is also the order ports are chosen in, and the order is deliberate.
 //
-// The environment band goes first because it needs 112 contiguous ports and has
+// The environment band goes first because it needs 80 contiguous ports and has
 // the least room to manoeuvre; choosing a single port first could leave it
 // sitting in the middle of the only window wide enough.
 var portPlans = []portPlan{
-	{registry.PortEnvBase, registry.DefaultPortBase, registry.EnvPortWidth},
-	{registry.PortHTTP, 8080, 1},
-	{registry.PortFloci, 4567, 1},
-	{registry.PortTrino, 18081, 1},
-	{registry.PortDNS, 19154, 1},
+	{name: registry.PortEnvBase, altStart: registry.DefaultPortBase, width: registry.EnvPortWidth},
+	{name: registry.PortHTTP, altStart: 8080, width: 1},
+	{name: registry.PortFloci, altStart: 4567, width: 1},
+	{name: registry.PortTrino, altStart: 18081, width: 1},
+	{name: registry.PortDNS, altStart: 19154, width: 1, proto: "udp", hostIP: "127.0.0.1"},
 }
 
 // ChoosePorts settles which host ports this home publishes, moving off any that
@@ -80,7 +91,7 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 	claimed := map[int]bool{}
 	// The single ports' preferred values, held against the band so that moving
 	// the band does not evict a port that was never in anybody's way. The band
-	// is 112 wide and would otherwise swallow the resolver's 19153, turning one
+	// is 80 wide and would otherwise swallow the resolver's 19153, turning one
 	// busy port into two moved ones.
 	preferred := map[int]bool{}
 	for _, plan := range portPlans {
@@ -99,7 +110,7 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 			if ours[port] {
 				return false
 			}
-			return probe(compose.HostBinding{Port: port})
+			return probe(compose.HostBinding{Port: port, Protocol: plan.proto, HostIP: plan.hostIP})
 		}
 		// Only the band defers to the other ports' preferred values, and only
 		// while looking for somewhere else to go.
@@ -136,6 +147,11 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 				env.PortBase = got
 				reg.Environments[slug] = env
 			}
+			// The Deployment GUI is slot 0's spare, published only because it
+			// falls inside the band -- so a band that moved took the GUI off the
+			// host with no sign but a refused connection. It moves with the band
+			// until NERD027 SPEC001 publishes it in its own right.
+			cp.Ports[registry.PortGUI] = got + guiSpareOffset
 		}
 	}
 	return moved, nil

@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 const (
@@ -44,13 +45,25 @@ const (
 	// rather than assumed: a plain bind to 127.0.0.1:5353 was refused while the
 	// same bind with SO_REUSEPORT succeeded.
 	//
-	// 19153 instead: above the 19000-19111 band hmd_proxy publishes -- a port
+	// 19153 instead: above the 19000-19079 band hmd_proxy publishes -- a port
 	// inside it could not be bound by a second container at all -- below the
 	// 49152 ephemeral floor, so the OS never hands it out at random, and
-	// leaving 19112-19152 as headroom if the published band ever grows.
+	// leaving 19080-19152 as headroom if the published band ever grows.
 	DefaultPort = 19153
+	// PortEnv overrides it. Declared here, beside the port it overrides, so the
+	// name is one constant rather than a literal repeated by each reader --
+	// which is what lets a refusal that names it be tested against a real read
+	// (NERD025 SPEC007).
+	PortEnv = "HMD_LOCAL_DNS_PORT"
 	// ttl is short, so a machine that stops pointing here recovers quickly.
 	ttl = 60
+
+	// probeTimeout is how long a status probe waits. Short: a resolver on
+	// loopback answers immediately or is not there.
+	probeTimeout = 500 * time.Millisecond
+	// probeID is the query ID a probe uses. Fixed: one question, one answer, no
+	// multiplexing to tell apart.
+	probeID = 0x4e53
 
 	headerLen = 12
 	maxName   = 255
@@ -213,6 +226,68 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			return nil
 		}
 	}
+}
+
+// Answers reports whether the resolver itself answers for a name, asked directly
+// over UDP rather than through the system resolver.
+//
+// This is half of what `dns status` and the doctor row report, and the half that
+// separates the two failures needing opposite fixes: the resolver is not running
+// (nothing answers here), or the machine is not pointed at it (this answers and
+// the system resolver still does not). One message covering both would tell a
+// user whose control plane is down to edit a resolver file that was already
+// correct (NERD026 SPEC003).
+//
+// A REFUSED answer is a failure too, and a distinct one: the resolver is up but
+// does not own this suffix, which is what a suffix mismatch looks like from here.
+func Answers(ctx context.Context, addr, name string) error {
+	d := net.Dialer{Timeout: probeTimeout}
+	conn, err := d.DialContext(ctx, "udp", addr)
+	if err != nil {
+		return fmt.Errorf("reaching the resolver at %s: %w", addr, err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(probeTimeout))
+	}
+
+	if _, err := conn.Write(encodeQuestion(name)); err != nil {
+		return fmt.Errorf("asking the resolver at %s: %w", addr, err)
+	}
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return fmt.Errorf("no answer from the resolver at %s: %w", addr, err)
+	}
+	if n < headerLen {
+		return fmt.Errorf("short answer from the resolver at %s", addr)
+	}
+	if rcode := binary.BigEndian.Uint16(buf[2:4]) & 0x000F; rcode != rcodeOK {
+		return fmt.Errorf("the resolver at %s does not answer for %s (rcode %d)", addr, name, rcode)
+	}
+	if binary.BigEndian.Uint16(buf[6:8]) == 0 {
+		return fmt.Errorf("the resolver at %s returned no address for %s", addr, name)
+	}
+	return nil
+}
+
+// encodeQuestion builds a minimal A question for name. Hand-rolled for the same
+// reason the server is: adding a DNS library to this module would drag
+// golang.org/x/net and bump golang.org/x/term with it.
+func encodeQuestion(name string) []byte {
+	out := make([]byte, headerLen)
+	binary.BigEndian.PutUint16(out[0:2], probeID)
+	binary.BigEndian.PutUint16(out[2:4], flagRecursionReq)
+	binary.BigEndian.PutUint16(out[4:6], 1)
+	for _, label := range strings.Split(strings.TrimSuffix(name, "."), ".") {
+		out = append(out, byte(len(label)))
+		out = append(out, label...)
+	}
+	out = append(out, 0)
+	out = binary.BigEndian.AppendUint16(out, typeA)
+	return binary.BigEndian.AppendUint16(out, classINET)
 }
 
 // ResolverFile is the macOS resolver file that points this machine here: the

@@ -23,7 +23,7 @@ const FlociService = "floci"
 // ProxyService is the only service allowed to publish host ports. Everything
 // else is reached through it, and that invariant is what lets several named
 // environments coexist on one machine: hmd_proxy owns 80, 4566, 18080, the
-// whole 19000-19111 band and the resolver's UDP listener, and nginx adds and
+// whole 19000-19079 band and the resolver's UDP listener, and nginx adds and
 // removes listeners inside them with a reload rather than a restart.
 const ProxyService = "proxy"
 
@@ -292,7 +292,7 @@ func CheckInUse(ctx context.Context, p *Project, active map[string]bool, ours ma
 		probe = BindProber(200 * time.Millisecond)
 	}
 
-	// A hundred and sixteen sequential probes would add most of half a minute
+	// Eighty-four sequential probes would add most of half a minute
 	// to a cold start in the worst case, so they run concurrently.
 	type result struct {
 		binding HostBinding

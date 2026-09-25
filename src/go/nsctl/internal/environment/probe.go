@@ -8,10 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
-// DefaultProxyBaseURL is hmd_proxy as seen from the host.
+// DefaultProxyBaseURL is hmd_proxy as seen from the host, on the historical port.
+//
+// Kept as a constant for the callers that compare against it; the live default
+// comes from hosturl, which carries whichever port this home actually publishes
+// (NERD025 SPEC008).
 const DefaultProxyBaseURL = "http://localhost"
 
 // ProxyBaseURL is where to reach the proxy.
@@ -25,7 +30,7 @@ func ProxyBaseURL(lookup func(string) string) string {
 			return strings.TrimRight(v, "/")
 		}
 	}
-	return DefaultProxyBaseURL
+	return hosturl.Base()
 }
 
 // ServiceRouteURL is a service's route root under an environment's prefix.

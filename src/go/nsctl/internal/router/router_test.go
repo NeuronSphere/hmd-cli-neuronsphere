@@ -458,3 +458,53 @@ func TestPassthroughLocationLiftsTheBodySizeCap(t *testing.T) {
 		t.Errorf("passthrough location caps the body size:\n%s", got)
 	}
 }
+
+// The resolver's stream block was never exercised: every test called
+// WriteControlPlaneStreams with a dnsPort of 0, so the one listener that carries
+// a different protocol, a different upstream shape and proxy_responses went out
+// untested (NERD026 SPEC001).
+func TestControlPlaneStreamsCarryTheResolver(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	if err := r.WriteControlPlaneStreams("neuronsphere", "hmd_dnsd", 19154); err != nil {
+		t.Fatalf("WriteControlPlaneStreams: %v", err)
+	}
+	got := readFragment(t, filepath.Join(r.StreamDir(), ControlPlaneFragment))
+
+	for _, want := range []string{
+		"listen 19154 udp;",
+		"hmd_dnsd:19154",
+		// One query, one answer. Without it nginx holds the session open until
+		// proxy_timeout and spends a worker connection per lookup.
+		"proxy_responses 1;",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the resolver stream block is missing %q:\n%s", want, got)
+		}
+	}
+	// Floci's own listener is the control: a change that dropped it while adding
+	// the resolver would otherwise read as a pass.
+	if !strings.Contains(got, "listen 4566;") {
+		t.Errorf("the Floci stream listener is gone:\n%s", got)
+	}
+}
+
+// A resolver that is turned off leaves no listener behind -- and the Floci
+// stream still has to be there, because a fragment rewritten without it takes
+// every presigned URL down with it.
+func TestControlPlaneStreamsOmitTheResolverWhenItIsOff(t *testing.T) {
+	t.Parallel()
+
+	r := New(t.TempDir(), fakeEnv(nil))
+	if err := r.WriteControlPlaneStreams("neuronsphere", "", 0); err != nil {
+		t.Fatalf("WriteControlPlaneStreams: %v", err)
+	}
+	got := readFragment(t, filepath.Join(r.StreamDir(), ControlPlaneFragment))
+	if strings.Contains(got, "udp") {
+		t.Errorf("a disabled resolver still wrote a UDP listener:\n%s", got)
+	}
+	if !strings.Contains(got, "listen 4566;") {
+		t.Errorf("the Floci stream listener is gone:\n%s", got)
+	}
+}

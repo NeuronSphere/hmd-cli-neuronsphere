@@ -5,10 +5,12 @@ import (
 	"net"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"syscall"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -44,11 +46,35 @@ nsctl prints the one privileged step rather than running it.`,
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	dnsCmd.AddCommand(newDNSInstallCommand(), newDNSStatusCommand(), newDNSServeCommand())
+	dnsCmd.AddCommand(newDNSInstallCommand(opts), newDNSStatusCommand(opts), newDNSServeCommand())
 	return dnsCmd
 }
 
-func newDNSInstallCommand() *cobra.Command {
+// resolvedDNSPort is the port the resolver is actually served on for this home.
+//
+// The port is chosen when 19153 is already held (NERD025 SPEC008), and the
+// printed step has to name the chosen one: a resolver file pointing at a port
+// nothing listens on fails silently and adds latency to every lookup in the
+// suffix. Precedence is the user's own statement, then what this home recorded,
+// then the historical default -- and a home that cannot be read is not an error
+// here, because `dns install` is informational and must work anywhere.
+func resolvedDNSPort(opts *Options) int {
+	if raw := opts.Lookup(dnsd.PortEnv); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	if opts.Home != "" {
+		if reg, err := registry.Load(opts.Home, opts.Lookup); err == nil {
+			if p := reg.ControlPlane.Port(registry.PortDNS); p > 0 {
+				return p
+			}
+		}
+	}
+	return dnsd.DefaultPort
+}
+
+func newDNSInstallCommand(opts *Options) *cobra.Command {
 	var suffix string
 	var port int
 	cmd := &cobra.Command{
@@ -59,6 +85,10 @@ func newDNSInstallCommand() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			// 0 means the flag was not given: resolve it from this home.
+			if port == 0 {
+				port = resolvedDNSPort(opts)
+			}
 			fmt.Fprintf(out, "Run this once. nsctl does not run it for you: it needs root, and it\n")
 			fmt.Fprintf(out, "changes a file that belongs to you.\n\n")
 			fmt.Fprintf(out, "    %s\n\n", dnsd.InstallStep(runtime.GOOS, suffix, port))
@@ -69,11 +99,11 @@ func newDNSInstallCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&suffix, "suffix", dnsd.DefaultSuffix, "DNS suffix to resolve locally")
-	cmd.Flags().IntVar(&port, "port", dnsd.DefaultPort, "Port the local resolver listens on")
+	cmd.Flags().IntVar(&port, "port", 0, "Port the local resolver listens on (default: this home's)")
 	return cmd
 }
 
-func newDNSStatusCommand() *cobra.Command {
+func newDNSStatusCommand(opts *Options) *cobra.Command {
 	var suffix string
 	cmd := &cobra.Command{
 		Use:           "status",
@@ -86,13 +116,37 @@ func newDNSStatusCommand() *cobra.Command {
 			// A name nothing has deployed. Resolving it is the property a hosts
 			// file cannot have, so it is the one worth testing.
 			probe := "wildcard-probe." + suffix
+			port := resolvedDNSPort(opts)
+			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+
+			// Two independent facts, because they have opposite fixes: does the
+			// resolver answer at all, and does this machine route the suffix to
+			// it. One message for both would tell a user whose control plane is
+			// down to edit a file that was already correct (NERD026 SPEC003).
+			running := dnsd.Answers(cmd.Context(), addr, probe) == nil
 			ips, err := net.LookupIP(probe)
-			if err != nil || len(ips) == 0 {
-				fmt.Fprintf(out, "not resolving   %s does not resolve on this machine.\n", suffix)
+			resolving := err == nil && len(ips) > 0
+
+			switch {
+			case resolving && running:
+				fmt.Fprintf(out, "ok              *.%s resolves to %s, through the resolver on %s\n",
+					suffix, ips[0], addr)
+			case resolving && !running:
+				fmt.Fprintf(out, "degraded        %s resolves, but not through the local resolver:\n", probe)
+				fmt.Fprintf(out, "                nothing answers on %s. The name is coming from somewhere\n", addr)
+				fmt.Fprintf(out, "                else -- an /etc/hosts line, or a stale cache -- so names that\n")
+				fmt.Fprintf(out, "                have not been deployed yet will not resolve.\n")
+				fmt.Fprintf(out, "                Start it with `nsctl control-plane start`.\n")
+			case !resolving && running:
+				fmt.Fprintf(out, "not installed   the resolver is running on %s and answers for %s,\n", addr, probe)
+				fmt.Fprintf(out, "                but this machine does not route %s to it.\n", suffix)
 				fmt.Fprintf(out, "                Run `nsctl dns install` for the one step that fixes it.\n")
-				return nil
+			default:
+				fmt.Fprintf(out, "not running     nothing answers on %s, and %s does not\n", addr, probe)
+				fmt.Fprintf(out, "                resolve on this machine either.\n")
+				fmt.Fprintf(out, "                Start the resolver with `nsctl control-plane start`, then run\n")
+				fmt.Fprintf(out, "                `nsctl dns install` if the name still does not resolve.\n")
 			}
-			fmt.Fprintf(out, "ok              *.%s resolves to %s\n", suffix, ips[0])
 			return nil
 		},
 	}

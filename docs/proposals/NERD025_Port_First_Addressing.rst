@@ -134,7 +134,7 @@ Design
 .. spec:: The Floci names are resolved by ``nsctl``, not by the machine
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     ``hmd_proxy`` already publishes ``4566`` on loopback, so the address a
     presigned URL needs is reachable; only the *name* is not. ``nsctl``'s HTTP
@@ -156,7 +156,7 @@ Design
 .. spec:: Name resolution is reported, not required
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     ``CheckHostsEntries`` shall stop failing ``control-plane start``. The check
     itself is kept and keeps its seam -- it resolves names through an injected
@@ -173,6 +173,15 @@ Design
     suite on the grounds that the start runs it "in its own order and with its
     own error". With the gate gone, that special case goes too and the start
     reports it like any other check.
+
+    **As built, the special case survives, and it is a no-op.** The start's
+    preflight is ``doctor.Gate``, which never reads ``Hosts`` at all -- these
+    rows belong to ``doctor.Run``, the diagnostic. ``doctorOptions`` clears the
+    field anyway, and now clears ``Suffix`` beside it, so the intent is stated
+    where a reader will look rather than inferred from which function is called.
+    What the start reports instead is narrower and better: the names it actually
+    had to redirect, as a notice, naming both remedies and what is degraded
+    without them -- which after SPEC003 is the legacy Python artifact path.
 
 .. spec:: An Ingress hostname names its environment
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC005
@@ -216,7 +225,7 @@ Design
 .. spec:: A start reports what it found
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     ``readySummary`` reports each user interface at its hostname, and where a
     hostname does not resolve says so once, naming ``nsctl dns install`` and
@@ -230,10 +239,25 @@ Design
     This continues NERD023 SPEC003's correction: report what was found, not
     what the port scheme reserves.
 
+    Two corrections from building it:
+
+    **The notice lives where the hostnames are in hand**, in ``startCluster``
+    rather than in ``readySummary`` -- one message for all unresolved names,
+    naming ``nsctl dns install`` and the suffix it covers. ``readySummary``
+    receives only what was discovered and would have had to re-resolve the names
+    to say anything about them.
+
+    **A UI link carries the HTTP port.** It was the one host-facing URL in the
+    summary built by hand -- ``"http://" + host + "/"`` -- and so the one that
+    did not move when the port did. On a home whose HTTP port had been chosen
+    away from 80 (SPEC008), the start printed a link to nothing. It goes through
+    ``internal/hosturl`` like every other URL, which omits the port when it is
+    80 and carries it otherwise.
+
 .. spec:: A taken port is refused, and the refusal says what to do
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     Publishing a wider band makes a foreign listener more likely, and the
     existing handling did not survive contact with one: ``CheckInUse`` warned
@@ -273,6 +297,20 @@ Design
     80 and 4566 are fixed, rather than implying an override that does not
     exist. A test asserts each named variable is one something reads.
 
+    **Amended by SPEC008, which this document adopted after it.** 80 and 4566
+    are no longer fixed: they are probed and chosen like the rest, so a refusal
+    calling them fixed sends the reader to free a port ``nsctl`` would have moved
+    off by itself. The remedy names ``HMD_LOCAL_HTTP_PORT`` and
+    ``HMD_LOCAL_FLOCI_PORT`` alongside the others, and says that the ports are
+    already chosen -- an override pins one somewhere of the user's choosing
+    rather than rescuing a start.
+
+    The test is stronger than the one specified here. Asserting that each name
+    *appears in the message* proves only that two strings agree; the names are
+    now constants declared beside the ports they move, so the refusal and the
+    reader are the same identifier, and the four read by the bundled compose file
+    rather than by Go are asserted against that file.
+
     **The engine's own failure shall still be translated**, as a backstop for a
     port taken in the moment between the probe and the bind. ``BindFailure``
     reads the port out of the driver's prose and reports it in the same terms
@@ -281,7 +319,7 @@ Design
 .. spec:: The published ports are chosen, not fixed
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     Naming an override in a refusal (SPEC007) is still friction: the user has
     to read it, understand it and set something before anything runs. A local
@@ -301,7 +339,7 @@ Design
     describes what is unusual about the machine rather than restating the
     defaults.
 
-    The environment band is claimed first: it needs 112 contiguous ports and
+    The environment band is claimed first: it needs 80 contiguous ports and
     has the least room to manoeuvre, and a single port chosen first could sit
     in the middle of the only window wide enough. The band then defers to the
     other ports' preferred values, so moving it does not evict the resolver
@@ -334,6 +372,38 @@ Design
     some eighty places and is deprecated; it refuses a home whose ports have
     moved, naming ``nsctl env start``, rather than starting a platform
     addressed one way and talking to it another.
+
+    Four corrections from closing it out:
+
+    **The band is 80 ports, not 112.** 112 was the width with SPEC002's
+    per-UI-port band, which was withdrawn with SPEC001; the band is
+    ``MaxEnvs * (PortsPerEnv + 1)`` -- sixteen slots of four, plus sixteen k3s
+    ports -- and is published as ``19000-19079``. The figure was stale in this
+    document and in six comments, all corrected.
+
+    **A chosen port has to be read back by whatever writes the config.** It was
+    recorded and then ignored in two places. The resolver's container listened on
+    a hardcoded ``19153`` while the proxy published whichever port was chosen, so
+    a home that had to move it published one port and served another and the
+    suffix silently stopped resolving. The Deployment GUI was worse: its port is
+    published only because ``19003`` falls inside the band, so a *moved band*
+    took the GUI off the host altogether. Both readers now consult the registry,
+    and a moved band takes the GUI's port with it -- the same rule already
+    applied to every environment's ``port_base``.
+
+    **Resolved once per process is right; resolved before the ports were chosen
+    is not.** ``internal/hosturl`` and the dial redirect are set in
+    ``PersistentPreRun`` from the registry as it stood *before* the command ran.
+    A start that moves a port invalidated both: every URL the rest of that start
+    printed named the old port, and the redirect aimed Floci's presigned URLs at
+    a port nothing published any more. They are re-resolved as soon as
+    ``ChoosePorts`` has settled and persisted.
+
+    **A port is probed as it is published.** The resolver is
+    ``127.0.0.1:<port>/udp`` and was probed as TCP on ``0.0.0.0`` -- the one
+    binding whose protocol and interface differ, asked the one question the
+    engine never asks. It is the same defect SPEC007 exists to prevent, one layer
+    up, and the plan now carries the protocol and interface into the probe.
 
 Alternatives considered
 -----------------------

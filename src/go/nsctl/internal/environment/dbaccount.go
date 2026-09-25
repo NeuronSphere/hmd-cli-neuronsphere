@@ -5,6 +5,7 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
@@ -77,7 +78,7 @@ func EnsureDBAccount(ctx context.Context, opts *Options, reg *registry.Registry,
 	if err := r.WriteEnvRoutes(routerEnv, map[string]string{name: apiID}, floci.DefaultStage, nil); err != nil {
 		return err
 	}
-	opts.step("  routed http://localhost/%s/%s/", env.Slug, name)
+	opts.step("  routed %s/", hosturl.Route(env.Slug+"/"+name))
 	return nil
 }
 

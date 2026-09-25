@@ -5,7 +5,7 @@ NERD026 Local Name Resolution
 
 .. req:: A name that must be one string shall resolve on the host without a per-name privileged edit
     :id: HMD_CLI_NEURONSPHERE_NERD026
-    :status: proposed
+    :status: implemented
 
     Where local NeuronSphere requires a hostname that a browser, a sibling
     container and a cluster pod must all resolve to the same place, the host's
@@ -18,6 +18,18 @@ NERD026 Local Name Resolution
     ours.
 
     ``nsctl`` shall print the one privileged step and shall not perform it.
+
+    .. note::
+
+        ``implemented``. SPEC001 through SPEC004 are built: the resolver runs in
+        the control plane by default and answers the suffix by wildcard at any
+        depth, ``nsctl dns install`` prints one ``sudo`` line and runs nothing,
+        ``dns status`` and a ``doctor`` row tell the two failures apart, and the
+        two bare single-label names stay with NERD025 SPEC003's dial override.
+
+        SPEC005 remains ``proposed``. It is blocked on NERD007 SPEC002 -- there
+        is no per-home Floci hostname yet to place under the suffix -- and not on
+        anything in this document.
 
 Motivation
 ----------
@@ -60,7 +72,7 @@ Design
 .. spec:: A resolver answers the local suffix from the control plane
     :id: HMD_CLI_NEURONSPHERE_NERD026_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD026
-    :status: proposed
+    :status: implemented
 
     The control plane shall run a small DNS server answering every name under
     ``local.neuronsphere.io`` with ``127.0.0.1``, reachable from the host at
@@ -84,10 +96,18 @@ Design
     and nothing has to: a name that will exist after the next deploy already
     resolves.
 
+    One correction from closing it out. ``HMD_LOCAL_DNS_PORT`` moved the
+    published port and the nginx upstream but not the resolver's own listener,
+    which was a literal in the container's command -- so a home that had to move
+    the resolver published one port and served another, and the suffix stopped
+    resolving with nothing to see but a timeout. Listener, publish and upstream
+    are one variable now, and a test parses the bundled file with the port moved
+    and asserts all three followed.
+
 .. spec:: The machine is pointed at it once, and never edited again
     :id: HMD_CLI_NEURONSPHERE_NERD026_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD026
-    :status: proposed
+    :status: implemented
 
     ``nsctl dns install`` shall **print** the single privileged command for the
     detected platform and shall not run it -- the same posture NERD023 takes
@@ -116,10 +136,19 @@ Design
     After this one step the file is never touched again. A new extension, a new
     environment or a second control plane costs nothing further.
 
+    The printed step names **the port this home actually serves**, not the
+    default. The resolver is a chosen port (NERD025 SPEC008), and printing the
+    constant told the user to point their machine at a port nothing listens on --
+    a resolver file that fails silently and, per the Risks below, adds latency to
+    every lookup in the suffix. Precedence is the user's own ``--port`` or
+    ``HMD_LOCAL_DNS_PORT``, then what this home recorded, then the default; a
+    home that cannot be read is not an error, because ``dns install`` is
+    informational and has to work anywhere.
+
 .. spec:: Resolution is a reported fact
     :id: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD026
-    :status: proposed
+    :status: implemented
 
     ``nsctl dns status`` and a ``doctor`` row shall report whether the suffix
     resolves, distinguishing the two failures that need different fixes: the
@@ -129,10 +158,27 @@ Design
     configured anywhere -- proving the wildcard, which is the property
     ``/etc/hosts`` cannot have and therefore the property worth asserting.
 
+    As built, the two failures are told apart by asking two independent
+    questions: does the resolver answer when asked **directly** on its own port,
+    and does the name resolve through **the system resolver**. That gives four
+    states rather than two, and the fourth is worth having -- the suffix resolves
+    while the resolver is down, which means an ``/etc/hosts`` line or a stale
+    cache is answering and names that have not been deployed yet will not
+    resolve. ``dnsd.Answers`` is the direct probe; it is a hand-rolled A query
+    over UDP, for the same reason the server is hand-rolled -- a DNS library here
+    drags in ``golang.org/x/net`` and bumps ``golang.org/x/term`` with it.
+
+    The ``doctor`` row is ``local names``, separate from the existing ``host
+    names`` row: one is the wildcard suffix, the other the two bare single-label
+    names that no suffix-scoped resolver can claim (SPEC004). They fail
+    independently and are fixed differently. Both belong to ``doctor.Run``, the
+    diagnostic, and neither to ``doctor.Gate``, the start's preflight -- nothing
+    here is a reason to refuse a start.
+
 .. spec:: Single-label names stay with the dial override
     :id: HMD_CLI_NEURONSPHERE_NERD026_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD026
-    :status: proposed
+    :status: implemented
 
     ``neuronsphere`` and ``neuronsphere-workload`` have no dot, and a
     suffix-scoped resolver cannot claim them. They remain served by NERD025
@@ -162,6 +208,17 @@ Design
 
     NERD007 is amended to say so rather than rewritten; its port-base and
     account-id specs are unaffected.
+
+    .. note::
+
+        **Not built, and blocked on NERD007 SPEC002 rather than on anything
+        here.** A per-home Floci hostname does not exist yet: ``FLOCI_HOSTNAME``
+        is the flat literal ``neuronsphere`` and ``loopback.Names`` is a fixed
+        two-element list. The home hash is derived (``container.HMDHomeHash``)
+        but its only hostname-shaped use is the k3s cluster name. There is
+        therefore no name to place under the suffix. The amendment to NERD007 is
+        in place, so the shape is settled the moment that spec is built; this one
+        stays ``proposed`` until then.
 
 Alternatives considered
 -----------------------
@@ -231,10 +288,10 @@ Risks
   directly, alongside the same bind with ``SO_REUSEPORT`` succeeding. A default
   of 5353 would have failed to start on a typical Mac.
 
-  The resolver therefore listens on **19153**: above the ``19000-19111`` band
+  The resolver therefore listens on **19153**: above the ``19000-19079`` band
   ``hmd_proxy`` publishes, since a port inside it could not be bound by a
   second container at all; below the 49152 ephemeral floor, so the OS never
-  hands it out at random; and leaving ``19112-19152`` as headroom if the
+  hands it out at random; and leaving ``19080-19152`` as headroom if the
   published band ever grows. ``HMD_LOCAL_DNS_PORT`` overrides it, and the
   resolver file carries whatever port is chosen, so a machine that needs a
   different one costs nothing.

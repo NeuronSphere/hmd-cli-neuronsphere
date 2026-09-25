@@ -274,3 +274,39 @@ func TestEnvironmentChecksMayBeSilent(t *testing.T) {
 		}
 	}
 }
+
+// The wildcard suffix is what every user interface, the OIDC issuer and the
+// package index are reached by, and whether it resolves is a reported fact
+// rather than a gate (NERD026 SPEC003). It is a separate row from "host names",
+// which is the two bare single-label names that no suffix-scoped resolver can
+// claim (NERD026 SPEC004) -- they fail independently and are fixed differently.
+func TestRunReportsTheLocalSuffix(t *testing.T) {
+	base := Options{
+		Docker:   okCLI{},
+		Resolver: fixedResolver(dockerhost.Endpoint{Host: "unix:///x.sock"}),
+		Connect:  reaching(healthy(), nil), GOOS: "linux",
+	}
+
+	failing := base
+	failing.Suffix = func() error { return errors.New("nothing answers on 127.0.0.1:19153") }
+	c, ok := find(Run(context.Background(), failing), "local names")
+	if !ok || c.Status != StatusFail {
+		t.Fatalf("want a failed suffix check, got %+v", c)
+	}
+	if c.Remedy == "" {
+		t.Error("a failed suffix check must name what fixes it")
+	}
+
+	passing := base
+	passing.Suffix = func() error { return nil }
+	c, ok = find(Run(context.Background(), passing), "local names")
+	if !ok || c.Status != StatusOK {
+		t.Fatalf("want a passing suffix check, got %+v", c)
+	}
+
+	// Nil skips it, like every other injected check: a command with no registry
+	// has nothing to report here and must not invent a failure.
+	if _, ok := find(Run(context.Background(), base), "local names"); ok {
+		t.Error("a nil Suffix must skip the row entirely")
+	}
+}

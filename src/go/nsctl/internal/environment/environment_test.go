@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -486,5 +487,28 @@ func TestStopK3sTriesAGracefulShutdownThenStopsWithALongerGrace(t *testing.T) {
 	}
 	if lines[1] != "stop -t 30 floci-eks-1.ns-local-abc" {
 		t.Errorf("second call should stop with a longer grace period, got %q", lines[1])
+	}
+}
+
+// The UI link was the one host-facing URL in the summary built by hand, and so
+// the one that did not move when the HTTP port did: it printed
+// http://airflow.ns.local/ on a home reached at :8080, which is a link to
+// nothing. Asserted in both directions, because a test that only checked the
+// moved port would pass against a build that always printed one.
+func TestReadySummaryUILinksCarryAMovedHTTPPort(t *testing.T) {
+	env := &registry.Environment{Slug: "local", PortSlot: 0}
+	f := &found{UIHosts: []string{"airflow.ns.local"}}
+
+	hosturl.Reset()
+	deflt := strings.Join(readySummary(env, manifest.SubstrateFull, nil, f), "\n")
+	if !strings.Contains(deflt, "http://airflow.ns.local/") {
+		t.Errorf("on the default port the UI link should carry no port, got:\n%s", deflt)
+	}
+
+	hosturl.Apply2(8080, 4566)
+	defer hosturl.Reset()
+	moved := strings.Join(readySummary(env, manifest.SubstrateFull, nil, f), "\n")
+	if !strings.Contains(moved, "http://airflow.ns.local:8080/") {
+		t.Errorf("on a moved HTTP port the UI link must carry it, got:\n%s", moved)
 	}
 }

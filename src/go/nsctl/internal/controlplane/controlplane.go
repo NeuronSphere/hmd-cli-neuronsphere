@@ -81,8 +81,10 @@ const DNSProfile = "dnsd"
 // host port.
 const DNSContainer = "hmd_dnsd"
 
-// DNSPortEnv overrides the resolver's port.
-const DNSPortEnv = "HMD_LOCAL_DNS_PORT"
+// DNSPortEnv overrides the resolver's port. The name belongs to internal/dnsd,
+// beside the port it overrides; this is an alias so a refusal naming it here and
+// the reader honouring it there cannot drift apart.
+const DNSPortEnv = dnsd.PortEnv
 
 // DefaultDNSPort is where the resolver listens.
 //
@@ -96,16 +98,25 @@ const DefaultDNSPort = dnsd.DefaultPort
 // states a precondition without naming what satisfies it is incomplete
 // (NERD023 SPEC002).
 //
-// 80 and 4566 are deliberately absent: they are fixed in the compose file, and
-// 4566 is baked into every presigned URL Floci hands back, so the only remedy
-// for those is to free the port.
+// Every name here is the constant the reader honours, never a literal: a remedy
+// naming a variable nothing reads is worse than no remedy, and writing the name
+// twice is how that happens.
+//
+// Nothing is described as fixed any more. 80 and 4566 once were, and the refusal
+// said so; since NERD025 SPEC008 they are chosen like the rest -- probed before
+// the project is built and moved only when something else already holds them --
+// so a conflict here means the platform could not place a port it needs, not
+// that the user must free one.
 const portRemedy = "  Move the platform's ports, or free the ones above:\n" +
-	"    HMD_LOCAL_ENV_PORT_BASE     the 19000 band (per-environment ports and user interfaces)\n" +
-	"    HMD_LOCAL_ENV_PORT_RANGE    the published range, if it must differ from the base\n" +
-	"    HMD_LOCAL_TRINO_HOST_PORT   Trino's fixed host port (18080)\n" +
-	"    HMD_LOCAL_GUI_HOST_PORT     the Deployment GUI (19003)\n" +
-	"    HMD_LOCAL_DNS_PORT          the wildcard resolver (19153)\n" +
-	"  80 and 4566 are fixed -- 4566 is baked into every presigned URL Floci returns."
+	"    " + registry.EnvPortBaseEnv + "     the 19000 band (per-environment ports)\n" +
+	"    " + registry.EnvPortRangeEnv + "    the published range, if it must differ from the base\n" +
+	"    " + registry.TrinoPortEnv + "   Trino's host port (18080)\n" +
+	"    " + registry.GUIPortEnv + "     the Deployment GUI (19003)\n" +
+	"    " + DNSPortEnv + "          the wildcard resolver (19153)\n" +
+	"    " + registry.HTTPPortEnv + "         the HTTP routes (80)\n" +
+	"    " + registry.FlociPortEnv + "        the Floci stream (4566)\n" +
+	"  nsctl already probes these and moves off a port something else holds; set one\n" +
+	"  only to pin it somewhere of your choosing."
 
 // DNSEnabledEnv turns the wildcard resolver off.
 //
@@ -130,6 +141,21 @@ const DefaultGUIPort = 19003
 
 // MSDeploymentURL is the control-plane route to hmd-ms-deployment.
 func MSDeploymentURL() string { return hosturl.Route("hmd_ms_deployment") }
+
+// applyChosenPorts re-resolves this process's host-facing facts after a start has
+// settled which ports this home publishes.
+//
+// hosturl and the loopback redirect are process-global and resolved once, in
+// PersistentPreRun, from the registry as it stood *before* the command ran
+// (cmd/root.go applyHostPorts). That is the right shape and the wrong moment for
+// a start that moves a port: every URL the rest of the start prints would name
+// the old one, and the redirect would aim Floci's presigned URLs at a port
+// nothing publishes any more. Idempotent, so calling it on the ordinary start
+// where nothing moved costs a map read (NERD025 SPEC008).
+func applyChosenPorts(reg *registry.Registry) {
+	hosturl.Apply(reg.ControlPlane.Port(registry.PortHTTP), reg.ControlPlane.Port(registry.PortFloci))
+	loopback.Install(nil, hosturl.FlociPort())
+}
 
 // Options configures a start or a stop.
 type Options struct {
@@ -370,6 +396,10 @@ func Start(ctx context.Context, opts *Options) error {
 			return nserr.Wrap(nserr.Fail, fmt.Errorf("recording the chosen host ports: %w", err))
 		}
 	}
+
+	// The ports are settled; re-resolve everything derived from them before
+	// anything is created or printed.
+	applyChosenPorts(reg)
 
 	guiImage := DeploymentGUIImage(ctx, opts, docker.ImagePresent)
 	project, err := Project(opts, reg, guiImage)
@@ -648,13 +678,13 @@ func Start(ctx context.Context, opts *Options) error {
 	}
 	dnsHost, dnsPort := "", 0
 	if DNSEnabled(opts) {
-		dnsHost, dnsPort = DNSContainer, DNSPort(opts)
+		dnsHost, dnsPort = DNSContainer, DNSPort(opts, reg)
 	}
 	if err := r.WriteControlPlaneStreams(target.Alias, dnsHost, dnsPort); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	if err := r.WriteControlPlaneVhosts(router.ControlPlaneVhosts{
-		GUIEnabled: GUIEnabled(opts), GUIPort: GUIPort(opts),
+		GUIEnabled: GUIEnabled(opts), GUIPort: GUIPort(opts, reg),
 		AuthHost: AuthHost(opts),
 	}); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -669,7 +699,7 @@ func Start(ctx context.Context, opts *Options) error {
 	opts.step("  services   %s/", MSDeploymentURL())
 	opts.step("  floci      %s", target.Endpoint)
 	if GUIEnabled(opts) {
-		opts.step("  gui        http://localhost:%d", GUIPort(opts))
+		opts.step("  gui        http://localhost:%d", GUIPort(opts, reg))
 	}
 	for _, e := range extReport.Extensions {
 		if !e.Failed() && e.URL != "" {
@@ -873,15 +903,15 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	overlay := map[string]string{
 		"HMD_HOME":                    opts.Home,
 		"NEURONSPHERE_DOCKER_NETWORK": reg.ControlPlane.Network,
-		"HMD_LOCAL_GUI_HOST_PORT":     strconv.Itoa(GUIPort(opts)),
+		registry.GUIPortEnv:           strconv.Itoa(GUIPort(opts, reg)),
 		// The ports this home settled on. A value the user exported still wins
 		// -- see the lookup below -- so these are a default that already knows
 		// what else is running on the machine, not an override.
-		"HMD_LOCAL_HTTP_PORT":       strconv.Itoa(reg.ControlPlane.Port(registry.PortHTTP)),
-		"HMD_LOCAL_FLOCI_PORT":      strconv.Itoa(reg.ControlPlane.Port(registry.PortFloci)),
-		"HMD_LOCAL_TRINO_HOST_PORT": strconv.Itoa(reg.ControlPlane.Port(registry.PortTrino)),
-		"HMD_LOCAL_DNS_PORT":        strconv.Itoa(reg.ControlPlane.Port(registry.PortDNS)),
-		"HMD_LOCAL_ENV_PORT_RANGE":  fmt.Sprintf("%d-%d", envLo, envHi),
+		registry.HTTPPortEnv:     strconv.Itoa(reg.ControlPlane.Port(registry.PortHTTP)),
+		registry.FlociPortEnv:    strconv.Itoa(reg.ControlPlane.Port(registry.PortFloci)),
+		registry.TrinoPortEnv:    strconv.Itoa(reg.ControlPlane.Port(registry.PortTrino)),
+		"HMD_LOCAL_DNS_PORT":     strconv.Itoa(reg.ControlPlane.Port(registry.PortDNS)),
+		registry.EnvPortRangeEnv: fmt.Sprintf("%d-%d", envLo, envHi),
 	}
 	if guiImage != "" {
 		overlay["HMD_DEPLOYMENT_GUI_IMAGE"] = guiImage
@@ -942,10 +972,22 @@ func ActiveProfiles(opts *Options) map[string]bool {
 }
 
 // DNSPort is the host port hmd_proxy streams the resolver at.
-func DNSPort(opts *Options) int {
+//
+// Read back from the registry, not only from the environment. The port is
+// *chosen* (NERD025 SPEC008) when 19153 is already held, and the chosen value is
+// what compose publishes -- so a writer that read the constant instead made the
+// proxy publish one port and stream to another, and the suffix stopped resolving
+// with nothing to see but a timeout. The user's own override still wins over
+// what was probed; a nil or silent registry keeps the historical port.
+func DNSPort(opts *Options, reg *registry.Registry) int {
 	if raw := opts.lookup(DNSPortEnv); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			return n
+		}
+	}
+	if reg != nil {
+		if p := reg.ControlPlane.Port(registry.PortDNS); p > 0 {
+			return p
 		}
 	}
 	return DefaultDNSPort
@@ -982,10 +1024,21 @@ func GUIEnabled(opts *Options) bool {
 }
 
 // GUIPort is the host port hmd_proxy serves the GUI at.
-func GUIPort(opts *Options) int {
-	if raw := opts.lookup("HMD_LOCAL_GUI_HOST_PORT"); raw != "" {
+//
+// DNSPort's reasoning, with one extra hazard of its own: the GUI was published
+// only because 19003 happens to fall inside the environment band, so a band that
+// moved took the Deployment GUI off the host altogether. It is now a chosen port
+// in its own right, which is also what lets it be published explicitly
+// (NERD027 SPEC001).
+func GUIPort(opts *Options, reg *registry.Registry) int {
+	if raw := opts.lookup(registry.GUIPortEnv); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			return n
+		}
+	}
+	if reg != nil {
+		if p := reg.ControlPlane.Port(registry.PortGUI); p > 0 {
+			return p
 		}
 	}
 	return DefaultGUIPort

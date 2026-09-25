@@ -83,6 +83,23 @@ func Base() string {
 	return "http://localhost"
 }
 
+// HostBase is Base for a name the proxy answers to rather than for localhost.
+//
+// A user interface is reached at its Ingress hostname, but it is served by the
+// same hmd_proxy on the same HTTP port -- so the port has to travel with the
+// name. The start summary built this by hand as "http://" + host + "/" and so
+// printed a link to port 80 on a home whose HTTP port had moved, which is
+// reachable by nothing (NERD025 SPEC006).
+//
+// Port 80 is omitted for Base's reason: it is the scheme's default and every
+// URL in the documentation and in a bookmark omits it.
+func HostBase(host string) string {
+	if p := HTTPPort(); p != defaultHTTPPort {
+		return fmt.Sprintf("http://%s:%d", host, p)
+	}
+	return "http://" + host
+}
+
 // Route is Base with a path, normalised to one leading slash and no trailing
 // one -- callers append their own, and a doubled slash reaches nginx as a
 // different location than the one that was configured.

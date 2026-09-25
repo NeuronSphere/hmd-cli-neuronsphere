@@ -319,7 +319,10 @@ services:
     container_name: hmd_dnsd
     profiles: ["dnsd"]
     image: ${HMD_NSCTL_IMAGE:-hmd-img-nsctl:latest}
-    command: ["dns", "serve", "--addr", ":19153"]
+    # The same variable as the publish line and the nginx upstream. The port is
+    # chosen when 19153 is taken (NERD025 SPEC008), and a listener hardcoded here
+    # meant the proxy published one port and streamed to another.
+    command: ["dns", "serve", "--addr", ":${HMD_LOCAL_DNS_PORT:-19153}"]
     restart: unless-stopped
     # No host port. hmd_proxy is the only service that may publish one, and it
     # streams this listener through on UDP -- see WriteControlPlaneStreams.

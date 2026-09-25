@@ -41,3 +41,30 @@ func TestApplyIgnoresZero(t *testing.T) {
 		t.Errorf("zero reset the ports: %d, %d", HTTPPort(), FlociPort())
 	}
 }
+
+// A user interface is reached at a hostname, not at localhost, but it is served
+// by the same proxy on the same port -- so the port has to follow the hostname.
+// It did not: the start summary built "http://" + host + "/" by hand and printed
+// an unreachable link on any home whose HTTP port had moved (NERD025 SPEC006).
+func TestHostBaseCarriesThePortOnlyWhenItMoved(t *testing.T) {
+	Reset()
+	if got := HostBase("airflow.ns.local"); got != "http://airflow.ns.local" {
+		t.Errorf("HostBase on the default port = %q, want no port", got)
+	}
+
+	Apply2(8080, 14566)
+	defer Reset()
+	if got := HostBase("airflow.ns.local"); got != "http://airflow.ns.local:8080" {
+		t.Errorf("HostBase on a moved port = %q, want :8080", got)
+	}
+}
+
+// The Floci port is not the HTTP port. A UI is HTTP, so HostBase must not follow
+// the stream port when only that one moved.
+func TestHostBaseIgnoresTheFlociPort(t *testing.T) {
+	Apply2(80, 14566)
+	defer Reset()
+	if got := HostBase("auth.ns.local"); got != "http://auth.ns.local" {
+		t.Errorf("HostBase = %q, want no port", got)
+	}
+}
