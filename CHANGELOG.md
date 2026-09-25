@@ -2,6 +2,10 @@
 
 ## 2026-09-25
 
+- test: `make test-pgupgrade` migrates a real PostgreSQL 12 cluster to 14 and
+  checks that a table, its rows and a role's stored password hash all come back.
+  Outside `check` because it pulls two images and takes minutes, and the only
+  test that exercises the dump and the restore together.
 - feat: `nsctl db upgrade` migrates the local PostgreSQL data directories across
   a major version -- the repair `nsctl env start` refuses towards, which until
   now existed only in the deprecated Python CLI. `--dry-run` prints the plan and

@@ -80,7 +80,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSCTL_IMAGE ?= hmd-img-nsctl:$(VERSION)
 
-.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check ensure-repos-embed help
+.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check ensure-repos-embed test-pgupgrade help
 
 all: build
 
@@ -241,6 +241,19 @@ test-parity: build
 	  exit 2; }
 	$(ROBOT) $(ROBOT_FLAGS) --variable HMD:$(HMD_BIN) --variable ENV:$(NSCTL_PARITY_ENV) \
 	  test/nsctl_parity.robot
+
+## test-pgupgrade: the real 12->14 migration -- needs Docker and two public images
+#
+# Outside `check` and CI because it pulls postgres:12-alpine and
+# postgres:14-alpine and runs a full dump/restore, which is minutes rather than
+# seconds. It is self-contained: its own throwaway volume, no HMD_HOME, and
+# nothing already on the machine is read or changed.
+#
+# It is also the only test that exercises the dump and the restore together.
+# Everything else in internal/pgupgrade runs behind a fake daemon, which proves
+# the order of operations but not that the data survives it.
+test-pgupgrade: generate
+	cd src/go/nsctl && go test -tags docker -count=1 -timeout 30m -v ./internal/pgupgrade/
 
 ## help: show this help
 help:
