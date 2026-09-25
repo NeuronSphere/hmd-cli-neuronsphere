@@ -75,8 +75,18 @@ Design
     :status: implemented
 
     The control plane shall run a small DNS server answering every name under
-    ``local.neuronsphere.io`` with ``127.0.0.1``, reachable from the host at
+    ``ns.local`` with ``127.0.0.1``, reachable from the host at
     ``127.0.0.1:19153``.
+
+    **Amended: the suffix is** ``ns.local``, **not** ``local.neuronsphere.io``.
+    The environment reads in the name (``airflow.dev2.ns.local``), "local" is
+    explicit in every URL, and nothing under it could ever be mistaken for, or
+    collide with, a real public name -- which ``local.neuronsphere.io`` could,
+    since ``neuronsphere.io`` is a live zone that is not ours to bind.
+
+    This contradicts the alternatives section below, which rejected ``.local``.
+    That rejection was asserted rather than measured, and the measurement
+    overturned it -- see there.
 
     It publishes no host port of its own. ``hmd_proxy`` is the only service
     that may publish one -- ``compose.ProxyService``, and the invariant is
@@ -237,10 +247,36 @@ directly on a current macOS during this investigation. Anything that is not a
 browser -- ``curl``, a Go client, a Python client, the Robot suites -- would
 fail, and it would fail differently per tool.
 
-**mDNS and a** ``.local`` **name.** Resolves without configuration on macOS,
-but ``.local`` is mDNS-reserved, collides with the ``local.neuronsphere.io``
-suffix in a way that confuses more than it helps, is unreliable inside
-containers, and gives no wildcard.
+**mDNS and a** ``.local`` **name.** Rejected here, then adopted. The rejection
+conflated two different things, and the measurement that settled it was taken on
+2026-09-25 -- recorded here rather than replaced, because the reasoning is the
+part worth keeping.
+
+What was true: the bare ``.local`` TLD is mDNS-reserved, macOS's own
+``mDNSResponder`` claims it (``scutil --dns`` shows a resolver for ``domain:
+local, options: mdns``), and *that* is not ours to take. It still is not: the
+resolver file is filed under ``ns.local`` and never under ``local``, or it would
+swallow every ``.local`` name the machine resolves.
+
+What was assumed and is false: that a **subdomain** of ``.local`` inherits the
+problem. macOS resolver selection prefers the more specific domain, so a file for
+``ns.local`` ranks above the mDNS resolver for ``local`` and wins. Checked across
+every client that matters, because "it works in a browser" is exactly the trap
+``*.localhost`` set: ``getaddrinfo``, a ``CGO_ENABLED=0`` Go binary -- the shape
+``nsctl`` actually ships in, and the leg most likely to bypass ``/etc/resolver``
+-- a cgo one, Python, and ``curl``. All five resolve a three-label name under it.
+
+Only ``dig`` does not, and that is expected rather than a failure: ``dig`` reads
+``/etc/resolv.conf`` and queries that nameserver directly, bypassing
+``/etc/resolver`` entirely. It is therefore not a valid way to check this, which
+is worth saying because it is the first thing anyone reaches for.
+
+**The one leg that could not be measured here is Linux.** Where ``nss-mdns`` is
+installed, ``nsswitch.conf`` sends ``.local`` to mDNS with ``[NOTFOUND=return]``
+before the lookup reaches ``dns``, which stops it dead regardless of any
+``systemd-resolved`` routing domain. That is a real cost of this suffix that the
+old one did not have, it is recorded in the risks below, and the ``/etc/hosts``
+fallback remains for it.
 
 **Having the user install dnsmasq through Homebrew or apt.** Same end state,
 but it makes local NeuronSphere depend on the user's package manager and on a
@@ -271,6 +307,18 @@ Out of scope
 Risks
 -----
 
+- **Linux with** ``nss-mdns`` **installed.** ``nsswitch.conf`` typically reads
+  ``hosts: files mdns4_minimal [NOTFOUND=return] dns``, which claims every
+  ``.local`` name and returns NOTFOUND before ``dns`` is consulted -- so the
+  suffix can fail on a correctly configured machine. Untested here, on a macOS
+  workstation, and stated as a risk rather than a finding. ``nsctl dns status``
+  makes it visible, and the ``/etc/hosts`` line remains the fallback.
+- **A name under the suffix that is not a Docker network alias resolves to the
+  container itself.** Measured: from inside ``hmd_proxy``, an aliased name
+  answers with the sibling's address, while a non-aliased one falls through to
+  the host's resolver and answers ``127.0.0.1`` -- which, in a container, is the
+  container. The aliases are therefore load-bearing rather than a convenience,
+  which is worth knowing before anything is served under this suffix without one.
 - **A VPN or corporate resolver that overrides per-domain settings.** Some
   managed configurations take precedence over ``/etc/resolver``. Where that
   happens the ``/etc/hosts`` line remains available for the fixed names, and

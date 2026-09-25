@@ -276,3 +276,64 @@ func TestNodePortAddress(t *testing.T) {
 		t.Errorf("NodePortAddress with no IP = %q, want empty", got)
 	}
 }
+
+// hmd-cli-helm renders every local chart's alb.hostname with the literal
+// "local" in *every* environment, via --set, which beats any values file. So
+// two environments deploying airflow both ask for airflow.local.neuronsphere.io
+// and claim one hostname between them.
+//
+// The deployed object's host is rewritten instead of changing hmd-cli-helm --
+// the same move, in the same place, as the ALB path rewrite above, and for the
+// same reason: it is what lets cloud charts deploy unmodified (NERD025 SPEC005).
+func TestIngressHostsAreRewrittenToNameTheEnvironment(t *testing.T) {
+	t.Parallel()
+
+	var list struct {
+		Items []ingress `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(albIngressList), &list); err != nil {
+		t.Fatal(err)
+	}
+
+	// A named environment: the slug becomes the host's own second label.
+	patches := ingressHostPatches(list.Items, "alb", "dev2")
+	got := map[string]string{}
+	for _, p := range patches {
+		got[p.Name] = p.NewHost
+	}
+	if want := "trino.dev2.ns.local"; got["alb-ingress"] != want {
+		t.Errorf("trino host = %q, want %q", got["alb-ingress"], want)
+	}
+	if want := "airflow.dev2.ns.local"; got["airflow-local-web"] != want {
+		t.Errorf("airflow host = %q, want %q", got["airflow-local-web"], want)
+	}
+	// An Ingress belonging to another controller is not ours to touch.
+	if _, ok := got["other"]; ok {
+		t.Errorf("a non-alb Ingress was rewritten: %+v", patches)
+	}
+
+	// The default environment keeps the short form, so every URL already
+	// written down keeps meaning what it means.
+	deflt := ingressHostPatches(list.Items, "alb", "local")
+	for _, p := range deflt {
+		if p.Name == "alb-ingress" && p.NewHost != "trino.ns.local" {
+			t.Errorf("default env host = %q, want trino.ns.local", p.NewHost)
+		}
+	}
+
+	// Idempotent: a host already in the target shape needs no patch, or every
+	// start would rewrite what it rewrote last time.
+	rewritten := []ingress{}
+	if err := json.Unmarshal([]byte(albIngressList), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range list.Items {
+		for r := range item.Spec.Rules {
+			item.Spec.Rules[r].Host = "trino.dev2.ns.local"
+		}
+		rewritten = append(rewritten, item)
+	}
+	if p := ingressHostPatches(rewritten, "alb", "dev2"); len(p) != 0 {
+		t.Errorf("a host already in shape was patched again: %+v", p)
+	}
+}

@@ -94,7 +94,7 @@ func TestEnvVhostForwardsHostAndUpgrades(t *testing.T) {
 	}
 	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
 
-	if !strings.Contains(body, "server_name *.local."+IngressDomain+";") {
+	if !strings.Contains(body, "server_name *."+IngressDomain+";") {
 		t.Errorf("the wildcard server_name is wrong:\n%s", body)
 	}
 	if !strings.Contains(body, "proxy_set_header Host $host;") {
@@ -106,10 +106,11 @@ func TestEnvVhostForwardsHostAndUpgrades(t *testing.T) {
 	}
 }
 
-// The wildcard has to match what the charts actually render, which is the
-// literal "local" -- not the environment's own slug. Written as *.<slug>. it
-// matched nothing at all in any environment not named `local`.
-func TestTheWildcardVhostMatchesWhatTheChartsRender(t *testing.T) {
+// Every environment gets a wildcard of its own, and the default env's is the
+// bare suffix. The charts all render the same hostname -- hmd-cli-helm writes
+// the literal "local" into alb.hostname in every environment -- so the host is
+// rewritten on the deployed Ingress object instead (NERD025 SPEC005).
+func TestEachEnvironmentGetsItsOwnWildcard(t *testing.T) {
 	t.Parallel()
 
 	r := New(t.TempDir(), fakeEnv(nil))
@@ -117,41 +118,52 @@ func TestTheWildcardVhostMatchesWhatTheChartsRender(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("local")))
-	if !strings.Contains(body, "server_name *.local."+IngressDomain+";") {
-		t.Errorf("the wildcard does not match the rendered Ingress hosts:\n%s", body)
+	if !strings.Contains(body, "server_name *."+IngressDomain+";") {
+		t.Errorf("the default environment should own the bare suffix:\n%s", body)
 	}
-}
 
-// Every environment's charts render the same hostnames, so only one
-// environment can own the wildcard. A second one claiming it would be a
-// conflicting server_name that nginx resolves by silently preferring whichever
-// fragment it read first -- so the others are reached on their ports, which are
-// allocated per environment and cannot collide.
-func TestOnlyTheDefaultEnvironmentClaimsTheWildcard(t *testing.T) {
-	t.Parallel()
-
-	r := New(t.TempDir(), fakeEnv(nil))
 	dev := Env{Slug: "dev", AccountID: "000000000002", TrinoPort: 19005, K3sPort: 19065}
-	if err := r.WriteEnvVhosts(dev, "1.2.3.4:31080"); err != nil {
+	if err := r.WriteEnvVhosts(dev, "5.6.7.8:31080"); err != nil {
 		t.Fatal(err)
 	}
-	body := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("dev")))
-
-	if strings.Contains(body, "server_name *.") {
-		t.Errorf("a non-default environment claimed the wildcard:\n%s", body)
+	devBody := readFragment(t, filepath.Join(r.VhostDir(), EnvFragmentName("dev")))
+	if !strings.Contains(devBody, "server_name *.dev."+IngressDomain+";") {
+		t.Errorf("a named environment should own its own label:\n%s", devBody)
+	}
+	// It must not also claim the default's, or the two fragments conflict and
+	// nginx silently prefers whichever it read first -- the defect this replaces.
+	if strings.Contains(devBody, "server_name *."+IngressDomain+";") {
+		t.Errorf("a named environment claimed the default's wildcard:\n%s", devBody)
+	}
+	// nginx prefers the longest wildcard, so *.dev.<suffix> beats *.<suffix> for
+	// a name under dev. That is what makes one suffix cover every environment.
+	if len("*.dev."+IngressDomain) <= len("*."+IngressDomain) {
+		t.Fatal("the per-environment wildcard must be the longer match")
 	}
 }
 
-// hmd-cli-helm renders every local chart with alb.hostname=<instance>.local.<domain>,
-// and the slug there is the literal "local" in every environment.
-func TestIngressHostForUsesTheLiteralLocalSlug(t *testing.T) {
+// The environment is its own dot-separated label, and the default environment
+// has none -- so every hostname in the documentation keeps meaning what it
+// means. A hyphen on the instance was considered and rejected: the label reads
+// as part of the name rather than as the environment.
+func TestIngressHostForNamesTheEnvironment(t *testing.T) {
 	t.Parallel()
 
 	for _, instance := range []string{"airflow", "argo", "superset"} {
-		want := instance + ".local." + IngressDomain
-		if got := IngressHostFor(instance); got != want {
-			t.Errorf("IngressHostFor(%q) = %q, want %q", instance, got, want)
+		want := instance + "." + IngressDomain
+		if got := IngressHostFor(instance, "local"); got != want {
+			t.Errorf("IngressHostFor(%q, default) = %q, want %q", instance, got, want)
 		}
+		wantDev := instance + ".dev2." + IngressDomain
+		if got := IngressHostFor(instance, "dev2"); got != wantDev {
+			t.Errorf("IngressHostFor(%q, dev2) = %q, want %q", instance, got, wantDev)
+		}
+	}
+
+	// Two environments deploying the same chart no longer collide, which is the
+	// defect this exists to remove.
+	if IngressHostFor("airflow", "dev2") == IngressHostFor("airflow", "dev3") {
+		t.Error("two environments still claim one hostname")
 	}
 }
 

@@ -77,7 +77,7 @@ src/local/docker-compose.extension.yml; that file is what it contributes.
 
 Declaring is not starting. Run ` + "`nsctl control-plane apply`" + ` to start the result.`,
 		Example: `  nsctl control-plane repo add hmd-inf-local-registry --name registry \
-    --config url=http://registry.local.neuronsphere.io --config upstream=server:3141
+    --config url=http://registry.ns.local --config upstream=server:3141
   nsctl control-plane repo add hmd-inf-local-registry --config pypi.enabled=true`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,

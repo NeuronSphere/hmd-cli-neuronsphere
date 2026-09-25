@@ -8,7 +8,7 @@
 //
 // It is authoritative and forwards nothing, so it works with no network at all
 // and exposes nothing. The suffix is deliberately a *subtree* --
-// local.neuronsphere.io, not neuronsphere.io -- because the resolver
+// ns.local, and not the bare `local` -- because the resolver
 // configuration that points a machine here captures everything below the name
 // it is filed under, and the broader name would capture the real public
 // website.
@@ -23,7 +23,9 @@ package dnsd
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -32,8 +34,29 @@ import (
 )
 
 const (
-	// DefaultSuffix is the subtree this server owns.
-	DefaultSuffix = "local.neuronsphere.io"
+	// DefaultSuffix is the subtree this server owns, and the one name the whole
+	// local platform is reached under: user interfaces, the identity provider's
+	// issuer, the package index, control-plane extensions.
+	//
+	// A .local subdomain, which this document's own alternatives section once
+	// rejected. The rejection was asserted rather than measured, and the
+	// measurement overturned it: macOS registers a resolver for `ns.local` and
+	// ranks it *above* its built-in mDNS resolver for `local`, because resolver
+	// selection prefers the more specific domain. Checked on 2026-09-25 across
+	// every client that matters -- getaddrinfo, a CGO_ENABLED=0 Go binary (the
+	// shape nsctl ships in), a cgo one, Python and curl -- and all five resolve
+	// a three-label name under it. Only `dig` does not, and that is expected:
+	// dig reads /etc/resolv.conf and queries the nameserver directly, bypassing
+	// /etc/resolver entirely, so it is not a valid way to check this.
+	//
+	// The bare `local` TLD still belongs to mDNS and is not touched. The resolver
+	// file is filed under this whole name; filed under `local` it would swallow
+	// mDNS, which is the same scoping requirement that kept it off
+	// `neuronsphere.io` before (SPEC002).
+	//
+	// Not `.internal` or a public suffix: nothing here should ever be a name that
+	// could resolve off this machine, and "local" reads in the URL.
+	DefaultSuffix = "ns.local"
 	// DefaultPort is where it listens on loopback.
 	//
 	// Not 53: binding a privileged port is the thing this whole design exists
@@ -98,7 +121,7 @@ func New(suffix string) *Server {
 
 // owns reports whether a queried name falls inside the suffix.
 //
-// The dot is required, so `local.neuronsphere.io.evil.com` does not match and
+// The dot is required, so `ns.local.evil.com` does not match and
 // neither does a name that merely ends in the same letters.
 func (s *Server) owns(name string) bool {
 	n := strings.ToLower(strings.TrimSuffix(name, "."))
@@ -226,6 +249,24 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			return nil
 		}
 	}
+}
+
+// ProbeName is a name under the suffix that has never been asked for before.
+//
+// Two properties, and both matter. It is a name nothing has configured anywhere,
+// so resolving it proves the *wildcard* -- the property /etc/hosts cannot have
+// and therefore the one worth asserting. And it is different on every call,
+// because a constant name is cached by the system resolver for its TTL: with one,
+// `dns status` kept reporting success against a resolver that had been stopped,
+// reading its own earlier answer back out of the cache. A check that can report a
+// fact which has stopped being true is not a check.
+func ProbeName(suffix string) string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Never expected; a time-based fallback still differs per call.
+		return fmt.Sprintf("wildcard-probe-%d.%s", time.Now().UnixNano(), suffix)
+	}
+	return fmt.Sprintf("wildcard-probe-%s.%s", hex.EncodeToString(b[:]), suffix)
 }
 
 // Answers reports whether the resolver itself answers for a name, asked directly

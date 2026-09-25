@@ -11,6 +11,8 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/compose"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 )
 
 // Report is what one apply did, per extension.
@@ -262,16 +264,34 @@ func ReportCredentials(w io.Writer, report Report) {
 	}
 }
 
-// ReportHosts prints the /etc/hosts line an extension's URL needs, which nsctl
-// cannot write itself. Derived rather than left to the reader, because a name
-// that does not resolve has no obvious cause.
+// ReportHosts says how each extension's hostname is made to resolve. Derived
+// rather than left to the reader, because a name that does not resolve has no
+// obvious cause.
+//
+// Split by whether the name falls under the suffix the local resolver answers
+// for. One arrangement covers every name in that subtree, including ones that do
+// not exist yet, so demanding an /etc/hosts line per extension would be the very
+// friction NERD026 removes -- and NERD025's requirement forbids reporting
+// anything on this path as a missing entry in a file nobody was required to
+// edit. A name outside the suffix is a different matter: the hosts line really
+// is the only remedy, so it is still printed, for those names only.
 func ReportHosts(w io.Writer, exts []Extension) {
-	hosts := Hosts(exts)
-	if len(hosts) == 0 {
-		return
+	var covered, outside []string
+	for _, h := range Hosts(exts) {
+		if strings.HasSuffix(h, "."+dnsd.DefaultSuffix) || h == dnsd.DefaultSuffix {
+			covered = append(covered, h)
+			continue
+		}
+		outside = append(outside, h)
 	}
-	fmt.Fprintf(w, "  extensions are served by name. Add to /etc/hosts if it is not there already:\n")
-	fmt.Fprintf(w, "    127.0.0.1 %s\n", strings.Join(hosts, " "))
+	if len(covered) > 0 {
+		fmt.Fprintf(w, "  extensions are served by name: %s\n", strings.Join(covered, " "))
+		fmt.Fprintf(w, "    `nsctl dns install` makes every name under %s resolve, once.\n", dnsd.DefaultSuffix)
+	}
+	if len(outside) > 0 {
+		fmt.Fprintf(w, "  these extension names are outside %s, so they need an /etc/hosts line:\n", dnsd.DefaultSuffix)
+		fmt.Fprintf(w, "    127.0.0.1 %s\n", strings.Join(outside, " "))
+	}
 }
 
 func plural(n int, noun string) string {

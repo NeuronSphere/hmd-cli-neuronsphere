@@ -400,7 +400,7 @@ unaffected; environment services are **prefixed** with the environment name:
      - control-plane artifact-lib
    * - ``http://localhost/<env>/<service>/``
      - that environment's services
-   * - ``http://<app>.local.neuronsphere.io/``
+   * - ``http://<app>.ns.local/``
      - that environment's Ingress-exposed UIs (Airflow, Argo, Superset)
    * - ``http://localhost:4566``
      - control-plane Floci (nginx ``stream``)
@@ -452,13 +452,26 @@ UIs are reached the way the cloud reaches them: through the chart's own
 answer to the cloud's ``alb`` ingress class so charts deploy unmodified, and
 ``hmd_proxy`` fronts it.
 
-Two things about the hostname are worth knowing. ``hmd-cli-helm`` renders
-``alb.hostname`` with the literal ``local`` in *every* environment, so the
-wildcard vhost is ``*.local.neuronsphere.io`` -- written as ``*.<env>.`` it
-matched nothing at all in any environment not named ``local``. And because
-every environment renders the same hostnames, only the default environment
-claims that wildcard; a second claim is a conflicting ``server_name`` that
-nginx resolves by preferring whichever fragment it read first.
+The hostname carries the environment as its own label, and the default
+environment has none::
+
+    airflow.ns.local        the default environment
+    airflow.dev2.ns.local   the environment `dev2`
+
+``hmd-cli-helm`` renders ``alb.hostname`` with the literal ``local`` in *every*
+environment, through ``--set``, which beats any values file -- so every
+environment's charts ask for the same hostname. Rather than change
+``hmd-cli-helm``, the deployed ``Ingress`` object's host is rewritten at start
+time, beside the rewrite that already absorbs the ALB path dialect and for the
+same reason: it is what lets a cloud chart deploy unmodified.
+
+Each environment then owns a wildcard vhost of its own -- ``*.ns.local`` for the
+default, ``*.<env>.ns.local`` for the rest. They cannot collide, because nginx
+prefers the longest wildcard: a name under ``dev2`` matches
+``*.dev2.ns.local`` before ``*.ns.local``. Before this, two environments
+deploying ``airflow`` claimed one hostname between them and only the default
+environment's vhost was ever written, so a second environment's UIs were
+unreachable by name at all.
 
 A UI is **not** served on a host port. That was tried and withdrawn (NERD025
 SPEC001): a port costs a rewritten ``Host`` header, which ``proxy_redirect``

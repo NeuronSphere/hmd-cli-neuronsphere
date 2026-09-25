@@ -847,7 +847,7 @@ Examples
 .. code-block:: shell
 
    nsctl control-plane repo add hmd-inf-local-registry --name registry \
-       --config url=http://registry.local.neuronsphere.io --config upstream=server:3141
+       --config url=http://registry.ns.local --config upstream=server:3141
      nsctl control-plane repo add hmd-inf-local-registry --config pypi.enabled=true
 
 Local flags

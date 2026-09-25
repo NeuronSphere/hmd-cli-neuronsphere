@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 )
 
 // IssuerEnv names the one URL this server is reached at.
@@ -19,15 +21,15 @@ const IssuerEnv = "HMD_LOCAL_AUTH_ISSUER"
 
 // DefaultIssuerBase is that name.
 //
-// Under the same `*.local.neuronsphere.io` suffix the ingress hosts use
-// (router.IngressDomain), so the host-side resolution people already have for
-// the UIs covers this too. Plain http on purpose: nothing in scope requires
+// Under the same `*.ns.local` suffix the ingress hosts use, so the one
+// host-side arrangement people make for the UIs covers this too -- which is the
+// whole point of there being one suffix (NERD026 SPEC001). Plain http on purpose: nothing in scope requires
 // TLS. Authlib, which drives Superset's and Airflow's OAuth, enforces no
 // scheme, and the Rego policies decode tokens without verifying them. The one
 // consumer that would demand https is okta_jwt_verifier inside
 // hmd-lib-auth.verify_token, which the OPA authorizer calls -- and that is
 // deliberately not yet wired up locally.
-const DefaultIssuerBase = "http://auth.local.neuronsphere.io"
+const DefaultIssuerBase = "http://auth." + dnsd.DefaultSuffix
 
 // KeyDir is where the signing key lives, under $HMD_HOME so the control-plane
 // container and the CLI on the host read the same one -- the compose service

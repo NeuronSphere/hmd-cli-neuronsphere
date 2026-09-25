@@ -21,7 +21,7 @@ func testServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewServer("http://auth.local.neuronsphere.io", key)
+	return NewServer("http://auth.ns.local", key)
 }
 
 // The key is on disk so that a container restart does not invalidate every
@@ -293,7 +293,7 @@ func TestTheAuthorizationCodeFlowRoundTripsAndTheCodeIsSingleUse(t *testing.T) {
 
 	form := url.Values{
 		"client_id":    {"superset"},
-		"redirect_uri": {"http://superset.local.neuronsphere.io/oauth-authorized/okta"},
+		"redirect_uri": {"http://superset.ns.local/oauth-authorized/okta"},
 		"state":        {"opaque-state"},
 		"scope":        {"openid email profile groups"},
 		"username":     {"alice"},
@@ -340,7 +340,7 @@ func TestTheAuthorizationCodeFlowRoundTripsAndTheCodeIsSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims["email"] != "alice@local.neuronsphere.io" {
+	if claims["email"] != "alice@ns.local" {
 		t.Errorf("email = %v; Flask-AppBuilder stores this on the user record", claims["email"])
 	}
 	if claims["preferred_username"] != "alice" {

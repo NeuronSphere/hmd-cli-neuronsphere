@@ -113,9 +113,10 @@ func newDNSStatusCommand(opts *Options) *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			// A name nothing has deployed. Resolving it is the property a hosts
-			// file cannot have, so it is the one worth testing.
-			probe := "wildcard-probe." + suffix
+			// A name nothing has deployed, and a different one every call -- a
+			// constant would be cached and keep reporting success after the
+			// resolver stopped. See dnsd.ProbeName.
+			probe := dnsd.ProbeName(suffix)
 			port := resolvedDNSPort(opts)
 			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 

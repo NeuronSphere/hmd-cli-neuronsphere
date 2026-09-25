@@ -206,10 +206,11 @@ func placeholders(o Options, repo manifest.Repo) map[string]string {
 		"repo_class_name": repo.RepoClassName,
 		"deployment_id":   o.DeploymentID,
 		"environment":     o.Environment,
-		// The Ingress hostname hmd-cli-helm gives this instance's chart. Derived
-		// from the instance name alone, because the slug in alb.hostname is the
-		// literal "local" in every environment.
-		"ingress_host": router.IngressHostFor(repo.InstanceName),
+		// The hostname this instance's user interface is reached at. It carries
+		// the environment as its own label, so two environments deploying the
+		// same chart resolve to different places (NERD025 SPEC005); the default
+		// environment keeps the short form.
+		"ingress_host": router.IngressHostFor(repo.InstanceName, o.Environment),
 	}
 }
 

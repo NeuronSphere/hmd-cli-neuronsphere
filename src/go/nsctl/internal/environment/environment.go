@@ -713,6 +713,15 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 	}
 
 	// The ingress controller, which fronts every UI the charts expose.
+	//
+	// The hosts are rewritten to name this environment *before* they are read,
+	// so the summary, the vhost, the Docker aliases and the resolver all agree
+	// on one string. hmd-cli-helm renders the literal "local" in every
+	// environment, so without this two environments claim one hostname and only
+	// the default one is reachable by name (NERD025 SPEC005).
+	if changed := ops.NormalizeIngressHosts(ctx, env.Slug); len(changed) > 0 {
+		opts.step("  named this environment in the Ingress hosts on %s", strings.Join(changed, ", "))
+	}
 	hosts := ops.IngressHosts(ctx)
 	f.foundUIHosts(hosts)
 
@@ -723,8 +732,8 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 		upstream := k3s.NodePortAddress(clusterIP, router.TraefikNodePort)
 		if err := r.WriteEnvVhosts(routerEnv, upstream); err != nil {
 			opts.warn("%v", err)
-		} else if env.IsDefault() {
-			opts.step("  UIs served at *.%s.%s", router.HelmLocalSlug, router.IngressDomain)
+		} else {
+			opts.step("  UIs served at %s", router.EnvWildcardFor(env.Slug))
 		}
 	}
 	if changed := ops.NormalizeIngressPaths(ctx); len(changed) > 0 {

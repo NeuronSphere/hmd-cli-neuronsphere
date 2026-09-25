@@ -7,13 +7,14 @@ step and no ``/etc/hosts`` entry.
 
 Reaching things by name does. Four of them:
 
-- the identity provider's issuer (``auth.local.neuronsphere.io``),
-- the package registry (``registry.local.neuronsphere.io``) and any
+- the identity provider's issuer (``auth.ns.local``),
+- the package registry (``registry.ns.local``) and any
   control-plane extension,
 - the legacy ``hmd build`` and ``push-artifact``, which follow Floci's
   presigned URLs through a client that has no loopback redirect,
 - **every user interface** an environment deploys -- Airflow, Argo, Superset --
-  reached at ``http://<instance>.local.neuronsphere.io/``.
+  reached at ``http://<instance>.ns.local/`` -- or
+  ``http://<instance>.<env>.ns.local/`` outside the default environment.
 
 The first two could not be reached on a port even in principle: each is read by
 a browser, by a sibling container and by a cluster pod, and all three must
@@ -49,9 +50,9 @@ which is exactly what a hosts file cannot do.
 
 .. note::
 
-   The resolver file is filed under ``local.neuronsphere.io``, **not**
-   ``neuronsphere.io``. A resolver file captures its whole subtree, and the
-   broader name would route the real public ``www.neuronsphere.io`` into a
+   The resolver file is filed under ``ns.local``, **not** under ``local``. A
+   resolver file captures its whole subtree, and the bare name would swallow the
+   entire mDNS TLD -- every ``.local`` name this machine resolves -- into a
    server that answers ``127.0.0.1`` for everything it owns.
 
 The resolver is authoritative for that one suffix and forwards nothing, so it
@@ -62,8 +63,16 @@ not only ``mDNSResponder`` -- Chrome and Spotify take it too. They share it
 with ``SO_REUSEPORT``, which Docker's port publisher does not set, so
 publishing 5353 fails outright on a typical Mac. 19153 sits above the
 ``19000-19079`` band the proxy publishes and below the 49152 ephemeral floor,
-so nothing else claims it. ``HMD_LOCAL_DNS_PORT`` overrides it, and
-``nsctl dns install`` prints whatever port is in force.
+so nothing else claims it. It is also *chosen*: if something already holds
+19153 the platform moves to another port, and ``nsctl dns install`` prints
+whichever port is actually in force. ``HMD_LOCAL_DNS_PORT`` pins it.
+
+.. note::
+
+   ``dig`` will not confirm any of this, and that is expected rather than a
+   failure: ``dig`` reads ``/etc/resolv.conf`` and queries that nameserver
+   directly, bypassing ``/etc/resolver`` entirely. Use ``nsctl dns status``,
+   ``dscacheutil -q host -a name <name>``, or simply ``curl``.
 
 Use /etc/hosts instead
 ----------------------
@@ -71,7 +80,13 @@ Use /etc/hosts instead
 The older, narrower alternative still works::
 
    sudo sh -c 'echo "127.0.0.1 neuronsphere neuronsphere-workload" >> /etc/hosts'
-   sudo sh -c 'echo "127.0.0.1 auth.local.neuronsphere.io" >> /etc/hosts'
+   sudo sh -c 'echo "127.0.0.1 auth.ns.local" >> /etc/hosts'
+
+On Linux this is not only the older path but sometimes the only one: where
+``nss-mdns`` is installed, ``nsswitch.conf`` sends ``.local`` to mDNS with
+``[NOTFOUND=return]`` before the lookup ever reaches ``dns``, which stops it
+dead. ``nsctl dns status`` says whether the suffix resolves; if it does not on
+a machine that is correctly pointed at the resolver, this is why.
 
 It costs a line per name, every time a new UI, environment or extension
 appears, because ``/etc/hosts`` has no wildcards.

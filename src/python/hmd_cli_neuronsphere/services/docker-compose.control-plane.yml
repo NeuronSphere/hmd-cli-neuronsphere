@@ -52,7 +52,7 @@ services:
           # browser resolves this through /etc/hosts and cluster pods through a
           # CoreDNS record, and both land here too. Harmless when the provider
           # is not enabled: the name resolves and nothing is listening for it.
-          - "${HMD_LOCAL_AUTH_HOST:-auth.local.neuronsphere.io}"
+          - "${HMD_LOCAL_AUTH_HOST:-auth.ns.local}"
     volumes:
       - "${HMD_HOME}/.cache/nginx/neuronsphere.conf:/etc/nginx/nginx.conf:ro"
       # Directory bind so route fragments added/removed at runtime are visible
@@ -296,7 +296,7 @@ services:
     # from a Floci container.
     environment:
       HMD_HOME: ${HMD_HOME}
-      HMD_LOCAL_AUTH_ISSUER: ${HMD_LOCAL_AUTH_ISSUER:-http://auth.local.neuronsphere.io}
+      HMD_LOCAL_AUTH_ISSUER: ${HMD_LOCAL_AUTH_ISSUER:-http://auth.ns.local}
     volumes:
       # For the signing key alone. It is persisted so that a restart does not
       # invalidate every token already issued, which would look like an

@@ -13,7 +13,7 @@ lives — not the credential itself::
 
    Access to "dev":
      INSTANCE  NAME      URL                                     USERNAME  CREDENTIAL
-     web       superset  http://web.local.neuronsphere.io/       admin     secrets-manager web-aaaa-dev-admin-credentials#password
+     web       superset  http://web.ns.local/       admin     secrets-manager web-aaaa-dev-admin-credentials#password
 
    web/superset: Under AUTH_DB self-registration is off, so admin is the only account.
 

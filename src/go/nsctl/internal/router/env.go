@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 )
 
 // Ports and names the environment routes use.
@@ -22,12 +24,17 @@ const (
 	// environment additionally keeps, so existing integration tests need no
 	// change.
 	LegacyTrinoHostPort = 18080
-	// IngressDomain is the suffix the charts render their Ingress hosts under.
-	IngressDomain = "neuronsphere.io"
+	// IngressDomain is the suffix every local hostname is reached under. One
+	// suffix, so one resolver arrangement covers the lot (NERD026 SPEC001).
+	IngressDomain = dnsd.DefaultSuffix
 	// HelmLocalSlug is the literal string hmd-cli-helm puts in every local
-	// chart's alb.hostname, in *every* environment -- so an Ingress hostname is
-	// derived from the instance name alone, never from the environment slug.
+	// chart's alb.hostname, in *every* environment. It is not ours and cannot be
+	// derived from: the deployed Ingress object's host is rewritten to the shape
+	// below instead (NERD025 SPEC005).
 	HelmLocalSlug = "local"
+	// HelmIngressDomain is the suffix hmd-cli-helm renders, which is what an
+	// Ingress object carries before it is rewritten.
+	HelmIngressDomain = "local.neuronsphere.io"
 )
 
 // Env is what the router needs to know about an environment.
@@ -125,14 +132,43 @@ func EnvStreamEntries(env Env, trinoUpstream, k3sUpstream string) []StreamEntry 
 	return entries
 }
 
-// IngressHostFor is the Ingress hostname hmd-cli-helm gives an instance's chart.
+// IngressHostFor is the hostname an instance's user interface is reached at.
 //
-// The slug is the literal "local" in every environment, because
-// _set_local_standard_values renders every local chart with
-// --set alb.hostname=<instance>.local.neuronsphere.io and --set beats any
-// values file.
-func IngressHostFor(instanceName string) string {
-	return instanceName + "." + HelmLocalSlug + "." + IngressDomain
+// The environment is its own dot-separated label, and the default environment
+// has none:
+//
+//	airflow.ns.local        the default environment
+//	airflow.dev2.ns.local   the environment `dev2`
+//
+// Two environments deploying the same chart therefore no longer claim one
+// hostname between them, which they did for as long as this existed -- and only
+// the default environment's UIs were reachable by name at all, because only its
+// vhost was ever written.
+//
+// The default environment keeps the short form so that every URL already
+// written down keeps meaning what it means. A wildcard still covers all of it:
+// the resolver matches by suffix at any depth, a macOS resolver file captures
+// the whole subtree, and nginx prefers the longest wildcard -- so
+// *.dev2.ns.local beats *.ns.local for a name under dev2, deterministically.
+//
+// hmd-cli-helm renders something else entirely (HelmIngressDomain, with the
+// literal "local" in every environment, via --set, which beats any values
+// file). That is not changed here; the deployed Ingress object's host is
+// rewritten instead, beside the path rewrite that already exists for exactly
+// this class of local-versus-cloud mismatch (NERD025 SPEC005).
+func IngressHostFor(instanceName, slug string) string {
+	if slug == "" || slug == HelmLocalSlug {
+		return instanceName + "." + IngressDomain
+	}
+	return instanceName + "." + slug + "." + IngressDomain
+}
+
+// EnvWildcardFor is the server_name an environment's vhost claims.
+func EnvWildcardFor(slug string) string {
+	if slug == "" || slug == HelmLocalSlug {
+		return "*." + IngressDomain
+	}
+	return "*." + slug + "." + IngressDomain
 }
 
 // vhostServer is a Host-routed server block proxying everything to the ingress
@@ -181,11 +217,11 @@ func vhostServer(serverName, upstream string) string {
 // host on the deployed Ingress object, which is a change to what the charts
 // asked for and is deliberately not made here.
 func (r *Router) WriteEnvVhosts(env Env, upstream string) error {
-	var blocks []string
-	if env.IsDefault {
-		blocks = append(blocks,
-			wrap(env.Slug+":vhost", vhostServer("*."+HelmLocalSlug+"."+IngressDomain, upstream)))
-	}
+	// Every environment owns a wildcard now, not only the default one. They no
+	// longer collide, because the environment is a label in the name: nginx
+	// prefers the longest wildcard, so *.dev2.<suffix> takes a name under dev2
+	// and *.<suffix> takes the default's (NERD025 SPEC005).
+	blocks := []string{wrap(env.Slug+":vhost", vhostServer(EnvWildcardFor(env.Slug), upstream))}
 	return r.writeFragment(filepath.Join(r.VhostDir(), EnvFragmentName(env.Slug)), blocks,
 		fmt.Sprintf("environment %q vhosts", env.Slug))
 }

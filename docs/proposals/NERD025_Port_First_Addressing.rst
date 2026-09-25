@@ -5,7 +5,7 @@ NERD025 Reaching a Local Platform
 
 .. req:: Reaching a local service from the host shall cost no privileged change to the machine
     :id: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     A first run of ``nsctl`` shall start a control plane and an environment
     without editing ``/etc/hosts``, without ``sudo``, without a working name
@@ -21,6 +21,21 @@ NERD025 Reaching a Local Platform
 
     No failure on this path shall be reported as a missing entry in a file the
     user is not required to have edited.
+
+    .. note::
+
+        ``implemented``. SPEC001 is withdrawn and SPEC002 with it; SPEC003 to
+        SPEC008 are built and were run against a live control plane on
+        2026-09-25, which is where three of the defects recorded below were
+        found -- including one that stopped a control plane starting at all on
+        any machine with the identity provider off.
+
+        The last clause turned out to be the one most often broken, and by this
+        document's own code: the start reported names it had *redirected* as
+        names that did not resolve, and told a machine that already had the
+        ``/etc/hosts`` line to add it; and the control-plane extensions printed
+        an ``/etc/hosts`` line for names the resolver already answers for. Both
+        now report what is actually true.
 
 Motivation
 ----------
@@ -202,7 +217,7 @@ Design
 .. spec:: An Ingress hostname names its environment
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD025
-    :status: proposed
+    :status: implemented
 
     There is a defect here today. ``IngressHostFor``
     (``internal/router/env.go:129-137``) builds
@@ -213,15 +228,34 @@ Design
     ``local`` the vhost matches nothing the charts actually ask for, and two
     environments that both deploy ``airflow`` claim one hostname between them.
 
-    The hostname shall carry the environment in its **leftmost label**, so a
-    single suffix covers every environment::
+    The hostname shall carry the environment as **its own dot-separated
+    label**, and the default environment shall have none::
 
-        <instance>-<slug>.local.neuronsphere.io   // any environment
-        <instance>.local.neuronsphere.io          // the default `local`
+        <instance>.<slug>.ns.local   // any environment
+        <instance>.ns.local          // the default `local`
 
-    The default environment's form is preserved exactly, so every URL in the
-    documentation today -- ``auth.``, ``registry.``, ``web.local.neuronsphere.io``
-    -- continues to mean what it means now.
+    The default environment's form is preserved, so every URL written down for
+    it keeps meaning what it means.
+
+    **Amended: a label, not a hyphen.** This first specified
+    ``<instance>-<slug>``, on the grounds that DNS matches ``*`` at exactly one
+    level, so a wildcard could only cover every environment if the environment
+    were not its own label. That argument holds for a **public wildcard record**,
+    which this document already rejected, and for nothing else here. Each leg was
+    checked rather than assumed:
+
+    - the resolver answers by **suffix match** at any depth
+      (``internal/dnsd``), not by a single-label wildcard;
+    - a macOS resolver file captures the **whole subtree** below the name it is
+      filed under -- which is the same property that made its scoping a
+      correctness requirement in NERD026 SPEC002;
+    - nginx's leading wildcard matches at any depth and it prefers the
+      **longest** one, so ``*.dev2.ns.local`` takes a name under ``dev2`` and
+      ``*.ns.local`` takes the default's, deterministically.
+
+    So one resolver arrangement still covers every environment, including ones
+    that do not exist yet, and the hyphen bought nothing. A hyphen also reads as
+    part of the instance's name rather than as the environment.
 
     The Ingress object's host shall be rewritten at deploy time rather than
     changing ``hmd-cli-helm``. ``NormalizeIngressPaths`` /``traefikPath``
@@ -233,10 +267,19 @@ Design
     ``{ingress_host}`` placeholder at ``internal/credentials/credentials.go:212``
     -- follows it.
 
-    One label rather than two is also what makes a wildcard possible at all:
-    DNS matches ``*`` at exactly one level, so ``*.local.neuronsphere.io``
-    can cover every environment only if the environment is not its own label.
-    NERD026 depends on this.
+    Every environment writes a vhost, not only the default one. That was the
+    other half of the defect and the more damaging half: a non-default
+    environment's user interfaces were unreachable by name **at all**, since its
+    vhost was never written and SPEC001's port was withdrawn.
+
+    The suffix itself moved with this, to ``ns.local`` -- see NERD026 SPEC001,
+    where the measurement that justified it is recorded.
+
+    The deprecated Python front end is not converted, for SPEC008's reason. It
+    does not rewrite Ingress hosts, so it continues to serve the name
+    ``hmd-cli-helm`` renders, under the old suffix, reached the way it always
+    was: an ``/etc/hosts`` line. Nothing regresses for it, and the resolver was
+    never its feature.
 
 .. spec:: A start reports what it found
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC006

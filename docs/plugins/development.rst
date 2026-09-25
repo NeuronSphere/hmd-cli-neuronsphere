@@ -71,7 +71,7 @@ Adding one
 
     # to the control plane
     nsctl control-plane repo add hmd-inf-local-registry --name package-registry \
-        --config url=http://registry.local.neuronsphere.io \
+        --config url=http://registry.ns.local \
         --config upstream=server:8080
     nsctl control-plane apply
 

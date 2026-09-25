@@ -162,3 +162,41 @@ func TestProjectSharesTheControlPlaneProjectName(t *testing.T) {
 		t.Errorf("services are not in a stable order: %+v", p.Services)
 	}
 }
+
+// An extension declares its own hostname, in its own repo. When that name falls
+// under the suffix the resolver already answers for, telling the reader to edit
+// /etc/hosts is exactly what NERD025's requirement forbids -- a failure on this
+// path reported as a missing entry in a file nobody is required to have edited.
+// When it does not, the hosts line is still the only remedy and is still named.
+func TestReportHostsNamesTheResolverForCoveredNames(t *testing.T) {
+	t.Parallel()
+
+	var covered strings.Builder
+	ReportHosts(&covered, []Extension{{Instance: "registry", Host: "registry.ns.local"}})
+	if !strings.Contains(covered.String(), "dns install") {
+		t.Errorf("a covered name should point at the resolver:\n%s", covered.String())
+	}
+	if strings.Contains(covered.String(), "127.0.0.1 registry.ns.local") {
+		t.Errorf("a covered name should not demand an /etc/hosts line:\n%s", covered.String())
+	}
+
+	var outside strings.Builder
+	ReportHosts(&outside, []Extension{{Instance: "legacy", Host: "legacy.example.com"}})
+	if !strings.Contains(outside.String(), "127.0.0.1 legacy.example.com") {
+		t.Errorf("a name outside the suffix still needs the hosts line:\n%s", outside.String())
+	}
+
+	// Both at once: each gets the remedy that applies to it.
+	var mixed strings.Builder
+	ReportHosts(&mixed, []Extension{
+		{Instance: "registry", Host: "registry.ns.local"},
+		{Instance: "legacy", Host: "legacy.example.com"},
+	})
+	if !strings.Contains(mixed.String(), "dns install") ||
+		!strings.Contains(mixed.String(), "127.0.0.1 legacy.example.com") {
+		t.Errorf("a mixed set should carry both remedies:\n%s", mixed.String())
+	}
+	if strings.Contains(mixed.String(), "127.0.0.1 registry.ns.local") {
+		t.Errorf("the covered name leaked into the hosts line:\n%s", mixed.String())
+	}
+}

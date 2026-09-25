@@ -42,6 +42,30 @@
   not been deployed yet will not resolve. A `local names` row reports the same in
   `nsctl doctor`, separate from the `host names` row, because the two fail
   independently and are fixed differently.
+- feat: a user interface's hostname names its environment, and the local suffix
+  moved to `ns.local`. `airflow.ns.local` in the default environment,
+  `airflow.dev2.ns.local` in `dev2` -- where before, every environment's charts
+  rendered the same hostname and only the default environment's vhost was ever
+  written, so a second environment's UIs were unreachable by name at all. The
+  deployed Ingress object's host is rewritten at start time, beside the rewrite
+  that already absorbs the ALB path dialect, so hmd-cli-helm is untouched and
+  cloud charts still deploy unmodified.
+- feat: the local suffix is `ns.local`. "local" reads in every URL and nothing
+  under it could ever collide with a real public name, which `local.neuronsphere.io`
+  could -- `neuronsphere.io` is a live zone. The proposal had rejected a `.local`
+  name outright; that rejection conflated the mDNS-reserved TLD, which is still
+  not ours and which the resolver file is still scoped away from, with a
+  subdomain of it, which is fine. Measured before adopting, across getaddrinfo,
+  a CGO_ENABLED=0 Go binary, a cgo one, Python and curl. `dig` is the one thing
+  that will not confirm it, because it bypasses /etc/resolver entirely.
+- fix: `dns status` could report success against a resolver that had been
+  stopped. It probed a constant name, which the system resolver caches for its
+  TTL, so the check read its own earlier answer back out of the cache. The probe
+  name is now different on every call.
+- fix: control-plane extensions printed an /etc/hosts line for every hostname,
+  including ones the resolver already answers for. Each name now gets the remedy
+  that applies to it -- which also makes visible that an extension declaring a
+  host outside the suffix, in its own repo, still needs the old treatment.
 - fix: a control plane with the identity provider off could not start at all.
   The resolver runs this binary in a container exactly as the identity provider
   does, but both the image build and the HMD_NSCTL_IMAGE overlay were gated on the

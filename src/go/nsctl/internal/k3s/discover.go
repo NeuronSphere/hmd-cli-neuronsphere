@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 )
 
 // NodePortSpec is a NodePort service fronting an in-cluster workload.
@@ -276,6 +278,112 @@ func patchIngressPathsScript(patches []ingressPathPatch) string {
 				`{"op":"replace","path":"/spec/rules/%d/http/paths/%d/pathType","value":"Prefix"}]`,
 			p.Rule, p.Path, p.NewPath, p.Rule, p.Path,
 		)
+		fmt.Fprintf(&b, "kubectl patch ingress -n %s %s --type=json -p '%s'\n", p.Namespace, p.Name, op)
+	}
+	return b.String()
+}
+
+// ingressHostPatch is one Ingress rule's host rewritten to name its environment.
+type ingressHostPatch struct {
+	Namespace string
+	Name      string
+	Rule      int
+	NewHost   string
+}
+
+// ingressHostPatches is every Ingress host to rewrite, for the Ingresses this
+// cluster's ingress class owns.
+//
+// hmd-cli-helm renders alb.hostname with the literal "local" in *every*
+// environment, through --set, which beats any values file. Two environments
+// deploying the same chart therefore ask for one hostname between them, and
+// before this only the default environment's vhost was ever written -- so a
+// second environment's user interfaces were unreachable by name at all.
+//
+// Rewritten on the deployed object rather than in hmd-cli-helm, which is the
+// same move as pointing the alb IngressClass at Traefik and as absorbing the ALB
+// path dialect: it is what lets a cloud chart deploy unmodified. Idempotent -- a
+// host already in the target shape yields no patch, so a start does not rewrite
+// what the last one rewrote (NERD025 SPEC005).
+func ingressHostPatches(items []ingress, class, slug string) []ingressHostPatch {
+	var patches []ingressHostPatch
+	for _, item := range items {
+		if item.class() != class {
+			continue
+		}
+		for r, rule := range item.Spec.Rules {
+			want := rewrittenHost(rule.Host, slug)
+			if want == "" || want == rule.Host {
+				continue
+			}
+			patches = append(patches, ingressHostPatch{
+				Namespace: item.Metadata.Namespace, Name: item.Metadata.Name,
+				Rule: r, NewHost: want,
+			})
+		}
+	}
+	return patches
+}
+
+// rewrittenHost is the host an instance's UI should answer on, or "" when this
+// is not a host this platform owns.
+//
+// The instance is the leftmost label of whatever the chart rendered; everything
+// after it is replaced, so a host left over from another environment is
+// corrected rather than compounded.
+func rewrittenHost(host, slug string) string {
+	if host == "" {
+		return ""
+	}
+	instance, rest, found := strings.Cut(host, ".")
+	if !found || instance == "" {
+		return ""
+	}
+	// Only the two suffixes this platform owns: the one hmd-cli-helm renders,
+	// and the one it is rewritten to. Anything else is somebody else's name.
+	if !strings.HasSuffix(host, router.HelmIngressDomain) && !strings.HasSuffix(rest, router.IngressDomain) {
+		return ""
+	}
+	return router.IngressHostFor(instance, slug)
+}
+
+// NormalizeIngressHosts rewrites every Ingress host to name its environment,
+// returning the Ingresses it changed as namespace/name.
+func (o *Operators) NormalizeIngressHosts(ctx context.Context, slug string) []string {
+	if !o.IngressEnabled {
+		return nil
+	}
+	patches := ingressHostPatches(o.listIngresses(ctx), o.ingressClass(), slug)
+	if len(patches) == 0 {
+		return nil
+	}
+	stdout, stderr, err := o.Kube.RunKube(ctx, []byte(patchIngressHostsScript(patches)), nil)
+	if err != nil {
+		o.warn("%v", &StepError{
+			Step:   "rewriting Ingress hosts to name the environment; the UIs they front will be unreachable by name",
+			Stdout: stdout, Stderr: stderr, Err: err,
+		})
+		return nil
+	}
+	var changed []string
+	seen := map[string]bool{}
+	for _, p := range patches {
+		full := p.Namespace + "/" + p.Name
+		if !seen[full] {
+			seen[full] = true
+			changed = append(changed, full)
+		}
+	}
+	return changed
+}
+
+// patchIngressHostsScript batches every rewrite into one exec, as the path
+// rewrite does.
+func patchIngressHostsScript(patches []ingressHostPatch) string {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	for _, p := range patches {
+		op := fmt.Sprintf(`[{"op":"replace","path":"/spec/rules/%d/host","value":"%s"}]`, p.Rule, p.NewHost)
 		fmt.Fprintf(&b, "kubectl patch ingress -n %s %s --type=json -p '%s'\n", p.Namespace, p.Name, op)
 	}
 	return b.String()

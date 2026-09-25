@@ -78,7 +78,7 @@ func TestResolveFillsThePlaceholders(t *testing.T) {
 		t.Fatalf("want one entry -- only superset declares access -- got %d: %+v", len(got), got)
 	}
 	e := got[0]
-	if e.URL != "http://superset.local.neuronsphere.io/" {
+	if e.URL != "http://superset.dev.ns.local/" {
 		t.Errorf("URL = %q", e.URL)
 	}
 	if e.Key != "superset-aaaa-dev-admin-credentials" {

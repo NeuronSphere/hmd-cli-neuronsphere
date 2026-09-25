@@ -26,9 +26,9 @@ exactly what ``http://localhost:<port>`` cannot be, because inside a pod
 
 So the host has to resolve it. Either::
 
-   nsctl dns install     # covers *.local.neuronsphere.io, wildcard included
+   nsctl dns install     # covers *.ns.local, wildcard included
 
-   sudo sh -c 'echo "127.0.0.1 auth.local.neuronsphere.io" >> /etc/hosts'
+   sudo sh -c 'echo "127.0.0.1 auth.ns.local" >> /etc/hosts'
 
 The first covers the package registry and any control-plane extension too, and
 keeps covering names added later.
@@ -102,7 +102,7 @@ Add a local profile to ``$HMD_HOME/.config/nsctl.toml`` without replacing
 other profiles::
 
    [profile.local]
-   auth_url = "http://auth.local.neuronsphere.io/oauth2/ns"
+   auth_url = "http://auth.ns.local/oauth2/ns"
 
 Then run::
 

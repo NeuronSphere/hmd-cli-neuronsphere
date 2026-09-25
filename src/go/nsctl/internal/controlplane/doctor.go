@@ -46,7 +46,7 @@ func DoctorOptions(opts *Options) doctor.Options {
 // worth asserting (NERD026 SPEC003).
 func CheckLocalSuffix(ctx context.Context, opts *Options) error {
 	suffix := dnsd.DefaultSuffix
-	probe := "wildcard-probe." + suffix
+	probe := dnsd.ProbeName(suffix)
 
 	if ips, err := net.LookupIP(probe); err == nil && len(ips) > 0 {
 		return nil

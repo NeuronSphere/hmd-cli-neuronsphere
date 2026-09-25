@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 )
 
 // The two authorization servers, because hmd-lib-auth already distinguishes
@@ -62,7 +64,7 @@ func KnownServer(server string) bool {
 
 // defaultEmailDomain is only ever seen locally; it exists so the address has a
 // domain at all.
-const defaultEmailDomain = "local.neuronsphere.io"
+const defaultEmailDomain = dnsd.DefaultSuffix
 
 // DefaultLifetime matches Okta's default access-token lifetime. Long enough
 // that a browser session outlives a deploy, short enough that a stale token in

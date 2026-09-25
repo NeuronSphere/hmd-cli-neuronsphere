@@ -396,7 +396,7 @@ func TestTheProxyAnswersForTheIssuerHostname(t *testing.T) {
 	}
 	var found bool
 	for _, alias := range s.Networks[0].Aliases {
-		if alias == "auth.local.neuronsphere.io" {
+		if alias == "auth.ns.local" {
 			found = true
 		}
 	}

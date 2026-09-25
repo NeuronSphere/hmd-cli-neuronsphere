@@ -87,7 +87,7 @@ func decode(t *testing.T, raw []byte) reply {
 func TestAnUnregisteredNameUnderTheSuffixResolves(t *testing.T) {
 	t.Parallel()
 
-	out, err := New(DefaultSuffix).respond(query("nothing-has-ever-deployed-this.local.neuronsphere.io.", typeA))
+	out, err := New(DefaultSuffix).respond(query("nothing-has-ever-deployed-this.ns.local.", typeA))
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestAnUnregisteredNameUnderTheSuffixResolves(t *testing.T) {
 func TestTheSuffixMatchIsCaseInsensitive(t *testing.T) {
 	t.Parallel()
 
-	out, err := New(DefaultSuffix).respond(query("Airflow.Local.NeuronSphere.IO.", typeA))
+	out, err := New(DefaultSuffix).respond(query("Airflow.NS.Local.", typeA))
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -129,8 +129,8 @@ func TestANameOutsideTheSuffixIsRefused(t *testing.T) {
 		"www.neuronsphere.io.",
 		"neuronsphere.io.",
 		"example.com.",
-		"local.neuronsphere.io.evil.com.",
-		"notlocal.neuronsphere.io.",
+		"ns.local.evil.com.",
+		"notns.local.",
 	} {
 		out, err := s.respond(query(name, typeA))
 		if err != nil {
@@ -150,7 +150,7 @@ func TestANameOutsideTheSuffixIsRefused(t *testing.T) {
 func TestTheSuffixItselfResolves(t *testing.T) {
 	t.Parallel()
 
-	out, err := New(DefaultSuffix).respond(query("local.neuronsphere.io.", typeA))
+	out, err := New(DefaultSuffix).respond(query("ns.local.", typeA))
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestAAAAIsEmptyButSuccessful(t *testing.T) {
 	t.Parallel()
 
 	const typeAAAA = 28
-	out, err := New(DefaultSuffix).respond(query("airflow.local.neuronsphere.io.", typeAAAA))
+	out, err := New(DefaultSuffix).respond(query("airflow.ns.local.", typeAAAA))
 	if err != nil {
 		t.Fatalf("respond: %v", err)
 	}
@@ -211,8 +211,8 @@ func TestTheResolverFileIsScopedToTheSubtree(t *testing.T) {
 	t.Parallel()
 
 	path, body := ResolverFile(DefaultSuffix, DefaultPort)
-	if path != "/etc/resolver/local.neuronsphere.io" {
-		t.Errorf("resolver file is %q; want it scoped to local.neuronsphere.io", path)
+	if path != "/etc/resolver/ns.local" {
+		t.Errorf("resolver file is %q; want it scoped to ns.local", path)
 	}
 	if path == "/etc/resolver/neuronsphere.io" {
 		t.Error("the resolver file would capture the whole of neuronsphere.io, including the public website")
@@ -248,7 +248,7 @@ func TestInstallStepIsPlatformSpecific(t *testing.T) {
 	t.Parallel()
 
 	mac := InstallStep("darwin", DefaultSuffix, DefaultPort)
-	if !strings.Contains(mac, "/etc/resolver/local.neuronsphere.io") {
+	if !strings.Contains(mac, "/etc/resolver/ns.local") {
 		t.Errorf("the macOS step should write the resolver file, got:\n%s", mac)
 	}
 	linux := InstallStep("linux", DefaultSuffix, DefaultPort)
@@ -287,5 +287,40 @@ func TestAnswersReportsTheResolverItself(t *testing.T) {
 	// different one from silence: this is what a suffix mismatch looks like.
 	if err := Answers(context.Background(), addr, "probe.example.com"); err == nil {
 		t.Error("Answers for a name outside the suffix = nil, want an error")
+	}
+}
+
+// The probe name must be different on every call.
+//
+// A constant name is cached by the system resolver for its TTL, so once it has
+// resolved the check keeps reporting success after the resolver has gone away --
+// which is exactly what happened: `dns status` said ok against a resolver that
+// had been stopped, reading its own answer back out of the cache. A check that
+// can report a fact that stopped being true is not a check.
+func TestTheProbeNameIsNeverReused(t *testing.T) {
+	t.Parallel()
+
+	seen := map[string]bool{}
+	for i := 0; i < 50; i++ {
+		name := ProbeName("ns.local")
+		if seen[name] {
+			t.Fatalf("ProbeName repeated %q after %d calls", name, i)
+		}
+		seen[name] = true
+
+		if !strings.HasSuffix(name, ".ns.local") {
+			t.Fatalf("ProbeName = %q, which is not under the suffix", name)
+		}
+		// Still has to be a name nothing has ever configured, which is the
+		// property that proves the wildcard.
+		if !strings.HasPrefix(name, "wildcard-probe") {
+			t.Fatalf("ProbeName = %q, want a recognisable probe name", name)
+		}
+		// And a legal DNS label: no label over 63 bytes.
+		for _, label := range strings.Split(name, ".") {
+			if len(label) > 63 {
+				t.Fatalf("label %q is %d bytes, over the DNS limit", label, len(label))
+			}
+		}
 	}
 }
