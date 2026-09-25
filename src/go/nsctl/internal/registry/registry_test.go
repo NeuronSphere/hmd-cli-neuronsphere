@@ -854,3 +854,25 @@ func TestEnvPortRangeFollowsTheChosenBase(t *testing.T) {
 		t.Errorf("width changed with the base: %d vs %d", hi-lo, bhi-blo)
 	}
 }
+
+// Every environment gets a router container of its own, publishing exactly the
+// host ports that environment uses (NERD027 SPEC002). Named like its siblings,
+// and recorded rather than derived at each call site, so the lifecycle stages
+// that create, stop, delete and purge it all name the same container.
+func TestAnEnvironmentNamesItsRouterContainer(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{}
+	env, err := r.NewEnvironment(t.TempDir(), "dev2", nil)
+	if err != nil {
+		t.Fatalf("NewEnvironment: %v", err)
+	}
+	if got, want := env.RouterContainer, "hmd_router-dev2"; got != want {
+		t.Errorf("RouterContainer = %q, want %q", got, want)
+	}
+	// It sits beside the other per-environment containers, not inside the
+	// control plane's compose project.
+	if env.DBContainer != "hmd_db-dev2" || env.GraphContainer != "global-graph-dev2" {
+		t.Errorf("the sibling containers changed: %+v", env)
+	}
+}

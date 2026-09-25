@@ -464,6 +464,61 @@ Design
     engine never asks. It is the same defect SPEC007 exists to prevent, one layer
     up, and the plan now carries the protocol and interface into the probe.
 
+The acceptance run
+------------------
+
+2026-09-25, against the live control plane and the default environment on a
+macOS workstation, with the binary built as it ships.
+
+**SPEC005.** ``nsctl env start local`` rewrote the Ingress host on four real
+deployed charts -- ``airflow-local/airflow-local-web``, ``argo-local/alb-ingress``,
+``superset-local/alb-ingress``, ``trino-local/alb-ingress`` -- and the cluster
+then held ``airflow.ns.local``, ``argo.ns.local``, ``superset.ns.local`` and
+``trino.ns.local``. The default environment took the short form, as specified.
+``hmd_proxy`` picked up all four as Docker network aliases in the same step, so
+the host's view and the network's view agree on one string.
+
+Reached through the proxy by name, every Ingress with a live backend served:
+``argo.ns.local`` answers **200** and ``airflow.ns.local`` **302** into its own
+login flow, both through the environment's vhost, with ``Host`` forwarded
+verbatim to Traefik, which matched the rewritten rule.
+
+``superset.ns.local`` and ``trino.ns.local`` answer 503, and that is the right
+answer rather than a routing failure: their services have **no endpoints** --
+``superset-local`` holds only completed init jobs and ``trino-local`` has no pods
+at all -- so Traefik matched the rule and found nothing to send to. The two that
+503 are exactly the two with no backend, which is what makes the other two
+meaningful.
+
+The control matters as much: a hostname no vhost claims
+(``nope.example.com``) answers 404 from the default server, so the match is real
+and not a catch-all.
+
+**SPEC006.** The start reported the four interfaces at those hostnames, and said
+once -- naming ``nsctl dns install`` and the suffix it covers -- that they did
+not resolve on the machine, which was true: the resolver file pointed at a port
+nothing was serving.
+
+**NERD026 SPEC001 and SPEC003.** The resolver answered
+``nothing-has-ever-deployed-this.ns.local`` through the port ``hmd_proxy``
+publishes, refused a name outside the suffix, and ``dns status`` distinguished
+"running, and this machine is not pointed at it" from "not running" correctly in
+both states.
+
+**What the run found.** Three defects that unit tests had passed over, all
+recorded against their specifications above: a control plane that could not start
+at all with the identity provider off, a start that told a machine with the
+``/etc/hosts`` line that the names did not resolve, and ``nsctl doctor`` failing
+on a working platform. A fourth was found while verifying the verification:
+``dns status`` reported success against a resolver that had been stopped, because
+it probed a constant name the system resolver had cached.
+
+**What it did not cover.** A second concurrent environment -- so the
+longest-wildcard rule that keeps ``*.dev2.ns.local`` and ``*.ns.local`` apart is
+argued and unit-tested, not yet measured against two live environments. Linux is
+untested throughout; the ``nss-mdns`` risk NERD026 records applies to this
+document's hostnames too.
+
 Alternatives considered
 -----------------------
 

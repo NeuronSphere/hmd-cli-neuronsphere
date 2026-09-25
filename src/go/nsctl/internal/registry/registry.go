@@ -109,8 +109,19 @@ type Environment struct {
 	Name         string `json:"name"`
 	PortBase     int    `json:"port_base"`
 	PortSlot     int    `json:"port_slot"`
-	Slug         string `json:"slug"`
-	StateDir     string `json:"state_dir"`
+	// RouterContainer publishes exactly the host ports this environment uses --
+	// its Trino listener where a coordinator was found, its k3s API, and the
+	// historical 18080 for the default environment.
+	//
+	// Its own container, beside hmd_db-<slug> and global-graph-<slug>, so that a
+	// port appearing or disappearing recreates *it* rather than hmd_proxy: an
+	// engine cannot add a published port to a running container, and recreating
+	// the proxy would cut the deploy that asked for the port. Omitted from a
+	// registry written before this existed, which is what an empty value means
+	// (NERD027 SPEC002).
+	RouterContainer string `json:"router_container,omitempty"`
+	Slug            string `json:"slug"`
+	StateDir        string `json:"state_dir"`
 }
 
 // Control-plane port names. These are the host ports hmd_proxy publishes, and
