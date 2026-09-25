@@ -42,6 +42,21 @@
   not been deployed yet will not resolve. A `local names` row reports the same in
   `nsctl doctor`, separate from the `host names` row, because the two fail
   independently and are fixed differently.
+- fix: a control plane with the identity provider off could not start at all.
+  The resolver runs this binary in a container exactly as the identity provider
+  does, but both the image build and the HMD_NSCTL_IMAGE overlay were gated on the
+  identity provider alone -- so once the resolver became default-on, a machine
+  with authd off (the default) reached the engine and failed trying to pull
+  hmd-img-nsctl:latest from a registry that has never held it.
+- fix: a start told a machine that already had the /etc/hosts line that the Floci
+  names did not resolve, and pointed it at the line it already had. It reported
+  the names it had *redirected*, which since the dial rule widened includes names
+  answering on loopback -- redirected for the port, not for the name. It now
+  reports what actually fails to resolve.
+- fix: `nsctl doctor` exited non-zero on a working platform whose owner had not
+  run an optional one-time step. Name resolution is reported, not required, so
+  both name rows are warnings: the platform starts, deploys and serves either way,
+  and what is degraded is named in the row.
 - docs: NERD025 SPEC003/004/006/007/008 and NERD026 SPEC001-004 are recorded as
   implemented, each amended with what building it actually settled. NERD026 SPEC005
   stays proposed: it is blocked on NERD007 SPEC002, since there is no per-home

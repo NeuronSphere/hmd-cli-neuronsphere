@@ -203,6 +203,22 @@ func (o *Options) warn(format string, a ...any) {
 // Resolver looks up a hostname. Injected so the pre-flight is testable.
 type Resolver func(host string) ([]net.IP, error)
 
+// hostNamesWarning is what a start says about the Floci host names, or "" when
+// there is nothing to say.
+//
+// Driven by what actually fails to resolve, not by what was redirected. Those are
+// different sets since NERD025 SPEC008 widened the dial rule: a name answering on
+// loopback is redirected too, for the *port*, because the host port is no longer
+// necessarily the in-network one. Reporting the redirected set told a machine that
+// already had the /etc/hosts line that the names did not resolve, and pointed it
+// at the line it already had -- which is precisely what this requirement forbids.
+func hostNamesWarning(resolve Resolver) string {
+	if err := CheckHostsEntries(resolve); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // CheckHostsEntries verifies the host resolves the Floci aliases to loopback.
 //
 // Kept as a diagnostic after NERD025 SPEC004 removed it from the start path:
@@ -317,12 +333,13 @@ func Start(ctx context.Context, opts *Options) error {
 	if err != nil {
 		return nserr.New(nserr.Usage, "%s", doctor.FirstFailure(checks))
 	}
-	if names := loopback.Install(nil, reg.ControlPlane.Port(registry.PortFloci)); len(names) > 0 {
-		// Reported, not refused. nsctl dials these itself (NERD025 SPEC003),
-		// so the start proceeds; what is left degraded is the legacy Python
-		// artifact path, which fetches the same presigned URLs through
-		// hmd_lib_librarian_client and has no such override.
-		opts.warn("%s", hostNamesNotice(names))
+	loopback.Install(nil, reg.ControlPlane.Port(registry.PortFloci))
+	// Reported, not refused. nsctl dials these itself (NERD025 SPEC003), so the
+	// start proceeds; what is left degraded is the legacy Python artifact path,
+	// which fetches the same presigned URLs through hmd_lib_librarian_client and
+	// has no such override.
+	if notice := hostNamesWarning(nil); notice != "" {
+		opts.warn("%s", notice)
 	}
 	if err := CheckNoLegacyEnvFlociState(reg); err != nil {
 		return err
@@ -485,8 +502,9 @@ func Start(ctx context.Context, opts *Options) error {
 	// exist yet, and compose would fail trying to pull it from a registry that
 	// does not have it.
 	// The identity provider is this binary in a container -- the Dockerfile's
-	// ENTRYPOINT is /nsctl -- so enabling it needs the image built.
-	if AuthEnabled(opts) {
+	// ENTRYPOINT is /nsctl -- so enabling it needs the image built. So does the
+	// resolver, which runs the same image and is on by default.
+	if NsctlImageNeeded(opts) {
 		if err := EnsureNsctlImage(ctx, opts, docker); err != nil {
 			return err
 		}
@@ -918,9 +936,9 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 	}
 	// Always set, so the compose file's own default -- a plain
 	// hmd-img-nsctl:latest, which is only ever a hand build -- never decides
-	// which image authd runs. EnsureNsctlImage has already made sure this tag
-	// exists.
-	if AuthEnabled(opts) {
+	// which image these containers run. EnsureNsctlImage has already made sure
+	// this tag exists.
+	if NsctlImageNeeded(opts) {
 		overlay["HMD_NSCTL_IMAGE"] = NsctlImageRef(opts)
 	}
 	if AuthEnabled(opts) {
@@ -991,6 +1009,20 @@ func DNSPort(opts *Options, reg *registry.Registry) int {
 		}
 	}
 	return DefaultDNSPort
+}
+
+// NsctlImageNeeded reports whether anything in the control plane runs this
+// binary in a container.
+//
+// Two things do -- the identity provider and the wildcard resolver -- and the
+// image is a local build that no registry has ever held. Both the build and the
+// HMD_NSCTL_IMAGE overlay were gated on the identity provider alone, which was
+// correct until the resolver started running by default: after that, a machine
+// with authd off (the default) reached the engine and failed trying to pull
+// hmd-img-nsctl:latest. Found on a live start, which is the only place it could
+// be found (NERD026 SPEC001).
+func NsctlImageNeeded(opts *Options) bool {
+	return AuthEnabled(opts) || DNSEnabled(opts)
 }
 
 // DNSEnabled reports whether the wildcard resolver should run: true unless

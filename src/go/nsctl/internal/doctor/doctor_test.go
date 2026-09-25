@@ -192,12 +192,17 @@ func TestRunReportsHostNames(t *testing.T) {
 		Connect:  reaching(healthy(), nil), GOOS: "linux",
 		Hosts: func() error { return errors.New("neuronsphere must resolve to a loopback address") },
 	})
+	// A warning, not a failure: name resolution is reported, not required
+	// (NERD025 SPEC004). nsctl dials these names itself, so a platform whose host
+	// cannot resolve them still works -- only the legacy artifact path is
+	// degraded -- and failing `nsctl doctor` over an optional step is a false
+	// negative for anything scripting it.
 	c, ok := find(checks, "host names")
-	if !ok || c.Status != StatusFail {
-		t.Fatalf("want a failed hosts check, got %+v", c)
+	if !ok || c.Status != StatusWarn {
+		t.Fatalf("want a warned hosts check, got %+v", c)
 	}
-	if !Failed(checks) {
-		t.Error("Failed must report it")
+	if Failed(checks) {
+		t.Error("an unresolved host name must not fail the diagnostic")
 	}
 }
 
@@ -289,9 +294,13 @@ func TestRunReportsTheLocalSuffix(t *testing.T) {
 
 	failing := base
 	failing.Suffix = func() error { return errors.New("nothing answers on 127.0.0.1:19153") }
-	c, ok := find(Run(context.Background(), failing), "local names")
-	if !ok || c.Status != StatusFail {
-		t.Fatalf("want a failed suffix check, got %+v", c)
+	got := Run(context.Background(), failing)
+	c, ok := find(got, "local names")
+	if !ok || c.Status != StatusWarn {
+		t.Fatalf("want a warned suffix check, got %+v", c)
+	}
+	if Failed(got) {
+		t.Error("an unresolved suffix must not fail the diagnostic")
 	}
 	if c.Remedy == "" {
 		t.Error("a failed suffix check must name what fixes it")

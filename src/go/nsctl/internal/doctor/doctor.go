@@ -169,9 +169,16 @@ func Run(ctx context.Context, o Options) []Check {
 	if o.Environments != nil {
 		checks = append(checks, o.Environments(ctx)...)
 	}
+	// Both name rows are warnings, not failures. Name resolution is reported,
+	// not required (NERD025 SPEC004): nsctl dials the bare Floci names itself and
+	// a platform whose suffix does not resolve still starts, deploys and serves
+	// -- what is degraded is the legacy artifact path and reaching a user
+	// interface by name. Failing here made `nsctl doctor` exit non-zero on a
+	// working platform whose owner had simply not run one optional step, which is
+	// a false negative for anything scripting it.
 	if o.Hosts != nil {
 		if err := o.Hosts(); err != nil {
-			checks = append(checks, Check{Name: "host names", Status: StatusFail, Detail: err.Error()})
+			checks = append(checks, Check{Name: "host names", Status: StatusWarn, Detail: err.Error()})
 		} else {
 			checks = append(checks, Check{Name: "host names", Status: StatusOK, Detail: "resolve to loopback"})
 		}
@@ -180,7 +187,7 @@ func Run(ctx context.Context, o Options) []Check {
 		if err := o.Suffix(); err != nil {
 			checks = append(checks, Check{
 				Name:   "local names",
-				Status: StatusFail,
+				Status: StatusWarn,
 				Detail: err.Error(),
 				Remedy: "`nsctl dns status` says which of the two it is; `nsctl dns install` prints the one step that points this machine at the resolver",
 			})

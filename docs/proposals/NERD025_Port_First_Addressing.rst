@@ -179,9 +179,25 @@ Design
     rows belong to ``doctor.Run``, the diagnostic. ``doctorOptions`` clears the
     field anyway, and now clears ``Suffix`` beside it, so the intent is stated
     where a reader will look rather than inferred from which function is called.
-    What the start reports instead is narrower and better: the names it actually
-    had to redirect, as a notice, naming both remedies and what is degraded
-    without them -- which after SPEC003 is the legacy Python artifact path.
+    What the start reports instead is narrower and better: a notice naming both
+    remedies and what is degraded without them -- which after SPEC003 is the
+    legacy Python artifact path.
+
+    Two corrections a live start forced, both of them this specification's own
+    words taken seriously:
+
+    **The notice is driven by what fails to resolve, not by what was
+    redirected.** Those became different sets when SPEC008 widened the dial rule:
+    a name answering on loopback is redirected too, for the *port*. Reporting the
+    redirected set told a machine that already had the ``/etc/hosts`` line that
+    the names did not resolve, and pointed it at the line it already had -- which
+    is exactly what the requirement above forbids.
+
+    **Both name rows are warnings, not failures.** "Reported, not required" has
+    to mean the diagnostic too. A platform whose host resolves neither the bare
+    names nor the suffix still starts, deploys and serves; failing ``nsctl
+    doctor`` over an optional one-time step made it exit non-zero on a working
+    platform, which is a false negative for anything scripting it.
 
 .. spec:: An Ingress hostname names its environment
     :id: HMD_CLI_NEURONSPHERE_NERD025_SPEC005

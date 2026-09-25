@@ -630,3 +630,74 @@ func TestTheChosenPortsReachTheURLsThisStartPrints(t *testing.T) {
 		t.Errorf("the deployment route = %q, want the moved port", got)
 	}
 }
+
+// The resolver runs this binary in a container, exactly as the identity provider
+// does -- so it needs the same locally-built image. Both the build and the
+// HMD_NSCTL_IMAGE overlay were gated on the identity provider alone, so on a
+// machine with authd off (the default) a start reached the engine, tried to pull
+// hmd-img-nsctl:latest from a registry that has never held it, and failed
+// outright. Making the resolver default-on turned that into a start-blocking
+// regression for every such machine (NERD026 SPEC001).
+func TestTheNsctlImageIsNeededByTheResolverToo(t *testing.T) {
+	t.Parallel()
+
+	// Neither switch set: the resolver is on by default, so the image is needed.
+	if !NsctlImageNeeded(testOptions("", nil)) {
+		t.Error("with the resolver on by default the nsctl image is needed")
+	}
+
+	// The resolver explicitly off and no identity provider: nothing needs it.
+	off := testOptions("", map[string]string{DNSEnabledEnv: "false"})
+	if NsctlImageNeeded(off) {
+		t.Error("with the resolver off and authd off, nothing runs the nsctl image")
+	}
+
+	// And the overlay has to name it under the same condition, or compose falls
+	// back to the file's plain hmd-img-nsctl:latest and pulls.
+	reg := &registry.Registry{}
+	env := ComposeEnv(testOptions("", nil), reg, "")
+	if got := env("HMD_NSCTL_IMAGE"); got == "" {
+		t.Error("ComposeEnv does not name the nsctl image when the resolver needs it")
+	}
+	envOff := ComposeEnv(off, reg, "")
+	if got := envOff("HMD_NSCTL_IMAGE"); got != "" {
+		t.Errorf("ComposeEnv names the nsctl image when nothing needs it: %q", got)
+	}
+}
+
+// The start reported the names it *redirected*, and since NERD025 SPEC008 that
+// includes names which resolve to loopback perfectly well -- they are redirected
+// for the port, because the host port is no longer necessarily the in-network
+// one. So a machine that already had the /etc/hosts line was told those names do
+// not resolve, and told to add the line it already had. NERD025's requirement
+// forbids exactly that: no failure on this path may be reported as a missing
+// entry in a file the user was never required to edit.
+func TestTheStartOnlyReportsNamesThatTrulyDoNotResolve(t *testing.T) {
+	t.Parallel()
+
+	loopbackAnswer := func(string) ([]net.IP, error) {
+		return []net.IP{net.IPv4(127, 0, 0, 1)}, nil
+	}
+	if got := hostNamesWarning(loopbackAnswer); got != "" {
+		t.Errorf("names that resolve to loopback need no warning, got:\n%s", got)
+	}
+
+	// A routable-only answer is deliberately still reported. internal/loopback
+	// leaves such a name alone -- inside a container it is a Docker alias to a
+	// sibling, and redirecting it would break authd -- but this notice is about
+	// the *host's* legacy artifact path, which would dial that address and not
+	// find the emulator there. The two rules differ on purpose.
+
+	// Nothing answers: this is the case worth reporting, because the legacy
+	// Python artifact path has no redirect of its own.
+	missing := func(string) ([]net.IP, error) { return nil, errors.New("no such host") }
+	got := hostNamesWarning(missing)
+	if got == "" {
+		t.Fatal("a name that does not resolve at all must still be reported")
+	}
+	for _, want := range []string{"dns install", "/etc/hosts", "hmd build"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the notice does not mention %q:\n%s", want, got)
+		}
+	}
+}
