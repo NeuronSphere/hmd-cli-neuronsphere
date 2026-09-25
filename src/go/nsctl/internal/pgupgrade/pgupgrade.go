@@ -3,6 +3,7 @@ package pgupgrade
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -222,6 +223,10 @@ func BuildPlan(ctx context.Context, d Docker, opts Options) (Plan, error) {
 	}
 
 	p := Plan{Image: opts.Image}
+	seen := map[string]bool{}
+	for _, m := range mismatches {
+		seen[m.Volume] = true
+	}
 	for _, m := range mismatches {
 		v := VolumePlan{
 			Volume:    m.Volume,
@@ -242,7 +247,77 @@ func BuildPlan(ctx context.Context, d Docker, opts Options) (Plan, error) {
 		v.Steps = steps(v, opts.KeepDump)
 		p.Volumes = append(p.Volumes, v)
 	}
+
+	unfinished, err := resumable(ctx, d, opts, seen)
+	if err != nil {
+		return Plan{}, err
+	}
+	p.Volumes = append(p.Volumes, unfinished...)
+	sort.Slice(p.Volumes, func(i, j int) bool { return p.Volumes[i].Volume < p.Volumes[j].Volume })
 	return p, nil
+}
+
+// resumable finds migrations that stopped partway and that the detector cannot
+// see.
+//
+// It cannot see them because a wiped data directory has no PG_VERSION to read,
+// so FindMismatches skips it -- which is exactly the state a crash between the
+// wipe and the restore leaves behind. Without this the one stage that has no
+// way back but the dump is also the one stage the command cannot be pointed at:
+// it would report nothing to migrate while the data sat in a dump volume beside
+// an empty directory.
+//
+// Found by enumerating the dump volumes rather than by guessing at the live
+// ones, because the dump's manifest is what knows which volume it came from and
+// which majors it is between.
+func resumable(ctx context.Context, d Docker, opts Options, seen map[string]bool) ([]VolumePlan, error) {
+	var out []VolumePlan
+	for _, dumpVolume := range d.VolumesMatching(ctx, dumpPrefix) {
+		major := majorOf(dumpVolume)
+		if major == "" {
+			continue
+		}
+		image := dumpImageFor(opts, major)
+		state, err := ReadState(ctx, d, dumpVolume, image)
+		if err != nil {
+			return nil, fmt.Errorf("reading the migration state in %s: %w", dumpVolume, err)
+		}
+		// A finished migration, or a dump volume with nothing to say. Either
+		// way there is nothing here to resume.
+		if state.Volume == "" || seen[state.Volume] || state.Stage.AtLeast(StageVerified) {
+			continue
+		}
+		if len(opts.Only) > 0 && !slices.Contains(opts.Only, state.Volume) {
+			continue
+		}
+		v := VolumePlan{
+			Volume: state.Volume, From: state.From, To: state.To,
+			Image: opts.Image, DumpImage: image,
+			Backup: BackupVolume(state.Volume, state.From),
+			Dump:   dumpVolume,
+			Helper: HelperContainer(state.Volume),
+			Resume: state.Stage,
+		}
+		v.ReuseBackup = volumeHasData(ctx, d, v.Backup, v.DumpImage)
+		v.Steps = steps(v, opts.KeepDump)
+		seen[state.Volume] = true
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// majorOf reads the old major out of an artifact volume's name, which is where
+// it is recorded before anything in the volume can be read.
+func majorOf(name string) string {
+	i := strings.LastIndex(name, "-pg")
+	if i < 0 {
+		return ""
+	}
+	major := name[i+len("-pg"):]
+	if major == "" || strings.ContainsAny(major, "-") {
+		return ""
+	}
+	return major
 }
 
 func dumpImageFor(opts Options, major string) string {

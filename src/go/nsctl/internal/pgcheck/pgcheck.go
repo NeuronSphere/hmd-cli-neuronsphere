@@ -41,9 +41,32 @@ const (
 	// name because those volumes carry no label tying them to an account --
 	// the same reason container.VolumesMatching exists.
 	VolumePrefix = "floci-rds-"
+	// MigrationArtifacts are the names a migration leaves behind. Both hold an
+	// old-major data directory by definition, so reporting one is a permanent
+	// refusal: the remedy it names has already been performed, and performing
+	// it again would migrate the backup.
+	//
+	// Excluded by name here as well as avoided by pgupgrade's naming, because
+	// container.VolumesMatching matches a substring rather than a prefix --
+	// hmd-pgbackup-floci-rds-db-x contains floci-rds- and is swept -- and
+	// because backups written by the Python CLI are named exactly that way.
 	// pgData is where the postgres images put their data directory.
 	pgData = "/var/lib/postgresql/data"
 )
+
+// MigrationArtifacts are the volume-name fragments that mark a migration's own
+// backup or dump. See VolumePrefix.
+var MigrationArtifacts = []string{"hmd-pgbackup-", "hmd-pgdump-"}
+
+// isMigrationArtifact reports whether a volume is one a migration made.
+func isMigrationArtifact(volume string) bool {
+	for _, marker := range MigrationArtifacts {
+		if strings.Contains(volume, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // Docker is the surface this needs, narrowed so the check is testable without a
 // daemon.
@@ -84,7 +107,7 @@ func FindMismatches(ctx context.Context, d Docker, image, flociDataDir string) [
 	state, known := flociState(flociDataDir)
 	var out []Mismatch
 	for _, volume := range d.VolumesMatching(ctx, VolumePrefix) {
-		if !isLive(volume, state, known) {
+		if isMigrationArtifact(volume) || !isLive(volume, state, known) {
 			continue
 		}
 		// Read PG_VERSION with the image that wrote it, not the incoming one:

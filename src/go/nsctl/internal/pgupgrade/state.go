@@ -32,6 +32,23 @@ type State struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// volumeExists reports whether a volume is already there.
+//
+// Asked before anything mounts it, because `docker run -v name:/path` creates a
+// named volume that does not exist. Reading a volume to find out whether it
+// holds anything would therefore bring it into being -- which made --dry-run,
+// whose whole promise is that it changes nothing, leave a trail of empty
+// volumes behind it. A live rehearsal found four.
+func volumeExists(ctx context.Context, d Docker, volume string) bool {
+	if volume == "" {
+		return false
+	}
+	check, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, _, err := d.Run(check, "volume", "inspect", volume)
+	return err == nil
+}
+
 // ReadState returns the manifest in a dump volume, or a zero State when there
 // is no volume, no manifest, or one this version did not write.
 //
@@ -40,7 +57,7 @@ type State struct {
 // path is safe from any starting point; guessing at a half-read manifest is
 // not.
 func ReadState(ctx context.Context, d Docker, dumpVolume, image string) (State, error) {
-	if dumpVolume == "" || image == "" {
+	if dumpVolume == "" || image == "" || !volumeExists(ctx, d, dumpVolume) {
 		return State{}, nil
 	}
 	out, err := runIn(ctx, d, dumpVolume, image, time.Minute,
@@ -91,7 +108,7 @@ func WriteState(ctx context.Context, d Docker, dumpVolume, image string, s State
 // leaves behind, which is the difference between preserving the only copy of
 // the data and copying an empty data directory over it.
 func volumeHasData(ctx context.Context, d Docker, volume, image string) bool {
-	if volume == "" || image == "" {
+	if volume == "" || image == "" || !volumeExists(ctx, d, volume) {
 		return false
 	}
 	out, err := runIn(ctx, d, volume, image, time.Minute,

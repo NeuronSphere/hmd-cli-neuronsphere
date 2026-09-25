@@ -22,8 +22,13 @@
 //     directory. It is an old-major directory by definition, so the new image
 //     can never read it: it is the rollback, never a resume source.
 //
-// Both live outside Floci's floci-rds- namespace so pgcheck never rescans them
-// and reports a successful migration as a fresh mismatch.
+// Neither name may contain Floci's floci-rds- anywhere, not merely fail to
+// start with it: container.VolumesMatching matches a *substring*, so
+// hmd-pgbackup-floci-rds-db-x reaches the detector exactly as floci-rds-db-x
+// does. Both artifacts hold an old-major data directory by definition, so one
+// the detector can see turns a successful migration into a permanent refusal
+// of `nsctl env start`, pointing at a migration that has already happened.
+// The Python names its backup that way and has this bug latent.
 //
 // This package must not import internal/runner. The helper containers are run
 // directly through the docker CLI, one at a time, with explicit timeouts; the
@@ -34,6 +39,9 @@ package pgupgrade
 import (
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/pgcheck"
 )
 
 const (
@@ -63,14 +71,25 @@ const (
 	DumpImageEnv = "HMD_LOCAL_PG_DUMP_IMAGE"
 )
 
+// artifactToken identifies a volume in an artifact's name without carrying
+// Floci's prefix into it.
+//
+// Trimmed and then stripped, because the detector matches a substring: a name
+// that merely does not *begin* with floci-rds- is still swept if it contains it
+// anywhere. Anything left is unique to the volume, which is all the name needs.
+func artifactToken(volume string) string {
+	token := strings.TrimPrefix(volume, pgcheck.VolumePrefix)
+	return strings.ReplaceAll(token, pgcheck.VolumePrefix, "")
+}
+
 // BackupVolume names the byte copy of volume's old data directory.
 func BackupVolume(volume, major string) string {
-	return fmt.Sprintf("%s%s-pg%s", backupPrefix, volume, major)
+	return fmt.Sprintf("%s%s-pg%s", backupPrefix, artifactToken(volume), major)
 }
 
 // DumpVolume names the volume holding the SQL dump and the stage manifest.
 func DumpVolume(volume, major string) string {
-	return fmt.Sprintf("%s%s-pg%s", dumpPrefix, volume, major)
+	return fmt.Sprintf("%s%s-pg%s", dumpPrefix, artifactToken(volume), major)
 }
 
 // HelperContainer names the throwaway postgres this runs to dump or restore.

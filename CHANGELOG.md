@@ -2,6 +2,13 @@
 
 ## 2026-09-25
 
+- fix: three defects a live rehearsal of `nsctl db upgrade` found. The backup and
+  dump volumes no longer carry `floci-rds-` anywhere in their names, and the
+  detector skips a migration's own artifacts, so a successful migration stops
+  being reported as the next one to perform. A migration interrupted after the
+  wipe is picked up from its dump volume, which is the only way to reach the one
+  stage that has no way back. And planning no longer mounts volumes that do not
+  exist, so `--dry-run` really does change nothing.
 - test: `make test-pgupgrade` migrates a real PostgreSQL 12 cluster to 14 and
   checks that a table, its rows and a role's stored password hash all come back.
   Outside `check` because it pulls two images and takes minutes, and the only

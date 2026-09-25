@@ -17,10 +17,13 @@ type fakeDocker struct {
 	pgVersion  map[string]string
 }
 
+// Contains, not HasPrefix: container.VolumesMatching is documented as matching
+// a substring, and a fake that was stricter than the real thing hid the fact
+// that hmd-pgbackup-floci-rds-db-x is swept exactly as floci-rds-db-x is.
 func (f *fakeDocker) VolumesMatching(_ context.Context, prefix string) []string {
 	var out []string
 	for _, v := range f.volumes {
-		if strings.HasPrefix(v, prefix) {
+		if strings.Contains(v, prefix) {
 			out = append(out, v)
 		}
 	}
@@ -191,5 +194,35 @@ func TestExplainIsEmptyWithoutMismatches(t *testing.T) {
 
 	if got := Explain(nil); got != "" {
 		t.Errorf("Explain(nil) = %q, want empty", got)
+	}
+}
+
+// A migration's own backup holds an old-major data directory by definition, so
+// reporting it is a refusal with no way out: the remedy it names has already
+// been performed, and performing it again would migrate the backup.
+//
+// Found by a live rehearsal, which migrated a volume and was then told its
+// backup was the next thing to migrate.
+func TestMigrationArtifactsAreNotReportedAsMismatches(t *testing.T) {
+	live := VolumePrefix + "db-aaaaaaaa-1111"
+	backup := "hmd-pgbackup-db-aaaaaaaa-1111-pg12"
+	dump := "hmd-pgdump-db-aaaaaaaa-1111-pg12"
+	// And the shape the Python writes, which carries the prefix outright.
+	legacy := "hmd-pgbackup-" + live + "-pg12"
+
+	d := &fakeDocker{
+		volumes:  []string{live, backup, dump, legacy},
+		imageEnv: map[string]map[string]string{"new:14": {"PG_MAJOR": "14"}},
+		pgVersion: map[string]string{
+			live: "12", backup: "12", dump: "12", legacy: "12",
+		},
+	}
+
+	got := FindMismatches(context.Background(), d, "new:14", liveState(t, live, backup, dump, legacy))
+	if len(got) != 1 {
+		t.Fatalf("want only the live volume reported, got %+v", got)
+	}
+	if got[0].Volume != live {
+		t.Errorf("reported %q, want %q", got[0].Volume, live)
 	}
 }

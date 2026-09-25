@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
@@ -51,7 +52,18 @@ func (f *fakeDocker) put(volume, path, body string) {
 	f.files[volume][path] = body
 }
 
-func (f *fakeDocker) VolumesMatching(context.Context, string) []string { return nil }
+// Contains, not HasPrefix: container.VolumesMatching matches a substring, and a
+// fake that is stricter than the real thing hides what the real one sweeps.
+func (f *fakeDocker) VolumesMatching(_ context.Context, prefix string) []string {
+	var out []string
+	for volume := range f.files {
+		if strings.Contains(volume, prefix) {
+			out = append(out, volume)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 func (f *fakeDocker) ImageEnv(context.Context, string) map[string]string {
 	return map[string]string{"PG_MAJOR": "14"}
 }
@@ -104,6 +116,12 @@ func (f *fakeDocker) Run(_ context.Context, args ...string) ([]byte, []byte, err
 	case "volume":
 		if len(args) > 2 && args[1] == "rm" {
 			delete(f.files, args[2])
+			return nil, nil, nil
+		}
+		if len(args) > 2 && args[1] == "inspect" {
+			if _, ok := f.files[args[2]]; !ok {
+				return nil, []byte("no such volume"), fmt.Errorf("exit status 1")
+			}
 		}
 		return nil, nil, nil
 	}

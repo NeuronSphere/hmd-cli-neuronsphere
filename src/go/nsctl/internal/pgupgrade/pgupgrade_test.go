@@ -1,6 +1,8 @@
 package pgupgrade
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -130,19 +132,28 @@ func TestStageOrdering(t *testing.T) {
 
 func TestNames(t *testing.T) {
 	v := "floci-rds-db-hmd"
-	if got, want := BackupVolume(v, "12"), "hmd-pgbackup-floci-rds-db-hmd-pg12"; got != want {
+	if got, want := BackupVolume(v, "12"), "hmd-pgbackup-db-hmd-pg12"; got != want {
 		t.Errorf("BackupVolume = %q, want %q", got, want)
 	}
-	if got, want := DumpVolume(v, "12"), "hmd-pgdump-floci-rds-db-hmd-pg12"; got != want {
+	if got, want := DumpVolume(v, "12"), "hmd-pgdump-db-hmd-pg12"; got != want {
 		t.Errorf("DumpVolume = %q, want %q", got, want)
 	}
-	// Neither artifact may fall inside Floci's namespace: pgcheck scans that
-	// prefix, and both hold an old-major directory by definition, so a
-	// successful migration would report itself as a fresh mismatch forever.
+	// Neither artifact may CONTAIN Floci's prefix, not merely fail to start
+	// with it: container.VolumesMatching matches a substring, so a name that
+	// carries it anywhere is swept by the detector. Both hold an old-major
+	// data directory by definition, so one the detector can see turns a
+	// successful migration into a permanent refusal of `nsctl env start`.
+	// A live rehearsal found exactly that, with the backup reported as the
+	// next thing to migrate.
 	for _, name := range []string{BackupVolume(v, "12"), DumpVolume(v, "12")} {
-		if strings.HasPrefix(name, "floci-rds-") {
-			t.Errorf("%q is inside the prefix pgcheck rescans", name)
+		if strings.Contains(name, pgcheck.VolumePrefix) {
+			t.Errorf("%q carries %q, so the detector will sweep it", name, pgcheck.VolumePrefix)
 		}
+	}
+	// And the major must still be readable back off the name, because that is
+	// what picks the image that can read the dump before the dump is read.
+	if got := majorOf(DumpVolume(v, "12")); got != "12" {
+		t.Errorf("majorOf(%q) = %q, want 12", DumpVolume(v, "12"), got)
 	}
 	// The whole volume name, so two instances that diverge early cannot share
 	// a helper and remove each other's out from under them.
@@ -219,5 +230,92 @@ func TestRestrictRefusesAVolumeThatIsNotAMismatch(t *testing.T) {
 
 	if _, err := restrict(nil, []string{"floci-rds-a"}); err == nil {
 		t.Error("--volume against an empty mismatch list must be refused")
+	}
+}
+
+// A crash between the wipe and the restore leaves an empty data directory,
+// which has no PG_VERSION, which means the detector cannot see it. Without
+// picking the migration back up from its dump volume, the one stage that has
+// no way back would also be the one stage the command cannot be pointed at:
+// it would report nothing to migrate while the data sat in a dump beside an
+// empty directory.
+//
+// A live rehearsal found exactly this: after emptying the volume by hand,
+// `nsctl db upgrade --dry-run` offered to migrate the backup instead.
+func TestBuildPlanPicksUpAMigrationTheDetectorCannotSee(t *testing.T) {
+	d := newFake()
+	volume := "floci-rds-db-aaaaaaaa-1111"
+	dump := DumpVolume(volume, "12")
+	d.put(dump, DumpFile, d.dumpBody)
+	body, err := json.Marshal(State{
+		Stage: StageWiped, Volume: volume, From: "12", To: "14",
+		Databases: []string{"hmd"}, Roles: []string{"hmd"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.put(dump, StateFile, string(body))
+
+	plan, err := BuildPlan(context.Background(), d, Options{Image: "new:14"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Volumes) != 1 {
+		t.Fatalf("want the unfinished migration found, got %+v", plan.Volumes)
+	}
+	v := plan.Volumes[0]
+	if v.Volume != volume {
+		t.Errorf("found %q, want %q", v.Volume, volume)
+	}
+	if v.Resume != StageWiped {
+		t.Errorf("resume stage = %q, want %q", v.Resume, StageWiped)
+	}
+	// And it resumes forward rather than starting over on an empty directory.
+	got := kinds(v.Steps)
+	if contains(got, StepDump) || contains(got, StepWipe) {
+		t.Errorf("an empty data directory must not be dumped or wiped again: %v", got)
+	}
+	if !contains(got, StepRestore) {
+		t.Errorf("the dump must still be restored: %v", got)
+	}
+}
+
+// A finished migration's dump is not an invitation to run it again.
+func TestBuildPlanIgnoresAVerifiedDump(t *testing.T) {
+	d := newFake()
+	dump := DumpVolume("floci-rds-db-aaaaaaaa-1111", "12")
+	body, _ := json.Marshal(State{Stage: StageVerified, Volume: "floci-rds-db-aaaaaaaa-1111", From: "12", To: "14"})
+	d.put(dump, StateFile, string(body))
+
+	plan, err := BuildPlan(context.Background(), d, Options{Image: "new:14"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Empty() {
+		t.Errorf("a verified migration must not be offered again: %+v", plan.Volumes)
+	}
+}
+
+// Planning reads. It must not bring into being the very volumes it is asking
+// about: `docker run -v name:/path` creates a named volume that is not there,
+// so a --dry-run that mounted its way to an answer would leave empty volumes
+// behind while printing "Nothing was changed".
+func TestBuildPlanMountsNothingThatDoesNotExist(t *testing.T) {
+	d := newFake()
+	volume := "floci-rds-db-aaaaaaaa-1111"
+	d.put(volume, "PG_VERSION", "12")
+
+	if _, err := BuildPlan(context.Background(), d, Options{Image: "new:14"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range d.ran() {
+		if !strings.HasPrefix(call, "run ") {
+			continue
+		}
+		for _, absent := range []string{DumpVolume(volume, "12"), BackupVolume(volume, "12")} {
+			if strings.Contains(call, absent+":") {
+				t.Errorf("planning mounted %q, which does not exist yet: %s", absent, call)
+			}
+		}
 	}
 }
