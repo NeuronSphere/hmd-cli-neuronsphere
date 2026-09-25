@@ -536,8 +536,7 @@ func TestThePortRemedyNamesRealOverrides(t *testing.T) {
 		t.Fatalf("reading the bundled compose file: %v", err)
 	}
 	for _, name := range []string{
-		registry.EnvPortRangeEnv, registry.TrinoPortEnv, registry.GUIPortEnv,
-		registry.HTTPPortEnv, registry.FlociPortEnv, DNSPortEnv,
+		registry.GUIPortEnv, registry.HTTPPortEnv, registry.FlociPortEnv, DNSPortEnv,
 	} {
 		if !strings.Contains(portRemedy, name) {
 			t.Errorf("the remedy does not name %s:\n%s", name, portRemedy)
@@ -698,6 +697,40 @@ func TestTheStartOnlyReportsNamesThatTrulyDoNotResolve(t *testing.T) {
 	for _, want := range []string{"dns install", "/etc/hosts", "hmd build"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the notice does not mention %q:\n%s", want, got)
+		}
+	}
+}
+
+// An environment's router publishes host ports, and those ports are ours. Read
+// only the control plane's own project, the next start probes a running
+// environment's Trino and k3s listeners, finds them busy, and moves the
+// platform's ports out from under the environment that is using them
+// (NERD027 SPEC004).
+func TestOurProjectsIncludeEveryEnvironmentsRouter(t *testing.T) {
+	t.Parallel()
+
+	reg := &registry.Registry{
+		ControlPlane: registry.ControlPlane{ComposeProject: "cp"},
+		Environments: map[string]registry.Environment{
+			"local": {Slug: "local", ComposeProject: "ns-env-local"},
+			"dev2":  {Slug: "dev2", ComposeProject: "ns-env-dev2"},
+			// An environment registered before routers existed has no project;
+			// it must not contribute an empty filter that matches everything.
+			"old": {Slug: "old"},
+		},
+	}
+
+	got := ourProjects(reg)
+	want := map[string]bool{"cp": true, "ns-env-local": true, "ns-env-dev2": true}
+	if len(got) != len(want) {
+		t.Fatalf("ourProjects = %v, want %v", got, want)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected project %q in %v", p, got)
+		}
+		if p == "" {
+			t.Error("an empty project name would match every container")
 		}
 	}
 }

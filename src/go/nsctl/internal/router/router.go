@@ -85,9 +85,16 @@ var serviceAliases = map[string][]string{
 type Lookup = func(string) string
 
 // Router writes fragments under one HMD_HOME.
+//
+// Slug empty means the control plane's own proxy -- hmd_proxy, which serves
+// every HTTP route and vhost. Set, it means that one environment's router, which
+// serves L4 stream listeners and nothing else (NERD027 SPEC002).
 type Router struct {
 	Home   string
 	Lookup Lookup
+	// Slug names the environment this router belongs to, or "" for the control
+	// plane's.
+	Slug string
 }
 
 // New builds a Router for an HMD_HOME.
@@ -98,8 +105,32 @@ func New(home string, lookup Lookup) *Router {
 	return &Router{Home: home, Lookup: lookup}
 }
 
-// CacheDir is $HMD_HOME/.cache/nginx, the directory bind-mounted into hmd_proxy.
-func (r *Router) CacheDir() string { return filepath.Join(r.Home, ".cache", "nginx") }
+// NewEnv builds the Router for one environment's own container.
+//
+// Its own config root and its own container, so that adding or removing a
+// published port recreates it alone. An engine cannot add a published port to a
+// running container, and hmd_proxy is what every service route passes through --
+// including the route an in-flight deploy is using to reach ms-deployment, which
+// is precisely when a new port appears, because deploying hmd-inf-trino is what
+// makes a coordinator exist. Recreating this one interrupts a kubectl session or
+// a Trino client against this environment, and nothing else.
+func NewEnv(home, slug string, lookup Lookup) *Router {
+	r := New(home, lookup)
+	r.Slug = slug
+	return r
+}
+
+// EnvRouterContainer is the container name for an environment's router.
+func EnvRouterContainer(slug string) string { return "hmd_router-" + slug }
+
+// CacheDir is the directory bind-mounted into this router's container:
+// $HMD_HOME/.cache/nginx for the control plane's, and a sibling per environment.
+func (r *Router) CacheDir() string {
+	if r.Slug != "" {
+		return filepath.Join(r.Home, ".cache", "nginx-"+r.Slug)
+	}
+	return filepath.Join(r.Home, ".cache", "nginx")
+}
 
 // BaseConfigPath is the static shell nginx loads.
 func (r *Router) BaseConfigPath() string { return filepath.Join(r.CacheDir(), "neuronsphere.conf") }
@@ -126,6 +157,9 @@ func (r *Router) sigV4Region() string {
 
 // ProxyContainerName is the nginx container to exec into.
 func (r *Router) ProxyContainerName() string {
+	if r.Slug != "" {
+		return EnvRouterContainer(r.Slug)
+	}
 	if v := r.Lookup("HMD_LOCAL_PROXY_CONTAINER"); v != "" {
 		return v
 	}
@@ -151,6 +185,9 @@ func (r *Router) EnsureDirs() error {
 // that server is what preserves the existing behaviour -- a request reaches a
 // vhost only when its Host actually matches.
 func (r *Router) BaseConfig() string {
+	if r.Slug != "" {
+		return r.envBaseConfig()
+	}
 	return fmt.Sprintf(`events {
     worker_connections 1024;
 }
@@ -174,6 +211,24 @@ stream {
     include %s/stream.d/*.conf;
 }
 `, NSDir, NSDir, r.resolver(), NSDir)
+}
+
+// envBaseConfig is an environment router's shell: L4 only.
+//
+// No http block, because an environment's HTTP routes and vhosts stay on
+// hmd_proxy -- they are served through the one HTTP port, and leaving them there
+// is what keeps recreating this container from touching a service route. A glob
+// matching no files is legal in nginx, so this is valid with no listeners at
+// all, which is what it starts life with.
+func (r *Router) envBaseConfig() string {
+	return fmt.Sprintf(`events {
+    worker_connections 1024;
+}
+stream {
+    %s
+    include %s/stream.d/*.conf;
+}
+`, r.resolver(), NSDir)
 }
 
 // WriteBaseConfig writes the shell. It is rewritten on every start so an

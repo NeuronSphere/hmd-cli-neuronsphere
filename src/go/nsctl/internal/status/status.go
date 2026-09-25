@@ -364,6 +364,12 @@ func (r *Reporter) EnvironmentStatus(ctx context.Context, e *registry.Environmen
 	if hasCluster {
 		k3s := container.K3sContainerName(e.K3sCluster, e.AccountID, existing)
 		out.Containers = append(out.Containers, r.containerStatus(ctx, "k3s", k3s))
+		// The environment's own router, which is what publishes its Trino and
+		// k3s ports. Reported for the reason every other row is: a port that
+		// does not answer has no obvious cause otherwise (NERD027 SPEC002).
+		if name := e.Router(); name != "" {
+			out.Containers = append(out.Containers, r.containerStatus(ctx, "router", name))
+		}
 	}
 
 	return out

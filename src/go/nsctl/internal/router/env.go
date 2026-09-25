@@ -268,12 +268,37 @@ func (r *Router) RoutesService(slug, service string) bool {
 	return strings.Contains(string(data), begin)
 }
 
-// RemoveEnvRoutes deletes every fragment an environment owns.
+// RemoveEnvStreams deletes just the stream fragment from this router's root.
+//
+// For the upgrade: an environment started before NERD027 SPEC002 left its stream
+// listeners in the control plane's root, naming ports hmd_proxy no longer
+// publishes. They move to the environment's own router, and the old copy goes.
+func (r *Router) RemoveEnvStreams(slug string) error {
+	if err := os.Remove(filepath.Join(r.StreamDir(), EnvFragmentName(slug))); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing the stale stream fragment for %q: %w", slug, err)
+	}
+	return nil
+}
+
+// RemoveEnvRoutes deletes every fragment an environment owns, in both roots.
+//
+// Two roots since NERD027 SPEC002: the HTTP routes and vhosts stay on hmd_proxy,
+// while the stream listeners live under the environment's own config root with
+// the container that publishes them. Leaving the second behind would mean a
+// deleted environment's config outliving it, which the next environment to take
+// that slug would then inherit.
 func (r *Router) RemoveEnvRoutes(slug string) error {
 	name := EnvFragmentName(slug)
 	var failed []string
 	for _, dir := range []string{r.HTTPDir(), r.StreamDir(), r.VhostDir()} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			failed = append(failed, err.Error())
+		}
+	}
+	// The environment's own root, whole: it holds nothing else.
+	if r.Slug == "" {
+		envRoot := NewEnv(r.Home, slug, r.Lookup).CacheDir()
+		if err := os.RemoveAll(envRoot); err != nil && !os.IsNotExist(err) {
 			failed = append(failed, err.Error())
 		}
 	}

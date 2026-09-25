@@ -647,11 +647,20 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 
 	// Before the kubeconfig: it points its server at this stream port, and
 	// every later kubectl goes through it.
+	//
+	// The listener and the container that publishes it are this environment's
+	// own (NERD027 SPEC002). Trino is not known yet -- a coordinator is found
+	// further down, or is not there at all -- so the router starts with the k3s
+	// port alone and is recreated if one appears.
+	envRouter := router.NewEnv(opts.Home, env.Slug, opts.Lookup)
 	k3sUpstream := k3s.NodePortAddress(clusterIP, router.K3sAPIPort)
-	if err := r.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, "", k3sUpstream)); err != nil {
+	if err := envRouter.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, "", k3sUpstream)); err != nil {
 		return err
 	}
-	if err := r.Reload(ctx, d.Exec); err != nil {
+	if err := syncEnvRouter(ctx, opts, d, env, network, true, false); err != nil {
+		return err
+	}
+	if err := envRouter.Reload(ctx, d.Exec); err != nil {
 		opts.warn("%v", err)
 	}
 	opts.step("  k3s API served on host :%d", env.K3sPort())
@@ -708,7 +717,16 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 			opts.step("  Trino exposed on host :%d", env.TrinoPort())
 		}
 	}
-	if err := r.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, trinoUpstream, k3sUpstream)); err != nil {
+	if err := envRouter.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, trinoUpstream, k3sUpstream)); err != nil {
+		opts.warn("%v", err)
+	}
+	// Recreated only if the set changed, which it did exactly when a coordinator
+	// was found. This interrupts a kubectl session against this environment and
+	// touches no other environment and no service route.
+	if err := syncEnvRouter(ctx, opts, d, env, network, true, trinoUpstream != ""); err != nil {
+		opts.warn("%v", err)
+	}
+	if err := envRouter.Reload(ctx, d.Exec); err != nil {
 		opts.warn("%v", err)
 	}
 
@@ -827,6 +845,10 @@ func Stop(ctx context.Context, opts *Options, name string) error {
 		opts.step("  stopped %s (%s)", name, role)
 	}
 
+	// The environment's own router first: it publishes host ports, and leaving
+	// it bound while everything behind it stops means a port that answers and
+	// then refuses (NERD027 SPEC002).
+	stop("router", env.Router())
 	stop("k3s", floci.K3sContainerName(env.K3sCluster, env.AccountID, existing))
 	if name, _ := d.FlociContainer(ctx, "rds", env.AccountID, floci.EnvDBIdentifier(names)); name != "" {
 		stop("database", name)

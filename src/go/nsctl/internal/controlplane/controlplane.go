@@ -108,15 +108,14 @@ const DefaultDNSPort = dnsd.DefaultPort
 // so a conflict here means the platform could not place a port it needs, not
 // that the user must free one.
 const portRemedy = "  Move the platform's ports, or free the ones above:\n" +
-	"    " + registry.EnvPortBaseEnv + "     the 19000 band (per-environment ports)\n" +
-	"    " + registry.EnvPortRangeEnv + "    the published range, if it must differ from the base\n" +
-	"    " + registry.TrinoPortEnv + "   Trino's host port (18080)\n" +
-	"    " + registry.GUIPortEnv + "     the Deployment GUI (19003)\n" +
-	"    " + DNSPortEnv + "          the wildcard resolver (19153)\n" +
 	"    " + registry.HTTPPortEnv + "         the HTTP routes (80)\n" +
 	"    " + registry.FlociPortEnv + "        the Floci stream (4566)\n" +
+	"    " + registry.GUIPortEnv + "     the Deployment GUI (19003)\n" +
+	"    " + DNSPortEnv + "          the wildcard resolver (19153)\n" +
+	"    " + registry.EnvPortBaseEnv + "     where each environment's own ports are derived from\n" +
 	"  nsctl already probes these and moves off a port something else holds; set one\n" +
-	"  only to pin it somewhere of your choosing."
+	"  only to pin it somewhere of your choosing. An environment's Trino and k3s\n" +
+	"  ports are published by its own router, not here."
 
 // DNSEnabledEnv turns the wildcard resolver off.
 //
@@ -141,6 +140,40 @@ const DefaultGUIPort = 19003
 
 // MSDeploymentURL is the control-plane route to hmd-ms-deployment.
 func MSDeploymentURL() string { return hosturl.Route("hmd_ms_deployment") }
+
+// ourProjects is every compose project whose published ports belong to this
+// local NeuronSphere: the control plane's, and each environment's.
+//
+// An environment's router publishes that environment's Trino and k3s ports
+// (NERD027 SPEC002), under the project label the registry already records. Left
+// out, the next start probes a running environment's own listeners, finds them
+// busy, and moves the platform's ports out from under the environment using them
+// -- the same defect OurPorts' second return value was added to prevent, one
+// scope wider (NERD027 SPEC004).
+//
+// An environment registered before routers existed has no project name, and an
+// empty label filter matches every container on the machine, so those are
+// skipped rather than passed through.
+func ourProjects(reg *registry.Registry) []string {
+	projects := []string{reg.ControlPlane.ComposeProject}
+	for _, slug := range sortedEnvSlugs(reg) {
+		if p := reg.Environments[slug].ComposeProject; p != "" {
+			projects = append(projects, p)
+		}
+	}
+	return projects
+}
+
+// sortedEnvSlugs keeps the project order stable, so a probe failure names the
+// same project twice running.
+func sortedEnvSlugs(reg *registry.Registry) []string {
+	slugs := make([]string, 0, len(reg.Environments))
+	for slug := range reg.Environments {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	return slugs
+}
 
 // applyChosenPorts re-resolves this process's host-facing facts after a start has
 // settled which ports this home publishes.
@@ -396,7 +429,7 @@ func Start(ctx context.Context, opts *Options) error {
 	// ours is read first for the same reason CheckInUse needs it: the
 	// platform's own published ports look foreign to a probe, and without this
 	// a restart would walk the whole platform up the port space every time.
-	ourPorts, portsKnown := runner.OurPorts(ctx, reg.ControlPlane.ComposeProject)
+	ourPorts, portsKnown := runner.OurPorts(ctx, ourProjects(reg)...)
 	if !portsKnown {
 		ourPorts = nil
 	}

@@ -91,30 +91,37 @@ func TestCheckReservedIgnoresTheProxyItself(t *testing.T) {
 }
 
 // port_validator.parse_host_port returns None for a range, so the Python never
-// probes the 19000-19079 band at all. Expanding it is the point.
+// probes a banded port at all. Expanding it is the point.
+//
+// Exercised against a project declaring a range rather than against the bundled
+// file, which no longer publishes one: hmd_proxy publishes four single ports
+// since NERD027 SPEC001. The capability still matters -- a declared range is
+// legal compose, and a range that skipped the in-use probe would walk into the
+// engine's own bind failure.
 func TestHostPortsExpandsRanges(t *testing.T) {
 	t.Parallel()
 
-	p := parseControlPlane(t, controlPlaneEnv())
-	ports := HostPorts(p, map[string]bool{"deployment-gui": true})
+	p, err := Parse([]byte(`
+services:
+  proxy:
+    image: nginx
+    ports:
+      - "80:80"
+      - "19000-19003:19000-19003"
+      - "80:80"
+`), "test", func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	ports := HostPorts(p, nil)
 
-	if len(ports) != 84 {
-		t.Errorf("got %d host ports, want 84 (80, 4566, 18080, the 80-wide band, and the resolver)", len(ports))
+	want := []int{80, 19000, 19001, 19002, 19003}
+	if len(ports) != len(want) {
+		t.Fatalf("got %v, want %v", ports, want)
 	}
-	want := map[int]bool{80: true, 4566: true, 18080: true, 19000: true, 19003: true, 19079: true}
-	have := map[int]bool{}
-	for _, p := range ports {
-		have[p] = true
-	}
-	for port := range want {
-		if !have[port] {
-			t.Errorf("port %d is missing from the expanded set", port)
-		}
-	}
-	// Sorted and deduplicated.
-	for i := 1; i < len(ports); i++ {
-		if ports[i] <= ports[i-1] {
-			t.Fatalf("ports are not sorted and unique around index %d: %v", i, ports[i-1:i+1])
+	for i := range want {
+		if ports[i] != want[i] {
+			t.Fatalf("got %v, want %v -- sorted, expanded and deduplicated", ports, want)
 		}
 	}
 }

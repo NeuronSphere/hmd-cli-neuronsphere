@@ -327,3 +327,68 @@ func TestRoutesServiceReadsTheFragment(t *testing.T) {
 		t.Error("a route rewritten away must not still be reported")
 	}
 }
+
+// An environment's stream listeners move to a router of its own, because a port
+// appearing or disappearing has to recreate *that* container and not hmd_proxy:
+// an engine cannot add a published port to a running container, and recreating
+// the proxy would cut the deploy that asked for the port (NERD027 SPEC002).
+func TestAnEnvironmentRouterHasItsOwnRootAndContainer(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	cp := New(home, fakeEnv(nil))
+	env := NewEnv(home, "dev2", fakeEnv(nil))
+
+	if env.CacheDir() == cp.CacheDir() {
+		t.Errorf("the environment router shares the control plane's config root: %s", env.CacheDir())
+	}
+	if got, want := env.ProxyContainerName(), "hmd_router-dev2"; got != want {
+		t.Errorf("container = %q, want %q", got, want)
+	}
+	if cp.ProxyContainerName() != ProxyContainer {
+		t.Errorf("the control plane's own container name changed: %q", cp.ProxyContainerName())
+	}
+}
+
+// It serves L4 only. An http block would mean a second thing listening on 80,
+// and the environment's HTTP routes and vhosts stay on hmd_proxy, which is what
+// keeps a recreate from touching any service route.
+func TestAnEnvironmentRouterConfigIsStreamOnly(t *testing.T) {
+	t.Parallel()
+
+	env := NewEnv(t.TempDir(), "dev2", fakeEnv(nil))
+	cfg := env.BaseConfig()
+
+	if !strings.Contains(cfg, "stream {") {
+		t.Errorf("no stream block:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "http {") || strings.Contains(cfg, "listen 80") {
+		t.Errorf("an environment router must not serve HTTP:\n%s", cfg)
+	}
+	// A glob matching nothing is legal, so the config is valid with no
+	// listeners at all -- which is what it starts with.
+	if !strings.Contains(cfg, "stream.d/*.conf") {
+		t.Errorf("no fragment include:\n%s", cfg)
+	}
+}
+
+// The stream fragment and the reader that answers `env status` have to move
+// together, or status reports every environment as routing nothing.
+func TestAnEnvironmentRouterOwnsItsFragment(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	env := NewEnv(home, "dev2", fakeEnv(nil))
+	e := Env{Slug: "dev2", TrinoPort: 19005, K3sPort: 19065}
+
+	if err := env.WriteEnvStreams(e, EnvStreamEntries(e, "", "1.2.3.4:6443")); err != nil {
+		t.Fatal(err)
+	}
+	if !env.StreamsPort("dev2", 19065) {
+		t.Error("the environment's own router does not see its k3s listener")
+	}
+	// The control plane's root knows nothing about it.
+	if New(home, fakeEnv(nil)).StreamsPort("dev2", 19065) {
+		t.Error("the control plane's root still carries the environment's stream")
+	}
+}

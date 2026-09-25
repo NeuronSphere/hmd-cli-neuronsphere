@@ -281,8 +281,12 @@ func TestControlPlaneStatusSplitsRunningFromStoppedEnvironments(t *testing.T) {
 
 	const upK3s = "floci-eks-000000000001.ns-up-57aa833c"
 	d := &fakeDocker{
-		names:    map[string]bool{upK3s: true},
-		running:  map[string]bool{"floci": true, "hmd_proxy": true, upK3s: true, "db-up": true, "graph-up": true},
+		names: map[string]bool{upK3s: true},
+		// The environment's router counts too: it is what publishes that
+		// environment's k3s and Trino ports, so an environment whose router is
+		// down is not reachable and is not running (NERD027 SPEC002).
+		running: map[string]bool{"floci": true, "hmd_proxy": true, upK3s: true,
+			"db-up": true, "graph-up": true, "hmd_router-up": true},
 		networks: map[string]bool{"neuronsphere_default-57aa833c": true},
 		resources: map[string]string{
 			"rds/000000000001/environment-db-hmd-postgres-rds-up-up-reg1-none":     "db-up",
@@ -298,7 +302,7 @@ func TestControlPlaneStatusSplitsRunningFromStoppedEnvironments(t *testing.T) {
 		DefaultEnv: "up",
 		Environments: map[string]registry.Environment{
 			"up": {Slug: "up", DeploymentID: "up", AccountID: "000000000001",
-				K3sCluster: "ns-up-57aa833c", PortBase: 19000},
+				K3sCluster: "ns-up-57aa833c", PortBase: 19000, RouterContainer: "hmd_router-up"},
 			"down": {Slug: "down", DeploymentID: "down", AccountID: "000000000002",
 				K3sCluster: "ns-down-57aa833c", PortBase: 19000, PortSlot: 1},
 		},
@@ -489,5 +493,34 @@ func TestTheGUIRouteUsesTheChosenPort(t *testing.T) {
 	envOver := over.EnvironmentStatus(context.Background(), &registry.Environment{Slug: "local", PortSlot: 0})
 	if got := envOver.Routes["deployment_gui"]; got != "http://localhost:19999" {
 		t.Errorf("an override should win, got %q", got)
+	}
+}
+
+// An environment's router is its own container and belongs in its status, for
+// the reason every other row does: a port that does not answer has no obvious
+// cause, and this is the container that publishes them (NERD027 SPEC002).
+//
+// Only where a cluster runs, though. An environment with no cluster publishes
+// nothing and has no router, and a row saying "absent" for something that is
+// never started is not information (NERD014 SPEC007).
+func TestTheEnvironmentRouterIsReportedWhereThereIsACluster(t *testing.T) {
+	t.Parallel()
+
+	r := &Reporter{Docker: &fakeDocker{}, Lookup: fakeEnv(nil)}
+	env := r.EnvironmentStatus(context.Background(), &registry.Environment{
+		Slug: "local", PortSlot: 0, RouterContainer: "hmd_router-local",
+	})
+
+	var found bool
+	for _, c := range env.Containers {
+		if c.Role == "router" {
+			found = true
+			if c.Name != "hmd_router-local" {
+				t.Errorf("router row names %q", c.Name)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no router row: %+v", env.Containers)
 	}
 }

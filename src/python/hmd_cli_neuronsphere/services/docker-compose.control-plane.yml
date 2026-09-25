@@ -22,16 +22,20 @@ services:
       # developer running one for another project needs this to move; nsctl
       # redirects the baked-in name to wherever it landed.
       - "${HMD_LOCAL_FLOCI_PORT:-4566}:4566"
-      # Durable host route to the default environment's k3s Trino coordinator,
-      # kept at its historical port so existing integration tests are unaffected.
-      - "${HMD_LOCAL_TRINO_HOST_PORT:-18080}:${HMD_LOCAL_TRINO_HOST_PORT:-18080}"
-      # Per-environment stream listeners: the slot ports (Floci, Trino, graph,
-      # spare) plus the k3s API band above them. User interfaces are NOT here:
-      # they are reached by name through :80, the way the cloud reaches them. A compose `ports:` list is
-      # static, so the whole range is published up front and individual listeners
-      # inside it are added/removed at runtime with an nginx reload -- no
-      # restart. See env_registry.env_port_range().
-      - "${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}:${HMD_LOCAL_ENV_PORT_RANGE:-19000-19079}"
+      # The Deployment GUI, published explicitly. It used to be bound only
+      # because 19003 fell inside the environment band below, so removing that
+      # band without naming it here would have taken the GUI off the host with
+      # no other sign than a refused connection (NERD027 SPEC001).
+      - "${HMD_LOCAL_GUI_HOST_PORT:-19003}:${HMD_LOCAL_GUI_HOST_PORT:-19003}"
+      # Per-environment listeners are NOT here. Each environment publishes its
+      # own Trino and k3s ports from its own router container, created with the
+      # environment and recreated when that set changes -- which is what lets the
+      # set change at runtime at all: an engine cannot add a published port to a
+      # running container, and recreating this one would cut the deploy that
+      # asked for the port (NERD027 SPEC002).
+      #
+      # This is where eighty ports were reserved for sixteen environments, of
+      # which 47 could never carry a listener.
       # The wildcard resolver, streamed to hmd_dnsd. Bound to loopback
       # explicitly, unlike everything above it: this answers 127.0.0.1 for every
       # name in its suffix, which means nothing to anyone else and should not be

@@ -60,7 +60,7 @@ func (r *Registry) NewEnvironment(home, name string, lookup Lookup) (*Environmen
 		Name:             slug,
 		PortBase:         portBase(lookup),
 		PortSlot:         slot,
-		RouterContainer:  "hmd_router-" + slug,
+		RouterContainer:  RouterContainerName(home, slug),
 		Slug:             slug,
 		StateDir:         stateDir,
 	}

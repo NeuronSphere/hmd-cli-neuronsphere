@@ -116,10 +116,13 @@ type Environment struct {
 	// Its own container, beside hmd_db-<slug> and global-graph-<slug>, so that a
 	// port appearing or disappearing recreates *it* rather than hmd_proxy: an
 	// engine cannot add a published port to a running container, and recreating
-	// the proxy would cut the deploy that asked for the port. Omitted from a
-	// registry written before this existed, which is what an empty value means
-	// (NERD027 SPEC002).
-	RouterContainer string `json:"router_container,omitempty"`
+	// the proxy would cut the deploy that asked for the port (NERD027 SPEC002).
+	//
+	// Never serialised. It is a pure function of the home and the slug, so
+	// writing it would add a key the Python front end does not write and break
+	// the byte-for-byte parity of the shared registry file -- for a value that
+	// can simply be derived on load.
+	RouterContainer string `json:"-"`
 	Slug            string `json:"slug"`
 	StateDir        string `json:"state_dir"`
 }
@@ -196,6 +199,44 @@ func (c ControlPlane) Port(name string) int {
 		return port
 	}
 	return defaultControlPlanePorts[name]
+}
+
+// RouterContainerPrefix names an environment's router container.
+const RouterContainerPrefix = "hmd_router-"
+
+// RouterContainerName is the container that publishes one environment's host
+// ports, scoped to the HMD_HOME that owns it.
+//
+// **Scoped by home, which NERD027 SPEC002 did not ask for.** The specification
+// named it `hmd_router-<slug>`, and this document's own amendment reasoned that
+// the name would be global across homes "like the pinned control-plane names"
+// and that the ownership check should grow a case for it. Running it proved that
+// wrong in the most direct way available: a unit test using a throwaway home and
+// an environment called `local` found the *real* platform's `hmd_router-local`
+// and refused to delete its own environment.
+//
+// Every other per-environment resource is already home-scoped for exactly this
+// reason -- ComposeProject is `ns-<hash>-env-<slug>` and K3sCluster is
+// `ns-<slug>-<hash>` -- so this follows them rather than the control plane's
+// pinned names. A home with no hash (no HMD_HOME, as in a unit test) keeps the
+// bare name.
+func RouterContainerName(home, slug string) string {
+	if h := container.HMDHomeHash(home); h != "" {
+		return RouterContainerPrefix + slug + "-" + h
+	}
+	return RouterContainerPrefix + slug
+}
+
+// Router is the container that publishes this environment's host ports.
+//
+// Recorded at creation and backfilled on load, so every lifecycle stage names
+// the same container with no migration step. The slug-only fallback is for an
+// Environment built in memory, never from a registry.
+func (e *Environment) Router() string {
+	if e.RouterContainer != "" {
+		return e.RouterContainer
+	}
+	return RouterContainerPrefix + e.Slug
 }
 
 // EnvPortWidth is how many contiguous host ports an environment band needs: the
@@ -333,6 +374,9 @@ func (r *Registry) applyDefaults(home string, lookup Lookup) {
 		}
 		if e.PortBase == 0 {
 			e.PortBase = DefaultPortBase
+		}
+		if e.RouterContainer == "" {
+			e.RouterContainer = RouterContainerName(home, e.Slug)
 		}
 		r.Environments[slug] = e
 	}

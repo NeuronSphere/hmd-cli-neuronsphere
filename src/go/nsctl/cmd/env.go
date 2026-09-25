@@ -44,11 +44,17 @@ func loadRegistry(opts *Options) (*registry.Registry, string, error) {
 func reporter(opts *Options, reg *registry.Registry) *status.Reporter {
 	r := router.New(opts.Home, opts.Lookup)
 	rep := &status.Reporter{
-		Docker:        container.New(),
-		Probe:         status.HTTPProber(3 * time.Second),
-		Lookup:        opts.Lookup,
-		Substrate:     substrateOf(opts),
-		Routed:        r.StreamsPort,
+		Docker:    container.New(),
+		Probe:     status.HTTPProber(3 * time.Second),
+		Lookup:    opts.Lookup,
+		Substrate: substrateOf(opts),
+		// An environment's stream listeners live under its own config root now
+		// (NERD027 SPEC002), so the reader that answers "is Trino routed" has to
+		// look there. Read from the control plane's root it answers no for every
+		// environment, and `env status` stops reporting Trino at all.
+		Routed: func(slug string, port int) bool {
+			return router.NewEnv(opts.Home, slug, opts.Lookup).StreamsPort(slug, port)
+		},
 		RoutedService: r.RoutesService,
 	}
 	if reg != nil {
@@ -666,7 +672,11 @@ either state alone, because nothing left knows how to address them.`,
 // because `dev2` is running would be its own bug.
 func runningContainers(ctx context.Context, env *registry.Environment) []string {
 	d := container.New()
-	candidates := []string{env.DBContainer, env.GraphContainer}
+	// The router is a candidate for the same reason the database is: it is the
+	// environment's own container, and one left behind by a delete holds host
+	// ports the next start then routes around -- a confusing way to lose a port
+	// (NERD027 SPEC002).
+	candidates := []string{env.DBContainer, env.GraphContainer, env.Router()}
 	for name := range d.ContainerNames(ctx) {
 		// Floci names the k3s node after the cluster, with an account prefix
 		// this does not need to reconstruct.

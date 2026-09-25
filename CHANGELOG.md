@@ -42,6 +42,26 @@
   not been deployed yet will not resolve. A `local names` row reports the same in
   `nsctl doctor`, separate from the `host names` row, because the two fail
   independently and are fixed differently.
+- feat: the local platform binds the host ports it is using, and no others. It
+  published 84 -- 80 of them an environment band, of which 47 could never carry a
+  listener at all: the Floci slot has none by design, and the graph and spare
+  ports were read by nothing. Measured on a live engine, 167 engine bindings
+  became 13. `hmd_proxy` now publishes four ports that exist for the life of the
+  control plane (HTTP, the Floci stream, the Deployment GUI, the resolver), and
+  each environment publishes its own Trino and k3s ports from its own
+  `hmd_router-<slug>-<hash>` container, created with it and recreated when that
+  set changes.
+- feat: an environment with no cluster publishes nothing, and one without a Trino
+  coordinator publishes only its k3s API. The slot arithmetic survives as the
+  address it always was -- the same environment name lands on the same ports
+  across machines -- but nothing is bound before something is there to answer.
+- fix: the Deployment GUI is published explicitly. It was bound only because
+  19003 happened to fall inside the band, so removing the band without naming it
+  would have taken the GUI off the host with no sign but a refused connection.
+  A test asserts it, because nothing else would notice.
+- fix: `ChoosePorts` no longer has to find eighty contiguous free ports, which
+  was the single hardest thing to place on a busy machine. Four independent
+  single ports, each moved only if something else holds it.
 - feat: a user interface's hostname names its environment, and the local suffix
   moved to `ns.local`. `airflow.ns.local` in the default environment,
   `airflow.dev2.ns.local` in `dev2` -- where before, every environment's charts

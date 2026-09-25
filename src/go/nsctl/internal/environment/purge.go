@@ -174,6 +174,12 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 	}
 
 	existing := d.ContainerNames(ctx)
+	// The environment's own router. It carries no Floci account label, so the
+	// catch-all sweep below cannot see it -- and NERD027's own risk note says
+	// this removal has to be part of the sweep that removes an environment's
+	// containers rather than a second one, because a router left behind holds
+	// host ports the next start routes around.
+	removeContainers(ctx, opts, d, "router", env.Router())
 	removeContainers(ctx, opts, d, "cluster", floci.K3sContainerName(env.K3sCluster, env.AccountID, existing))
 	if err := d.RemoveVolumes(ctx, floci.K3sVolumeCandidates(env.K3sCluster, env.AccountID)...); err != nil {
 		opts.warn("%v", err)

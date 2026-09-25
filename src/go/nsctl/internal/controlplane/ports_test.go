@@ -64,25 +64,32 @@ func TestChoosePortsMovesOffATakenPort(t *testing.T) {
 	}
 }
 
-// The band needs a contiguous window, so one busy port inside it moves all 80.
-func TestChoosePortsMovesTheWholeBandForOneBusyPort(t *testing.T) {
+// There is no band to place any more, so the hardest thing ChoosePorts used to
+// do is simply gone: four independent single ports, each moved only if something
+// else holds it (NERD027 SPEC005). The old test asserted that one busy port
+// inside the window moved all eighty; it is replaced rather than fixed, because
+// the behaviour it pinned is the behaviour being removed.
+func TestOneBusyPortMovesOnlyItself(t *testing.T) {
 	t.Parallel()
 
+	// The HTTP port alone is taken.
+	probe := func(b compose.HostBinding) bool { return b.Port == 80 }
 	reg := &registry.Registry{}
-	cp := &reg.ControlPlane
-	moved, err := ChoosePorts(reg, nil, busy(19050))
+	moved, err := ChoosePorts(reg, nil, probe)
 	if err != nil {
 		t.Fatalf("ChoosePorts: %v", err)
 	}
-	if len(moved) != 1 || moved[0].Name != registry.PortEnvBase {
-		t.Fatalf("want the band to move, got %v", moved)
+	if len(moved) != 1 || moved[0].Name != registry.PortHTTP {
+		t.Fatalf("moved = %+v, want only the HTTP port", moved)
 	}
-	lo, hi := cp.EnvPortRange()
-	if lo <= 19050 && 19050 <= hi {
-		t.Errorf("the new band %d-%d still contains the busy port", lo, hi)
+	if got := reg.ControlPlane.Port(registry.PortHTTP); got != 8080 {
+		t.Errorf("HTTP moved to %d, want the conventional second choice 8080", got)
 	}
-	if hi-lo+1 != registry.EnvPortWidth {
-		t.Errorf("the band is %d wide, want %d", hi-lo+1, registry.EnvPortWidth)
+	// Everything else stayed, and nothing else was recorded.
+	for _, name := range []string{registry.PortFloci, registry.PortGUI, registry.PortDNS} {
+		if _, recorded := reg.ControlPlane.Ports[name]; recorded {
+			t.Errorf("%s was recorded though it never moved", name)
+		}
 	}
 }
 
@@ -202,27 +209,24 @@ func TestTheResolverPortIsProbedAsItIsPublished(t *testing.T) {
 	}
 }
 
-// The Deployment GUI is published only because 19003 falls inside the band, so a
-// band that moved took it off the host with no sign but a refused connection.
-// It is slot 0's spare, so it moves with the band (NERD027 SPEC001 publishes it
-// in its own right and removes the coupling).
-func TestAMovedBandTakesTheGUIWithIt(t *testing.T) {
+// The Deployment GUI is a chosen port in its own right now. It used to be
+// published only because 19003 fell inside the band, which meant a moved band
+// took it off the host with no sign but a refused connection -- and nothing
+// probed it, so a machine already using 19003 collided silently (NERD027
+// SPEC001).
+func TestTheGUIPortIsChosenLikeAnyOther(t *testing.T) {
 	t.Parallel()
 
-	// Everything in the default band is held, so the band has to move.
-	probe := func(b compose.HostBinding) bool {
-		return b.Port >= registry.DefaultPortBase && b.Port < registry.DefaultPortBase+registry.EnvPortWidth
-	}
+	probe := func(b compose.HostBinding) bool { return b.Port == 19003 }
 	reg := &registry.Registry{}
-	if _, err := ChoosePorts(reg, nil, probe); err != nil {
+	moved, err := ChoosePorts(reg, nil, probe)
+	if err != nil {
 		t.Fatalf("ChoosePorts: %v", err)
 	}
-
-	base := reg.ControlPlane.Port(registry.PortEnvBase)
-	if base == registry.DefaultPortBase {
-		t.Fatalf("the band did not move: %d", base)
+	if len(moved) != 1 || moved[0].Name != registry.PortGUI {
+		t.Fatalf("moved = %+v, want only the GUI port", moved)
 	}
-	if got, want := reg.ControlPlane.Port(registry.PortGUI), base+3; got != want {
-		t.Errorf("the GUI is on %d, want %d -- slot 0's spare inside the moved band", got, want)
+	if got := reg.ControlPlane.Port(registry.PortGUI); got == 19003 {
+		t.Error("the GUI did not move off the port something else holds")
 	}
 }

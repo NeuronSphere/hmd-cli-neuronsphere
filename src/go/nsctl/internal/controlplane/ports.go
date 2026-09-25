@@ -56,16 +56,23 @@ type portPlan struct {
 	width    int
 }
 
-// portPlans is also the order ports are chosen in, and the order is deliberate.
+// portPlans is the four ports hmd_proxy publishes, and the order they are chosen
+// in.
 //
-// The environment band goes first because it needs 80 contiguous ports and has
-// the least room to manoeuvre; choosing a single port first could leave it
-// sitting in the middle of the only window wide enough.
+// There is no band any more. It used to go first, because 80 contiguous ports
+// have the least room to manoeuvre and a single port chosen first could sit in
+// the middle of the only window wide enough -- a real constraint, and the single
+// hardest thing to place on a busy machine. Each environment now publishes its
+// own two ports from its own container, so what is left is four independent
+// singles: strictly easier than what it replaces (NERD027 SPEC005).
+//
+// The Deployment GUI is one of them now. It used to be published only because
+// 19003 fell inside the band, which meant a moved band took it off the host
+// entirely (NERD027 SPEC001).
 var portPlans = []portPlan{
-	{name: registry.PortEnvBase, altStart: registry.DefaultPortBase, width: registry.EnvPortWidth},
 	{name: registry.PortHTTP, altStart: 8080, width: 1},
 	{name: registry.PortFloci, altStart: 4567, width: 1},
-	{name: registry.PortTrino, altStart: 18081, width: 1},
+	{name: registry.PortGUI, altStart: 19004, width: 1},
 	{name: registry.PortDNS, altStart: 19154, width: 1, proto: "udp", hostIP: "127.0.0.1"},
 }
 
@@ -87,18 +94,8 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 		probe = compose.BindProber(defaultProbeTimeout)
 	}
 	// Ports already handed out by this call, so two names cannot choose the
-	// same one and a single port cannot land inside the band.
+	// same one.
 	claimed := map[int]bool{}
-	// The single ports' preferred values, held against the band so that moving
-	// the band does not evict a port that was never in anybody's way. The band
-	// is 80 wide and would otherwise swallow the resolver's 19153, turning one
-	// busy port into two moved ones.
-	preferred := map[int]bool{}
-	for _, plan := range portPlans {
-		if plan.width == 1 {
-			preferred[cp.Port(plan.name)] = true
-		}
-	}
 
 	var moved []PortChoice
 	for _, plan := range portPlans {
@@ -112,17 +109,10 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 			}
 			return probe(compose.HostBinding{Port: port, Protocol: plan.proto, HostIP: plan.hostIP})
 		}
-		// Only the band defers to the other ports' preferred values, and only
-		// while looking for somewhere else to go.
-		bandTaken := taken
-		if plan.width > 1 {
-			bandTaken = func(port int) bool { return preferred[port] || taken(port) }
-		}
-
 		got := want
 		if !isFree(want, plan.width, taken) {
 			var err error
-			if got, err = firstFree(plan.altStart, plan.width, bandTaken); err != nil {
+			if got, err = firstFree(plan.altStart, plan.width, taken); err != nil {
 				return nil, fmt.Errorf("choosing a host port for %s: %w", plan.name, err)
 			}
 		}
@@ -138,21 +128,6 @@ func ChoosePorts(reg *registry.Registry, ours map[int]bool, probe compose.Prober
 		cp.Ports[plan.name] = got
 		moved = append(moved, PortChoice{Name: plan.name, From: want, To: got})
 
-		// Every environment's ports are offsets from the band's base, and the
-		// band is what hmd_proxy publishes. An environment left on the old base
-		// would derive Floci, Trino, k3s and every user-interface port outside
-		// the published range, where nothing can reach them.
-		if plan.name == registry.PortEnvBase {
-			for slug, env := range reg.Environments {
-				env.PortBase = got
-				reg.Environments[slug] = env
-			}
-			// The Deployment GUI is slot 0's spare, published only because it
-			// falls inside the band -- so a band that moved took the GUI off the
-			// host with no sign but a refused connection. It moves with the band
-			// until NERD027 SPEC001 publishes it in its own right.
-			cp.Ports[registry.PortGUI] = got + guiSpareOffset
-		}
 	}
 	return moved, nil
 }

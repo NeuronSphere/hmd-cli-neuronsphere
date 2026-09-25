@@ -867,12 +867,39 @@ func TestAnEnvironmentNamesItsRouterContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEnvironment: %v", err)
 	}
-	if got, want := env.RouterContainer, "hmd_router-dev2"; got != want {
-		t.Errorf("RouterContainer = %q, want %q", got, want)
+	if !strings.HasPrefix(env.RouterContainer, "hmd_router-dev2") {
+		t.Errorf("RouterContainer = %q, want a name scoped to this environment", env.RouterContainer)
+	}
+	// Scoped to this HMD_HOME, like the compose project and the cluster name:
+	// container names are global, and two homes with an environment of the same
+	// name must not fight over one container.
+	if env.RouterContainer == "hmd_router-dev2" {
+		t.Error("the router name is not scoped to this home")
 	}
 	// It sits beside the other per-environment containers, not inside the
 	// control plane's compose project.
 	if env.DBContainer != "hmd_db-dev2" || env.GraphContainer != "global-graph-dev2" {
 		t.Errorf("the sibling containers changed: %+v", env)
+	}
+}
+
+// An environment registered before routers existed has no router_container
+// recorded, and there is no migration step. The name is derived from the slug in
+// that case, so status, stop, delete and purge all find the container that
+// ensureEnvRouter created under exactly that name (NERD027 SPEC002).
+func TestTheRouterNameIsDerivedWhenItWasNeverRecorded(t *testing.T) {
+	t.Parallel()
+
+	recorded := Environment{Slug: "dev2", RouterContainer: "hmd_router-dev2"}
+	if got := recorded.Router(); got != "hmd_router-dev2" {
+		t.Errorf("Router() = %q, want the recorded name", got)
+	}
+
+	// An Environment built in memory, never loaded from a registry, keeps the
+	// bare name: Load backfills the scoped one for everything that came from a
+	// file.
+	old := Environment{Slug: "local"}
+	if got := old.Router(); got != "hmd_router-local" {
+		t.Errorf("Router() = %q, want the bare fallback", got)
 	}
 }

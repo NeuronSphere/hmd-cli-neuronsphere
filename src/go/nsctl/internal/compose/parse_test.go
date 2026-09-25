@@ -77,19 +77,13 @@ func TestParseTheBundledControlPlaneFile(t *testing.T) {
 // hmd_proxy is the only container in the whole local stack that publishes host
 // ports. Everything else is reached through it, which is what lets several
 // environments coexist on one machine.
-func TestParseProxyPublishesTheWholeBand(t *testing.T) {
+func TestTheProxyPublishesOnlyWhatIsAlwaysThere(t *testing.T) {
 	t.Parallel()
 
 	s := service(t, parseControlPlane(t, controlPlaneEnv()), "proxy")
 
 	if s.ContainerName != "hmd_proxy" {
 		t.Errorf("container name = %q, want hmd_proxy", s.ContainerName)
-	}
-	if s.Image != "nginx:stable-alpine" {
-		t.Errorf("image = %q", s.Image)
-	}
-	if s.Restart != "unless-stopped" {
-		t.Errorf("restart = %q", s.Restart)
 	}
 
 	got := map[string]bool{}
@@ -98,17 +92,42 @@ func TestParseProxyPublishesTheWholeBand(t *testing.T) {
 		got[portKey(port)] = true
 		total += port.Count()
 	}
-	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566", "18080-18080:18080-18080", "19000-19079:19000-19079"} {
+
+	// Four ports and no range: the HTTP port, the Floci stream, the Deployment
+	// GUI and the resolver's UDP listener. Each exists for the life of the
+	// control plane, so none of them ever needs adding to a running container --
+	// which is what the eighty-wide reservation existed to work around
+	// (NERD027 SPEC001).
+	if total != 4 {
+		t.Errorf("proxy publishes %d host ports, want 4; got %v", total, got)
+	}
+	for _, want := range []string{"80-80:80-80", "4566-4566:4566-4566"} {
 		if !got[want] {
 			t.Errorf("proxy does not publish %s; got %v", want, got)
 		}
 	}
-	// 3 singles plus the 80-wide environment band (16 slots of 4, then 16 k3s
-	// ports), plus the resolver's UDP listener. User interfaces are not here:
-	// they are reached by name through :80.
-	if total != 84 {
-		t.Errorf("proxy publishes %d host ports, want 84", total)
+
+	// The Deployment GUI must be named explicitly. It used to be bound only
+	// because 19003 fell inside the band, so deleting the range without naming
+	// it would take the GUI off the host with no sign but a refused connection.
+	// Nothing else would notice, which is why this is asserted.
+	var gui bool
+	for _, port := range s.Ports {
+		if port.HostStart == 19003 {
+			gui = true
+		}
 	}
+	if !gui {
+		t.Errorf("the proxy does not publish the Deployment GUI's port; got %v", got)
+	}
+
+	// No band, per environment or otherwise.
+	for _, port := range s.Ports {
+		if port.Count() > 1 {
+			t.Errorf("the proxy still publishes a range: %v", portKey(port))
+		}
+	}
+
 	// The resolver is the one published port bound to loopback rather than to
 	// every interface: it answers 127.0.0.1 for its whole suffix, which is an
 	// answer nobody off this machine should be given.
@@ -126,26 +145,6 @@ func TestParseProxyPublishesTheWholeBand(t *testing.T) {
 	}
 	if dns.HostStart == 5353 {
 		t.Error("the resolver is published on 5353, which mDNS holds on macOS")
-	}
-
-	// The route fragments are a directory bind so nginx_router can add and
-	// remove listeners at runtime with a reload, no container restart.
-	wantMounts := map[string]Mount{
-		"/etc/nginx/nginx.conf": {Source: "/Users/aburg/hmdtr1/.cache/nginx/neuronsphere.conf", Target: "/etc/nginx/nginx.conf", ReadOnly: true},
-		"/etc/nginx/ns":         {Source: "/Users/aburg/hmdtr1/.cache/nginx", Target: "/etc/nginx/ns", ReadOnly: true},
-	}
-	if len(s.Volumes) != len(wantMounts) {
-		t.Fatalf("proxy has %d mounts, want %d: %v", len(s.Volumes), len(wantMounts), s.Volumes)
-	}
-	for _, m := range s.Volumes {
-		w, ok := wantMounts[m.Target]
-		if !ok {
-			t.Errorf("unexpected mount at %s", m.Target)
-			continue
-		}
-		if m != w {
-			t.Errorf("mount %s = %+v, want %+v", m.Target, m, w)
-		}
 	}
 }
 

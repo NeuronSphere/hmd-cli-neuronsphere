@@ -404,27 +404,38 @@ unaffected; environment services are **prefixed** with the environment name:
      - that environment's Ingress-exposed UIs (Airflow, Argo, Superset)
    * - ``http://localhost:4566``
      - control-plane Floci (nginx ``stream``)
-   * - ``http://localhost:<19000+4n>``
-     - environment *n*'s Floci
+   * - ``http://localhost:19003``
+     - the Deployment GUI
    * - ``localhost:<19000+4n+1>``
      - environment *n*'s Trino
    * - ``https://localhost:<19064+n>``
      - environment *n*'s k3s API server (what its kubeconfig points at)
 
-The table is the port *scheme*: every slot is reserved for its environment
-whether or not anything listens on it. What ``nsctl env status`` and the summary
-at the end of a start report is narrower — an endpoint appears only when
-something is actually routed there. A full-substrate environment that has never
-deployed Trino shows no Trino route, and the services and UIs it does have are
-listed by name.
+The arithmetic is an *address*, not a reservation. The same environment name
+lands on the same ports across machines and re-creations, and nothing is bound
+until something is actually there to answer: an environment with no cluster
+publishes nothing at all, and one without a Trino coordinator publishes only its
+k3s API.
 
-Non-HTTP protocols (Trino, the k3s API, Floci's AWS wire protocol) get L4
-``stream`` listeners rather than HTTP locations. The whole ``19000-19079`` range
-is published by ``hmd_proxy`` up front — a compose ``ports:`` list is static —
-and individual listeners inside it are added and removed at runtime with an
-nginx reload, never a container restart. That is 16 environments × 4 slots, plus
-a band of 16 k3s API ports above them; override the range with
-``HMD_LOCAL_ENV_PORT_RANGE``.
+``hmd_proxy`` publishes **four** host ports and no range — the HTTP port, the
+Floci stream, the Deployment GUI and the resolver's UDP listener — each of which
+exists for the life of the control plane. Everything per-environment is published
+by that environment's own ``hmd_router-<slug>-<hash>`` container, created with it
+and recreated when its port set changes.
+
+That split is not tidiness. A compose ``ports:`` list is static, so a port that
+was not published can only be added by recreating the container — and
+``hmd_proxy`` is what every service route passes through, including the route an
+in-flight deploy is using to reach ms-deployment. Recreating it to add a port
+would cut the deploy that asked for the port, which is exactly when a new port
+appears, because deploying ``hmd-inf-trino`` is what makes a coordinator exist.
+Recreating an environment's own router interrupts a ``kubectl`` session or a
+Trino client against that one environment, and nothing else.
+
+It used to be a band: ``19000-19079`` published up front, 16 environments × 4
+slots plus 16 k3s ports. Of those eighty, **47 could never carry a listener** --
+the Floci slot has none by design, and the graph and spare ports were read by
+nothing.
 
 The k3s API is streamed through ``hmd_proxy`` rather than reached on the port
 Floci publishes on the ``floci-eks-*`` container directly. Docker re-creates

@@ -5,7 +5,7 @@ NERD027 Ports Without Reservation
 
 .. req:: A local platform shall publish the host ports it is using, and no others
     :id: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     The number of host ports a local NeuronSphere binds shall be a function of
     what is running, not of what could theoretically run.
@@ -15,6 +15,13 @@ NERD027 Ports Without Reservation
 
     Adding or removing a port shall not interrupt a route that something else
     is in the middle of using.
+
+    .. note::
+
+        ``implemented`` as of 2026-09-25, measured on a live engine. **167 engine
+        bindings became 13**: ``hmd_proxy`` went from 84 published ports to four,
+        and the one running environment publishes three of its own. See
+        `The acceptance run`_.
 
 Motivation
 ----------
@@ -71,7 +78,7 @@ Design
 .. spec:: The control-plane proxy publishes only what is always there
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     ``hmd_proxy`` shall publish four ports and no range: the HTTP port, the
     Floci stream, the Deployment GUI, and the resolver's UDP listener. Each
@@ -107,7 +114,7 @@ Design
 .. spec:: An environment publishes its own ports
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     Each environment shall have a router container of its own --
     ``hmd_router-<slug>``, beside ``hmd_db-<slug>`` and ``global-graph-<slug>``
@@ -176,7 +183,7 @@ Design
 .. spec:: The slot arithmetic survives as an address, not a reservation
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     ``FlociPort``, ``TrinoPort``, ``GraphPort``, ``SparePort`` and ``K3sPort``
     shall keep their current arithmetic. An environment's Trino stays where it
@@ -194,7 +201,7 @@ Design
 .. spec:: The exclusive-publisher rule names two publishers
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     ``compose.ProxyService`` encodes "only ``hmd_proxy`` may publish a host
     port", and ``CheckExclusivePublisher`` refuses a start that breaks it. That
@@ -225,7 +232,7 @@ Design
 .. spec:: Ports are checked per environment, not as a window
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: proposed
+    :status: implemented
 
     ``ChoosePorts`` (NERD025 SPEC008) shall stop looking for a contiguous run
     for the band, because there is no longer a band to place. An environment's
@@ -246,6 +253,71 @@ Design
 
     The GUI's port joins ``portPlans`` in the same change, since it is no longer
     published by the band it used to sit inside (SPEC001).
+
+The acceptance run
+------------------
+
+2026-09-25, on the same live control plane NERD025 was accepted against.
+
+**Measured.** ``hmd_proxy`` published **167 engine bindings** before (84 ports:
+80, 4566, 18080, the 80-wide band, and the resolver's UDP listener -- most of
+them dual-stacked) and **7** after: 80, 4566, 19003 and 19153/udp. The default
+environment's router, ``hmd_router-local-57aa833c``, publishes **6** -- 18080,
+19033 and 19072, dual-stacked. Thirteen bindings for the whole platform where
+there were 167.
+
+**SPEC001.** The Deployment GUI answers on 19003 after the band that used to
+carry it was deleted, which is the one place removing the reservation was not
+purely subtractive. A test asserts the proxy publishes it, because nothing else
+would notice.
+
+**SPEC002.** The router was created with the environment and published exactly
+what that environment used, twice over: on the first run, with no Trino
+coordinator yet, it published the k3s API alone; on the second, with one, it
+published the pair plus the historical 18080. ``kubectl get nodes`` answered
+through it both times, and a TCP connect to 19033 and 18080 succeeded.
+``hmd_proxy`` was **not** recreated by either -- it still served
+``argo.ns.local`` and ``http://localhost/hmd_ms_deployment`` throughout, which is
+the property the whole split exists for.
+
+**SPEC004.** ``OurPorts`` now reads every environment's compose project as well
+as the control plane's, so the next start sees a running environment's listeners
+as its own rather than as a foreign process to move away from.
+
+**SPEC005.** ``ChoosePorts`` places four single ports and no contiguous window.
+The test that asserted one busy port moved all eighty was replaced rather than
+fixed, as this document said it must be.
+
+What the run changed in the design
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**The container name is scoped to the home.** SPEC002 named it
+``hmd_router-<slug>`` and the amendment above reasoned that the name would be
+global across homes "like the pinned control-plane names". That was wrong, and
+running it proved so immediately: a unit test using a throwaway home and an
+environment called ``local`` found the *real* platform's ``hmd_router-local`` and
+refused to delete its own environment. Every other per-environment resource is
+already home-scoped for this exact reason -- ``ns-<hash>-env-<slug>``,
+``ns-<slug>-<hash>`` -- so the router follows them:
+``hmd_router-<slug>-<hash>``. The ownership check needs no case after all.
+
+**The name is derived, never written.** It is a pure function of the home and
+the slug, and the registry file is byte-for-byte shared with the Python front
+end -- a new key would break that parity for a value that can be recomputed.
+
+What the run did not settle
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**A second concurrent environment.** One environment was running, so "a second
+environment appearing must not disturb the first" is argued and unit-tested
+rather than measured.
+
+**A Trino port with nothing behind it.** 19033 was published for a ``trino-local``
+namespace with no pods and no endpoints, because the signal for "there is a
+coordinator" is the NodePort service existing rather than a ready backend -- the
+same flag the start summary has always used. Within this requirement, which is
+about ports nothing *can* ever answer on rather than a workload that was
+deployed and then removed, but worth knowing before it is read as a contradiction.
 
 Alternatives considered
 -----------------------

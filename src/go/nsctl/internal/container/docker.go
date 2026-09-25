@@ -317,6 +317,32 @@ func retryablePull(msg string) bool {
 	return false
 }
 
+// PublishedPorts is the host ports a container currently publishes, sorted.
+//
+// Read so that an environment's router is recreated only when its port set
+// actually changes: an ordinary restart with the same ports must not churn a
+// kubectl session for nothing (NERD027 SPEC002). An unreadable or absent
+// container publishes nothing, which is the same answer a caller needs.
+func (d *Docker) PublishedPorts(ctx context.Context, name string) []int {
+	out, err := d.capture(ctx, "inspect", name, "--format",
+		"{{range $p, $binds := .NetworkSettings.Ports}}{{range $binds}}{{.HostPort}} {{end}}{{end}}")
+	if err != nil {
+		return nil
+	}
+	seen := map[int]bool{}
+	var ports []int
+	for _, field := range strings.Fields(out) {
+		p, err := strconv.Atoi(field)
+		if err != nil || p == 0 || seen[p] {
+			continue
+		}
+		seen[p] = true
+		ports = append(ports, p)
+	}
+	sort.Ints(ports)
+	return ports
+}
+
 // Start starts an existing container.
 func (d *Docker) Start(ctx context.Context, name string) error {
 	_, err := d.capture(ctx, "start", name)
