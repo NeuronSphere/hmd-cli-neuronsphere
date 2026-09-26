@@ -32,6 +32,7 @@ func DoctorOptions(opts *Options) doctor.Options {
 		Suffix:      func() error { return CheckLocalSuffix(context.Background(), opts) },
 		Images:      func(ctx context.Context) []doctor.Check { return ImageChecks(ctx, opts) },
 		Storage:     func(ctx context.Context) []doctor.Check { return StorageChecks(ctx, opts) },
+		Bridge:      BridgeChecks,
 	}
 }
 
@@ -64,9 +65,27 @@ func CheckLocalSuffix(ctx context.Context, opts *Options) error {
 	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(DNSPort(opts, reg)))
 	if err := dnsd.Answers(ctx, addr, probe); err != nil {
+		// "Nothing answers" has a third cause besides a stopped resolver and a
+		// misconfigured machine, and it is invisible from here: an engine whose
+		// port forwarder carries no UDP. Saying "the resolver is not running"
+		// to someone whose resolver is running, and answering, sends them to
+		// restart a control plane that was never the problem.
+		if why := ColimaUDPUnreachable(currentEndpointHost(ctx, opts)); why != "" {
+			return fmt.Errorf("%s does not resolve, and nothing answers on %s either.\n  %s", probe, addr, why)
+		}
 		return fmt.Errorf("%s does not resolve, and nothing answers on %s either -- the resolver is not running", probe, addr)
 	}
 	return fmt.Errorf("%s does not resolve, though the resolver on %s answers for it -- this machine is not pointed at it", probe, addr)
+}
+
+// currentEndpointHost is the engine endpoint nsctl would use, or "" when it
+// cannot be resolved. Best effort by design: it only ever refines a message.
+func currentEndpointHost(ctx context.Context, opts *Options) string {
+	d := container.New()
+	// A failed resolve still reports the endpoint it fell back to, which is the
+	// one the work would use, so the error adds nothing here.
+	ep, _ := (&dockerhost.Resolver{Inspect: dockerhost.CLIInspector(d), Lookup: opts.Lookup}).Resolve(ctx)
+	return ep.Host
 }
 
 func doctorOptions(opts *Options) doctor.Options {
@@ -84,6 +103,11 @@ func doctorOptions(opts *Options) doctor.Options {
 	// yet -- would be wrong about what it measured.
 	o.Images = nil
 	o.Storage = nil
+	// Bridge is deliberately kept. It reaches no network and asks Floci
+	// nothing -- it reads one file in a throwaway container on the endpoint
+	// Gate just proved -- so neither reason above applies, and a start heading
+	// for a cluster that cannot route to its own Services is exactly when it is
+	// worth saying so (NERD028 SPEC004).
 	return o
 }
 

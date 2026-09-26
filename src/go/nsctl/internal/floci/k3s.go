@@ -120,6 +120,20 @@ func k3sFatalLine(log string) string {
 // not recognise gets no guess -- a wrong remedy costs more than none.
 func k3sDiagnosis(log string) string {
 	switch {
+	// Matched on the sysctl path rather than on "br_netfilter", deliberately:
+	// k3s logs "Failed to load kernel module br_netfilter with modprobe" on
+	// every boot, including every healthy one, so that token would attach this
+	// remedy to any dead container at all. This phrase is the wrapper image's
+	// own and appears nowhere else (NERD028 SPEC006).
+	case strings.Contains(log, BridgePath+" does not exist"):
+		return "the kernel behind your container engine has no br_netfilter loaded, so bridged " +
+			"frames bypass netfilter. Every pod here shares one bridge, so a reply to a ClusterIP " +
+			"comes back with the pod's own address and is dropped -- cluster DNS, every Service " +
+			"call, ingress and the LoadBalancer ports all fail while the node reports Ready, which " +
+			"is why the image refuses to start instead. nsctl tries to load it for you; it could " +
+			"not here. Load it in the engine's virtual machine and run `nsctl env start` again -- " +
+			"on Colima, `colima ssh -- sudo modprobe br_netfilter`. It does not survive " +
+			"`colima stop`. `nsctl doctor` reports this as the `bridge netfilter` row."
 	case strings.Contains(log, "failed to find interface with specified node ip"):
 		return "the cluster's stored node IP is on no interface. Floci spawns this container on " +
 			"Docker's default bridge as well as the NeuronSphere network, and the bridge's " +

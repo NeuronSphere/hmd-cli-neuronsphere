@@ -275,7 +275,7 @@ func CheckHostsEntries(resolve Resolver) error {
 	return nserr.New(nserr.Usage, "%s", hostNamesNotice(missing))
 }
 
-// hostNamesNotice says what is degraded and names both remedies.
+// hostNamesNotice says what is degraded and names the one remedy that works.
 //
 // It no longer stops a start: nsctl dials these names on loopback itself
 // (internal/loopback), so what remains affected is the legacy Python artifact
@@ -283,10 +283,18 @@ func CheckHostsEntries(resolve Resolver) error {
 // through hmd_lib_librarian_client, which has no such override. Saying so is
 // the point: an instruction to edit a file, with no statement of what breaks
 // without it, is what made this look mandatory when it was not.
+//
+// It deliberately does *not* offer `nsctl dns install`. It used to, and that was
+// wrong in a way that cost a first-run user real time: the resolver that command
+// installs is scoped to a suffix, and these are bare single-label names no
+// suffix-scoped resolver can claim (NERD026 SPEC004). Someone who followed the
+// advice found the warning still there afterwards, with nothing to say why. One
+// remedy that works beats two where the first cannot.
 func hostNamesNotice(missing []string) string {
 	return fmt.Sprintf(
 		"%s do not resolve on this host. nsctl reaches them anyway, but `hmd build` and `push-artifact` cannot follow a presigned URL until they do.\n"+
-			"  Give the host the names with `nsctl dns install`, or add this line to /etc/hosts:\n\n    127.0.0.1 %s\n",
+			"  These are bare names, so the resolver `nsctl dns install` sets up cannot claim them -- only /etc/hosts can:\n\n"+
+			"    echo '127.0.0.1 %s' | sudo tee -a /etc/hosts\n",
 		strings.Join(missing, " and "), strings.Join(HostsEntries, " "))
 }
 

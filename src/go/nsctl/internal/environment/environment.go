@@ -371,6 +371,50 @@ func sweepWokenEnvironments(ctx context.Context, opts *Options, d floci.WakeDock
 	opts.step("  stopped what Floci restarted for %s, which %s not running", strings.Join(stopped, ", "), were)
 }
 
+// noKernelSetupEnv opts out of preparing the engine's kernel.
+const noKernelSetupEnv = "HMD_LOCAL_NS_NO_KERNEL_SETUP"
+
+// ensureBridgeNetfilter loads br_netfilter on the engine's kernel before a
+// cluster is built on it, and says so when it had to.
+//
+// Here rather than in the start preflight because this is the first point that
+// knows a cluster is actually wanted. The preflight cannot know: its only caller
+// also serves `control-plane start` and k3s-disabled environments, neither of
+// which has any use for the module (NERD028 SPEC004, SPEC007).
+//
+// No endpoint is pinned, unlike the doctor row. That is not a compromise: every
+// other docker call in startK3s runs on the ambient context, and preparing a
+// different engine's kernel from the one about to run the cluster would be the
+// bug rather than the fix.
+func ensureBridgeNetfilter(ctx context.Context, opts *Options, d *container.Docker, image string) {
+	state, err := floci.EnsureBridgeNetfilter(ctx, d, "", image, opts.lookup(noKernelSetupEnv) != "")
+	switch state {
+	case floci.BridgeLoaded:
+		opts.step("  loaded br_netfilter on the engine's kernel, without which no Service would answer")
+	case floci.BridgeUnavailable:
+		// Not a warning about the load failing, which nobody can act on, but
+		// about what the cluster will do -- and the wrapper image refuses to
+		// start on this kernel anyway, with the same remedy.
+		opts.warn("br_netfilter is not loaded on the engine's kernel and could not be loaded from "+
+			"here%s. Services will not answer on their ClusterIPs, cluster DNS first. Load it in the "+
+			"engine's virtual machine -- on Colima, `colima ssh -- sudo modprobe br_netfilter` -- and "+
+			"start again.", because(err))
+	case floci.BridgeUnknown:
+		// A question the engine did not answer is not a diagnosis, so this is
+		// said once and quietly, and nothing is refused over it.
+		opts.step("  could not check whether the engine's kernel filters bridged frames%s", because(err))
+	}
+}
+
+// because renders an optional cause as a trailing clause, so a message reads as
+// one sentence whether or not there was one.
+func because(err error) string {
+	if err == nil {
+		return ""
+	}
+	return " (" + err.Error() + ")"
+}
+
 // startK3s is the cluster part of Start: reconcile, ensure, provision, verify.
 // It returns what the post-apply recovery needs to finish the job when the
 // deploy creates the container this run found missing.
@@ -379,6 +423,7 @@ func startK3s(ctx context.Context, opts *Options, reg *registry.Registry, env *r
 	dbContainer, graphContainer string, f *found) (res floci.K3sResult, cluster, wrapperImage string, clusterFatal error) {
 
 	wrapperImage = expectedK3sImage(ctx, opts, d)
+	ensureBridgeNetfilter(ctx, opts, d, wrapperImage)
 	if clusters, err := floci.NewClusters(ctx, target); err != nil {
 		opts.warn("%v", err)
 	} else {
@@ -645,6 +690,8 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 		return fmt.Errorf("could not resolve the k3s container's IP; no host route can be wired")
 	}
 
+	verifyClusterCanRouteToServices(ctx, opts, d, cluster)
+
 	// Before the kubeconfig: it points its server at this stream port, and
 	// every later kubectl goes through it.
 	//
@@ -700,48 +747,10 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 		opts.warn("%v", err)
 	}
 
-	// Trino, if it is deployed. Both upstreams go into every rewrite, because a
-	// writer that knew only one would drop the other's listener.
-	trinoUpstream := ""
-	if coord, ok := ops.FindTrinoCoordinator(ctx); ok {
-		spec := k3s.NodePortSpec{
-			Name: router.TrinoNodePortService, Namespace: coord.Namespace,
-			Selector: coord.Selector, Port: coord.Port, TargetPort: coord.TargetPort,
-			NodePort: router.TrinoNodePort,
-		}
-		if err := ops.EnsureNodePort(ctx, spec); err != nil {
-			opts.warn("%v", err)
-		} else {
-			trinoUpstream = k3s.NodePortAddress(clusterIP, router.TrinoNodePort)
-			f.foundTrino()
-			opts.step("  Trino exposed on host :%d", env.TrinoPort())
-		}
-	}
-	if err := envRouter.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, trinoUpstream, k3sUpstream)); err != nil {
-		opts.warn("%v", err)
-	}
-	// Recreated only if the set changed, which it did exactly when a coordinator
-	// was found. This interrupts a kubectl session against this environment and
-	// touches no other environment and no service route.
-	if err := syncEnvRouter(ctx, opts, d, env, network, true, trinoUpstream != ""); err != nil {
-		opts.warn("%v", err)
-	}
-	if err := envRouter.Reload(ctx, d.Exec); err != nil {
-		opts.warn("%v", err)
-	}
-
-	// The ingress controller, which fronts every UI the charts expose.
-	//
-	// The hosts are rewritten to name this environment *before* they are read,
-	// so the summary, the vhost, the Docker aliases and the resolver all agree
-	// on one string. hmd-cli-helm renders the literal "local" in every
-	// environment, so without this two environments claim one hostname and only
-	// the default one is reachable by name (NERD025 SPEC005).
-	if changed := ops.NormalizeIngressHosts(ctx, env.Slug); len(changed) > 0 {
-		opts.step("  named this environment in the Ingress hosts on %s", strings.Join(changed, ", "))
-	}
-	hosts := ops.IngressHosts(ctx)
-	f.foundUIHosts(hosts)
+	// Everything that depends on what is deployed -- the Ingress hosts and
+	// paths, and Trino's host port. On a first run this finds nothing, which is
+	// why refreshAfterDeploy runs it again once the deploy has created them.
+	exposeDeployedWorkloads(ctx, opts, d, ops, env, routerEnv, cluster, network, f)
 
 	traefik := k3s.TraefikNodePortSpec(router.TraefikNodePortService, router.TraefikNamespace, router.TraefikNodePort)
 	if err := ops.EnsureNodePort(ctx, traefik); err != nil {
@@ -754,6 +763,110 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 			opts.step("  UIs served at %s", router.EnvWildcardFor(env.Slug))
 		}
 	}
+	return nil
+}
+
+// verifyClusterCanRouteToServices checks, inside the cluster's own network
+// namespace, that bridged frames reach netfilter -- before anything is deployed
+// onto it.
+//
+// The doctor row asks the same question of the engine before a start; this asks
+// it of the cluster that was actually built, which is the only namespace whose
+// answer decides whether a Service works. It runs here, ahead of the deploy, so
+// the cause is named while it is still cheap. Without it the first thing anyone
+// sees is a chart timing out on a Secret that External Secrets could not fetch
+// because it could not resolve a name -- three layers away from a kernel module,
+// and reported as "took too long".
+//
+// A warning, never a refusal: the cluster container itself refuses to start on
+// such a kernel, so reaching this point at all means either an older wrapper
+// image or a kernel that lost the module after boot. Both are worth saying and
+// neither is this function's to adjudicate.
+func verifyClusterCanRouteToServices(ctx context.Context, opts *Options, d *container.Docker, cluster string) {
+	answer, err := floci.ClusterBridgeNetfilter(ctx, d, cluster)
+	if err != nil {
+		// A question the cluster did not answer is not a diagnosis.
+		return
+	}
+	if answer == "present:1" {
+		return
+	}
+	opts.warn("the cluster in %s cannot apply netfilter to bridged traffic (%s), so nothing deployed onto "+
+		"it will reach a Service on its ClusterIP -- in-cluster DNS first, then every chart that resolves "+
+		"a name. Expect External Secrets to time out and any chart waiting on a Secret to be rolled back, "+
+		"with the node still reporting Ready.\n"+
+		"  Load the module in the engine's virtual machine and start again -- on Colima,\n"+
+		"  `colima ssh -- sudo modprobe br_netfilter`. `nsctl doctor` reports this as the "+
+		"`bridge netfilter` row.", cluster, answer)
+}
+
+// exposeDeployedWorkloads wires the routing that only a deploy can have created:
+// the Ingress hosts and paths the charts wrote, and Trino's host port if a
+// coordinator appeared.
+//
+// Every step here is a function of what is deployed, so every one of them has to
+// run *after* a deploy as well as before it. Running it only before was a defect
+// with three faces on a first run, when there is nothing yet to find: the UIs
+// were advertised at hmd-cli-helm's hardcoded <instance>.local.neuronsphere.io,
+// which resolves nowhere; Trino's ALB wildcard path reached Traefik as a literal
+// "/*" and answered 404 on every path; and nothing listened on the host's Trino
+// port. All three fixed themselves on a second `nsctl env start` that nobody
+// knew to run, which is the shape of a bug that costs an afternoon.
+//
+// It is one function called from two places on purpose. The nginx reload once
+// exec'd into a container name derived independently in two files, and they
+// drifted; this is the same hazard with more moving parts.
+func exposeDeployedWorkloads(ctx context.Context, opts *Options, d *container.Docker,
+	ops *k3s.Operators, env *registry.Environment, routerEnv router.Env,
+	cluster, network string, f *found) {
+
+	// Trino, if it is deployed. Both upstreams go into every rewrite, because a
+	// writer that knew only one would drop the other's listener.
+	clusterIP := d.ContainerIP(ctx, cluster, network)
+	if clusterIP == "" {
+		opts.warn("could not resolve the k3s container's IP, so Trino's host port was not wired")
+	} else {
+		envRouter := router.NewEnv(opts.Home, env.Slug, opts.Lookup)
+		trinoUpstream := ""
+		if coord, ok := ops.FindTrinoCoordinator(ctx); ok {
+			spec := k3s.NodePortSpec{
+				Name: router.TrinoNodePortService, Namespace: coord.Namespace,
+				Selector: coord.Selector, Port: coord.Port, TargetPort: coord.TargetPort,
+				NodePort: router.TrinoNodePort,
+			}
+			if err := ops.EnsureNodePort(ctx, spec); err != nil {
+				opts.warn("%v", err)
+			} else {
+				trinoUpstream = k3s.NodePortAddress(clusterIP, router.TrinoNodePort)
+				f.foundTrino()
+				opts.step("  Trino exposed on host :%d", env.TrinoPort())
+			}
+		}
+		k3sUpstream := k3s.NodePortAddress(clusterIP, router.K3sAPIPort)
+		if err := envRouter.WriteEnvStreams(routerEnv, router.EnvStreamEntries(routerEnv, trinoUpstream, k3sUpstream)); err != nil {
+			opts.warn("%v", err)
+		}
+		// Recreated only if the set changed, which it did exactly when a
+		// coordinator was found. This interrupts a kubectl session against this
+		// environment and touches no other environment and no service route.
+		if err := syncEnvRouter(ctx, opts, d, env, network, true, trinoUpstream != ""); err != nil {
+			opts.warn("%v", err)
+		}
+		if err := envRouter.Reload(ctx, d.Exec); err != nil {
+			opts.warn("%v", err)
+		}
+	}
+
+	// The hosts are rewritten to name this environment *before* they are read,
+	// so the summary, the vhost, the Docker aliases and the resolver all agree
+	// on one string. hmd-cli-helm renders the literal "local" in every
+	// environment, so without this two environments claim one hostname and only
+	// the default one is reachable by name (NERD025 SPEC005).
+	if changed := ops.NormalizeIngressHosts(ctx, env.Slug); len(changed) > 0 {
+		opts.step("  named this environment in the Ingress hosts on %s", strings.Join(changed, ", "))
+	}
+	hosts := ops.IngressHosts(ctx)
+	f.foundUIHosts(hosts)
 	if changed := ops.NormalizeIngressPaths(ctx); len(changed) > 0 {
 		opts.step("  rewrote ALB wildcard paths on %s", strings.Join(changed, ", "))
 	}
@@ -777,7 +890,6 @@ func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d 
 			opts.step("  %s answers for %s on the Docker network", router.ProxyContainer, strings.Join(hosts, ", "))
 		}
 	}
-	return nil
 }
 
 // refreshRoutes routes every DAG-deployed service in the environment.
@@ -1000,17 +1112,12 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 		if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
 			opts.warn("%v", err)
 		}
-		// A deploy may have added an Ingress (Airflow, Argo, a UI). The
-		// proxy's hostname aliases are what let a Floci Lambda reach it (see
-		// startCluster), and they were computed before this deploy ran.
-		if hosts := ops.IngressHosts(ctx); len(hosts) > 0 {
-			f.foundUIHosts(hosts)
-			if reconnected, err := d.EnsureNetworkAliases(ctx, router.ProxyContainer, reg.ControlPlane.Network, hosts); err != nil {
-				opts.warn("could not alias the UI hostnames on %s: %v", router.ProxyContainer, err)
-			} else if reconnected {
-				opts.step("  %s answers for %s on the Docker network", router.ProxyContainer, strings.Join(hosts, ", "))
-			}
-		}
+		// A deploy is what creates the Ingresses (Airflow, Superset, Trino, a
+		// UI) and Trino's coordinator, so the routing that reads them was
+		// computed against nothing when it ran before this deploy. Re-running
+		// it here is what makes a *first* run's interfaces reachable by name
+		// instead of being advertised at a domain that resolves nowhere.
+		exposeDeployedWorkloads(ctx, opts, d, ops, env, routerEnv, cluster, reg.ControlPlane.Network, f)
 	}
 
 	if err := refreshRoutes(ctx, opts, r, routerEnv, target, f); err != nil {

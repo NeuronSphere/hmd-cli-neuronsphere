@@ -392,3 +392,74 @@ func TestNilNetworkChecksAreSkipped(t *testing.T) {
 		}
 	}
 }
+
+// The inverse of TestTheNetworkChecksRunFromRunAndNeverFromGate: this seam is
+// the one that does belong in the preflight, because a start heading for a
+// cluster that cannot route to its own Services is exactly when it is worth
+// saying so (NERD028 SPEC004).
+func TestTheBridgeCheckRunsFromGate(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	var got dockerhost.Endpoint
+	o := passingOptions()
+	o.Bridge = func(_ context.Context, ep dockerhost.Endpoint) []Check {
+		calls++
+		got = ep
+		return []Check{{Name: "bridge netfilter", Status: StatusWarn, Detail: "absent"}}
+	}
+
+	ep, checks, err := Gate(context.Background(), o)
+	if err != nil {
+		t.Fatalf("a warning must not fail the gate: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("Gate ran the bridge check %d times, want 1", calls)
+	}
+	// The property the row text cannot show: the probe is handed the endpoint
+	// Gate proved, not left to the ambient docker context (NERD028 SPEC002).
+	if got.Host != ep.Host {
+		t.Errorf("bridge check got %q, gate resolved %q", got.Host, ep.Host)
+	}
+	if _, ok := find(checks, "bridge netfilter"); !ok {
+		t.Errorf("its row did not reach the report: %v", checks)
+	}
+}
+
+// A Windows-container daemon has no /proc/sys/net/bridge and nothing that would
+// consult it, so this is the wrong question there rather than an unanswerable
+// one.
+func TestTheBridgeCheckIsSkippedOnANonLinuxDaemon(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	o := passingOptions()
+	o.Connect = reaching(dockerhost.Daemon{
+		ServerVersion: "27.3.1", OSType: "windows", OperatingSystem: "Docker Desktop",
+		NCPU: 8, MemTotal: 16 << 30,
+	}, nil)
+	o.Bridge = func(context.Context, dockerhost.Endpoint) []Check {
+		calls++
+		return nil
+	}
+
+	if _, _, err := Gate(context.Background(), o); err != nil {
+		t.Fatalf("the gate should pass: %v", err)
+	}
+	if calls != 0 {
+		t.Errorf("Gate asked a Windows daemon about bridge netfilter")
+	}
+}
+
+// Nil is a skip, not a crash.
+func TestANilBridgeCheckIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	o := passingOptions()
+	o.Bridge = nil
+	for _, c := range Run(context.Background(), o) {
+		if c.Name == "bridge netfilter" {
+			t.Errorf("a nil seam produced a row: %v", c)
+		}
+	}
+}

@@ -59,6 +59,13 @@ type Check struct {
 const (
 	MinCPU    = 4
 	MinMemory = int64(8) << 30
+	// StackMemory is what a full stack was measured to request, as opposed to
+	// what the platform needs to start. Below it a start still works and is
+	// simply tight, so crossing it is a note on an otherwise-ok row and never a
+	// warning: reporting "ok" on a machine with no headroom is what let a first
+	// run believe its capacity had been checked against the thing it was about
+	// to deploy.
+	StackMemory = int64(16) << 30
 )
 
 // CLIChecker is the docker CLI probe, narrowed to what the gate needs.
@@ -119,6 +126,19 @@ type Options struct {
 	// and must not proceed without it, while doctor is a report, and a platform
 	// that is simply not running has no store to prove and is not broken.
 	Storage func(ctx context.Context) []Check
+	// Bridge reports whether the engine's kernel applies netfilter to bridged
+	// frames, which is what makes a ClusterIP answer on a single-node cluster
+	// (NERD028 SPEC002). Nil skips it.
+	//
+	// It takes the endpoint as well as a context, which no other seam does, and
+	// that is the point: the probe is a container run on the engine Gate has
+	// just proved, not on whatever the ambient docker context resolves. Asking
+	// the wrong daemon is the defect NERD021 exists to prevent.
+	//
+	// Unlike Images and Storage it runs from Gate as well as Run. It reaches no
+	// network and asks Floci nothing, so neither objection that keeps those two
+	// out of the preflight applies here.
+	Bridge func(ctx context.Context, ep dockerhost.Endpoint) []Check
 }
 
 func (o Options) lookup(key string) string {
@@ -166,6 +186,12 @@ func Gate(ctx context.Context, o Options) (dockerhost.Endpoint, []Check, error) 
 	checks = append(checks, o.capacity(daemon)...)
 	checks = append(checks, o.mounts(daemon)...)
 	checks = append(checks, o.rootlessSocket(daemon)...)
+	// Linux containers only. A Windows-container daemon has no
+	// /proc/sys/net/bridge to read and nothing that would consult it, so the
+	// question is not merely unanswerable there -- it is the wrong question.
+	if o.Bridge != nil && daemon.OSType == "linux" {
+		checks = append(checks, o.Bridge(ctx, ep)...)
+	}
 	return ep, checks, nil
 }
 
@@ -263,6 +289,17 @@ func (o Options) capacity(d dockerhost.Daemon) []Check {
 			d.DescribeCapacity(), MinCPU, MinMemory>>30)
 		c.Remedy = "On Colima: colima stop && colima start --cpu 4 --memory 12 --disk 100\n" +
 			"On Docker Desktop: Settings -> Resources."
+	} else if d.MemTotal > 0 && d.MemTotal < StackMemory {
+		// Passing the floor is not the same as having room for a full stack.
+		// Measured on a first run of the analytics stack: pod memory *requests*
+		// reached 8.1 GiB before Airflow was counted, and limits reached 121% of
+		// allocatable, on a VM also running two Postgres and two Gremlin JVMs.
+		// That is a note rather than a warning, because 12 GiB did in fact carry
+		// it -- what the numbers say is that there is no headroom, not that it
+		// cannot work.
+		c.Detail = fmt.Sprintf("%s. A full stack (Airflow, Superset, Trino, a broker) requests "+
+			"around %d GiB before its limits are counted, so expect no headroom",
+			d.DescribeCapacity(), StackMemory>>30)
 	}
 	return []Check{c}
 }
