@@ -380,6 +380,13 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		LogDir:      filepath.Join(env.StatePath(), "logs"),
 		OutputDir:   ResourceOutputDir(env),
 	}
+	// A helm release rolled back on a deadline reports only that it ran out of
+	// time. What it was waiting for is in the cluster, and `--atomic` has
+	// already deleted the pods that would have shown it, so it has to be read
+	// at the moment of failure or not at all.
+	if k3sContainer != "" {
+		run.Diagnose = clusterFailureContext(opts, d, env, k3sContainer)
+	}
 
 	// Phase A: the substrate.
 	substrateNodes, err := runPhase(ctx, opts, seeder, run, bomEnv, phaseA, "substrate")
@@ -911,4 +918,20 @@ func reconcileDBAccountForApply(ctx context.Context, opts *Options, reg *registr
 			ServiceRouteURL(opts.Lookup, env.Slug, name))
 	}
 	return nil
+}
+
+// clusterFailureContext asks the cluster why a deploy failed.
+//
+// Bounded and best-effort: it runs on a path where the deploy's own context may
+// already be cancelled, and a diagnosis that hangs would be worse than none.
+func clusterFailureContext(opts *Options, d *container.Docker, env *registry.Environment, cluster string) func() string {
+	return func() string {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		ops := &k3s.Operators{
+			Kube: &k3s.Kube{Cluster: env.K3sCluster, Container: cluster, Kubeconfig: env.Kubeconfig, Run: d.Run},
+			Out:  opts.Out, Err: opts.Err,
+		}
+		return ops.FailureContext(ctx)
+	}
 }

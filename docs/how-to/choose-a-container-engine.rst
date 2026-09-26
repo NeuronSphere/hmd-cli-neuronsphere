@@ -42,10 +42,13 @@ To point ``nsctl`` somewhere else, point ``docker`` there::
    engine reachable     ok       Alpine Linux v3.20 27.3.1 (linux)
    engine capacity      ok       4 CPUs and 12.0 GiB of memory
    bind mounts          ok       the engine runs in a virtual machine ...
+   bridge netfilter     ok       br_netfilter is loaded; bridged frames reach iptables
    CLI and API agree    ok       unix:///Users/you/.colima/default/docker.sock
    host names           ok       resolve to loopback
 
-It changes nothing and exits ``2`` when something needs fixing.
+It changes nothing on your platform and exits ``2`` when something needs
+fixing. The one thing it creates is a throwaway container with no network,
+which it removes: the ``bridge netfilter`` row below has no other way to ask.
 
 An ``ssh://`` endpoint is refused: reaching one needs the docker CLI's own
 connection helper, which ``nsctl`` does not embed. Point ``nsctl`` at a local
@@ -72,6 +75,44 @@ pulls the lot. Colima's 20 GiB default runs out partway through. Disk can only
 be grown after creation, never shrunk.
 
 On Docker Desktop, use *Settings -> Resources*.
+
+Load br_netfilter in the engine's VM
+------------------------------------
+
+The local Kubernetes cluster needs the ``br_netfilter`` kernel module loaded on
+the engine's kernel -- not on your Mac, and not in any container. Every pod on
+the single-node cluster shares one bridge, and without the module a reply to a
+``ClusterIP`` comes back carrying the pod's own address and is dropped. The
+node still reports ``Ready``, so the failure arrives as three unrelated-looking
+bugs: ``ExternalSecret`` resources never sync, interfaces behind an ``Ingress``
+answer ``503``, and ports exposed through a ``LoadBalancer`` refuse connections.
+
+Docker Desktop's kernel loads it already. A freshly created Colima VM does not,
+so ``nsctl`` loads it itself when it builds a cluster. To do it by hand::
+
+   colima ssh -- sudo modprobe br_netfilter
+
+``nsctl doctor`` reports it as the ``bridge netfilter`` row, and the cluster
+image refuses to start rather than come up unable to reach its own Services.
+
+**It does not survive ``colima stop``.** Kernel modules are not persisted, so a
+restarted VM has lost it again -- and ``nsctl`` reloads it on the next
+``env start``, so most people never notice. To stop it being reloaded at all,
+put it in the VM's own configuration, where it also survives recreating the VM.
+In ``~/.colima/default/colima.yaml``::
+
+   provision:
+     - mode: system
+       script: |
+         modprobe br_netfilter
+         sysctl -w net.bridge.bridge-nf-call-iptables=1 net.bridge.bridge-nf-call-ip6tables=1
+
+then ``colima stop && colima start``. A ``/etc/modules-load.d`` entry inside the
+VM works too, but is lost if the VM is ever recreated.
+
+If you need to start a cluster on a kernel without it anyway, pin the previous
+wrapper image with ``HMD_LOCAL_K3S_WRAPPER_IMAGE``. Expect nothing in the
+cluster to reach a Service.
 
 Published ports
 ---------------
