@@ -1150,8 +1150,10 @@ nsctl doctor
 Reports what nsctl resolved and what the container engine says about itself.
 
 Prints the endpoint nsctl will use and where that came from, the engine's
-version and size, whether host paths are visible to it, and whether the local
-host names resolve. It changes nothing.
+version and size, whether host paths are visible to it, whether its kernel
+filters bridged frames, and whether the local host names resolve. It changes
+nothing on your platform; the bridge check runs one throwaway container with no
+network and removes it.
 
 With a home set it also reports each environment's substrate: whether the
 service versions Floci is running are the ones this nsctl resolves, and whether

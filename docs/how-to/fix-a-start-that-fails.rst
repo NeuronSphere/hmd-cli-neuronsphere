@@ -2,10 +2,11 @@ Fix a start that fails
 ======================
 
 Two failures account for most first runs that do not come up, and they are
-related: the second is usually what someone did about the first.
+related: the second is usually what someone did about the first. A third does
+not stop the start at all, which is what makes it hard to recognise.
 
 Start with ``nsctl doctor``. It asks every question a start depends on,
-including the two below, and it never stops at the first answer::
+including the three below, and it never stops at the first answer::
 
    nsctl doctor
 
@@ -66,6 +67,49 @@ is gone either way, so if the registry under ``$HMD_HOME`` survived, rebuild
 the control plane with it::
 
    nsctl control-plane reset
+
+Nothing in the cluster can reach a Service
+------------------------------------------
+
+This one does not fail a start. ``nsctl env start`` succeeds, the node reports
+``Ready``, and then:
+
+- an ``ExternalSecret`` never syncs, so whatever waits on the ``Secret`` it
+  would have produced waits forever;
+- interfaces behind an ``Ingress`` answer ``503``;
+- ports exposed through a ``LoadBalancer`` refuse connections;
+- anything in a pod that resolves a name fails, because cluster DNS is itself
+  reached through a ``ClusterIP``.
+
+All four are one cause: the engine's kernel has no ``br_netfilter``, so bridged
+frames bypass netfilter and a reply to a ``ClusterIP`` comes back carrying the
+backend pod's own address instead of the address it was asked for. ``nsctl
+doctor`` names it::
+
+   bridge netfilter     warning  the kernel behind this engine has no br_netfilter
+                                 loaded, so bridged frames bypass netfilter ...
+                                 nsctl loads it itself when it builds a cluster.
+                                 To do it by hand on Colima:
+                                   colima ssh -- sudo modprobe br_netfilter
+
+``nsctl`` loads the module itself when it builds a cluster, so this is usually
+already handled. When it could not -- an engine whose virtual machine ships no
+module tree, or one that refuses a privileged container -- the cluster image
+refuses to start rather than come up broken, and the start fails naming the
+same command. See :doc:`choose-a-container-engine`, which also covers making it
+survive an engine restart.
+
+An exited container that is not a crash
+---------------------------------------
+
+``docker ps -a`` on a healthy platform shows one or more
+``floci-hmd_ms_*`` containers as ``Exited``, often with a Python traceback in
+their logs. These are emulated Lambdas. Floci starts one to serve a request and
+stops it when it goes idle, so an exited one means it did its job, not that it
+failed -- and the traceback is the runtime being shut down underneath it.
+
+The containers worth worrying about are the ones a start names: the control
+plane's own, and ``floci-eks-*``, which is the cluster.
 
 To start over properly
 ----------------------

@@ -585,3 +585,25 @@ type kubeconfigExecer struct{ out []byte }
 func (k *kubeconfigExecer) Exec(_ context.Context, _ string, _ ...string) ([]byte, error) {
 	return k.out, nil
 }
+
+func TestAnUnfilteredBridgeIsDiagnosed(t *testing.T) {
+	t.Parallel()
+	log := `time="2026-09-25T15:11:17Z" level=fatal msg="the kernel behind this container engine has no br_netfilter loaded: ` +
+		BridgePath + ` does not exist. Bridged frames would bypass netfilter."`
+	d := k3sDiagnosis(log)
+	if !strings.Contains(d, "modprobe br_netfilter") {
+		t.Errorf("diagnosis does not name the command: %q", d)
+	}
+}
+
+// The token must not be "br_netfilter": k3s logs a harmless warning about it on
+// every boot, including every healthy one, so a looser match would attach this
+// remedy to every unrelated death.
+func TestK3sOwnHarmlessModuleWarningIsNotDiagnosed(t *testing.T) {
+	t.Parallel()
+	log := `time="2026-09-25T15:11:17Z" level=warning msg="Failed to load kernel module br_netfilter with modprobe"
+time="2026-09-25T15:11:18Z" level=fatal msg="something else entirely"`
+	if d := k3sDiagnosis(log); d != "" {
+		t.Errorf("a healthy-boot warning produced a diagnosis: %q", d)
+	}
+}

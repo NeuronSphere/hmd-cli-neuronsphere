@@ -190,6 +190,16 @@ type Runner struct {
 	// bisecting a deploy that only misbehaves under concurrency needs).
 	Parallelism int
 
+	// Diagnose, when set, is asked for cluster-side context after a node
+	// fails: the warning events and unready ExternalSecrets that say why a
+	// chart was rolled back on a deadline. A deploy runs in a container and
+	// reports only its own output, so without this the user sees a timeout and
+	// never its cause.
+	//
+	// It takes no context: it is called on a failure path where the run's
+	// context may already be cancelled, and it bounds itself.
+	Diagnose func() string
+
 	// LogDir, when set, is where a failed node's complete stdout and stderr
 	// are written (<LogDir>/<instance>.log), since the report below keeps
 	// only the tail and a provider crash names its cause well above it.
@@ -645,6 +655,12 @@ func (r *Runner) printFailure(res Result) {
 	}
 	if out := strings.TrimSpace(string(res.Stderr)); out != "" {
 		fmt.Fprintf(r.Err, "--- stderr ---\n%s\n", tail(out, 60))
+	}
+	// The node's own output says a deadline was exceeded; the cluster says why.
+	if r.Diagnose != nil {
+		if why := strings.TrimSpace(r.Diagnose()); why != "" {
+			fmt.Fprintf(r.Err, "%s\n", why)
+		}
 	}
 	if r.LogDir != "" {
 		if path, err := writeNodeLog(r.LogDir, res); err == nil {

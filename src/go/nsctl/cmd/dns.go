@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/controlplane"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -145,6 +146,15 @@ func newDNSStatusCommand(opts *Options) *cobra.Command {
 			// it. One message for both would tell a user whose control plane is
 			// down to edit a file that was already correct (NERD026 SPEC003).
 			running := dnsd.Answers(cmd.Context(), addr, probe) == nil
+			// "Nothing answers" has a cause neither fact can see: an engine
+			// whose port forwarder carries no UDP. Without this, a Colima user
+			// whose resolver is running and answering inside the VM is told to
+			// start a control plane that is already up.
+			var udp string
+			if !running {
+				udp = controlplane.ColimaUDPNotice(cmd.Context(),
+					&controlplane.Options{Home: opts.Home, Lookup: opts.Lookup})
+			}
 			ips, err := net.LookupIP(probe)
 			resolving := err == nil && len(ips) > 0
 
@@ -157,7 +167,11 @@ func newDNSStatusCommand(opts *Options) *cobra.Command {
 				fmt.Fprintf(out, "                nothing answers on %s. The name is coming from somewhere\n", addr)
 				fmt.Fprintf(out, "                else -- an /etc/hosts line, or a stale cache -- so names that\n")
 				fmt.Fprintf(out, "                have not been deployed yet will not resolve.\n")
-				fmt.Fprintf(out, "                Start it with `nsctl control-plane start`.\n")
+				if udp != "" {
+					fmt.Fprintf(out, "                %s\n", udp)
+				} else {
+					fmt.Fprintf(out, "                Start it with `nsctl control-plane start`.\n")
+				}
 			case !resolving && running:
 				fmt.Fprintf(out, "not installed   the resolver is running on %s and answers for %s,\n", addr, probe)
 				fmt.Fprintf(out, "                but this machine does not route %s to it.\n", suffix)
@@ -165,8 +179,12 @@ func newDNSStatusCommand(opts *Options) *cobra.Command {
 			default:
 				fmt.Fprintf(out, "not running     nothing answers on %s, and %s does not\n", addr, probe)
 				fmt.Fprintf(out, "                resolve on this machine either.\n")
-				fmt.Fprintf(out, "                Start the resolver with `nsctl control-plane start`, then run\n")
-				fmt.Fprintf(out, "                `nsctl dns install` if the name still does not resolve.\n")
+				if udp != "" {
+					fmt.Fprintf(out, "                %s\n", udp)
+				} else {
+					fmt.Fprintf(out, "                Start the resolver with `nsctl control-plane start`, then run\n")
+					fmt.Fprintf(out, "                `nsctl dns install` if the name still does not resolve.\n")
+				}
 			}
 			return nil
 		},
