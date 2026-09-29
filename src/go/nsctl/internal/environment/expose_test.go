@@ -85,6 +85,44 @@ func TestApplyAlsoRunsTheDeployDependentRouting(t *testing.T) {
 	}
 }
 
+// Every caller that reaches exposeDeployedWorkloads must carry IngressClass.
+//
+// The two Ingress rewrites it performs select on the class, so an Operators
+// built without one falls back to `alb` and, on a cluster configured with
+// anything else, matches nothing and rewrites nothing -- silently, because a
+// rewrite with no patches prints no step line. refreshAfterDeploy was built that
+// way for four days while startCluster beside it was not.
+//
+// Callers that never reach it are deliberately not listed: refreshSpawnedAliases
+// only calls EnsureCoreDNSRecordsFor and clusterFailureContext only calls
+// FailureContext, and neither reads the class. Requiring it everywhere would be
+// cargo cult, not a check.
+func TestEveryIngressRewritingCallerCarriesTheClass(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []struct{ file, fn string }{
+		{"environment.go", "func startCluster("},
+		{"environment.go", "func refreshAfterDeploy("},
+		{"apply.go", "func exposeAfterApply("},
+	} {
+		src, err := os.ReadFile(c.file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", c.file, err)
+		}
+		body := funcBody(t, string(src), c.fn)
+		if !strings.Contains(body, "exposeDeployedWorkloads(ctx,") {
+			t.Errorf("%s in %s no longer reaches exposeDeployedWorkloads; this list is stale",
+				c.fn, c.file)
+			continue
+		}
+		if !strings.Contains(body, "IngressClass:") {
+			t.Errorf("%s in %s builds k3s.Operators without IngressClass; the Ingress rewrites "+
+				"select on the class, so on a non-default HMD_LOCAL_INGRESS_CLASS it would match "+
+				"nothing and say nothing", c.fn, c.file)
+		}
+	}
+}
+
 // funcBody returns the source from a function's signature to the next
 // top-level declaration.
 func funcBody(t *testing.T, src, signature string) string {

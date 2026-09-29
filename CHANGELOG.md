@@ -2,6 +2,14 @@
 
 ## 2026-09-29
 
+- fix: the post-deploy Ingress rewrite honours `HMD_LOCAL_INGRESS_CLASS`. The
+  two rewrites it performs select on the class, and `refreshAfterDeploy` built
+  its cluster client without one while `startCluster` beside it did -- so on a
+  cluster configured with any class but the default `alb`, the pass that runs
+  after a deploy matched no Ingress and rewrote nothing, silently, because a
+  rewrite with no patches prints no line. The two callers that do not rewrite
+  Ingresses still omit the class, and a test now pins which is which.
+
 - fix: `nsctl env apply` wires the routing for what it just deployed. A deploy
   is what creates the Ingresses -- Airflow, Superset, Trino, any UI -- and only
   `env start` ever re-read them afterwards. So `env apply`, and with it

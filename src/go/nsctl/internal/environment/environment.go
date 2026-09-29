@@ -1107,7 +1107,15 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 				AuthHost: authd.Host(opts.lookup),
 			},
 			Network: reg.ControlPlane.Network, IngressEnabled: ingressEnabled(opts),
-			Out: opts.Out, Err: opts.Err,
+			// Carried because this ops reaches exposeDeployedWorkloads below,
+			// and the two Ingress rewrites there select on the class. Omitting
+			// it fell back to the default `alb`, so on a cluster configured
+			// with any other class the post-deploy pass matched no Ingress and
+			// silently rewrote nothing -- the same three faces as running it
+			// only before the deploy, on a narrower set of machines.
+			IngressClass: opts.lookup("HMD_LOCAL_INGRESS_CLASS"),
+			Out:          opts.Out,
+			Err:          opts.Err,
 		}
 		if err := ops.EnsureCoreDNSRecordsFor(ctx, dbContainer, graphContainer); err != nil {
 			opts.warn("%v", err)
