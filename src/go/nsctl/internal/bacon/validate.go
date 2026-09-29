@@ -250,6 +250,16 @@ func (v *validator) access() {
 			}
 			switch key {
 			case "name", "url", "username", "notes", "secret":
+			case "instance":
+				// Only a stack has anything to point at: an ordinary class
+				// describes itself, and the instance is whichever one the
+				// environment declared it as (NERD023 SPEC007).
+				if !v.isStack() {
+					v.add(Warning, path+".instance",
+						"names an instance, which only a stack's entry does. This class describes "+
+							"itself, so the instance is whichever one an environment declares it as, "+
+							"and this key is ignored")
+				}
 			default:
 				v.add(Warning, path+"."+key, "is not part of the declaration and is ignored")
 			}

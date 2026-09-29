@@ -18,7 +18,10 @@
   derivable from its name or reference; the deploy summary's pointer to
   `env credentials` appears when a stack is the only thing declaring access; and
   `nsctl repoclass access add --instance` authors the new key, with
-  `access list` gaining a DESCRIBES column so it does not hide it.
+  `access list` gaining a DESCRIBES column so it does not hide it. `validate`
+  knows the key: on a stack it is accepted, and on an ordinary class it warns
+  that it is ignored and says what the instance actually is -- without that,
+  every stack declaring access was told its own declaration was ignored.
 
 - fix: the post-deploy Ingress rewrite honours `HMD_LOCAL_INGRESS_CLASS`. The
   two rewrites it performs select on the class, and `refreshAfterDeploy` built

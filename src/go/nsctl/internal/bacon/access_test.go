@@ -243,3 +243,50 @@ func TestValidateAccessShape(t *testing.T) {
 		t.Errorf("a duplicate's later findings should keep its index, got %v", v.findings)
 	}
 }
+
+// `instance` is a stack's key. On a stack it is the declaration; on an ordinary
+// class it is ignored, and saying so is the point -- a class describes itself, so
+// the instance is whichever one an environment declared it as (NERD023 SPEC007).
+func TestValidateAccessInstanceBelongsToAStack(t *testing.T) {
+	t.Parallel()
+
+	entry := func() *Object {
+		e := NewObject()
+		e.Set("name", "airflow")
+		e.Set("url", "http://{ingress_host}/")
+		e.Set("instance", "airflow")
+		return e
+	}
+
+	// A stack: accepted silently.
+	stack := base()
+	local := NewObject()
+	local.Set("stack", true)
+	stack.Set("local", local)
+	stack.Set("access", []any{entry()})
+	v := &validator{doc: stack}
+	v.access()
+	for _, f := range v.findings {
+		if strings.Contains(f.Message, "instance") {
+			t.Errorf("a stack's instance key should be accepted, got %q", f.Message)
+		}
+	}
+
+	// An ordinary class: warned, and told what the instance actually is.
+	plain := base()
+	plain.Set("access", []any{entry()})
+	v = &validator{doc: plain}
+	v.access()
+	found := false
+	for _, f := range v.findings {
+		if strings.Contains(f.Message, "only a stack's entry does") {
+			found = true
+			if f.Severity != Warning {
+				t.Errorf("severity = %v, want Warning: an ignored key is not a broken manifest", f.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("a non-stack class should be told the key is ignored, got %v", v.findings)
+	}
+}
