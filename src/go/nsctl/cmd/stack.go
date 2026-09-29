@@ -189,7 +189,8 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 			declared := append([]string(nil), added...)
 			sort.Strings(declared)
 			m.SetStack(manifest.StackRecord{
-				Name: s.Name, Version: s.Version, Ref: ref.WithTag("").String(), Digest: s.Digest.String(),
+				Name: s.Name, Version: s.Version, Class: s.Class,
+				Ref: ref.WithTag("").String(), Digest: s.Digest.String(),
 				Profiles: plan.Profiles, Bindings: bindings, Declared: declared,
 			})
 			if problems := m.Validate(opts.Lookup); len(problems) > 0 {

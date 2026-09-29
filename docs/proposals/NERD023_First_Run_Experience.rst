@@ -5,7 +5,7 @@ NERD023 First Run Experience
 
 .. req:: Get a newcomer from download to a working environment
     :id: HMD_CLI_NEURONSPHERE_NERD023
-    :status: partial
+    :status: implemented
 
     ``nsctl`` shall carry a guided first run that establishes what is present,
     creates an environment, and offers to adopt the user's own repository --
@@ -330,7 +330,7 @@ Scope and terminology
 .. spec:: A stack declares access the same way
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD023
-    :status: proposed
+    :status: implemented
 
     A stack is a RepoClass, so it declares ``access`` with the same block and
     no stack-specific mechanism. A stack's reported access is its own entries
@@ -341,6 +341,41 @@ Scope and terminology
     however that instance arrived -- ``stack add``, ``env add --from-repo``, or
     ``repo add`` -- and a stack authored later inherits it without restating it.
     NERD017 is amended to say so rather than to define anything new.
+
+    .. note::
+
+        ``implemented`` 2026-09-29, with two decisions this text did not settle.
+
+        **A stack entry names the instance it describes**, in a new ``instance``
+        key on the entry. It is not optional and not inferable: everything in the
+        resolver is keyed by instance -- ``{ingress_host}`` is
+        ``IngressHostFor(instance, slug)`` and a secret's name templates over
+        ``{instance_name}`` -- and a stack is deliberately not an instance of
+        itself (NERD017 SPEC001), so it has nothing to resolve against otherwise.
+        An entry that names none, or names one the environment does not declare,
+        is reported as a problem rather than dropped: a stack with a wrong
+        instance in it has a defect, and the report is where its author finds out.
+
+        **A stack entry supersedes the class entry of the same name** for that
+        instance, rather than sitting beside it. "Together with", read as a union,
+        produces two usernames for one URL and leaves the reader to guess -- which
+        is the failure this whole mechanism exists to avoid. The case that decided
+        it: ``hmd-app-airflow`` correctly documents the ``admin`` user its own
+        ``default_configuration`` creates, ``hmd-stack-analytics`` replaces that
+        fixture with a single ``airflow`` user, and ``env credentials`` therefore
+        named a login that does not exist. It cost a real sign-in attempt. The
+        report names the stack that supplied a superseding entry, so a reader who
+        finds a username the class does not document can see what replaced it.
+
+        Three things had to follow the stack rather than the instance:
+        ``StackRecord`` gained ``class`` (the stack's own RepoClass, which is not
+        derivable from its name or ref -- ``analytics`` is served by
+        ``hmd-stack-analytics``); the class reader seeds that class and version so
+        the resolver can reach a tree ``Seed``'s walk over declared instances
+        never sees; and ``credentials.Any`` counts stacks, or an environment whose
+        only declaration is its stack's deploys interfaces and prints no pointer
+        to them. A record written before ``class`` existed reports why it cannot
+        be read instead of staying silent.
 
 .. spec:: ``detect``, and the adoption skill it unblocks
     :id: HMD_CLI_NEURONSPHERE_NERD023_SPEC008

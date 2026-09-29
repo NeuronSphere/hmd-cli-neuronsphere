@@ -335,7 +335,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	// Asked once, at the end, because the answer depends on what the deploy
 	// declared and a start that deployed nothing has nothing to point at.
 	if declared, err := manifest.Load(opts.Home, env.Slug, opts.Lookup); err == nil && declared != nil {
-		f.Access = declaresAccess(opts, declared.Repos)
+		f.Access = declaresAccess(opts, declared.Repos, declared.Stacks)
 	}
 	for _, line := range readySummary(env, mode, nil, f) {
 		opts.step("%s", line)

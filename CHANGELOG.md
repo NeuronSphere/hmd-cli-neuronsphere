@@ -2,6 +2,24 @@
 
 ## 2026-09-29
 
+- feat: a stack declares how its workloads are signed in to, and
+  `nsctl env credentials` reports it (NERD023 SPEC007, which closes NERD023).
+  A stack is a RepoClass, so it uses the same top-level `access` block; what it
+  adds is an `instance` key naming which of the instances it declared the entry
+  describes, because a stack is not an instance of itself and has nothing else
+  to resolve `{ingress_host}` or a secret name against. Such an entry
+  **supersedes** that instance's own class entry of the same name.
+  That case is not hypothetical: `hmd-app-airflow` correctly documents the
+  `admin` user its own `default_configuration` creates, `hmd-stack-analytics`
+  replaces that fixture with a single `airflow` user, and `env credentials`
+  therefore named a login that does not exist. The report now names the stack an
+  entry came from, so a username the class does not document can be traced.
+  Also: a stack record carries `class`, its own RepoClass, which is not
+  derivable from its name or reference; the deploy summary's pointer to
+  `env credentials` appears when a stack is the only thing declaring access; and
+  `nsctl repoclass access add --instance` authors the new key, with
+  `access list` gaining a DESCRIBES column so it does not hide it.
+
 - fix: the post-deploy Ingress rewrite honours `HMD_LOCAL_INGRESS_CLASS`. The
   two rewrites it performs select on the class, and `refreshAfterDeploy` built
   its cluster client without one while `startCluster` beside it did -- so on a

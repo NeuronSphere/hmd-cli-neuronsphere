@@ -269,18 +269,188 @@ func TestAny(t *testing.T) {
 		"hmd-inf-superset": {supersetAccess()},
 		"hmd-inf-redis":    nil,
 	})
-	if !Any([]manifest.Repo{{InstanceName: "s", RepoClassName: "hmd-inf-superset"}}, class) {
+	if !Any([]manifest.Repo{{InstanceName: "s", RepoClassName: "hmd-inf-superset"}}, nil, class) {
 		t.Error("a class that declares access should answer true")
 	}
-	if Any([]manifest.Repo{{InstanceName: "c", RepoClassName: "hmd-inf-redis"}}, class) {
+	if Any([]manifest.Repo{{InstanceName: "c", RepoClassName: "hmd-inf-redis"}}, nil, class) {
 		t.Error("a class that declares none should answer false")
 	}
 	// A class with no tree on this machine contributes nothing and is not an
 	// error: an environment built from pruned artifacts is an ordinary state.
-	if Any([]manifest.Repo{{InstanceName: "x", RepoClassName: "not-here"}}, class) {
+	if Any([]manifest.Repo{{InstanceName: "x", RepoClassName: "not-here"}}, nil, class) {
 		t.Error("an unresolvable class should answer false")
 	}
-	if Any(nil, class) {
+	if Any(nil, nil, class) {
 		t.Error("no instances should answer false")
+	}
+}
+
+// stackOptions is baseOptions plus a stack that declares access for one of the
+// instances it declared, which is the SPEC007 shape.
+func stackOptions(t *testing.T, entries ...bacon.AccessEntry) Options {
+	t.Helper()
+	o := baseOptions(t)
+	o.Stacks = []manifest.StackRecord{{
+		Name: "analytics", Version: "0.1.3", Class: "hmd-stack-analytics",
+		Declared: []string{"superset", "cache"},
+	}}
+	o.Class = classWith(t, map[string][]bacon.AccessEntry{
+		"hmd-inf-superset":    {supersetAccess()},
+		"hmd-inf-redis":       nil,
+		"hmd-stack-analytics": entries,
+	})
+	return o
+}
+
+// A stack replaces the class's entry for the instance it names. The motivating
+// case: hmd-app-airflow documents the `admin` user its own default_configuration
+// creates, and a stack that replaces that users fixture leaves the class's entry
+// describing a login that does not exist.
+func TestAStackSupersedesTheClassEntryItNames(t *testing.T) {
+	t.Parallel()
+
+	o := stackOptions(t, bacon.AccessEntry{
+		Name: "superset", Instance: "superset",
+		URL: "http://{ingress_host}/", Username: "analytics-admin",
+		Notes: "This stack pins its own admin.",
+	})
+	got := Resolve(context.Background(), o, false)
+
+	var superset []Entry
+	for _, e := range got {
+		if e.Instance == "superset" {
+			superset = append(superset, e)
+		}
+	}
+	if len(superset) != 1 {
+		t.Fatalf("want one entry for superset, got %d: %+v", len(superset), superset)
+	}
+	e := superset[0]
+	if e.Username != "analytics-admin" {
+		t.Errorf("the stack's username should win, got %q", e.Username)
+	}
+	if e.Stack != "analytics" {
+		t.Errorf("the entry should name the stack that declared it, got %q", e.Stack)
+	}
+	// It templates against the instance it names, so the URL and the secret
+	// resolve exactly as the class's would have.
+	if e.URL != "http://superset.dev.ns.local/" {
+		t.Errorf("URL = %q", e.URL)
+	}
+}
+
+// An entry for an instance nothing else describes is added, not a replacement.
+func TestAStackEntryForAnUnclaimedInstanceIsAdded(t *testing.T) {
+	t.Parallel()
+
+	o := stackOptions(t, bacon.AccessEntry{
+		Name: "cache", Instance: "cache",
+		URL: "http://{ingress_host}/", Username: "redis",
+	})
+	got := Resolve(context.Background(), o, false)
+
+	found := false
+	for _, e := range got {
+		if e.Instance == "cache" && e.Name == "cache" {
+			found, _ = true, e
+			if e.Stack != "analytics" {
+				t.Errorf("stack = %q", e.Stack)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the stack's entry for cache should be reported; got %+v", got)
+	}
+	// And the class entry it did not name is untouched.
+	for _, e := range got {
+		if e.Instance == "superset" && e.Stack != "" {
+			t.Errorf("superset should still come from its class, got stack %q", e.Stack)
+		}
+	}
+}
+
+// A stack that names an instance the environment does not declare has a defect
+// in it, and the report is where its author finds out.
+func TestAStackEntryNamingAnAbsentInstanceIsReported(t *testing.T) {
+	t.Parallel()
+
+	o := stackOptions(t, bacon.AccessEntry{
+		Name: "ghost", Instance: "not-declared", URL: "http://x/",
+	})
+	for _, e := range Resolve(context.Background(), o, false) {
+		if e.Name == "ghost" {
+			if e.Problem == "" {
+				t.Error("an entry naming an absent instance should carry a problem")
+			}
+			return
+		}
+	}
+	t.Error("the entry should be reported, not dropped")
+}
+
+// Without an instance there is nothing to template against: {ingress_host} and
+// a secret name are both derived from one.
+func TestAStackEntryWithNoInstanceIsReported(t *testing.T) {
+	t.Parallel()
+
+	o := stackOptions(t, bacon.AccessEntry{Name: "nowhere", URL: "http://{ingress_host}/"})
+	for _, e := range Resolve(context.Background(), o, false) {
+		if e.Name == "nowhere" {
+			if e.Problem == "" {
+				t.Error("an entry naming no instance should carry a problem")
+			}
+			return
+		}
+	}
+	t.Error("the entry should be reported, not dropped")
+}
+
+// A record written before the class was persisted cannot reach its declaration.
+// Saying so beats silence: a stack that declares a front door and is ignored
+// looks exactly like a stack that declares none.
+func TestAStackRecordWithNoClassSaysWhyItCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	o := baseOptions(t)
+	o.Stacks = []manifest.StackRecord{{Name: "analytics", Version: "0.1.3"}}
+	for _, e := range Resolve(context.Background(), o, false) {
+		if e.Stack == "analytics" && e.Problem != "" {
+			return
+		}
+	}
+	t.Error("a record with no class should be reported as unreadable")
+}
+
+// --instance filters stack entries by the instance they name, not by the stack.
+func TestInstanceFilterAppliesToStackEntries(t *testing.T) {
+	t.Parallel()
+
+	o := stackOptions(t, bacon.AccessEntry{
+		Name: "cache", Instance: "cache", URL: "http://{ingress_host}/",
+	})
+	o.Instance = "superset"
+	for _, e := range Resolve(context.Background(), o, false) {
+		if e.Instance != "superset" {
+			t.Errorf("--instance superset should exclude %+v", e)
+		}
+	}
+}
+
+// The deploy summary's pointer must appear when the only declaration is a
+// stack's, or an environment deploys three interfaces and says nothing.
+func TestAnyCountsAStacksOwnDeclaration(t *testing.T) {
+	t.Parallel()
+
+	class := classWith(t, map[string][]bacon.AccessEntry{
+		"hmd-inf-redis":       nil,
+		"hmd-stack-analytics": {{Name: "superset", Instance: "superset", URL: "http://x/"}},
+	})
+	repos := []manifest.Repo{{InstanceName: "cache", RepoClassName: "hmd-inf-redis"}}
+	stacks := []manifest.StackRecord{{Name: "analytics", Class: "hmd-stack-analytics"}}
+	if !Any(repos, stacks, class) {
+		t.Error("a stack that declares access should answer true")
+	}
+	if Any(repos, nil, class) {
+		t.Error("without the stack there is no declaration and it should answer false")
 	}
 }

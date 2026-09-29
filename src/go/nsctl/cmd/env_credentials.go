@@ -68,9 +68,15 @@ local state and works with nothing running.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
-			var repos []manifest.Repo
+			// An environment with no manifest at all is the ordinary state of one
+			// that has only ever had a substrate, so both of these stay nil
+			// rather than being dereferenced off it.
+			var (
+				repos  []manifest.Repo
+				stacks []manifest.StackRecord
+			)
 			if m != nil {
-				repos = m.Repos
+				repos, stacks = m.Repos, m.Stacks
 			}
 
 			o := credentials.Options{
@@ -78,8 +84,9 @@ local state and works with nothing running.`,
 				DeploymentID: env.DeploymentID,
 				Repos:        repos,
 				OutputDir:    environment.ResourceOutputDir(env),
-				Class:        classReader(opts, home, repos),
+				Class:        classReader(opts, home, repos, stacks),
 				Instance:     instance,
+				Stacks:       stacks,
 			}
 			// The secret reader is built only when a value is wanted, so the
 			// default path needs no Floci and no account credential at all.
@@ -119,9 +126,23 @@ local state and works with nothing running.`,
 // resolver a deploy uses, so a listing reads the tiers the deploy will. It never
 // fetches: every tier either stats the filesystem or answers from the manifest,
 // which is what keeps this usable with nothing running.
-func classReader(opts *Options, home string, repos []manifest.Repo) credentials.ClassReader {
+// stacks is seeded alongside them because a stack is a RepoClass whose access
+// this reads, and it is deliberately not an instance (NERD017 SPEC001), so
+// Seed's walk over the declared repos cannot reach it. Its version comes from
+// its own record; `stack add` cached the tree under exactly that pair.
+func classReader(opts *Options, home string, repos []manifest.Repo,
+	stacks []manifest.StackRecord) credentials.ClassReader {
+
 	resolver := repoclass.NewWithHome(opts.Lookup("HMD_REPO_HOME"), home, opts.Lookup)
 	repoclass.Seed(resolver, repos)
+	if resolver.Artifacts == nil {
+		resolver.Artifacts = map[string]string{}
+	}
+	for _, st := range stacks {
+		if st.Class != "" && st.Version != "" {
+			resolver.Artifacts[st.Class] = st.Version
+		}
+	}
 	return func(class string) (*bacon.Store, error) {
 		dir := resolver.Dir(class)
 		if dir == "" {
@@ -160,8 +181,17 @@ func renderCredentials(out io.Writer, env *registry.Environment, entries []crede
 	w.Flush()
 
 	for _, e := range entries {
-		if e.Notes != "" {
+		// A stack entry is said to come from its stack even when it carries no
+		// notes: it replaced the class's declaration, so a reader comparing this
+		// against the class's own documentation needs to know why they differ
+		// (NERD023 SPEC007).
+		switch {
+		case e.Notes != "" && e.Stack != "":
+			fmt.Fprintf(out, "\n%s/%s (declared by stack %q): %s\n", e.Instance, e.Name, e.Stack, e.Notes)
+		case e.Notes != "":
 			fmt.Fprintf(out, "\n%s/%s: %s\n", e.Instance, e.Name, e.Notes)
+		case e.Stack != "":
+			fmt.Fprintf(out, "\n%s/%s: declared by stack %q.\n", e.Instance, e.Name, e.Stack)
 		}
 	}
 	if !reveal && anySecret(entries) {
@@ -215,6 +245,9 @@ func credentialsDocument(env *registry.Environment, entries []credentials.Entry,
 		}
 		if e.Username != "" {
 			item["username"] = e.Username
+		}
+		if e.Stack != "" {
+			item["stack"] = e.Stack
 		}
 		if e.Notes != "" {
 			item["notes"] = e.Notes

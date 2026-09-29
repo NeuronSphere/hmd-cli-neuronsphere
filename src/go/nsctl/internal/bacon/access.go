@@ -75,6 +75,12 @@ type AccessEntry struct {
 	Username string
 	Notes    string
 	Secret   *AccessSecret
+	// Instance names which deployed instance this entry describes, and is only
+	// meaningful on a stack: a stack declares access for the instances it
+	// declared, so it has to say which one (NERD023 SPEC007). An ordinary class
+	// describes itself and leaves this empty -- there, the instance is whichever
+	// one the manifest declared the class as.
+	Instance string
 }
 
 // AddAccess adds or replaces the access entry with the name.
@@ -105,6 +111,9 @@ func AddAccess(doc *Object, e AccessEntry) (string, error) {
 	entry := NewObject()
 	entry.Set("name", name)
 	entry.Set("url", e.URL)
+	if e.Instance != "" {
+		entry.Set("instance", e.Instance)
+	}
 	if e.Username != "" {
 		entry.Set("username", e.Username)
 	}
@@ -232,6 +241,7 @@ func ReadAccess(doc *Object) []AccessEntry {
 		}
 		e := AccessEntry{Name: name}
 		e.URL, _ = obj.String("url")
+		e.Instance, _ = obj.String("instance")
 		e.Username, _ = obj.String("username")
 		e.Notes, _ = obj.String("notes")
 		if sec, ok := obj.Object("secret"); ok {

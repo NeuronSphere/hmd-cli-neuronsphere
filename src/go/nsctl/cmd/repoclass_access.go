@@ -91,6 +91,9 @@ the resource output to read its name from.`,
 		},
 	}
 	cmd.Flags().StringVar(&e.URL, "url", "", "Where it is reached; may use placeholders (required)")
+	cmd.Flags().StringVar(&e.Instance, "instance", "",
+		"For a stack only: which instance it declared that this entry describes. "+
+			"It supersedes that instance's own class entry of the same name")
 	cmd.Flags().StringVar(&e.Username, "username", "", "The user who logs in, when there is a fixed one")
 	cmd.Flags().StringVar(&e.Notes, "notes", "", "One line a reader needs that the fields do not carry")
 	cmd.Flags().StringVar(&store, "secret-store", "",
@@ -100,6 +103,15 @@ the resource output to read its name from.`,
 	cmd.Flags().StringVar(&output, "secret-output", "",
 		"A resource output key to read the secret's name from, instead of --secret-key")
 	return cmd
+}
+
+// accessTarget is what an entry describes: an instance a stack named, or the
+// class itself.
+func accessTarget(e bacon.AccessEntry) string {
+	if e.Instance != "" {
+		return e.Instance
+	}
+	return "(this class)"
 }
 
 func newAccessRemoveCommand(path *repoClassPath) *cobra.Command {
@@ -167,9 +179,13 @@ func renderAccessList(out io.Writer, entries []bacon.AccessEntry) {
 		return
 	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tURL\tUSERNAME\tCREDENTIAL")
+	// DESCRIBES, because a stack's entries name an instance and a class's name
+	// itself; a listing that hid the difference would hide which door each one
+	// is about.
+	fmt.Fprintln(w, "NAME\tDESCRIBES\tURL\tUSERNAME\tCREDENTIAL")
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Name, orDash(e.URL), orDash(e.Username), accessCredentialLabel(e))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			e.Name, accessTarget(e), orDash(e.URL), orDash(e.Username), accessCredentialLabel(e))
 	}
 	w.Flush()
 	for _, e := range entries {

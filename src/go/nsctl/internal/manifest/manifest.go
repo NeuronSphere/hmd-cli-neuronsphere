@@ -193,6 +193,15 @@ type StackRecord struct {
 	// digest that was installed.
 	Ref    string `yaml:"ref" json:"ref"`
 	Digest string `yaml:"digest,omitempty" json:"digest,omitempty"`
+	// Class is the stack's own RepoClass -- the lock's repo_class_name, which
+	// is not derivable from Name or Ref: `analytics` is served from
+	// ghcr.io/neuronsphere/stacks/analytics by the class hmd-stack-analytics.
+	// It is what lets a reader find the stack's own manifest, and therefore its
+	// `access` declaration (NERD023 SPEC007).
+	//
+	// Optional: a record written before this key existed has none, and a reader
+	// then has no way to that manifest. Re-running `stack add` records it.
+	Class string `yaml:"class,omitempty" json:"class,omitempty"`
 	// Profiles and Bindings are what the stack's planner recorded, with the
 	// meanings Manifest.Profiles and Manifest.Bindings have.
 	Profiles []string          `yaml:"profiles,omitempty" json:"profiles,omitempty"`

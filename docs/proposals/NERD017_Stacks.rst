@@ -101,6 +101,15 @@ namespace (a ``ghcr.io`` permission, not an ``nsctl`` one).
         to each workload's own RepoClass and applies however that instance
         arrived.  A stack authored later inherits it without restating it.
 
+        Built 2026-09-29.  Two things this paragraph left open are settled in
+        NERD023 SPEC007's note: a stack's entry carries ``instance`` naming which
+        of its declared instances it describes, because a stack is not an instance
+        of itself and has nothing else to resolve ``{ingress_host}`` against; and
+        such an entry **supersedes** that instance's class entry of the same name
+        rather than being reported beside it.  The stack record therefore also
+        carries ``class``, its own RepoClass, which is not derivable from its name
+        or its reference.
+
     ``local.stack`` reverses this spec's original rule that nothing marks a
     stack, "because the two files are the declaration". That held only while
     every stack was an instance, which made the distinction cost nothing. It

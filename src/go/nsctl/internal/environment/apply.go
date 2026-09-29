@@ -128,11 +128,13 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// eks-cluster node deploys a cluster nothing will run.
 	substrate := bom.SubstrateFor(bomEnv, mode, k3sEnabled(opts))
 	var (
-		declaredRepos []manifest.Repo
-		repoPaths     map[string]string
+		declaredRepos  []manifest.Repo
+		declaredStacks []manifest.StackRecord
+		repoPaths      map[string]string
 	)
 	if declared != nil {
 		declaredRepos = declared.Repos
+		declaredStacks = declared.Stacks
 		repoPaths = repoclass.Paths(declaredRepos, opts.Lookup)
 		opts.step("Manifest %s declares %d instance(s)", declared.Path, len(declaredRepos))
 		if unsupported := declared.Unsupported(); len(unsupported) > 0 {
@@ -514,7 +516,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// Named only when there is something to show. A pointer to an empty table is
 	// noise, and the alternative -- printing the credentials here -- puts them in
 	// scrollback and CI logs for every reader of every apply (NERD023 SPEC006).
-	if declaresAccess(opts, declaredRepos) {
+	if declaresAccess(opts, declaredRepos, declaredStacks) {
 		opts.step("  credentials  nsctl env credentials %s", env.Slug)
 	}
 	if purged {
@@ -855,13 +857,23 @@ func refreshSpawnedAliases(ctx context.Context, opts *Options, reg *registry.Reg
 // Read through the same resolver a deploy uses and never fetching, so asking the
 // question costs a few stats. A class whose tree is not on this machine is not an
 // error here: it simply contributes no declaration.
-func declaresAccess(opts *Options, repos []manifest.Repo) bool {
-	if len(repos) == 0 {
+func declaresAccess(opts *Options, repos []manifest.Repo, stacks []manifest.StackRecord) bool {
+	if len(repos) == 0 && len(stacks) == 0 {
 		return false
 	}
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	repoclass.Seed(resolver, repos)
-	return credentials.Any(repos, func(class string) (*bacon.Store, error) {
+	// A stack is not an instance, so Seed cannot reach it; its version is in its
+	// own record.
+	if resolver.Artifacts == nil {
+		resolver.Artifacts = map[string]string{}
+	}
+	for _, st := range stacks {
+		if st.Class != "" && st.Version != "" {
+			resolver.Artifacts[st.Class] = st.Version
+		}
+	}
+	return credentials.Any(repos, stacks, func(class string) (*bacon.Store, error) {
 		dir := resolver.Dir(class)
 		if dir == "" {
 			return nil, fmt.Errorf("no tree for %s", class)

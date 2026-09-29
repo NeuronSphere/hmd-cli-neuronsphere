@@ -2149,6 +2149,7 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--instance`` — For a stack only: which instance it declared that this entry describes. It supersedes that instance's own class entry of the same name
 * ``--notes`` — One line a reader needs that the fields do not carry
 * ``--secret-key`` — The secret's name; may use placeholders
 * ``--secret-output`` — A resource output key to read the secret's name from, instead of --secret-key
