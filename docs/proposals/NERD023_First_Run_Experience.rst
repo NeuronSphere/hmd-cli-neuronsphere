@@ -113,6 +113,38 @@ Scope and terminology
     4. **Something deployed.** A stack, *only when a reference resolves*. The
        command shall not carry a hardcoded stack name: it shall resolve a
        candidate and skip the step silently when nothing answers.
+
+       **Corrected 2026-09-29.** Half of this shipped. The resolve-and-skip
+       guard was built and is right; the name beside it was not. ``quickstart``
+       did carry a hardcoded candidate, ``observability``, and no artifact of
+       that name has ever been published in the default namespace -- so the
+       resolve failed on every machine, the step printed that nothing was on
+       offer, and the one step this command exists for has never run for
+       anybody. The documents were consistent with the code and wrong with it:
+       the tutorial and both stack how-tos used the same name.
+
+       The candidate is now ``analytics`` -- Airflow, Trino and Superset, served
+       anonymously from ``ghcr.io/neuronsphere/stacks/analytics``. It is still a
+       constant, which still does not meet "shall not carry a hardcoded stack
+       name"; what closes that clause is a candidate derived from what the
+       configured registries actually serve, and it is not built. The guard is
+       what makes the constant survivable, not a substitute for the clause.
+
+       The lesson is the one this document was written about. A step that fails
+       open is indistinguishable from a step that is working, so nothing
+       reported it -- not the tests, which asserted the wizard offered whatever
+       name the fake resolved, and not a run, because the run looked orderly.
+       A guard against an unpublished name cannot also be the check that the
+       name is published.
+
+       Checking by hand did not report it either. ``ghcr.io`` answers a
+       credential-less request for a name it does not serve with ``403 DENIED``,
+       not ``404``, so ``nsctl stack versions observability`` says the registry
+       wants a credential and names ``HMD_REGISTRY_TOKEN`` -- which reads as a
+       missing token, not a missing artifact. The same request for ``analytics``
+       returns ``0.1.2``, ``0.1.1``, ``0.1.0`` anonymously. Running both is what
+       tells them apart, which is why a control belongs in any check of this
+       kind.
     5. **The user's own repository**, through ``repoclass detect`` (SPEC008).
     6. **Agent guidance**, through ``agent skills install``, for the judgement
        the CLI deliberately refuses to make.

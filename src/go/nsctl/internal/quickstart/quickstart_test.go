@@ -136,7 +136,7 @@ func TestEveryStepShowsTheCommandItRuns(t *testing.T) {
 
 	repo := t.TempDir()
 	rec := &recorder{capture: map[string]string{
-		"stack versions observability": "0.1.0\n",
+		"stack versions analytics": "0.1.0\n",
 	}}
 	// name=dev, start=yes, stack=yes, adopt path given, apply=yes, skills=yes
 	text := drive(t, "dev\ny\ny\ny\ny\n", Options{
@@ -146,7 +146,7 @@ func TestEveryStepShowsTheCommandItRuns(t *testing.T) {
 	for _, want := range [][]string{
 		{"doctor"},
 		{"env", "start", "dev"},
-		{"stack", "add", "observability", "--env", "dev", "--apply"},
+		{"stack", "add", "analytics", "--env", "dev", "--apply"},
 		{"repoclass", "detect", "--path", repo},
 		{"agent", "skills", "install"},
 	} {
@@ -187,7 +187,7 @@ func TestAnUnresolvableStackIsNotOffered(t *testing.T) {
 func TestDecliningAStepContinues(t *testing.T) {
 	t.Parallel()
 
-	rec := &recorder{capture: map[string]string{"stack versions observability": "0.1.0\n"}}
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
 	// name default, start=no -> the stack step is skipped with it, then adopt=no,
 	// skills=no.
 	text := drive(t, "\nn\nn\nn\n", Options{Home: t.TempDir(), Version: "v1"}, rec)
@@ -264,7 +264,7 @@ func TestAnExistingHomeIsNotReadvertised(t *testing.T) {
 func TestYesTakesTheDefaultsAndDefaultsAreConservative(t *testing.T) {
 	t.Parallel()
 
-	rec := &recorder{capture: map[string]string{"stack versions observability": "0.1.0\n"}}
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
 	drive(t, "", Options{Home: t.TempDir(), Version: "v1", Yes: true, Repo: t.TempDir()}, rec)
 
 	if !rec.ran("env", "start", "local") {
@@ -309,7 +309,7 @@ func TestAFailedStartStillOffersTheOfflineSteps(t *testing.T) {
 	repo := t.TempDir()
 	rec := &recorder{
 		fail:    map[string]error{"env start local": fmt.Errorf("another home owns those containers")},
-		capture: map[string]string{"stack versions observability": "0.1.0\n"},
+		capture: map[string]string{"stack versions analytics": "0.1.0\n"},
 	}
 	// name (default), start=y, detect --apply=y, skills=y. With Repo set the
 	// "point it at a repository" question is not asked.

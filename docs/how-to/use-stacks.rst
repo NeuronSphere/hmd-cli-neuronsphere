@@ -1,8 +1,8 @@
 Use stacks
 ==========
 
-A **stack** is a published set of RepoClasses -- the three that make up
-observability, the four that make a warehouse -- pinned to versions that are
+A **stack** is a published set of RepoClasses -- the three that make up an
+analytics platform, the four that make a warehouse -- pinned to versions that are
 known to work together, installable into a local environment with one
 command, and **free**: a stack in a public registry namespace needs no
 tenant, no login and no token.
@@ -11,16 +11,17 @@ Under the hood a stack is a RepoClass whose repository carries a ``local``
 section and a ``neuronsphere.lock`` (see :doc:`artifacts-and-locks`),
 published as one OCI artifact holding every build zip the lock pins.
 ``nsctl`` carries no list of stacks; one exists because a registry serves it
-under a name you type. Every stack name on this page is illustrative --
-``nsctl stack versions <name>`` is what tells you whether a reference resolves
-for you.
+under a name you type. ``analytics`` -- Airflow, Trino and Superset -- is
+published in the default namespace and is what the examples below use; every
+other stack name on this page is illustrative. ``nsctl stack versions <name>``
+is what tells you whether a reference resolves for you.
 
 Add a stack to an environment
 -----------------------------
 
 With an environment started (:doc:`manage-environments`)::
 
-   nsctl stack add observability --env dev
+   nsctl stack add analytics --env dev
 
 A bare name expands to ``ghcr.io/neuronsphere/stacks/<name>`` and the expansion is
 printed; a full reference works anywhere::
@@ -34,7 +35,7 @@ manifest -- and then stops. **Declaring is not deploying**::
 
    nsctl env apply dev
 
-or, for one command, ``nsctl stack add observability --env dev --apply``.
+or, for one command, ``nsctl stack add analytics --env dev --apply``.
 
 A stack's workloads say how they are reached through their own classes'
 ``access`` declarations, so once the instances are applied::
@@ -50,10 +51,10 @@ Profiles and names
 A stack's companions may be gated by profiles, exactly as a repository's
 are under ``env add --from-repo``::
 
-   nsctl stack add observability --profile full
-   nsctl stack add observability --all-profiles
-   nsctl stack add observability --lean
-   nsctl stack add observability --name clickhouse=warehouse-ch
+   nsctl stack add analytics --profile trino
+   nsctl stack add analytics --all-profiles
+   nsctl stack add analytics --lean
+   nsctl stack add analytics --name superset=bi
 
 The stack keeps its own bindings in the manifest's ``stacks`` record, so it
 can share an environment with a ``--from-repo`` repository or with another
@@ -65,7 +66,7 @@ See what is declared, and remove it
 ::
 
    nsctl stack list --env dev
-   nsctl stack remove observability --env dev
+   nsctl stack remove analytics --env dev
 
 ``remove`` undeclares the instances the stack bound -- and only those; an
 instance the substrate provides or another declaration also claims is left
@@ -77,15 +78,15 @@ Versions, and preparing an offline machine
 
 ::
 
-   nsctl stack versions observability
-   nsctl stack versions observability --spec "~= 0.1"
-   nsctl stack versions observability --offline
+   nsctl stack versions analytics
+   nsctl stack versions analytics --spec "~= 0.1"
+   nsctl stack versions analytics --offline
 
 ``stack pull`` is the fetch half of ``stack add``: it fills the cache without
 declaring anything, for a laptop that is about to leave the network or a CI
 job warming a cache::
 
-   nsctl stack pull observability:0.1.0
+   nsctl stack pull analytics:0.1.0
 
 Private stacks
 --------------

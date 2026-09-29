@@ -61,11 +61,16 @@ type Options struct {
 // The candidate stack offered at step four.
 //
 // Resolved before it is offered and skipped when nothing answers. Deliberately
-// not treated as always-present: the README, the first tutorial and the stacks
-// how-to have all advertised this name while no such artifact was published, and
-// a guided run whose "here is something real" step fails is worse than one that
-// does not have the step.
-const candidateStack = "observability"
+// not treated as always-present: a guided run whose "here is something real"
+// step fails is worse than one that does not have the step.
+//
+// The name matters as much as the guard. This was "observability" from the day
+// the step was written, and no artifact of that name has ever been published, so
+// the resolve failed on every machine and the one step the wizard exists for
+// never ran. The published stack is `analytics` -- Airflow, Trino and Superset,
+// served anonymously from the default namespace -- which is what a newcomer can
+// actually be shown.
+const candidateStack = "analytics"
 
 // newPrompter is the seam the tests drive the sequence through: Run refuses a
 // non-terminal, which is exactly the refusal under test, so the flow itself has

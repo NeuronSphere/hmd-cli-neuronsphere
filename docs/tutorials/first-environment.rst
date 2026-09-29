@@ -118,18 +118,18 @@ The quickest way to put something real on it is a **stack** -- a published
 set of RepoClasses pinned to versions known to work together, free to
 install from a public registry with no tenant or token::
 
-   nsctl stack add observability --env local --apply
+   nsctl stack add analytics --env local --apply
 
 ``stack add`` declares the stack's instances in the environment and
 ``--apply`` deploys them; ``nsctl stack list --env local`` shows what it
 declared. See :doc:`../how-to/use-stacks` for names, versions, profiles and
 removal.
 
-``observability`` is an illustrative name. Which stacks exist is decided by what
-a registry serves, not by anything ``nsctl`` carries, so check a reference before
-relying on it::
+``analytics`` is Airflow, Trino and Superset, and it is what the default
+namespace serves today. Which stacks exist is decided by what a registry serves,
+not by anything ``nsctl`` carries, so check a reference before relying on it::
 
-   nsctl stack versions observability
+   nsctl stack versions analytics
 
 If nothing answers, no stack is published under that name for you; ``stack add``
 takes any full reference.

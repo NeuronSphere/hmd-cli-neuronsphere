@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-29
+
+- fix: the guided first run offers a stack that exists. `quickstart` carried
+  `observability` as its candidate and nothing has ever been published under
+  that name, so the resolve failed on every machine and the one step the
+  command exists for -- deploying something to look at -- printed that there
+  was nothing to offer and moved on. The candidate is now `analytics`:
+  Airflow, Trino and Superset, served anonymously from
+  `ghcr.io/neuronsphere/stacks/analytics`. The resolve-and-skip guard beside it
+  is unchanged and still right. `ghcr.io` answers a credential-less request for
+  a name it does not serve with `403`, not `404`, so checking the old name by
+  hand read as a missing token rather than a missing artifact, which is part of
+  why this stood.
+- docs: the tutorial and both stack how-tos used the same unpublished name in
+  every worked example. They now use `analytics`, and say that it is what the
+  default namespace serves rather than that the name is illustrative.
+
 ## 2026-09-25
 
 - fix: a first run's interfaces are reachable by name. The routing that reads

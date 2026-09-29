@@ -62,19 +62,19 @@ A stack declares several instances at once -- every RepoClass its lock pins,
 at versions known to work together -- from one published artifact, with no
 tenant or token for a public namespace::
 
-   nsctl stack add observability --env local
+   nsctl stack add analytics --env local
    nsctl stack list --env local
    nsctl env apply local
 
-``observability`` is an illustrative name: which stacks exist is decided by what
-a registry serves, and ``nsctl stack versions <name>`` says whether a reference
-resolves for you.
+``analytics`` -- Airflow, Trino and Superset -- is what the default namespace
+serves today. Which stacks exist is decided by what a registry serves, and
+``nsctl stack versions <name>`` says whether a reference resolves for you.
 
 A bare name expands to ``ghcr.io/neuronsphere/stacks/<name>``; a full reference
 with a version works anywhere. ``stack add`` reuses an instance the
 environment already provides for a role the stack needs (the substrate's
 cluster or database, an instance another stack declared) and declares only
-what is missing. ``nsctl stack remove observability --env local``
+what is missing. ``nsctl stack remove analytics --env local``
 undeclares exactly what it added. Profiles, versions, private namespaces and
 publishing your own are in :doc:`use-stacks`.
 
