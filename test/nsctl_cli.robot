@@ -690,17 +690,18 @@ Dns Status Probes A Name Nothing Has Deployed
     ...                property a hosts file cannot have, and therefore the one
     ...                worth asserting. NERD026 SPEC003.
     ...
-    ...                Asserted on the wildcard rather than on the probe's name:
-    ...                the probe name appears only in the not-yet-resolving
-    ...                diagnosis, so a machine where the resolver is actually
-    ...                installed -- which is the working state, and the one a
-    ...                developer who followed `dns install` is in -- printed the
-    ...                ok line instead and failed a test about a feature that was
-    ...                working.
+    ...                Matched against both states, because `dns status` has two
+    ...                and this suite runs in each. A CI runner has no control
+    ...                plane, so it reports the probe name it could not resolve;
+    ...                a developer who has run `dns install` gets the ok line
+    ...                naming the wildcard instead. Asserting either one alone
+    ...                fails on the other machine -- first on the developer's,
+    ...                then, when that was "fixed", on the runner, which is the
+    ...                one that gates a release.
     ${home}=    Create Scratch Home
     ${result}=    Run nsctl In Home    ${home}    dns    status
     Should Be Equal As Integers    ${result.rc}    0
-    Should Contain    ${result.stdout}    *.ns.local
+    Should Match Regexp    ${result.stdout}    wildcard-probe|\\*\\.ns\\.local
 
 Db Upgrade Is Listed And Described
     [Documentation]    The repair for what the start pre-flight refuses has to
