@@ -160,7 +160,14 @@ services:
       # still holds a locally built `0.3` would otherwise keep a wrapper
       # without it, and k3s dies on a warm start whose recorded node IP has
       # churned off the default bridge.
-      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-k3s-floci:0.3.4}
+      #
+      # 0.3.5 adds the NERD028 SPEC005 guard: the entrypoint refuses to start
+      # when the engine's kernel has no br_netfilter, rather than coming up
+      # Ready with every ClusterIP unreachable. nsctl loads the module itself
+      # first (SPEC007), so this fires only where that could not -- but moving
+      # this pin back below 0.3.5 silently removes the safety net, not just a
+      # feature.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-k3s-floci:0.3.5}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:

@@ -16,6 +16,15 @@
 - docs: the tutorial and both stack how-tos used the same unpublished name in
   every worked example. They now use `analytics`, and say that it is what the
   default namespace serves rather than that the name is illustrative.
+- fix: pin the k3s wrapper to `hmd-img-k3s-floci:0.3.5`, the first build that
+  refuses to start on a kernel with no `br_netfilter` rather than coming up
+  Ready with every ClusterIP unreachable (NERD028 SPEC005). The guard was
+  written four days ago and shipped in nobody's hands, because the pin still
+  named `0.3.4`. `nsctl` loads the module itself before building a cluster, so
+  this fires only where that could not -- but moving the pin back below 0.3.5
+  now removes a safety net, and the comment beside it says so. The published
+  image was checked rather than trusted: the entrypoint extracted from the
+  published layer is byte-identical to the one at the git tag.
 
 ## 2026-09-25
 

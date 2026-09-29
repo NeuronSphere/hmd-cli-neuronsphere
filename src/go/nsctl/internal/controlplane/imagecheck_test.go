@@ -75,7 +75,7 @@ func TestARefusedRepositoryFails(t *testing.T) {
 
 	for _, status := range []int{401, 403, 404} {
 		f := &fakeTags{err: &oci.Error{Operation: "list tags", Status: status, Source: "anonymous"}}
-		c := imageCheck(context.Background(), f, "ghcr.io/neuronsphere/hmd-img-k3s-floci:0.3.4",
+		c := imageCheck(context.Background(), f, "ghcr.io/neuronsphere/hmd-img-k3s-floci:0.3.5",
 			"ghcr.io/neuronsphere", hmdenv.OriginShell)
 		if c.Status != doctor.StatusFail {
 			t.Errorf("HTTP %d: status = %v, want %v", status, c.Status, doctor.StatusFail)
@@ -102,7 +102,7 @@ func TestShortNameIsTheRepositorysLastElement(t *testing.T) {
 
 	for ref, want := range map[string]string{
 		"ghcr.io/hmdlabs/hmd-postgres-base:0.3.12": "hmd-postgres-base",
-		"ghcr.io/hmdlabs/hmd-img-k3s-floci:0.3.4":  "hmd-img-k3s-floci",
+		"ghcr.io/hmdlabs/hmd-img-k3s-floci:0.3.5":  "hmd-img-k3s-floci",
 		"registry:2": "registry",
 	} {
 		if got := shortName(ref); got != want {

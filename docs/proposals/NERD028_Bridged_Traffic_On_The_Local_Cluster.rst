@@ -5,7 +5,7 @@ NERD028 Bridged Traffic on the Local Cluster
 
 .. req:: A local cluster shall not report Ready when nothing in it can reach a Service
     :id: HMD_CLI_NEURONSPHERE_NERD028
-    :status: partial
+    :status: implemented
 
     The kernel property the local cluster's Service networking depends on shall
     be satisfied by the platform where it can be, reported where it cannot, and
@@ -16,11 +16,13 @@ NERD028 Bridged Traffic on the Local Cluster
 
     .. note::
 
-        ``partial`` as of 2026-09-25. Every specification but SPEC009 is
-        implemented and was measured live on a Colima VM that reproduced the
-        reported failure from a cold start -- see `The acceptance run`_. SPEC009
-        waits on publishing the wrapper image, because a pin to a tag the
-        registry does not serve would break every start.
+        ``implemented`` as of 2026-09-29. SPEC001 to SPEC008 and SPEC010 were
+        measured live on a Colima VM that reproduced the reported failure from a
+        cold start -- see `The acceptance run`_. SPEC009 closed last: it waited
+        on publishing the wrapper image, because a pin to a tag the registry does
+        not serve would break every start. ``0.3.5`` is published and the pin
+        moved to it, so SPEC005's refusal is now in users' hands rather than only
+        in the source.
 
 Motivation
 ----------
@@ -242,13 +244,42 @@ Specifications
 .. spec:: The wrapper pin moves in lockstep
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD028
-    :status: proposed
+    :status: implemented
 
     The image tag is pinned exactly, in one source of truth with generated and
     documented copies. Publishing a new wrapper shall move all of them together,
     and shall require no volume purge: the guard lives in an image layer, and a
     container whose image no longer matches is already recreated with its
     datastore intact.
+
+    .. note::
+
+        ``implemented`` 2026-09-29. ``0.3.5`` is published -- ``0.3.5``,
+        ``0.3.5-linux-amd64`` and ``0.3.5-linux-arm64`` under
+        ``ghcr.io/hmdlabs/hmd-img-k3s-floci`` -- and the pin moved to it. Until
+        now the shipped pin was ``0.3.4``, which does not contain the guard, so
+        SPEC005 was written but in nobody's hands.
+
+        The published image was verified rather than assumed, because a tag is
+        not evidence of its contents. The ``0.3.5`` git tag is the merge that
+        brought the guard in (``0.3.4`` is not an ancestor of it), the image was
+        built nine minutes after that tag, and the ``k3s-entrypoint.sh`` pulled
+        out of the published arm64 layer is byte-identical to the file at the
+        tag -- ``sha256:488ff46e…`` both sides -- and contains the refusal.
+
+        "One source of truth with generated and documented copies" turned out to
+        name more copies than the proposal implied. The source is
+        ``src/python/hmd_cli_neuronsphere/services/docker-compose.control-plane.yml``;
+        ``make generate-local`` copies it to nsctl's embedded tree, so the Go
+        file is generated and must not be hand-edited. Beside them:
+        ``docker-compose.floci.yml`` and ``floci_deployer.py`` on the deprecated
+        Python path, a doc comment in ``internal/compose/interpolate.go``, and
+        five assertions across four test files. All moved together; a repo-wide
+        search for the old tag returns nothing.
+
+        The comment beside the pin now says what ``0.3.5`` carries, so that
+        moving it back reads as removing a safety net rather than as reverting a
+        version bump.
 
 .. spec:: The escape hatch is the previous pin
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC010
@@ -403,6 +434,8 @@ Three things the run taught that the design had only assumed
 Still owed
 ~~~~~~~~~~
 
-SPEC009. The wrapper guard was verified against a locally built image; the pin
-still points at ``0.3.4`` and moves only once ``0.3.5`` is published, because a
-pin to a tag the registry does not serve would break every start.
+Nothing. SPEC009 closed on 2026-09-29: ``0.3.5`` is published under
+``ghcr.io/hmdlabs/hmd-img-k3s-floci`` and every copy of the pin moved to it. The
+guard shipped in that image was checked rather than inferred from the tag -- the
+``k3s-entrypoint.sh`` extracted from the published layer is byte-identical to the
+one at the git tag. See SPEC009's note.
