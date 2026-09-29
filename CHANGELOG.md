@@ -2,6 +2,18 @@
 
 ## 2026-09-29
 
+- fix: `nsctl env apply` wires the routing for what it just deployed. A deploy
+  is what creates the Ingresses -- Airflow, Superset, Trino, any UI -- and only
+  `env start` ever re-read them afterwards. So `env apply`, and with it
+  `nsctl stack add --apply` and the stack step of `nsctl quickstart`, left every
+  interface it had just deployed advertised at hmd-cli-helm's hardcoded
+  `<instance>.local.neuronsphere.io`, which resolves nowhere, with no vhost on
+  `hmd_proxy` and no entry in `env status`. It healed on a later `nsctl env
+  start` that nobody knew to run. Apply now calls the same function `env start`
+  does -- not a second copy of the wiring -- on both its exits, including the
+  one that found everything already current, because the routing is a function
+  of what is deployed rather than of what that run deployed.
+
 - fix: the guided first run can finish on a machine that already has
   environments. It asked for a name and then started it, relying on `env start`
   registering one -- but that registration is first-run only, guarded on a

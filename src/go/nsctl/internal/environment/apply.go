@@ -303,6 +303,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				opts.warn("%v", err)
 			}
 			opts.step("  everything declared is already deployed and current")
+			// Still wire the routing. It is a function of what is *deployed*,
+			// not of what this run deployed, and the case that motivates it is
+			// exactly this one: a stack applied by an earlier run created the
+			// Ingresses, nothing read them, and every later apply finds
+			// everything current and would leave them unreachable forever.
+			exposeAfterApply(ctx, opts, reg, env, d, target, steps)
 			return nil
 		}
 		entries = plan.Deploy()
@@ -496,6 +502,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// what Phase A created; this one covers the rest and is why a failed run
 	// still leaves the environment addressable.
 	refreshSpawnedAliases(ctx, opts, reg, env, d, names)
+	// The routing that only a deploy can have created. Same reason as the call
+	// above, and on failure as well as success for the same reason: a run that
+	// deployed three of five instances still created three Ingresses, and
+	// leaving them unrouted makes the retry look like the thing that fixed it.
+	exposeAfterApply(ctx, opts, reg, env, d, target, steps)
 	if err != nil {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
@@ -918,6 +929,79 @@ func reconcileDBAccountForApply(ctx context.Context, opts *Options, reg *registr
 			ServiceRouteURL(opts.Lookup, env.Slug, name))
 	}
 	return nil
+}
+
+// exposeAfterApply wires the routing that reads what this apply deployed.
+//
+// `env apply` deploys the workloads that create Ingresses -- Airflow, Superset,
+// Trino, any UI -- and until now nothing re-read them afterwards. Only
+// `env start` did, through refreshAfterDeploy. So an apply, and therefore
+// `stack add --apply` and the stack step of `nsctl quickstart`, left every
+// interface it had just deployed advertised at hmd-cli-helm's hardcoded
+// <instance>.local.neuronsphere.io, which resolves nowhere, with no vhost on
+// hmd_proxy and no entry in `env status`. It healed on a later `nsctl env
+// start` that nobody knew to run -- the same shape, and the same cost, as the
+// defect exposeDeployedWorkloads was extracted to fix.
+//
+// It is the same function Start calls, deliberately: two ways to wire the same
+// routing is how the two drift, and this one is the path a first run actually
+// takes.
+//
+// Best-effort. A deploy that worked must not be reported as failed because the
+// routing after it did not, and every step inside warns rather than returns.
+func exposeAfterApply(ctx context.Context, opts *Options, reg *registry.Registry,
+	env *registry.Environment, d *container.Docker, target floci.Target, steps startPlan) {
+
+	// No cluster, nothing to read: an environment with --substrate none or core
+	// deploys no chart, so there is no Ingress and no Traefik to point at.
+	if !steps.Cluster || !k3sEnabled(opts) {
+		return
+	}
+	// Resolved here rather than taken from buildBomEnv's copy, which was
+	// computed before the deploy: on a first run Phase A is what creates the
+	// container, so the name has to be looked up against what exists now. Same
+	// reason provisionNewCluster re-resolves it.
+	cluster := floci.K3sContainerName(env.K3sCluster, env.AccountID, d.ContainerNames(ctx))
+	if running, _ := d.Running(ctx, cluster); !running {
+		// Nothing to read the Ingresses off. A deploy that never got a cluster
+		// has already failed louder than this would.
+		return
+	}
+
+	r := router.New(opts.Home, opts.Lookup)
+	routerEnv := router.Env{
+		Slug: env.Slug, AccountID: env.AccountID,
+		TrinoPort: env.TrinoPort(), K3sPort: env.K3sPort(),
+		IsDefault: env.IsDefault(),
+	}
+	ops := &k3s.Operators{
+		Kube:   &k3s.Kube{Cluster: env.K3sCluster, Container: cluster, Kubeconfig: env.Kubeconfig, Run: d.Run},
+		Docker: d,
+		Env: k3s.Environment{
+			Slug: env.Slug, DBContainer: env.DBContainer, GraphContainer: env.GraphContainer,
+			CoreInstanceName: env.CoreInstanceName,
+			K3sCluster:       env.K3sCluster, K3sContainer: cluster,
+			AuthHost: authd.Host(opts.lookup),
+		},
+		Network: reg.ControlPlane.Network, IngressEnabled: ingressEnabled(opts),
+		// Carried, because a non-default class is exactly the case where the
+		// Ingresses this reads are not the ones the default would match.
+		IngressClass: opts.lookup("HMD_LOCAL_INGRESS_CLASS"),
+		Out:          opts.Out,
+		Err:          opts.Err,
+	}
+
+	f := &found{}
+	exposeDeployedWorkloads(ctx, opts, d, ops, env, routerEnv, cluster, reg.ControlPlane.Network, f)
+	// The order Start uses, and it must stay that way: refreshRoutes splices the
+	// DAG-discovered routes back into the fragment the step above rewrote
+	// wholesale, and the reload is what makes any of it take effect.
+	if err := refreshRoutes(ctx, opts, r, routerEnv, target, f); err != nil {
+		opts.warn("%v", err)
+	}
+	if err := r.Reload(ctx, d.Exec); err != nil {
+		opts.warn("%v", err)
+	}
 }
 
 // clusterFailureContext asks the cluster why a deploy failed.

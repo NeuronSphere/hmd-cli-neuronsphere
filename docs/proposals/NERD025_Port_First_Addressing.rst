@@ -470,6 +470,21 @@ The acceptance run
 2026-09-25, against the live control plane and the default environment on a
 macOS workstation, with the binary built as it ships.
 
+**SPEC005, amended 2026-09-29.** The rewrite ran on ``env start`` and on
+nothing else. ``env apply`` -- and therefore ``nsctl stack add --apply`` and the
+stack step of ``nsctl quickstart``, which is the path a first run actually takes
+-- deploys the charts that *create* these Ingresses and then never re-read them.
+A quickstart that deployed Airflow, Superset and Trino left all three advertised
+at ``hmd-cli-helm``'s hardcoded ``<instance>.local.neuronsphere.io``, with no
+vhost on ``hmd_proxy`` and no entry in ``env status``, until someone ran
+``env start`` again -- the same three-faced defect this spec records, surviving
+on the one path a newcomer uses. ``Apply`` now calls the same
+``exposeDeployedWorkloads`` ``Start`` does, on both its exits: after a deploy,
+and after an apply that found everything current, because the routing is a
+function of what is *deployed* rather than of what that run deployed. Verified
+live by reverting all three hosts to the Helm names and watching one
+``nsctl env apply`` restore them.
+
 **SPEC005.** ``nsctl env start local`` rewrote the Ingress host on four real
 deployed charts -- ``airflow-local/airflow-local-web``, ``argo-local/alb-ingress``,
 ``superset-local/alb-ingress``, ``trino-local/alb-ingress`` -- and the cluster
