@@ -1882,6 +1882,7 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--repo`` — A repository to offer adopting, instead of asking for one
+* ``--stack`` — Deploy this stack into the new environment; bare --stack means analytics
 * ``--yes`` — Take the default answer to every question
 
 Inherited flags

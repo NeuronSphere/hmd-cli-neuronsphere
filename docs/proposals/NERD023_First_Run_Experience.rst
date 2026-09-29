@@ -110,6 +110,30 @@ Scope and terminology
     3. **An environment.** Through ``EnsureFirstEnvironment`` and the ordinary
        ``env start`` path -- the first-run auto-registration that already
        exists -- never a second registration mechanism.
+
+       **Amended 2026-09-29.** That auto-registration is *first-run only*:
+       ``EnsureFirstEnvironment`` returns immediately unless the registry holds
+       nothing at all, and that guard is right -- with something registered,
+       creating ``dveelop`` because ``develop`` was misspelt is worse than
+       refusing. The consequence went unnoticed. This step asks for a name and
+       then starts it, so on any home that already had an environment it offered
+       a free-text prompt whose answer it could not act on, and the refusal was
+       decided before the user pressed return. A returning user could not
+       complete the wizard at all.
+
+       So where the named environment is absent from a *non-empty* registry, the
+       step shall say so, list what is registered, and offer to create it,
+       defaulting to yes. What it runs is ``env add`` -- the command a person
+       would run, named before it runs like every other step. That is not a
+       second registration mechanism; it is the one there is, invoked. Nor is it
+       the hazard the guard exists for: that hazard is a name nobody confirmed,
+       and this one is both named and confirmed. Declining skips the start the
+       way declining the start does and is not a failure; a creation that
+       *fails* is a failure and reaches the exit status.
+
+       It shall not pass ``--default``. Creating an environment from the wizard
+       must not repoint the default of a home that already has environments, and
+       the closing block names the slug explicitly, so nothing depends on it.
     4. **Something deployed.** A stack, *only when a reference resolves*. The
        command shall not carry a hardcoded stack name: it shall resolve a
        candidate and skip the step silently when nothing answers.
@@ -129,6 +153,16 @@ Scope and terminology
        name"; what closes that clause is a candidate derived from what the
        configured registries actually serve, and it is not built. The guard is
        what makes the constant survivable, not a substitute for the clause.
+
+       ``--stack <name>`` was added the same day for the other half of this.
+       ``--yes`` takes each question's *default*, and this step's default is no,
+       so a scripted walk-through does not become a deploy nobody asked for --
+       which is correct, and means ``--yes`` alone never reaches the payoff.
+       Naming a stack is itself the request, so it both selects the stack and
+       flips this step's default to yes: ``nsctl quickstart --yes --stack`` is
+       the one unattended command that ends with something running. The resolve
+       guard stays in front of it, so a named stack nothing serves is still
+       skipped rather than fatal.
 
        The lesson is the one this document was written about. A step that fails
        open is indistinguishable from a step that is working, so nothing

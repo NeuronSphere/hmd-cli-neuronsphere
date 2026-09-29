@@ -74,6 +74,20 @@ declined. It never purges, deletes or redeploys, and it does not edit your shell
 configuration: when ``HMD_HOME`` is unset it proposes a path, prints the export
 line for you to keep, and uses ``--home`` for the rest of the run.
 
+If an environment of the name you give is not registered yet, it says what is
+registered and offers to create it with ``nsctl env add`` before starting. On a
+machine with nothing registered there is no such question: the first ``env
+start`` registers one for you.
+
+``--yes`` takes each question's default, which is *no* for anything that
+deploys, so a scripted run does not become a deploy you did not ask for. Naming
+a stack is that request::
+
+   nsctl quickstart --yes --stack
+
+That is one command from nothing to a running Airflow, Trino and Superset.
+``--stack <name>`` picks a different one.
+
 With stdin closed -- every CI job -- it prints the ordered list of commands and
 runs nothing.
 

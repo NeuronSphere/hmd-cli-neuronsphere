@@ -9,6 +9,7 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/quickstart"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
 
 // newQuickstartCommand is the guided first run (NERD023 SPEC001).
@@ -21,6 +22,7 @@ import (
 func newQuickstartCommand(opts *Options) *cobra.Command {
 	var yes bool
 	var repo string
+	var stack string
 	cmd := &cobra.Command{
 		Use:   "quickstart",
 		Short: "Guided first run: check the host, start an environment, adopt a repository",
@@ -60,13 +62,30 @@ runs nothing.`,
 				UserHome: userHome,
 				Yes:      yes,
 				Repo:     repo,
-				Exec:     execNsctl(opts, cmd, false),
-				Capture:  captureNsctl(opts, cmd),
+				Stack:    stack,
+				// Reading the registry, never writing it: the flow uses this
+				// only to decide whether a name has to be created before it can
+				// be started. Creating it is `env add`, run through Exec like
+				// every other step.
+				Environments: func(home string) ([]string, error) {
+					reg, err := registry.Load(home, opts.Lookup)
+					if err != nil {
+						return nil, err
+					}
+					return reg.Names(), nil
+				},
+				Exec:    execNsctl(opts, cmd, false),
+				Capture: captureNsctl(opts, cmd),
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Take the default answer to every question")
 	cmd.Flags().StringVar(&repo, "repo", "", "A repository to offer adopting, instead of asking for one")
+	cmd.Flags().StringVar(&stack, "stack", "", "Deploy this stack into the new environment; bare --stack means "+quickstart.DefaultStack)
+	// Naming a stack is the request, so --yes deploys it. Without this flag
+	// --yes still declines, because a scripted walk-through must not become a
+	// deploy nobody asked for.
+	cmd.Flags().Lookup("stack").NoOptDefVal = quickstart.DefaultStack
 	return cmd
 }
 

@@ -2,6 +2,25 @@
 
 ## 2026-09-29
 
+- fix: the guided first run can finish on a machine that already has
+  environments. It asked for a name and then started it, relying on `env start`
+  registering one -- but that registration is first-run only, guarded on a
+  registry holding nothing at all, so on any home with an environment already
+  the wizard offered a free-text prompt whose answer it could not act on and the
+  refusal was decided before the user pressed return. Where the name is absent
+  it now says what *is* registered and offers `nsctl env add`, defaulting to
+  yes, before starting. Declining is not a failure; a creation that fails is.
+  Nothing is created without being named and confirmed, which is the case the
+  registry's typo guard exists for.
+- feat: `nsctl quickstart --stack [<name>]` deploys a stack. `--yes` takes each
+  question's default, and the deploy step's default is no so that a scripted
+  walk-through does not become a deploy nobody asked for -- which left no
+  unattended way to reach the payoff at all. Naming a stack is that request, so
+  it both selects the stack and answers the question: `nsctl quickstart --yes
+  --stack` goes from nothing to a running Airflow, Trino and Superset in one
+  command. Bare `--stack` means `analytics`. A named stack no registry serves is
+  still skipped rather than fatal.
+
 - fix: the guided first run offers a stack that exists. `quickstart` carried
   `observability` as its candidate and nothing has ever been published under
   that name, so the resolve failed on every machine and the one step the

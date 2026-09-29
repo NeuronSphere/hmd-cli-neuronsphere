@@ -56,6 +56,21 @@ type Options struct {
 	// Repo is a repository to offer adopting, skipping the question that asks
 	// for one.
 	Repo string
+
+	// Stack names the stack to offer, and saying so is itself the answer: a run
+	// that names one has asked for it, so that step's default becomes yes and
+	// `--yes` deploys instead of declining. Empty leaves both as they were.
+	//
+	// The resolve guard still runs in front of it. A named stack that no
+	// configured registry serves is skipped with the same message as any other,
+	// never a failure -- the alternative is the defect that made this flow's one
+	// payoff step a no-op on every machine for as long as it existed.
+	Stack string
+
+	// Environments reports the slugs registered in a home. It decides whether a
+	// name needs creating before it can be started; it reads and never writes.
+	// Nil, or an error, means the flow simply does not ask.
+	Environments func(home string) ([]string, error)
 }
 
 // The candidate stack offered at step four.
@@ -70,7 +85,9 @@ type Options struct {
 // never ran. The published stack is `analytics` -- Airflow, Trino and Superset,
 // served anonymously from the default namespace -- which is what a newcomer can
 // actually be shown.
-const candidateStack = "analytics"
+// Exported because cmd names it too: --stack's help and its bare-flag value are
+// this same string, and two copies would be one copy that goes stale.
+const DefaultStack = "analytics"
 
 // newPrompter is the seam the tests drive the sequence through: Run refuses a
 // non-terminal, which is exactly the refusal under test, so the flow itself has
@@ -218,6 +235,9 @@ func (f *flow) startEnvironment(ctx context.Context) (string, error) {
 	if slug == "" {
 		slug = "local"
 	}
+	if err := f.ensureRegistered(ctx, slug); err != nil {
+		return slug, err
+	}
 	if !f.confirm(fmt.Sprintf("\n  Start %q now? This pulls images and takes a few minutes", slug), true) {
 		fmt.Fprintf(f.Out, "\n  Skipped. Start it later with `nsctl%s env start %s`.\n", f.homeArg(), slug)
 		return slug, errDeclined
@@ -244,23 +264,87 @@ func (f *flow) startEnvironment(ctx context.Context) (string, error) {
 // quickstart exit non-zero.
 var errDeclined = errors.New("declined")
 
+// ensureRegistered makes sure the named environment exists before the start
+// that assumes it does. It reports whether to carry on.
+//
+// `env start` registers an environment for you, but only on a registry holding
+// nothing at all (registry.EnsureFirstEnvironment). That guard is right --
+// creating `dveelop` because `develop` was misspelt is worse than refusing, and
+// with something already registered there is a typo to protect against. The
+// consequence is that this flow, which asks for a name and then starts it, could
+// not finish on any home that already had an environment: it offered a free-text
+// prompt whose answer it was unable to act on, and the refusal was decided before
+// the user pressed return.
+//
+// So the wizard asks. What it runs is `env add`, the same command a person would
+// -- not a second way to register, and not a silent creation: the hazard the
+// guard exists for is a name nobody confirmed, and this one is both named and
+// confirmed.
+// It returns nil to carry on, errDeclined when the user said no -- which skips
+// the start the way declining the start does, without making the run a failure
+// -- and the creation's own error when `env add` fails, which is a failure and
+// must reach the exit status.
+func (f *flow) ensureRegistered(ctx context.Context, slug string) error {
+	if f.Environments == nil {
+		return nil
+	}
+	known, err := f.Environments(f.home)
+	// A home that cannot be read is not a home with no environments, and this
+	// step is an improvement on the start, not a precondition for it. Leave it
+	// to `env start`, which refuses with the registry's own message.
+	if err != nil || len(known) == 0 {
+		return nil
+	}
+	for _, k := range known {
+		if k == slug {
+			return nil
+		}
+	}
+
+	fmt.Fprintf(f.Out, "\n  No environment %q is registered.\n", slug)
+	fmt.Fprintf(f.Out, "  Registered here: %s\n", strings.Join(known, ", "))
+	if !f.confirm(fmt.Sprintf("\n  Create %q now?", slug), true) {
+		fmt.Fprintf(f.Out, "\n  Skipped. `nsctl%s env add %s` creates it.\n", f.homeArg(), slug)
+		return errDeclined
+	}
+	// Deliberately without --default: creating one from the wizard should not
+	// repoint the default of a home that already has environments. The closing
+	// block names this slug explicitly, so nothing depends on the default.
+	if err := f.run(ctx, "env", "add", slug); err != nil {
+		fmt.Fprintf(f.Err, "\nerror: the environment was not created.\n  %v\n", err)
+		fmt.Fprintf(f.Out, "  Nothing was started. `nsctl%s env add %s` is the step that failed.\n",
+			f.homeArg(), slug)
+		return err
+	}
+	return nil
+}
+
 // offerStack offers a published stack, and only one that resolves.
+//
+// Naming one with --stack is itself the request, so the default flips to yes and
+// a --yes run deploys. Left unnamed the default stays no, which is what keeps
+// `--yes` a walk-through rather than a deploy nobody asked for.
 func (f *flow) offerStack(ctx context.Context, slug string) {
 	f.section("Deploying something to look at")
 	fmt.Fprintln(f.Out, "  The substrate is not an application. A stack is a published set of")
 	fmt.Fprintln(f.Out, "  repo classes pinned to versions known to work together.")
 
-	if !f.stackResolves(ctx, candidateStack) {
-		fmt.Fprintf(f.Out, "\n  No stack is published as %q on this machine's registries, so there is\n", candidateStack)
+	name, asked := DefaultStack, false
+	if f.Stack != "" {
+		name, asked = f.Stack, true
+	}
+
+	if !f.stackResolves(ctx, name) {
+		fmt.Fprintf(f.Out, "\n  No stack is published as %q on this machine's registries, so there is\n", name)
 		fmt.Fprintln(f.Out, "  nothing to offer here. `nsctl stack add <ref>` takes any reference.")
 		return
 	}
-	if !f.confirm(fmt.Sprintf("\n  Add and deploy the %q stack?", candidateStack), false) {
+	if !f.confirm(fmt.Sprintf("\n  Add and deploy the %q stack?", name), asked) {
 		fmt.Fprintf(f.Out, "\n  Skipped. `nsctl%s stack add %s --env %s --apply` does it later.\n",
-			f.homeArg(), candidateStack, slug)
+			f.homeArg(), name, slug)
 		return
 	}
-	if err := f.run(ctx, "stack", "add", candidateStack, "--env", slug, "--apply"); err != nil {
+	if err := f.run(ctx, "stack", "add", name, "--env", slug, "--apply"); err != nil {
 		fmt.Fprintf(f.Err, "\nwarning: the stack did not deploy: %v\n", err)
 	}
 }

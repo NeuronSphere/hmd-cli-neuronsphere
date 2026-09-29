@@ -46,7 +46,7 @@ func (r *recorder) ran(prefix ...string) bool {
 
 // run drives the flow with scripted answers. A bytes.Reader is not a terminal, so
 // the flow is built directly rather than through Run, which refuses one.
-func drive(t *testing.T, answers string, o Options, rec *recorder) string {
+func driveStatus(t *testing.T, answers string, o Options, rec *recorder) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	o.In = strings.NewReader(answers)
@@ -61,10 +61,10 @@ func drive(t *testing.T, answers string, o Options, rec *recorder) string {
 	f := &flow{Options: o, p: newPrompter(o), home: o.Home}
 	f.intro()
 	if !f.checkHost(context.Background()) {
-		return out.String()
+		return out.String(), nil
 	}
 	if !f.settleHome() {
-		return out.String()
+		return out.String(), nil
 	}
 	slug, startErr := f.startEnvironment(context.Background())
 	if startErr == nil {
@@ -73,7 +73,14 @@ func drive(t *testing.T, answers string, o Options, rec *recorder) string {
 	f.offerRepository(context.Background())
 	f.offerSkills(context.Background())
 	f.closing(slug, startErr)
-	return out.String()
+	return out.String(), exitStatus(startErr)
+}
+
+// drive is driveStatus for the cases that only read the transcript.
+func drive(t *testing.T, answers string, o Options, rec *recorder) string {
+	t.Helper()
+	text, _ := driveStatus(t, answers, o, rec)
+	return text
 }
 
 // The flow refuses rather than half-running when there is nobody to answer, and
@@ -409,5 +416,165 @@ func TestDecliningTheStartIsNotAFailure(t *testing.T) {
 	}
 	if strings.Contains(text, "Nothing is running") {
 		t.Errorf("declining should not be reported as a failed start:\n%s", text)
+	}
+}
+
+// registered is an Environments seam answering a fixed list.
+func registered(names ...string) func(string) ([]string, error) {
+	return func(string) ([]string, error) { return names, nil }
+}
+
+// The newcomer's path is the one that must not grow a prompt. With nothing
+// registered, `env start` does the registering itself, so the flow has no
+// question to ask and must not ask one.
+func TestAnEmptyRegistryIsLeftToEnvStart(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	text := drive(t, "dev\ny\nn\nn\nn\n", Options{
+		Home: t.TempDir(), Version: "v1", Environments: registered(),
+	}, rec)
+
+	if rec.ran("env", "add") {
+		t.Errorf("nothing is registered, so env start registers it; calls %v", rec.calls)
+	}
+	if strings.Contains(text, "is registered") {
+		t.Errorf("the first run should not be told what it does not have:\n%s", text)
+	}
+	if !rec.ran("env", "start", "dev") {
+		t.Errorf("did not start; calls %v", rec.calls)
+	}
+}
+
+// A name that is already there is started, not offered for creation.
+func TestAKnownNameIsStartedDirectly(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	drive(t, "dev\ny\nn\nn\nn\n", Options{
+		Home: t.TempDir(), Version: "v1", Environments: registered("dev", "scratch"),
+	}, rec)
+
+	if rec.ran("env", "add") {
+		t.Errorf("dev is registered; calls %v", rec.calls)
+	}
+	if !rec.ran("env", "start", "dev") {
+		t.Errorf("did not start; calls %v", rec.calls)
+	}
+}
+
+// The regression: a home with environments, none of them the one named. The
+// flow used to run a start that could only refuse, because env start's
+// registration is first-run-only (registry.EnsureFirstEnvironment).
+func TestAnAbsentNameIsOfferedForCreation(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	// name=local, create=yes, start=yes, then decline the rest.
+	text := drive(t, "local\ny\ny\nn\nn\nn\n", Options{
+		Home: t.TempDir(), Version: "v1",
+		Environments: registered("nerd013", "scratch", "stacktest"),
+	}, rec)
+
+	for _, want := range [][]string{
+		{"env", "add", "local"},
+		{"env", "start", "local"},
+	} {
+		if !rec.ran(want...) {
+			t.Errorf("did not run %v; calls were %v", want, rec.calls)
+		}
+		if shown := "$ nsctl " + strings.Join(want, " "); !strings.Contains(text, shown) {
+			t.Errorf("did not show %q:\n%s", shown, text)
+		}
+	}
+	// It says what is there, so the name can be corrected rather than guessed at.
+	if !strings.Contains(text, "nerd013, scratch, stacktest") {
+		t.Errorf("did not list what is registered:\n%s", text)
+	}
+}
+
+// Declining creation is declining, not failing: the run carries on to the steps
+// that need nothing running, and exits 0.
+func TestDecliningCreationIsNotAFailure(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	text, status := driveStatus(t, "local\nn\nn\nn\n", Options{
+		Home: t.TempDir(), Version: "v1", Environments: registered("scratch"),
+	}, rec)
+
+	if status != nil {
+		t.Errorf("declining should exit 0, got %v", status)
+	}
+	for _, mustNot := range [][]string{{"env", "add"}, {"env", "start"}, {"stack", "add"}} {
+		if rec.ran(mustNot...) {
+			t.Errorf("%v should not happen after declining; calls %v", mustNot, rec.calls)
+		}
+	}
+	if !strings.Contains(text, "env add local") {
+		t.Errorf("declining should still name the command that creates it:\n%s", text)
+	}
+}
+
+// A creation that fails is a failure, and must reach the exit status -- the
+// distinction declining does not make.
+func TestAFailedCreationIsAFailure(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{
+		capture: map[string]string{"stack versions analytics": "0.1.0\n"},
+		fail:    map[string]error{"env add local": fmt.Errorf("slug is taken")},
+	}
+	text, status := driveStatus(t, "local\ny\nn\nn\nn\n", Options{
+		Home: t.TempDir(), Version: "v1", Environments: registered("scratch"),
+	}, rec)
+
+	if status == nil {
+		t.Error("a failed creation must not exit 0")
+	}
+	if rec.ran("env", "start") {
+		t.Errorf("nothing should start after a failed creation; calls %v", rec.calls)
+	}
+	if !strings.Contains(text, "slug is taken") {
+		t.Errorf("the error itself should be shown, not a pointer to it:\n%s", text)
+	}
+}
+
+// Naming a stack is the request. --yes then deploys it, where --yes alone still
+// declines (TestYesTakesTheDefaultsAndDefaultsAreConservative).
+func TestNamingAStackMakesYesDeployIt(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	drive(t, "", Options{
+		Home: t.TempDir(), Version: "v1", Yes: true, Stack: DefaultStack,
+		Environments: registered(),
+	}, rec)
+
+	if !rec.ran("stack", "add", DefaultStack, "--env", "local", "--apply") {
+		t.Errorf("--stack should deploy under --yes; calls %v", rec.calls)
+	}
+}
+
+// --stack names a stack; it does not promise one exists. An unpublished name is
+// skipped exactly as the default candidate is, because the alternative is the
+// defect that made this step a no-op everywhere for as long as it existed.
+func TestANamedStackThatDoesNotResolveIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	rec := &recorder{capture: map[string]string{"stack versions analytics": "0.1.0\n"}}
+	text, status := driveStatus(t, "", Options{
+		Home: t.TempDir(), Version: "v1", Yes: true, Stack: "no-such-stack",
+		Environments: registered(),
+	}, rec)
+
+	if rec.ran("stack", "add") {
+		t.Errorf("an unpublished stack must not be added; calls %v", rec.calls)
+	}
+	if status != nil {
+		t.Errorf("a skipped stack is not a failed run, got %v", status)
+	}
+	if !strings.Contains(text, `No stack is published as "no-such-stack"`) {
+		t.Errorf("did not say why it skipped:\n%s", text)
 	}
 }
