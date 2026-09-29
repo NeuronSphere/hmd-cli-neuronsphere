@@ -38,7 +38,12 @@ services:
       # the *current* value on every start while reusing the instance's named
       # volume, so changing the postgres major version fails the container with
       # "database files are incompatible" and needs a purge.
-      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-stable}
+      # ghcr.io/hmdlabs, matching docker-compose.control-plane.yml: that is
+      # where these images are built and published, and ghcr.io/neuronsphere is
+      # a released-only mirror. The tag moves with the registry of necessity --
+      # hmdlabs publishes no `stable` tag for any of these images, so a registry
+      # change that kept `stable` would resolve to nothing.
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-0.3.12}
       FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       # Floci emulates a Neptune cluster by spawning a real gremlin-server
       # container, and this is the image it spawns. The stock TinkerPop image is
@@ -49,7 +54,7 @@ services:
       # shutdown hook that actually writes it -- see that repo's CHANGELOG.
       # Pinned, not floating: Floci recreates the backend container from the
       # current value, and the graph lives in that container's writable layer.
-      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.5}
+      FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.5}
       FLOCI_SERVICES_NEPTUNE_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
       # Floci hardcodes --kube-apiserver-arg=storage-backend=sqlite3 when
@@ -57,7 +62,10 @@ services:
       # regardless of the underlying SQLite store), so the node exits on startup.
       # Still present as of 1.5.34 (unfixed upstream). The hmd-img-k3s-floci
       # image's entrypoint drops the bad flag.
-      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}/hmd-img-k3s-floci:0.3.5}
+      # hmd-img-k3s-floci is published under ghcr.io/hmdlabs only -- the
+      # neuronsphere mirror carries it at no version, so this default resolved
+      # to nothing and no cluster could start from this file.
+      FLOCI_SERVICES_EKS_DEFAULT_IMAGE: ${HMD_LOCAL_K3S_WRAPPER_IMAGE:-${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-k3s-floci:0.3.5}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-dummykey}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-dummykey}
     volumes:

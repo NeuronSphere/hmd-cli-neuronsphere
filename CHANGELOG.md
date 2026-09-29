@@ -25,6 +25,16 @@
   now removes a safety net, and the comment beside it says so. The published
   image was checked rather than trusted: the entrypoint extracted from the
   published layer is byte-identical to the one at the git tag.
+- fix: point the Floci compose file and the k3s wrapper's reconstructed default
+  at `ghcr.io/hmdlabs`, where these images are built and published, instead of
+  `ghcr.io/neuronsphere`, which is a released-only mirror. It publishes
+  `hmd-img-k3s-floci` at no version at all, so that default could never name a
+  real image -- and a wrong answer on that path is the shape of the bug that
+  once destroyed a cluster and its volume on every `up`. The Postgres tag moves
+  with the registry of necessity: hmdlabs publishes no `stable` tag, so a
+  registry change that kept `stable` would have resolved to nothing. The
+  Platform-mode compose files are deliberately untouched -- they all default to
+  `:stable`, and two of their images are absent from hmdlabs entirely.
 
 ## 2026-09-25
 

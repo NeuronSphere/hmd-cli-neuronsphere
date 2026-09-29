@@ -423,7 +423,11 @@ def configured_k3s_wrapper_image() -> str:
     current = floci_env_value("FLOCI_SERVICES_EKS_DEFAULT_IMAGE")
     if current:
         return current
-    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/neuronsphere")
+    # ghcr.io/hmdlabs, matching what the compose files substitute. This image is
+    # published under hmdlabs only -- the neuronsphere mirror carries it at no
+    # version -- so the old default here could never name a real image, and a
+    # mismatch on this path is what destroys a cluster and its volume.
+    registry = os.environ.get("HMD_LOCAL_NS_CONTAINER_REGISTRY", "ghcr.io/hmdlabs")
     return f"{registry}/hmd-img-k3s-floci:0.3.5"
 
 

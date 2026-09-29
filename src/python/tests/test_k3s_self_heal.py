@@ -35,11 +35,13 @@ from botocore.exceptions import ClientError
 
 from hmd_cli_neuronsphere import floci_deployer as fd
 
-# What the *running* Floci is configured to spawn. Deliberately not the
-# `ghcr.io/neuronsphere` compose default: the registry is a cement config value
-# that never reaches os.environ, so reconstructing the expectation from the
-# environment alone produced a permanent mismatch against a perfectly healthy
-# container -- see `configured_k3s_wrapper_image`.
+# What the *running* Floci is configured to spawn. The registry is a cement
+# config value that never reaches os.environ, so reconstructing the expectation
+# from the environment alone produced a permanent mismatch against a perfectly
+# healthy container -- see `configured_k3s_wrapper_image`. The reconstructed
+# default named `ghcr.io/neuronsphere`, which publishes this image at no version
+# at all; it names `ghcr.io/hmdlabs` now, so the last-resort path can at least
+# be right. Reading the running container still comes first.
 _EXPECTED = "ghcr.io/hmdlabs/hmd-img-k3s-floci:0.3.5"
 
 
@@ -333,7 +335,10 @@ class ConfiguredK3sWrapperImageTests(unittest.TestCase):
     and `reconcile_k3s_container` destroyed the cluster *and its volume* on every
     single `up` -- only for Floci to respawn the very same image again. The
     running container is the one place compose's substitution is recorded, so it
-    is what these tests pin.
+    is what these tests pin. The fallback now names `ghcr.io/hmdlabs` too, which
+    removes the guaranteed mismatch but does not make the fallback authoritative
+    -- a user who sets the registry to anything else would reintroduce it, which
+    is why the read-back is first and stays first.
     """
 
     def test_explicit_override_wins(self):
