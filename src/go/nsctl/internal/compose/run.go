@@ -304,7 +304,7 @@ func (r *Runner) upService(ctx context.Context, p *Project, s Service) (Result, 
 // one that stops warning about it.
 func (r *Runner) removeForRecreate(ctx context.Context, s Service, name, id string) error {
 	if s.Key == FlociService {
-		r.warn("recreating %s. Floci's recovery of the databases it spawned is not reliable; if one comes back in state \"failed\", redeploy it with `hmd neuronsphere up --env <name>`.", name)
+		r.warn("recreating %s. Floci's recovery of the databases it spawned is not reliable; if one comes back in state \"failed\", redeploy it with `nsctl env start <name> --force-full-redeploy`.", name)
 	}
 	if err := r.API.ContainerRemove(ctx, id, container.RemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("removing the outdated container: %w", err)

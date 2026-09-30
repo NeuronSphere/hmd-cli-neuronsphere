@@ -2,6 +2,9 @@
 
 ## 2026-09-30
 
+- fix: the warnings about a Floci-spawned database left "failed" (on recreating
+  Floci, and on starting an environment) name `nsctl env start <name>
+  --force-full-redeploy` instead of the unsupported `hmd neuronsphere up`.
 - fix: a source build stamps `git describe` (for example
   `1.0.239-7-gbcc953e-dirty`) instead of the bare `1.0` every source build
   shared, so version-keyed evidence can tell two builds apart. Release builds

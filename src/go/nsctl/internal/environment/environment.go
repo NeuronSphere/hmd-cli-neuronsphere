@@ -200,7 +200,7 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		case "available":
 			opts.warn("Floci reports the database for %q available but spawned no container for it", env.Slug)
 		default:
-			opts.warn("the database for %q is in state %q and has no container -- Floci could not bring it back.\n  Redeploy it with `hmd neuronsphere up --env %s`; until then every service addressing the database answers 500.", env.Slug, status, env.Slug)
+			opts.warn("the database for %q is in state %q and has no container -- Floci could not bring it back.\n  Redeploy it with `nsctl env start %s --force-full-redeploy`; until then every service addressing the database answers 500.", env.Slug, status, env.Slug)
 		}
 	default:
 		opts.step("  %s is up and aliased as %s", dbContainer, env.DBContainer)

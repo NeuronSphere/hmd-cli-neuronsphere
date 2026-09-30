@@ -131,6 +131,11 @@ func TestRecreatingFlociStillWarnsAboutTheDatabasesItSpawned(t *testing.T) {
 	if !strings.Contains(errOut.String(), "recovery of the databases it spawned is not reliable") {
 		t.Errorf("no warning about the cost of recreating Floci: %q", errOut.String())
 	}
+	// The remedy is nsctl's own: the Python CLI is no longer supported.
+	if !strings.Contains(errOut.String(), "nsctl env start <name> --force-full-redeploy") ||
+		strings.Contains(errOut.String(), "hmd neuronsphere") {
+		t.Errorf("the warning does not name the nsctl remedy: %q", errOut.String())
+	}
 }
 
 func TestRecreateNamesAServiceTheProjectDoesNotHave(t *testing.T) {
