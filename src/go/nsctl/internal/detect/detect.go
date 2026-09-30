@@ -676,22 +676,146 @@ func (d *detector) yamlName(rel string) (string, string) {
 	return "", ""
 }
 
-// readmeSentence takes the first sentence of the first prose paragraph, skipping
-// headings, badges and blank lines.
+// readmeSentence describes a repository from its README: the first sentence
+// of the first prose paragraph of the first section that describes anything,
+// or the document's title (its first real heading) when that prose is only a
+// pointer elsewhere.
+//
+// "Prose" is the point, and the lab corpus showed how much of a README is not
+// (D8): a table of contents (de-project-template's first lines are its TOC
+// bullets), a legal disclaimer placed first (mwaa-examples), badges, tables,
+// HTML, code fences, quotes and "detailed explanation can be found in this
+// post". A description written into a manifest from any of those is worse
+// than none, because it reads as authoritative.
 func (d *detector) readmeSentence(rel string) (string, string) {
 	lines, err := readLines(filepath.Join(d.dir, rel))
 	if err != nil {
 		return "", ""
 	}
-	for i, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "=") ||
-			strings.HasPrefix(t, "-") || strings.HasPrefix(t, "[!") || strings.HasPrefix(t, "![") {
+	where := func(i int) string { return fmt.Sprintf("%s:%d", filepath.ToSlash(rel), i+1) }
+
+	type paragraph struct {
+		text string
+		line int
+	}
+	var (
+		title, titleAt = "", -1
+		skipSection    bool
+		fenced         bool
+		para           []string
+		paraAt         int
+		paras          []paragraph
+	)
+	// flushSection answers from the section just ended, if it can.
+	flushSection := func() (string, string, bool) {
+		if skipSection {
+			return "", "", false
+		}
+		for _, p := range paras {
+			if !notDescription(p.text) {
+				return firstSentence(p.text), where(p.line), true
+			}
+		}
+		if title != "" && len(paras) > 0 {
+			return title, where(titleAt), true
+		}
+		return "", "", false
+	}
+	endPara := func() {
+		if len(para) > 0 {
+			paras = append(paras, paragraph{strings.Join(para, " "), paraAt})
+			para = nil
+		}
+	}
+	for i := 0; i < len(lines); i++ {
+		t := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			endPara()
+			fenced = !fenced
 			continue
 		}
-		return firstSentence(t), fmt.Sprintf("%s:%d", filepath.ToSlash(rel), i+1)
+		if fenced {
+			continue
+		}
+		text, isHeading := "", false
+		switch {
+		case strings.HasPrefix(t, "#"):
+			text, isHeading = strings.TrimSpace(strings.TrimLeft(t, "#")), true
+		case t != "" && i+1 < len(lines) && isUnderline(strings.TrimSpace(lines[i+1])):
+			// An RST or setext heading: the title, then a line of = - ~ ^.
+			text, isHeading = t, true
+			i++
+		}
+		if isHeading {
+			endPara()
+			if text, at, ok := flushSection(); ok {
+				return text, at
+			}
+			heading := stripInline(text)
+			paras = nil
+			skipSection = boilerplateHeading.MatchString(heading)
+			if title == "" && !skipSection {
+				title, titleAt = heading, i
+			}
+			continue
+		}
+		if t == "" || !isProseLine(t) {
+			endPara()
+			continue
+		}
+		if len(para) == 0 {
+			paraAt = i
+		}
+		para = append(para, stripInline(t))
+	}
+	endPara()
+	if text, at, ok := flushSection(); ok {
+		return text, at
 	}
 	return "", ""
+}
+
+// boilerplateHeading names sections that never describe the repository.
+var boilerplateHeading = regexp.MustCompile(`(?i)^(table of contents|contents|toc|disclaimer|legal|license|licence|notice|security|copyright|contributing|code of conduct)\b`)
+
+// notDescription is prose that is still not a description: legal text, and
+// sentences that only point somewhere else.
+var notDescriptionRE = regexp.MustCompile(`(?i)(copyright|all rights reserved|licensed under|spdx-license|provided "?as is"?|not supported products|disclaimer|can be found (in|at|here)|^see |^for (more )?details|^detailed explanation|^click |available at|check out|i recommend)`)
+
+func notDescription(text string) bool { return notDescriptionRE.MatchString(strings.TrimSpace(text)) }
+
+var (
+	orderedItem = regexp.MustCompile(`^\d+[.)]\s`)
+	linkOrBadge = regexp.MustCompile(`!?\[[^\]]*\]\([^)]*\)`)
+	inlineMark  = regexp.MustCompile("[*_`]+")
+	mdLink      = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+)
+
+// isProseLine rejects lines that are structure rather than sentences.
+func isProseLine(t string) bool {
+	for _, prefix := range []string{"-", "*", "+", "|", "<", ">", "..", "[!", "![", ":", "="} {
+		if strings.HasPrefix(t, prefix) {
+			return false
+		}
+	}
+	if orderedItem.MatchString(t) {
+		return false
+	}
+	// A line of nothing but links and badges.
+	return strings.TrimSpace(linkOrBadge.ReplaceAllString(t, "")) != ""
+}
+
+func isUnderline(t string) bool {
+	if len(t) < 3 {
+		return false
+	}
+	return strings.Trim(t, string(t[0])) == "" && strings.ContainsRune("=-~^*+#", rune(t[0]))
+}
+
+// stripInline drops Markdown emphasis and link targets, keeping link text.
+func stripInline(t string) string {
+	t = mdLink.ReplaceAllString(t, "$1")
+	return strings.TrimSpace(inlineMark.ReplaceAllString(t, ""))
 }
 
 func firstSentence(text string) string {

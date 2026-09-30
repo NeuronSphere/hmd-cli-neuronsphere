@@ -2,6 +2,10 @@
 
 ## 2026-09-30
 
+- fix: `repoclass detect` takes a README description from the first real prose
+  paragraph, skipping tables of contents, disclaimer/licence sections, badges,
+  tables, HTML, code fences and sentences that only point elsewhere. It falls
+  back to the document's title (D8).
 - fix: `repoclass deploy add-dependency` refuses a resource without
   `--resource-version` (and namespace and name), instead of writing a manifest
   `validate` rejects; `--resource-version-spec` or `--tag` alone is no longer

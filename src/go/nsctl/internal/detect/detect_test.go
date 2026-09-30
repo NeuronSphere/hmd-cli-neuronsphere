@@ -313,3 +313,53 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+// D8: a README's first line is often not a description. Each case is the
+// shape a lab corpus repository actually has.
+func TestReadmeDescriptionSkipsWhatIsNotADescription(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name, readme, want string
+	}{
+		{
+			// de-project-template: a table of contents first, then a title
+			// whose only prose points at a blog post.
+			name: "table of contents and a pointer",
+			readme: "\n* [Project](#project)\n    * [Run](#run)\n1. [Setup](#setup)\n\n# Data engineering project template\n\n" +
+				"Detailed explanation can be found **[`in this post`](https://example.com/post)**\n\n## Run\n\nYou can run it.\n",
+			want: "Data engineering project template",
+		},
+		{
+			// mwaa-examples: a legal disclaimer section before the real one.
+			name: "a disclaimer first",
+			readme: "## Disclaimer\n\nAWS code samples are example code that demonstrates practical implementations.\n\n" +
+				"These application solutions are not supported products in their own right.\n\n" +
+				"## Amazon MWAA Examples\n\nThis repository contains example DAGs. Many apply elsewhere.\n",
+			want: "This repository contains example DAGs.",
+		},
+		{
+			// trino-getting-started: the introduction only recommends a blog.
+			name: "an introduction that recommends reading elsewhere",
+			readme: "# Hive connector over MinIO file storage\n\n## Introduction\nIf you are new to Trino, I recommend that you check out the following\n" +
+				"blog. [A gentle introduction](https://trino.io/blog)\n",
+			want: "Hive connector over MinIO file storage",
+		},
+		{
+			name:   "badges, a fence and a table before the prose",
+			readme: "# Thing\n\n[![ci](https://x/badge.svg)](https://x)\n\n```sh\nmake\n```\n\n| a | b |\n|---|---|\n\nThing does a *thing*, well. It also does more.\n",
+			want:   "Thing does a thing, well.",
+		},
+		{
+			name:   "an RST title and paragraph",
+			readme: "Thing\n=====\n\nThing turns input into\noutput.\n",
+			want:   "Thing turns input into output.",
+		},
+	} {
+		r := run(t, map[string]string{"README.md": tt.readme})
+		desc, _ := has(r, "description", Decided)
+		if desc.Value != tt.want {
+			t.Errorf("%s: description = %q, want %q", tt.name, desc.Value, tt.want)
+		}
+	}
+}
