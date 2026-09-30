@@ -119,6 +119,15 @@ func ServiceEnv(repoClass, version string, names Names, dbHost string, serviceCo
 		"AWS_XRAY_SDK_ENABLED": "false",
 		"SERVICE_CONFIG":       string(encoded),
 	}
+	// HMD_ENVIRONMENT says "local" and means "run in local mode". The
+	// environment's own name is a separate fact: it is what ms-deployment
+	// passes a consumer's deploy as --environment, and so what every secret
+	// the substrate created is named after. A service naming a secret from
+	// HMD_ENVIRONMENT looks up "..._local_..." in an environment called
+	// anything else (hmd-ms-dbaccount did, for the admin secret).
+	if names.Environment != "" {
+		env["HMD_ENVIRONMENT_NAME"] = names.Environment
+	}
 	return env
 }
 

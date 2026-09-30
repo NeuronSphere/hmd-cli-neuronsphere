@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 )
 
@@ -159,5 +160,30 @@ func TestProbeRouteDoesNotReadTheProxys404AsHealth(t *testing.T) {
 	// a reload that has not happened yet.
 	if n := atomic.LoadInt32(&calls); n != routeProbeAttempts {
 		t.Errorf("probed %d times, want %d", n, routeProbeAttempts)
+	}
+}
+
+// A dbaccount Lambda deployed before HMD_ENVIRONMENT_NAME existed has the
+// right version and the wrong secret names outside `local`, so the reconcile
+// refreshes it on configuration, not only on version.
+func TestStaleNamingRefreshesADBAccountDeployedWithoutTheName(t *testing.T) {
+	t.Parallel()
+
+	scratch := floci.Names{Environment: "scratch"}
+	for _, tt := range []struct {
+		name     string
+		deployed map[string]string
+		names    floci.Names
+		stale    bool
+	}{
+		{"not deployed", nil, scratch, false},
+		{"deployed before the name existed", map[string]string{"HMD_ENVIRONMENT": "local"}, scratch, true},
+		{"named after another environment", map[string]string{"HMD_ENVIRONMENT_NAME": "local"}, scratch, true},
+		{"current", map[string]string{"HMD_ENVIRONMENT_NAME": "scratch"}, scratch, false},
+		{"no name to compare", map[string]string{}, floci.Names{}, false},
+	} {
+		if got := staleNaming(tt.deployed, tt.names); got != tt.stale {
+			t.Errorf("%s: staleNaming = %v, want %v", tt.name, got, tt.stale)
+		}
 	}
 }

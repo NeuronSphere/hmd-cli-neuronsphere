@@ -199,3 +199,47 @@ class FlociLib:
         except Exception as e:
             raise AssertionError(f"Secret '{secret_id}' not found in Floci: {e}")
         logger.info(f"Secret {secret_id} exists in Floci Secrets Manager")
+
+    def _secret_names_in_account(self, account, endpoint):
+        """Every secret name in one Floci account, from Secrets Manager and
+        Parameter Store alike: create_secret writes Parameter Store and older
+        secrets live in Secrets Manager, and a reader must find either."""
+        kw = dict(
+            endpoint_url=endpoint,
+            aws_access_key_id=account,  # a 12-digit key id selects the account
+            aws_secret_access_key="dummykey",
+            region_name=REGION,
+        )
+        names = []
+        sm = boto3.client("secretsmanager", **kw)
+        for page in sm.get_paginator("list_secrets").paginate():
+            names += [s["Name"] for s in page.get("SecretList", [])]
+        ssm = boto3.client("ssm", **kw)
+        for page in ssm.get_paginator("describe_parameters").paginate():
+            names += [p["Name"] for p in page.get("Parameters", [])]
+        return sorted(set(names))
+
+    @keyword
+    def floci_account_should_hold_a_secret_named_like(
+        self, account, endpoint, contains, suffix=""
+    ):
+        """Assert that ``account`` holds a secret or parameter whose name
+        contains ``contains`` and ends with ``suffix``."""
+        names = self._secret_names_in_account(account, endpoint)
+        hits = [n for n in names if contains in n and n.endswith(suffix)]
+        if not hits:
+            raise AssertionError(
+                f"no secret in account {account} contains {contains!r} and ends "
+                f"with {suffix!r}; it holds: {names}"
+            )
+        logger.info(f"account {account} holds {hits}")
+        return hits
+
+    @keyword
+    def floci_account_should_hold_no_secret_named_like(self, account, endpoint, contains):
+        """Assert that no secret or parameter name in ``account`` contains
+        ``contains``."""
+        names = self._secret_names_in_account(account, endpoint)
+        hits = [n for n in names if contains in n]
+        if hits:
+            raise AssertionError(f"account {account} holds {hits}, named with {contains!r}")

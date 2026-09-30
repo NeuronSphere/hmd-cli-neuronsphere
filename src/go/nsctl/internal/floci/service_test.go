@@ -640,3 +640,17 @@ func TestImageClassForIsIdentityExceptForMSDeployment(t *testing.T) {
 		t.Errorf("ImageClassFor(%s) = %q, want %s", MSDeploymentServiceName, got, MSDeploymentImageClass)
 	}
 }
+
+// HMD_ENVIRONMENT is the local-mode flag and stays "local"; the environment's
+// own name, which every substrate secret is named after, travels separately.
+func TestServiceEnvCarriesTheEnvironmentName(t *testing.T) {
+	t.Parallel()
+
+	env := ServiceEnv("hmd-ms-dbaccount", "0.1.48", Names{DeploymentID: "scratch", Environment: "scratch", Region: "reg1", CustomerCode: "hmdtr1"}, "hmd_db-scratch", nil)
+	if env["HMD_ENVIRONMENT"] != "local" || env["HMD_ENVIRONMENT_NAME"] != "scratch" {
+		t.Errorf("HMD_ENVIRONMENT=%q HMD_ENVIRONMENT_NAME=%q, want local and scratch", env["HMD_ENVIRONMENT"], env["HMD_ENVIRONMENT_NAME"])
+	}
+	if _, ok := ServiceEnv("x", "1", Names{}, "", nil)["HMD_ENVIRONMENT_NAME"]; ok {
+		t.Error("an unnamed environment still set HMD_ENVIRONMENT_NAME")
+	}
+}

@@ -94,11 +94,30 @@ func EnsureDBAccount(ctx context.Context, opts *Options, reg *registry.Registry,
 // configuration carries no version: it was deployed by something that did not
 // write one, which is exactly the drift this reads for.
 func deployedVersion(ctx context.Context, services *floci.Services, repoClass string) string {
+	return deployedEnv(ctx, services, repoClass)["HMD_REPO_VERSION"]
+}
+
+// deployedEnv is the environment the deployed service Lambda runs with, or
+// nil when there is none.
+func deployedEnv(ctx context.Context, services *floci.Services, repoClass string) map[string]string {
 	cfg, err := services.FunctionEnv(ctx, floci.LambdaName(repoClass))
 	if err != nil {
-		return ""
+		return nil
 	}
-	return cfg["HMD_REPO_VERSION"]
+	return cfg
+}
+
+// staleNaming reports whether a deployed service would name secrets after a
+// different environment than this one: a Lambda deployed before nsctl set
+// HMD_ENVIRONMENT_NAME, in an environment not called "local", looks up
+// "..._local_..." and every hmd-database-account deploy fails with "Secret
+// ... not found in PS or SM". A version check cannot see it -- the image is
+// the same; only its configuration is wrong.
+func staleNaming(deployed map[string]string, names floci.Names) bool {
+	if deployed == nil || names.Environment == "" {
+		return false
+	}
+	return deployed["HMD_ENVIRONMENT_NAME"] != names.Environment
 }
 
 // DBAccountState is what a reconcile found and what it left behind.
@@ -137,15 +156,25 @@ func ReconcileDBAccount(ctx context.Context, opts *Options, reg *registry.Regist
 	}
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	state := DBAccountState{Resolved: resolver.ResolveVersion(DBAccountRepoClass, "").Version}
-	state.Deployed = deployedVersion(ctx, services, DBAccountRepoClass)
+	deployed := deployedEnv(ctx, services, DBAccountRepoClass)
+	state.Deployed = deployed["HMD_REPO_VERSION"]
 	state.Serving = state.Deployed
 
-	if state.Deployed == state.Resolved {
+	stale := staleNaming(deployed, names)
+	if state.Deployed == state.Resolved && !stale {
 		return state, nil
 	}
-	if state.Deployed == "" {
+	switch {
+	case state.Deployed == state.Resolved:
+		was := deployed["HMD_ENVIRONMENT_NAME"]
+		if was == "" {
+			was = deployed["HMD_ENVIRONMENT"]
+		}
+		opts.step("%s in %q names secrets after environment %q, not %q; refreshing it",
+			DBAccountRepoClass, env.Slug, was, names.Environment)
+	case state.Deployed == "":
 		opts.step("%s is not deployed in %q; deploying it", DBAccountRepoClass, env.Slug)
-	} else {
+	default:
 		// Said as a version change rather than as an upgrade: the resolver's
 		// tiers let a developer pin an older one on purpose, and calling that
 		// an upgrade would misreport what happened.

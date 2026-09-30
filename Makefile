@@ -88,7 +88,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSCTL_IMAGE ?= hmd-img-nsctl:$(VERSION)
 
-.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli docs-reference docs-reference-check ensure-repos-embed test-pgupgrade help
+.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli test-named-env docs-reference docs-reference-check ensure-repos-embed test-pgupgrade help
 
 all: build
 
@@ -249,6 +249,22 @@ test-parity: build
 	  exit 2; }
 	$(ROBOT) $(ROBOT_FLAGS) --variable HMD:$(HMD_BIN) --variable ENV:$(NSCTL_PARITY_ENV) \
 	  test/nsctl_parity.robot
+
+## test-named-env: full start and apply in an environment not named `local` -- needs Docker, a platform and an HMD_HOME
+#
+# Creates, starts, deploys into and purges NSCTL_NAMED_ENV in $(HMD_HOME).
+# Named explicitly for the same reason as test-parity; `local` is refused,
+# since the suite exists to exercise every other name. KEEP=True keeps the
+# environment afterwards.
+test-named-env: build
+	@test -n "$(HMD_HOME)" || { echo "export HMD_HOME: this suite operates on a real platform"; exit 2; }
+	@test -n "$(NSCTL_NAMED_ENV)" || { \
+	  echo "This suite CREATES, STARTS AND PURGES an environment in $(HMD_HOME)."; \
+	  echo "Name a new one, not \`local\`:"; \
+	  echo "    make test-named-env NSCTL_NAMED_ENV=<slug>"; \
+	  exit 2; }
+	$(ROBOT) $(ROBOT_FLAGS) --variable ENV:$(NSCTL_NAMED_ENV) --variable KEEP:$(or $(KEEP),False) \
+	  test/nsctl_named_env.robot
 
 ## test-pgupgrade: the real 12->14 migration -- needs Docker and two public images
 #

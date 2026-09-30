@@ -2,6 +2,16 @@
 
 ## 2026-09-30
 
+- fix: foundation service Lambdas get `HMD_ENVIRONMENT_NAME`, set to the
+  environment's name, beside `HMD_ENVIRONMENT=local`. The environment's dbaccount
+  service is refreshed when its deployed value is missing or wrong, even at an
+  unchanged version, so existing environments pick it up on the next start or
+  apply. With hmd-ms-dbaccount naming secrets from it, database accounts deploy
+  in an environment not named `local`.
+- test: `make test-named-env NSCTL_NAMED_ENV=<slug>` runs a Robot suite that
+  creates a new environment not named `local`, starts it, deploys a database
+  account into it, and checks secret naming, the kubeconfig and a clean second
+  apply, then purges it (`KEEP=True` keeps it).
 - fix: the default projectbuilder is 0.5.392, up from 0.5.389. It carries
   hmd-cli-dbaccount 0.1.10, so database-account nodes deploy in an environment
   not named `local`. It also brings hmd-cli-cdktf 0.1.305, hmd-cli-deploy
