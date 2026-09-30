@@ -2,6 +2,11 @@
 
 ## 2026-09-30
 
+- fix: the "not named `local`" warning holds until projectbuilder 0.5.390, not
+  0.5.388. The default 0.5.389 still ships hmd-cli-dbaccount 0.1.7, which picks
+  its local path by environment name, so an hmd-database-account node fails in
+  any other environment (`IndexError: list index out of range`). The warning
+  now names both failures and the remedy (D10, corrected).
 - fix: a cluster the substrate creates during `env start` is re-provisioned
   when the kubeconfig on disk came from an earlier cluster of the same name,
   not only when the file is missing. Before, the stale file was kept and the

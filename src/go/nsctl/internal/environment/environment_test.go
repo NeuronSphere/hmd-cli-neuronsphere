@@ -519,9 +519,10 @@ func TestReadySummaryUILinksCarryAMovedHTTPPort(t *testing.T) {
 	}
 }
 
-// D10: the default projectbuilder carries hmd-lib-cdktf's fix, so an
-// environment named anything else -- every repository-scoped one -- is not
-// warned about. A pinned older image, or a tag nobody can vouch for, still is.
+// D10: an environment named anything but `local` is warned about only while
+// the projectbuilder still has a name predicate in it: hmd-lib-cdktf's before
+// 0.5.388, hmd-cli-dbaccount's before 0.5.390. A tag nobody can vouch for is
+// warned about too.
 func TestTheSlugWarningFollowsTheProjectBuilderImage(t *testing.T) {
 	t.Parallel()
 
@@ -529,9 +530,10 @@ func TestTheSlugWarningFollowsTheProjectBuilderImage(t *testing.T) {
 		version string
 		warns   bool
 	}{
-		{"", false}, // the default
-		{"0.5.388", false},
+		{"0.5.390", false},
+		{"0.5.392", false},
 		{"0.6.1", false},
+		{"0.5.389", true}, // CDKTF fixed, hmd-cli-dbaccount 0.1.7 not
 		{"0.5.387", true},
 		{"latest", true},
 	} {

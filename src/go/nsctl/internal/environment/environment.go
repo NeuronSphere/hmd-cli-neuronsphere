@@ -1168,10 +1168,14 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 // to compare the name.
 //
 // The fix reaches a deploy only through the projectbuilder image, and 0.5.388
-// is the first that carries it. The default is newer, so the warning now fires
-// only for an image pinned older than that, or one whose version cannot be
-// read (D10: before this, every environment not named `local` -- which is
-// every repository-scoped one -- warned against the default image).
+// is the first that carries it. It is not the only name predicate, though:
+// hmd-cli-dbaccount chose its local path by `environment == "local"` until
+// 0.1.10 (2026-09-21), so in any other environment an hmd-database-account
+// node takes the cloud path and dies on the API Gateway key lookup
+// (`IndexError: list index out of range`). 0.5.390 is the first projectbuilder
+// with both fixes, so the warning fires for anything older, or for an image
+// whose version cannot be read. (D10 first set the bar at 0.5.388 and so hid
+// the db-account failure behind the default 0.5.389.)
 //
 // provisionEnvironment creates the account resources, and decides which of
 // them a start may proceed without.
@@ -1220,9 +1224,10 @@ func provisionEnvironment(ctx context.Context, prov accountProvisioner, names fl
 // without hmd-lib-cdktf's fix; see the comment above provisionEnvironment's.
 const DeployableSlug = "local"
 
-// FixedProjectBuilder is the first projectbuilder whose hmd-lib-cdktf decides
-// S3 addressing by endpoint rather than by environment name.
-var FixedProjectBuilder = [3]int{0, 5, 388}
+// FixedProjectBuilder is the first projectbuilder in which nothing decides
+// "local" by the environment's name: hmd-lib-cdktf's S3 addressing (0.5.388)
+// and hmd-cli-dbaccount 0.1.10's local path (0.5.390).
+var FixedProjectBuilder = [3]int{0, 5, 390}
 
 // WarnUndeployableSlug names the defect above before it costs a deploy.
 //
@@ -1238,13 +1243,15 @@ func WarnUndeployableSlug(warn func(string, ...any), slug string, lookup func(st
 	if slug == "" || slug == DeployableSlug || projectBuilderHasFix(runner.ProjectBuilderRef(lookup)) {
 		return
 	}
-	warn("environment %q is not named %q. Its CDKTF nodes will fail in `tofu init` with "+
-		"\"no such host\" for the tfstate bucket unless the projectbuilder image carries "+
-		"hmd-lib-cdktf's is_local_environment fix (2026-09-08).\n"+
-		"  Before it, hmd-lib-cdktf decided S3 path-style addressing by comparing the environment's "+
-		"name, while ms-deployment passes the environment's own slug as --environment.\n"+
-		"  The substrate's cluster and database come up either way; only deploys are affected. "+
-		"See SPEC014.", slug, DeployableSlug)
+	warn("environment %q is not named %q, and the projectbuilder image (%s) predates 0.5.390, "+
+		"so parts of it still decide \"local\" by the environment's name:\n"+
+		"  - CDKTF nodes fail in `tofu init` with \"no such host\" for the tfstate bucket before "+
+		"hmd-lib-cdktf's is_local_environment fix (0.5.388);\n"+
+		"  - hmd-database-account nodes fail with `IndexError: list index out of range` before "+
+		"hmd-cli-dbaccount 0.1.10 (0.5.390).\n"+
+		"  ms-deployment passes the environment's own slug as --environment. Use HMD_PROJECTBUILDER_VERSION=0.5.390 "+
+		"or later, or name the environment %q. The substrate's cluster and database come up either way; "+
+		"only deploys are affected. See SPEC014.", slug, DeployableSlug, runner.ProjectBuilderRef(lookup), DeployableSlug)
 }
 
 // projectBuilderHasFix reports whether a projectbuilder image reference is at
