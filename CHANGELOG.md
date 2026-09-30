@@ -2,6 +2,10 @@
 
 ## 2026-09-30
 
+- fix: the default projectbuilder is 0.5.392, up from 0.5.389. It carries
+  hmd-cli-dbaccount 0.1.10, so database-account nodes deploy in an environment
+  not named `local`. It also brings hmd-cli-cdktf 0.1.305, hmd-cli-deploy
+  0.2.70 and hmd-cli-helm 0.2.93.
 - fix: the "not named `local`" warning holds until projectbuilder 0.5.390, not
   0.5.388. The default 0.5.389 still ships hmd-cli-dbaccount 0.1.7, which picks
   its local path by environment name, so an hmd-database-account node fails in

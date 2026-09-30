@@ -530,6 +530,7 @@ func TestTheSlugWarningFollowsTheProjectBuilderImage(t *testing.T) {
 		version string
 		warns   bool
 	}{
+		{"", false}, // the default
 		{"0.5.390", false},
 		{"0.5.392", false},
 		{"0.6.1", false},

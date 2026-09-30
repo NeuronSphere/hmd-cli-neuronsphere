@@ -347,9 +347,9 @@ func TestProjectBuilderRef(t *testing.T) {
 		// built from the constants, so moving a pin has to be deliberate: the
 		// previous default named a registry and a tag that existed nowhere,
 		// and a test written against the constants would have agreed with it.
-		{"defaults", nil, "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.389"},
+		{"defaults", nil, "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.5.392"},
 		{"a pinned version", map[string]string{"HMD_PROJECTBUILDER_VERSION": "0.9"}, "ghcr.io/hmdlabs/hmd-img-projectbuilder:0.9"},
-		{"a registry override", map[string]string{"HMD_LOCAL_NS_CONTAINER_REGISTRY": "my.registry"}, "my.registry/hmd-img-projectbuilder:0.5.389"},
+		{"a registry override", map[string]string{"HMD_LOCAL_NS_CONTAINER_REGISTRY": "my.registry"}, "my.registry/hmd-img-projectbuilder:0.5.392"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

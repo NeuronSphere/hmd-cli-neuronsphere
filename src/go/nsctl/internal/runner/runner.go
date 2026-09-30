@@ -747,12 +747,15 @@ func (r *Runner) SetNodeStatus(ctx context.Context, node msdeploy.DeploymentNode
 // default asked for has never existed under either org -- and because "which
 // projectbuilder was this built against" should have an answer.
 //
-// 0.5.389 is the first build that carries its Apache 2.0 licence label; like
-// 0.5.388 before it, it has hmd-lib-cdktf's 2026-09-08 path-style-S3 fix,
-// which is what an environment not named `local` needs in order to deploy.
+// 0.5.392. An environment not named `local` needs two fixes, and both are
+// here: hmd-lib-cdktf's path-style-S3 fix (from 0.5.388) and hmd-cli-dbaccount
+// 0.1.10's local path (from 0.5.390). 0.5.389, the previous default, had only
+// the first, so every hmd-database-account node in such an environment died
+// with `IndexError: list index out of range`. 0.5.392 also carries
+// hmd-cli-cdktf 0.1.305, hmd-cli-deploy 0.2.70 and hmd-cli-helm 0.2.93.
 const (
 	ProjectBuilderDefaultRegistry = "ghcr.io/hmdlabs"
-	ProjectBuilderDefaultVersion  = "0.5.389"
+	ProjectBuilderDefaultVersion  = "0.5.392"
 )
 
 // ProjectBuilderRef resolves the projectbuilder image from the environment.
