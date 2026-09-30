@@ -138,6 +138,11 @@ func uvFailure(it Item, step, tail string, err error) error {
 		if it.IndexHint != "" {
 			b.WriteString("\n  " + it.IndexHint)
 		}
+	case strings.Contains(tail, "Failed to build") || strings.Contains(tail, "build_wheel") ||
+		strings.Contains(tail, "returned non-zero exit status"):
+		b.WriteString("\nA distribution in " + it.Runtime.Lock + " has no wheel for Python " + it.Runtime.Python +
+			" and could not be built from source. The lock was likely resolved for another Python;" +
+			" the artifact's author should regenerate it for " + it.Runtime.Python + ".")
 	case strings.Contains(tail, "dns error") || strings.Contains(tail, "Connection") ||
 		strings.Contains(tail, "connect") || strings.Contains(tail, "offline"):
 		b.WriteString("\nThe package index could not be reached.")

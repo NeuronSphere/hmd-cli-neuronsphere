@@ -2,6 +2,12 @@
 
 ## 2026-09-30
 
+- fix: installing a Python item names the likely cause when a locked
+  distribution has no wheel for the declared Python and cannot be built. The
+  hmd-cli toolset hits this on 3.12, through `frozenlist==1.3.3`.
+- fix: `plugin list` item rows no longer widen the table's NAME column, and
+  `repoclass validate` no longer prints "install" twice in an install-section
+  error.
 - feat: `nsctl plugin install librarian:<class>` carries out a RepoClass
   artifact's BACON `install` section (NERD031). An artifact can now declare
   what it puts on a workstation:

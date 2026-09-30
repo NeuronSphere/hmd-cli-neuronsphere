@@ -340,7 +340,7 @@ func newPluginListCommand(opts *Options) *cobra.Command {
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, version, r.State, from)
 				for _, it := range r.Items {
-					fmt.Fprintf(tw, "  %s\t\t\t\n", describeItem(it))
+					fmt.Fprintf(tw, "  %s\n", describeItem(it)) // no tab: a trailing cell sets no column width
 				}
 			}
 			return tw.Flush()

@@ -393,3 +393,12 @@ func TestRedact(t *testing.T) {
 		t.Errorf("Redact removed more than userinfo: %q", got)
 	}
 }
+
+func TestAnUnbuildableLockNamesThePython(t *testing.T) {
+	t.Parallel()
+	it := Item{Noun: "hmd", Runtime: &Runtime{Kind: "python", Python: "3.12", Lock: "requirements.lock"}}
+	err := uvFailure(it, "uv pip sync", "  ╰─▶ Call to `setuptools.build_meta.build_wheel` failed (exit status: 1)", os.ErrInvalid)
+	if !strings.Contains(err.Error(), "no wheel for Python 3.12") || !strings.Contains(err.Error(), "regenerate") {
+		t.Errorf("err = %v", err)
+	}
+}

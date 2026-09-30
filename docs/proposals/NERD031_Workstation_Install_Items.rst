@@ -496,7 +496,7 @@ Out of scope, deliberately:
 .. spec:: hmd-cli-toolchain
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC015
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: partial
 
     The first consumer is a new RepoClass, ``hmd-cli-toolchain``, which holds
     only:
@@ -517,6 +517,27 @@ Out of scope, deliberately:
     It establishes nothing about per-tool nouns. ``nsctl bender`` and ``nsctl
     build`` are not proposed. One noun that ``nsctl`` will never take is the
     reason for choosing ``hmd``.
+
+    **The interpreter is Python 3.11, not the latest.** The hmd libraries pin
+    ``frozenlist==1.3.3`` through ``aiohttp``, and that version publishes no
+    wheel for 3.12. A 3.12 environment has to build it from source, and the
+    build fails. The lock is therefore resolved with ``--python-version 3.11``
+    and the item declares ``python: "3.11"``. The two must move together.
+    SPEC005's failure classification names this case: a locked distribution
+    with no wheel for the declared Python.
+
+    *Status (2026-09-30).* The RepoClass exists, locally and unpushed. It was
+    proven end to end with the real ``nsctl`` binary against a stub librarian
+    serving its tree:
+
+    * 165 distributions installed from the user's configured index;
+    * ``nsctl hmd --help`` and ``--version`` (``hmd-cli-app`` 1.2.623) ran;
+    * ``--home`` before the noun retargeted a bogus exported ``HMD_HOME``;
+    * no ``hmd`` executable was added to ``PATH``;
+    * ``plugin remove`` left nothing behind.
+
+    Still owed: publishing it to a real Artifact Librarian, cloud or the local
+    control plane's, and installing it from there.
 
 Testing
 -------

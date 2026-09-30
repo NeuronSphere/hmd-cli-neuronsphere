@@ -613,7 +613,7 @@ func installFindings(dir string) []bacon.Finding {
 		err = sec.Validate(dir)
 	}
 	if err != nil {
-		return []bacon.Finding{{Severity: bacon.Error, Path: "install", Message: err.Error()}}
+		return []bacon.Finding{{Severity: bacon.Error, Message: err.Error()}}
 	}
 	return nil
 }
