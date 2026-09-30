@@ -2,6 +2,10 @@
 
 ## 2026-09-30
 
+- fix: a source build stamps `git describe` (for example
+  `1.0.239-7-gbcc953e-dirty`) instead of the bare `1.0` every source build
+  shared, so version-keyed evidence can tell two builds apart. Release builds
+  and the image tag are unchanged (D9).
 - fix: `repoclass detect` takes a README description from the first real prose
   paragraph, skipping tables of contents, disclaimer/licence sections, badges,
   tables, HTML, code fences and sentences that only point elsewhere. It falls

@@ -85,6 +85,15 @@ Version Prints The Injected Version
     Should Match Regexp    ${result.stdout}    (?m)^nsctl \\S+$
     Should Not Contain    ${result.stdout}    nsctl dev
 
+Version Tells Source Builds Apart
+    [Documentation]    D9: a source build stamps git describe, not the bare
+    ...                MAJOR.MINOR every source build shares, so evidence keyed
+    ...                by version can tell two builds apart.
+    [Tags]    contract
+    ${result}=    Run nsctl    version
+    ${major_minor}=    Get File    ${CURDIR}${/}..${/}meta-data${/}VERSION
+    Should Not Match Regexp    ${result.stdout}    (?m)^nsctl ${major_minor.strip()}$
+
 Version Omits ms-deployment When No Control Plane Answers
     [Documentation]    SPEC013 asks version to also report the ms-deployment
     ...                version when a control plane is reachable. With none, it

@@ -6,6 +6,14 @@ GO        := go
 GOFLAGS   :=
 
 VERSION   := $(shell cat meta-data/VERSION 2>/dev/null || echo "dev")
+# What the binary reports. A release is tagged MAJOR.MINOR.BUILD and goreleaser
+# stamps that; a source build used to stamp the bare MAJOR.MINOR, so two
+# source builds were indistinguishable ("nsctl 1.0") in any version-keyed
+# evidence (D9). git describe names the nearest release tag, the commits since
+# it and the commit, and -dirty when the tree differs from it. Without git
+# (an exported tree), MAJOR.MINOR-dev at least never passes for a release.
+# VERSION itself stays MAJOR.MINOR: it tags the image.
+BUILD_VERSION := $(shell git describe --tags --dirty --always 2>/dev/null || echo "$(VERSION)-dev")
 # The endpoint a build signs in against when nothing is configured. Empty here
 # on purpose: a development build has no hosted tenant to name, and a constant
 # pointing at a host that does not answer is worse than `nsctl login` refusing
@@ -15,7 +23,7 @@ NSCONFIG  := github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig
 
 # -s -w drop the symbol table and DWARF. This is a distributed binary, not one
 # anyone debugs in place, and they take roughly 20 MB off it.
-LDFLAGS   := -ldflags "-X main.version=$(VERSION) -X $(NSCONFIG).DefaultAuthURL=$(NSCTL_DEFAULT_AUTH_URL) -s -w"
+LDFLAGS   := -ldflags "-X main.version=$(BUILD_VERSION) -X $(NSCONFIG).DefaultAuthURL=$(NSCTL_DEFAULT_AUTH_URL) -s -w"
 
 # Robot Framework is optional and not a Go dependency. Override ROBOT to run it
 # without installing it, e.g.
@@ -123,7 +131,7 @@ build: generate
 # the identity provider is enabled and the image is absent. This target is the
 # same build from the working tree, for iterating without a control plane.
 image: generate
-	cd $(GO_DIR) && docker build --build-arg VERSION=$(VERSION) -t $(NSCTL_IMAGE) .
+	cd $(GO_DIR) && docker build --build-arg VERSION=$(BUILD_VERSION) -t $(NSCTL_IMAGE) .
 	@echo "built $(NSCTL_IMAGE)"
 
 ## install: build and copy the binary to $(PREFIX)
