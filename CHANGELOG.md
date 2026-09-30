@@ -2,6 +2,13 @@
 
 ## 2026-09-30
 
+- fix: `repoclass validate` reports a `local` section the runtime cannot read,
+  one error per problem, instead of passing it and failing later at `lock`
+  (D12). Only a manifest marked `local.stack` has to name a companion, so a
+  repository that only binds or requires roles now validates (D1).
+- fix: a repository whose wants need no pin needs no `neuronsphere.lock`.
+  `env add --from-repo`, `lock --check` and `repoclass validate` treat an
+  absent lock as empty when nothing is pinnable (D7).
 - fix: a `deploy.dependencies` role may name a resource type instead of a repo
   class (D11). `lock` and `env add` no longer refuse it. The lock never pins
   it, and `env add` / `env apply --from-repo` fill it from a recorded binding,

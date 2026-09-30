@@ -392,3 +392,43 @@ func TestRepoclassLocalVerbsAuthorAStack(t *testing.T) {
 		t.Errorf("remove left %d companions", len(spec.Local.Repos))
 	}
 }
+
+// NERD010 SPEC009: validate reads the local section the way the runtime does.
+func TestRepoclassValidateReadsTheLocalSectionLikeTheRuntime(t *testing.T) {
+	t.Parallel()
+	validate := func(body string) (string, error) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "meta-data", "manifest.json"), body)
+		writeFile(t, filepath.Join(dir, "meta-data", "VERSION"), "0.1")
+		out, _, err := run(t, fakeEnv(nil), "repoclass", "--path", dir, "validate")
+		return out, err
+	}
+
+	// D1 and D7: a repository that only requires a role by type is not a
+	// stack, needs no companion, and -- pinning nothing -- needs no lock.
+	out, err := validate(`{"name": "foreign", "description": "d", "build": {},
+  "deploy": {"commands": [["exec", "true"]], "dependencies": {
+    "warehouse": {"required": "false", "resource": {"resource_namespace": "database.neuronsphere.io",
+      "resource_definition_name": "database-account", "version": "0.1.0"}}}},
+  "local": {"version": 1, "default_profiles": [], "repos": [],
+    "dependencies": {"warehouse": {"external": true}}}}`)
+	if err != nil {
+		t.Errorf("a require-only repository: %v\n%s", err, out)
+	}
+
+	// D12: a section the runtime refuses is an error here too.
+	out, err = validate(`{"name": "foreign", "description": "d", "build": {},
+  "deploy": {"commands": [["exec", "true"]]},
+  "local": {"version": 1, "dependencies": {"otel": {"profiles": ["full"]}}}}`)
+	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(out, "no dependency named") {
+		t.Errorf("a gate on an undeclared role: %v\n%s", err, out)
+	}
+
+	// A manifest marked as a stack still has to name a companion.
+	out, err = validate(`{"name": "hmd-stack-empty", "description": "d", "build": {},
+  "deploy": {"commands": [["exec", "true"]]},
+  "local": {"version": 1, "stack": true, "repos": []}}`)
+	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(out, "at least one companion") {
+		t.Errorf("an empty stack: %v\n%s", err, out)
+	}
+}

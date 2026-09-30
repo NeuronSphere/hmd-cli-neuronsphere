@@ -403,10 +403,19 @@ func Parse(data []byte) (*Manifest, error) {
 	}
 
 	if len(problems) > 0 {
-		return nil, fmt.Errorf("the local declaration is not valid:\n  - %s",
-			strings.Join(problems, "\n  - "))
+		return nil, &InvalidError{Problems: problems}
 	}
 	return m, nil
+}
+
+// InvalidError is every problem Parse found, so a caller that reports them
+// one by one -- `repoclass validate` -- need not re-parse a message.
+type InvalidError struct {
+	Problems []string
+}
+
+func (e *InvalidError) Error() string {
+	return "the local declaration is not valid:\n  - " + strings.Join(e.Problems, "\n  - ")
 }
 
 // Activate returns the wants a set of activated profiles selects.

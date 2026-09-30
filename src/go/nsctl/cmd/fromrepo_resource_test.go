@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -160,5 +161,36 @@ func TestEnvAddDoesNotPinAProfileGatedExternalRole(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "hmd-app-airflow") {
 		t.Errorf("no note about the unfilled external role:\n%s", stderr)
+	}
+}
+
+// D7: a repository whose wants need no pin needs no lock. jaffle-shop-duckdb
+// is the shape: a manifest, no dependencies, no companions.
+func TestARepositoryThatPinsNothingNeedsNoLock(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	for name, body := range map[string]string{
+		"declares nothing": `{"name": "jaffle-shop-duckdb"}`,
+		"requires by type": resourceOnlyManifest,
+	} {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "meta-data", "manifest.json"), body)
+
+		out, _, err := run(t, fakeEnv(env), "lock", "--check", dir)
+		if err != nil || !strings.Contains(out, "no neuronsphere.lock is needed") {
+			t.Errorf("%s: lock --check: %v\n%s", name, err, out)
+		}
+		slug := strings.ReplaceAll(name, " ", "-")
+		if _, _, err := run(t, fakeEnv(env), "env", "add", slug, "--from-repo", dir, "--no-pull"); err != nil {
+			t.Errorf("%s: env add --from-repo: %v", name, err)
+			continue
+		}
+		if got := instanceNames(loadEnv(t, home, slug)); len(got) != 1 {
+			t.Errorf("%s: declared %v, want only the subject", name, got)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "neuronsphere.lock")); err == nil {
+			t.Errorf("%s: a lock was written into the repository", name)
+		}
 	}
 }

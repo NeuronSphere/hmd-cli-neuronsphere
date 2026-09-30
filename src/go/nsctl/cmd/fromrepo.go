@@ -128,11 +128,13 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	if err != nil {
 		return nil, nserr.Wrap(nserr.Usage, err)
 	}
-	l, err := lock.Read(repoDir)
+	l, err := lock.ReadOrEmpty(repoDir, spec.RepoClassName, spec.Wants())
 	if err != nil {
 		// Never a fall back to resolving on the fly: the whole point of the lock
 		// is that a fresh clone gets the same answer as the machine that wrote
-		// it, and an on-the-fly resolve is exactly the different answer.
+		// it, and an on-the-fly resolve is exactly the different answer. A
+		// repository that pins nothing has nothing to reproduce, and needs no
+		// lock at all (NERD010 SPEC009).
 		return nil, nserr.Wrap(nserr.Usage, withLockRemedy(err))
 	}
 	if f.allProfiles && f.lean {

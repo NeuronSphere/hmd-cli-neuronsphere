@@ -324,6 +324,24 @@ func Build(repoClass, generatedFrom string, wants []localspec.Want,
 	return l, unresolved, nil
 }
 
+// ReadOrEmpty is Read, except that a repository whose wants need no pin
+// needs no lock either (NERD010 SPEC009): when the file is absent and every
+// want is bound, external or resource-only, it returns an empty lock rather
+// than ErrAbsent. Nothing is written. As soon as one want needs a version the
+// absence is an error again, because that is what the lock reproduces.
+func ReadOrEmpty(repoDir, repoClass string, wants []localspec.Want) (*Lock, error) {
+	l, err := Read(repoDir)
+	if !errors.Is(err, ErrAbsent) {
+		return l, err
+	}
+	for _, w := range wants {
+		if w.Pinned() {
+			return nil, err
+		}
+	}
+	return &Lock{Version: Version, RepoClassName: repoClass}, nil
+}
+
 // Check reports whether a lock still covers what a manifest declares, contacting
 // nothing.
 //

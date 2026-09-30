@@ -392,7 +392,7 @@ promotes warnings to errors. Never rewrites the file.`,
 				BundledClasses: bundled.RepoClasses(),
 				ReservedNames:  manifest.ReservedNames(),
 			})
-			findings = append(findings, stackFindings(s.Dir)...)
+			findings = append(findings, withoutRepeats(findings, stackFindings(s.Dir))...)
 			findings = append(findings, installFindings(s.Dir)...)
 			errs, warns, notes := bacon.Summary(findings)
 			failed := errs > 0 || (strict && warns > 0)
@@ -597,10 +597,25 @@ were there are replaced, and named.`,
 	}
 }
 
-// stackFindings is NERD019 SPEC006: for a manifest with a `local` section
-// that names companions, the lock must cover every want and every role must
-// be bound, external, or pinned. A manifest with no local section, or an
-// empty one, is not a stack and gets nothing here.
+// withoutRepeats drops the extra findings whose path already carries an
+// error: the local runtime re-checks deploy.dependencies, and one problem
+// reported twice in two wordings reads as two problems.
+func withoutRepeats(have, extra []bacon.Finding) []bacon.Finding {
+	failed := map[string]bool{}
+	for _, f := range have {
+		if f.Severity == bacon.Error {
+			failed[f.Path] = true
+		}
+	}
+	out := extra[:0:0]
+	for _, f := range extra {
+		if !failed[f.Path] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // installFindings checks the install section against the tree it will be
 // published from (NERD031 SPEC001). It lives here rather than in bacon
 // because installitems reads manifests through bacon.
@@ -618,18 +633,43 @@ func installFindings(dir string) []bacon.Finding {
 	return nil
 }
 
+// stackFindings is NERD019 SPEC006, widened by NERD010 SPEC009: for a
+// manifest with a `local` section, the lock must cover every want and every
+// role must be bound, external, resource-only or pinned. A manifest with no
+// local section is an ordinary RepoClass and gets nothing here.
+//
+// A section the runtime cannot read is reported problem by problem rather
+// than skipped: skipping it is how a manifest validated clean and then failed
+// at `lock` (D12). And only a manifest marked `stack` must name companions --
+// a repository that binds or requires roles is not a stack (D1).
 func stackFindings(dir string) []bacon.Finding {
 	spec, err := localspec.Load(dir)
-	if err != nil || spec.Local.Version == 0 {
+	if err != nil {
+		var invalid *localspec.InvalidError
+		if !errors.As(err, &invalid) {
+			// Unreadable JSON is bacon.Validate's to report, once.
+			return nil
+		}
+		out := make([]bacon.Finding, 0, len(invalid.Problems))
+		for _, p := range invalid.Problems {
+			path, msg := "local", p
+			if i := strings.Index(p, ": "); i > 0 && !strings.Contains(p[:i], " ") {
+				path, msg = p[:i], p[i+2:]
+			}
+			out = append(out, bacon.Finding{Severity: bacon.Error, Path: path, Message: msg})
+		}
+		return out
+	}
+	if spec.Local.Version == 0 {
 		// No `local` section at all: an ordinary RepoClass, not a stack.
 		return nil
 	}
 	var out []bacon.Finding
-	if len(spec.Local.Repos) == 0 {
+	if spec.Local.Stack && len(spec.Local.Repos) == 0 {
 		out = append(out, bacon.Finding{Severity: bacon.Error, Path: "local.repos",
 			Message: "a stack declares at least one companion; this manifest declares none"})
 	}
-	l, err := lock.Read(dir)
+	l, err := lock.ReadOrEmpty(dir, spec.RepoClassName, spec.Wants())
 	if err != nil {
 		out = append(out, bacon.Finding{Severity: bacon.Error, Path: lock.FileName,
 			Message: withLockRemedy(err).Error()})

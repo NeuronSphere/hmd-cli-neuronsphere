@@ -106,6 +106,13 @@ differently share one checked-in lock.`,
 // credential.
 func runLockCheck(cmd *cobra.Command, repoDir string, m *localspec.Manifest) error {
 	l, err := lock.Read(repoDir)
+	if errors.Is(err, lock.ErrAbsent) {
+		if _, empty := lock.ReadOrEmpty(repoDir, m.RepoClassName, m.Wants()); empty == nil {
+			// Nothing to pin, so nothing to reproduce (NERD010 SPEC009).
+			fmt.Fprintf(cmd.OutOrStdout(), "%s pins nothing, so no %s is needed.\n", m.Path, lock.FileName)
+			return nil
+		}
+	}
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, withLockRemedy(err))
 	}
