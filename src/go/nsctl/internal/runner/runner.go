@@ -303,7 +303,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		return Result{Node: node, Failed: true, Stdout: stdout, Stderr: stderr, Err: err}
 	}
 
-	if n := r.submitProducedResources(ctx, workspace, node); n > 0 {
+	if n := r.submitProducedResources(ctx, workspace, cmd.OutputDir, node); n > 0 {
 		r.step("    submitted %d produced resource(s)", n)
 	}
 	return Result{Node: node, Stdout: stdout, Stderr: stderr}
@@ -452,9 +452,16 @@ const ForeignKubeconfigPath = "/etc/nsctl/kubeconfig"
 // dockerArgsForeign consumes this map and nothing else for `-e`, so the test
 // that pins the contract asserts against the map the command line is built
 // from rather than a copy of it.
-func (r *Runner) foreignEnv(node msdeploy.DeploymentNode, config []byte) map[string]string {
+func (r *Runner) foreignEnv(node msdeploy.DeploymentNode, workspace string, cmd nodeCommand, config []byte) map[string]string {
 	env := map[string]string{
-		"AWS_ENDPOINT_URL": r.Config.FlociEndpoint,
+		// The workspace is mounted at its own host path (D5), so a compose
+		// file's relative bind resolves on the sibling daemon to the real
+		// directory. Named so a command need not hardcode it.
+		"HMD_WORKSPACE": workspace,
+		// Compose names a project after its directory; two repositories would
+		// otherwise share one project and network (D6).
+		"COMPOSE_PROJECT_NAME": composeProject(r.Config.Environment, node.InstanceName),
+		"AWS_ENDPOINT_URL":     r.Config.FlociEndpoint,
 		// The account selector -- see Config.AccountID.
 		"AWS_ACCESS_KEY_ID":     r.Config.AccountID,
 		"AWS_SECRET_ACCESS_KEY": "dummykey",
@@ -476,7 +483,28 @@ func (r *Runner) foreignEnv(node msdeploy.DeploymentNode, config []byte) map[str
 	if r.Config.kubeconfigMount() != "" {
 		env["KUBECONFIG"] = ForeignKubeconfigPath
 	}
+	// Outside the working tree, so running a repository leaves it as it was
+	// (D13).
+	if cmd.OutputDir != "" {
+		env["HMD_RESOURCES_OUTPUT_DIR"] = cmd.OutputDir
+	}
 	return env
+}
+
+// composeProject is a COMPOSE_PROJECT_NAME for one instance in one
+// environment: lowercase letters, digits, '-' and '_', starting with a
+// letter or digit -- what compose accepts.
+func composeProject(environment, instance string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(environment + "-" + instance) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_':
+			b.WriteRune(c)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return strings.TrimLeft(b.String(), "-_")
 }
 
 // dockerArgsForeign builds a foreign node's invocation (NERD009 SPEC005).
@@ -488,7 +516,7 @@ func (r *Runner) foreignEnv(node msdeploy.DeploymentNode, config []byte) map[str
 // environment; no /root path, since the image's user need not be root. The
 // argv follows the image verbatim.
 func (r *Runner) dockerArgsForeign(node msdeploy.DeploymentNode, workspace string, cmd nodeCommand, config []byte) []string {
-	env := r.foreignEnv(node, config)
+	env := r.foreignEnv(node, workspace, cmd, config)
 	args := []string{
 		"run", "--rm",
 		"--network", r.Config.Network,
@@ -506,7 +534,13 @@ func (r *Runner) dockerArgsForeign(node msdeploy.DeploymentNode, workspace strin
 	if kubeconfig := r.Config.kubeconfigMount(); kubeconfig != "" {
 		args = append(args, "-v", kubeconfig+":"+ForeignKubeconfigPath+":ro")
 	}
-	args = append(args, "-v", workspace+":/workspace", "-w", "/workspace")
+	// Both at their own host paths, not /workspace: the daemon a compose
+	// file talks to resolves every bind on the host, so only the identical
+	// path makes a relative bind name the real directory (D5).
+	args = append(args, "-v", workspace+":"+workspace, "-w", workspace)
+	if cmd.OutputDir != "" {
+		args = append(args, "-v", cmd.OutputDir+":"+cmd.OutputDir)
+	}
 	args = append(args, orDefault(cmd.Image, r.Config.Image))
 	return append(args, cmd.Argv...)
 }

@@ -559,7 +559,8 @@ func newSetExecCommand(path *repoClassPath, section string) *cobra.Command {
 		Use:   "set-command exec <argv...>",
 		Short: "Make the " + section + " one command run in the repo's own image",
 		Long: `Sets ` + section + `.commands to exactly one exec entry: the argv given, run
-as-is in deploy.image with the repo at /workspace. Any tool set commands that
+as-is in deploy.image, with the repo mounted at its own host path as the
+working directory (named by HMD_WORKSPACE). Any tool set commands that
 were there are replaced, and named.`,
 		// The argv's own flags are its arguments, not this command's, so
 		// cobra does not parse them; --path and --help are picked off by hand.

@@ -444,6 +444,34 @@ build``.
     ``TestForeignEnvIsExactlySPEC005`` pins the injected set against the
     map the command line is built from, with and without a cluster.
 
+    **Amended 2026-09-30 -- compose repositories, and an untouched tree.** The
+    ns-onboard-lab harness ran a ``docker compose`` repository through this
+    contract and found three defects (``ns-onboard-lab/FINDINGS.md`` D5, D6,
+    D13). The injected set changes as follows:
+
+    - **The workspace is mounted at its own host path**, and that path is the
+      working directory, in place of ``/workspace``. The daemon is a sibling, so
+      a compose file's ``./temp`` bind resolved against ``/workspace`` *on the
+      host* and failed with "mounts denied: the path /workspace/temp is not
+      shared from the host". At the identical path, a relative bind names the
+      real directory. ``HMD_WORKSPACE`` names the path, so a command need not
+      hardcode it. Native nodes keep ``/workspace``, because ``hmd-cli-*``
+      assumes it.
+    - **``COMPOSE_PROJECT_NAME``** is ``<environment>-<instance>``, lowercased
+      and restricted to the characters compose allows. Compose derived every
+      project name from the directory, ``workspace``, so two onboarded compose
+      repositories shared one project and one network and tore each other
+      down.
+    - **Produced Resources go to ``HMD_RESOURCES_OUTPUT_DIR``**, a per-run
+      directory outside the working tree, mounted at its own host path and
+      removed after the node's Resources are submitted. Creating
+      ``meta-data/resources_output/`` inside the mounted repository changed
+      the repository just by running it (the onboarding principle is that
+      onboarding adds one file, the manifest). A toolset that writes there is
+      still collected: if the directory was absent, the runner creates it for
+      the run and removes it once the Resources are collected, so the tree
+      ends as it began.
+
     This contract shall be documented in ``docs/``, not only here. It is the
     product: a user whose ``make deploy`` expects a git identity, a registry
     credential or a ``kubectl`` context gets a failure ``nsctl`` cannot explain,

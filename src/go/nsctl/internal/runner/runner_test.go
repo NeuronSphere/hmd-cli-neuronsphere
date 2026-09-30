@@ -62,10 +62,16 @@ type fakeDocker struct {
 	stdout string
 	stderr string
 	err    error
+	// during, when set, runs as the container would: after the mounts exist
+	// and before the runner collects what the node wrote.
+	during func(args []string)
 }
 
 func (f *fakeDocker) Run(_ context.Context, args ...string) ([]byte, []byte, error) {
 	f.args = args
+	if f.during != nil {
+		f.during(args)
+	}
 	return []byte(f.stdout), []byte(f.stderr), f.err
 }
 

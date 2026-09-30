@@ -132,6 +132,8 @@ var spec005 = []string{
 	"AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION",
 	"HMD_INSTANCE_NAME", "HMD_REPO_NAME", "HMD_REPO_VERSION", "HMD_INSTANCE_CONFIG",
 	"HMD_DID", "HMD_ENVIRONMENT", "HMD_CUSTOMER_CODE", "HMD_LOCAL_K3S_CLUSTER_NAME",
+	// Amended 2026-09-30 (D5, D6).
+	"HMD_WORKSPACE", "COMPOSE_PROJECT_NAME",
 }
 
 func sortedCopy(in []string) []string {
@@ -177,7 +179,7 @@ func TestForeignEnvIsExactlySPEC005(t *testing.T) {
 			// contract and must not leak in.
 			r.Config.Extra = map[string]string{"AWS_REGION": "us-east-1", "HMD_LOCAL_NS_CONTAINER_REGISTRY": "x"}
 
-			env := r.foreignEnv(node, []byte(`{"a":1}`))
+			env := r.foreignEnv(node, "/ws", nodeCommand{Argv: []string{"make", "deploy"}}, []byte(`{"a":1}`))
 			got := sortedKeys(env)
 			if strings.Join(got, ",") != strings.Join(sortedCopy(tt.want), ",") {
 				t.Errorf("injected variables\n got %v\nwant %v", got, sortedCopy(tt.want))
@@ -217,7 +219,7 @@ func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 	args := r.dockerArgsForeign(node, "/ws", nodeCommand{Argv: []string{"sh", "-c", "make deploy"}, Image: "ghcr.io/acme/ci:3.2"}, []byte("{}"))
 	joined := strings.Join(args, "\x00")
 
-	for _, forbidden := range []string{"--entrypoint", "/tmp/hmd-deploy-node.sh", "/root", "HMD_HOME=", "DOCKER_USERNAME", "DOCKER_PASSWORD", "NS_LOCAL_PROXY", "HMD_DEPLOYMENT_SERVICE_URL"} {
+	for _, forbidden := range []string{"--entrypoint", "/tmp/hmd-deploy-node.sh", "/root", "HMD_HOME=", "DOCKER_USERNAME", "DOCKER_PASSWORD", "NS_LOCAL_PROXY", "HMD_DEPLOYMENT_SERVICE_URL", ":/workspace"} {
 		if strings.Contains(joined, forbidden) {
 			t.Errorf("the invocation carries %q:\n%q", forbidden, args)
 		}
@@ -229,7 +231,7 @@ func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 		t.Errorf("tail = %q", tail)
 	}
 	for _, want := range []string{
-		"-v\x00/ws:/workspace", "-w\x00/workspace",
+		"-v\x00/ws:/ws", "-w\x00/ws",
 		"-v\x00/var/run/docker.sock:/var/run/docker.sock",
 		"-v\x00" + r.Config.Kubeconfig + ":" + ForeignKubeconfigPath + ":ro",
 		"--network\x00net",
@@ -311,25 +313,97 @@ func TestNativeNodesCarryTheRepoVersion(t *testing.T) {
 	}
 }
 
-// The runner collects meta-data/resources_output/*.json after the node exits,
-// and hmd-cli-helm creates that directory itself on the native path. A foreign
-// toolset cannot be expected to know the convention, and the first live run
-// proved it: `sh: can't create meta-data/resources_output/probe.json:
-// nonexistent directory`. The runner creates it, for both the direct mount
-// and the isolated copy.
-func TestAForeignWorkspaceHasAResourcesOutputDirectory(t *testing.T) {
+// Produced Resources go to a per-run directory outside the working tree,
+// named by HMD_RESOURCES_OUTPUT_DIR (D13). A toolset that writes the old
+// meta-data/resources_output/ still finds it -- the first live run failed
+// without it -- but a directory the run created is gone afterwards, so the
+// tree ends as it began. One that was already there is left alone.
+func TestAForeignRunLeavesTheTreeAsItWas(t *testing.T) {
 	t.Parallel()
 
 	for _, isolate := range []bool{false, true} {
 		repo := foreignRepo(t, "")
 		r := testRunner(t, &fakeDocker{}, "")
-		workspace, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", isolate)
+		workspace, cmd, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", isolate)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cleanup()
-		if info, err := os.Stat(filepath.Join(workspace, "meta-data", "resources_output")); err != nil || !info.IsDir() {
-			t.Errorf("isolate=%v: no resources_output directory in the workspace: %v", isolate, err)
+		if cmd.OutputDir == "" || strings.HasPrefix(cmd.OutputDir, repo) {
+			t.Errorf("isolate=%v: output directory %q is not outside the tree", isolate, cmd.OutputDir)
 		}
+		legacy := filepath.Join(workspace, "meta-data", "resources_output")
+		if info, err := os.Stat(legacy); err != nil || !info.IsDir() {
+			t.Errorf("isolate=%v: no resources_output directory for the run: %v", isolate, err)
+		}
+		cleanup()
+		if _, err := os.Stat(filepath.Join(repo, "meta-data", "resources_output")); !os.IsNotExist(err) {
+			t.Errorf("isolate=%v: the run left resources_output in the tree", isolate)
+		}
+		if _, err := os.Stat(cmd.OutputDir); !os.IsNotExist(err) {
+			t.Errorf("isolate=%v: the output directory outlived the run", isolate)
+		}
+	}
+
+	repo := foreignRepo(t, "")
+	mustWrite(t, filepath.Join(repo, "meta-data", "resources_output", "keep.json"), "{}")
+	r := testRunner(t, &fakeDocker{}, "")
+	_, _, cleanup, err := r.prepareWorkspace(repo, "hmd deploy", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if _, err := os.Stat(filepath.Join(repo, "meta-data", "resources_output", "keep.json")); err != nil {
+		t.Errorf("a directory the repository already had was removed: %v", err)
+	}
+}
+
+// Two compose repositories in one environment, or one in two, never share a
+// project (D6).
+func TestComposeProjectIsPerInstance(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct{ env, instance, want string }{
+		{"ob-0", "de-project-template", "ob-0-de-project-template"},
+		{"Local", "Trino.Getting Started", "local-trino-getting-started"},
+		{"", "_x", "x"},
+	} {
+		if got := composeProject(tt.env, tt.instance); got != tt.want {
+			t.Errorf("composeProject(%q, %q) = %q, want %q", tt.env, tt.instance, got, tt.want)
+		}
+	}
+}
+
+// What a node writes to HMD_RESOURCES_OUTPUT_DIR is collected and recorded
+// like what it writes to the old in-tree directory.
+func TestRunNodeCollectsTheOutOfTreeResourceDirectory(t *testing.T) {
+	t.Parallel()
+
+	repoHome := t.TempDir()
+	mustWrite(t, filepath.Join(repoHome, "acme-api", "meta-data", "manifest.json"),
+		`{"name":"acme-api","deploy":{"commands":[["exec","make","deploy"]],"image":"alpine:3.20"}}`)
+	d := &fakeDocker{during: func(args []string) {
+		for _, kv := range envFlags(args) {
+			if dir, ok := strings.CutPrefix(kv, "HMD_RESOURCES_OUTPUT_DIR="); ok {
+				_ = os.WriteFile(filepath.Join(dir, "db.json"), []byte(`{"name":"db"}`), 0o644)
+			}
+		}
+	}}
+	r := testRunner(t, d, repoHome)
+	r.OutputDir = t.TempDir()
+
+	res := r.RunNode(context.Background(), msdeploy.DeploymentNode{
+		InstanceName: "api", RepoClassName: "acme-api", Version: "0.3", Script: fixtureScript(t),
+	})
+	if res.Failed {
+		t.Fatalf("RunNode: %v", res.Err)
+	}
+	data, err := os.ReadFile(filepath.Join(r.OutputDir, "api.json"))
+	if err != nil || !strings.Contains(string(data), `"db"`) {
+		t.Errorf("the out-of-tree resource was not recorded: %v %s", err, data)
+	}
+	joined := strings.Join(d.args, "\x00")
+	ws := filepath.Join(repoHome, "acme-api")
+	if !strings.Contains(joined, "-v\x00"+ws+":"+ws) || !strings.Contains(joined, "-w\x00"+ws) {
+		t.Errorf("the workspace is not mounted at its host path:\n%q", d.args)
 	}
 }

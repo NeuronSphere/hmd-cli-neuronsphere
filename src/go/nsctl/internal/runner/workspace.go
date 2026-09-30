@@ -41,6 +41,10 @@ type nodeCommand struct {
 	// generated deploy script, which then has to be handed the configuration
 	// the generated script carried inline.
 	Override bool
+	// OutputDir, for a foreign node, is the per-run directory outside the
+	// working tree its produced Resources are written to, named to the node
+	// by HMD_RESOURCES_OUTPUT_DIR (NERD009 SPEC005, amended 2026-09-30).
+	OutputDir string
 }
 
 // prepareWorkspace resolves the workspace to mount and the command to run.
@@ -90,15 +94,40 @@ func (r *Runner) prepareWorkspace(repoPath, script string, isolate bool) (worksp
 			}
 			workspace, cleanup = tmp, func() { os.RemoveAll(filepath.Dir(tmp)) }
 		}
-		// The directory the produced Resources are collected from. hmd-cli-helm
-		// creates it on the native path; a foreign toolset cannot be expected
-		// to know the convention, and without it the first thing a command
-		// writes fails with "nonexistent directory".
-		if err := os.MkdirAll(filepath.Join(workspace, "meta-data", "resources_output"), 0o755); err != nil {
+		// The directory the produced Resources are collected from. It lives
+		// outside the working tree, because running a repository must not
+		// change it (D13): creating meta-data/resources_output/ in the
+		// developer's checkout did. Host-visible, so it can be mounted at its
+		// own path like the workspace.
+		out, err := os.MkdirTemp(r.Config.workDir(), "nsctl-out-*")
+		if err != nil {
 			cleanup()
-			return "", nodeCommand{}, noop, fmt.Errorf("preparing %s: %w", workspace, err)
+			return "", nodeCommand{}, noop, fmt.Errorf("preparing the resource output directory: %w", err)
 		}
-		return workspace, cmd, cleanup, nil
+		cmd.OutputDir = out
+		// A toolset written before HMD_RESOURCES_OUTPUT_DIR writes to
+		// meta-data/resources_output/ and cannot be expected to create it --
+		// the first live run failed on exactly that. So the directory is
+		// provided for the run, and if this run created it, it goes again once
+		// the Resources are collected: the tree ends as it began.
+		legacy := filepath.Join(workspace, "meta-data", "resources_output")
+		created := false
+		if _, statErr := os.Stat(legacy); os.IsNotExist(statErr) {
+			if err := os.MkdirAll(legacy, 0o755); err != nil {
+				os.RemoveAll(out)
+				cleanup()
+				return "", nodeCommand{}, noop, fmt.Errorf("preparing %s: %w", workspace, err)
+			}
+			created = true
+		}
+		inner := cleanup
+		return workspace, cmd, func() {
+			os.RemoveAll(out)
+			if created {
+				os.RemoveAll(legacy)
+			}
+			inner()
+		}, nil
 	}
 
 	overlay := filepath.Join(repoPath, "src", "local")
@@ -255,12 +284,36 @@ func copyFileMode(src, dst string, mode os.FileMode) error {
 // so they are collected from the runner while the (possibly temporary)
 // workspace still exists. Best effort: a Resource that fails to submit is worth
 // a warning, not a failed deploy that actually succeeded.
-func (r *Runner) submitProducedResources(ctx context.Context, workspace string, node msdeploy.DeploymentNode) int {
-	dir := filepath.Join(workspace, "meta-data", "resources_output")
-	entries, _ := os.ReadDir(dir)
+func (r *Runner) submitProducedResources(ctx context.Context, workspace, outputDir string, node msdeploy.DeploymentNode) int {
 	// Every file is collected into one submission. submit_resources takes the
 	// RepoInstanceDeployment the Resources belong to plus a list -- posting a
 	// bare document answers 500, because the id it keys them by is missing.
+	var resources []any
+	dirs := []string{filepath.Join(workspace, "meta-data", "resources_output")}
+	if outputDir != "" {
+		dirs = append([]string{outputDir}, dirs...)
+	}
+	for _, dir := range dirs {
+		resources = append(resources, r.readResourceDir(dir, node)...)
+	}
+
+	// The legacy single-file shape, still written by some repos.
+	if data, err := os.ReadFile(filepath.Join(workspace, "meta-data", "resources_output.json")); err == nil {
+		var doc any
+		if err := json.Unmarshal(data, &doc); err == nil {
+			if list, ok := doc.([]any); ok {
+				resources = append(resources, list...)
+			} else {
+				resources = append(resources, doc)
+			}
+		}
+	}
+	return r.submitResources(ctx, node, resources)
+}
+
+// readResourceDir reads every *.json Resource document in dir.
+func (r *Runner) readResourceDir(dir string, node msdeploy.DeploymentNode) []any {
+	entries, _ := os.ReadDir(dir)
 	var resources []any
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -283,19 +336,12 @@ func (r *Runner) submitProducedResources(ctx context.Context, workspace string, 
 		}
 		resources = append(resources, doc)
 	}
+	return resources
+}
 
-	// The legacy single-file shape, still written by some repos.
-	if data, err := os.ReadFile(filepath.Join(workspace, "meta-data", "resources_output.json")); err == nil {
-		var doc any
-		if err := json.Unmarshal(data, &doc); err == nil {
-			if list, ok := doc.([]any); ok {
-				resources = append(resources, list...)
-			} else {
-				resources = append(resources, doc)
-			}
-		}
-	}
-
+// submitResources records and posts what a node produced, returning how many
+// were submitted.
+func (r *Runner) submitResources(ctx context.Context, node msdeploy.DeploymentNode, resources []any) int {
 	if len(resources) == 0 {
 		return 0
 	}

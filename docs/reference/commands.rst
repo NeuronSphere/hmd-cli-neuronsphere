@@ -2492,7 +2492,8 @@ nsctl repoclass deploy set-command
 ----------------------------------
 
 Sets deploy.commands to exactly one exec entry: the argv given, run
-as-is in deploy.image with the repo at /workspace. Any tool set commands that
+as-is in deploy.image, with the repo mounted at its own host path as the
+working directory (named by HMD_WORKSPACE). Any tool set commands that
 were there are replaced, and named.
 
 Usage
@@ -3096,7 +3097,8 @@ nsctl repoclass test set-command
 --------------------------------
 
 Sets test.commands to exactly one exec entry: the argv given, run
-as-is in deploy.image with the repo at /workspace. Any tool set commands that
+as-is in deploy.image, with the repo mounted at its own host path as the
+working directory (named by HMD_WORKSPACE). Any tool set commands that
 were there are replaced, and named.
 
 Usage

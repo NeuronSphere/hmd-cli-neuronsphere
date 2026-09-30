@@ -110,11 +110,22 @@ Create ``scripts/deploy-local.sh`` with this content:
 .. literalinclude:: ../examples/local-repo/scripts/deploy-local.sh
    :language: sh
 
-The command runs in ``/workspace``, where nsctl mounts your checkout. Calling
-``sh scripts/deploy-local.sh`` means an executable file bit is not required.
-The runner supplies the instance name, class name, version, and other context
-as environment variables. It also supplies resolved configuration as JSON in
-``HMD_INSTANCE_CONFIG``.
+The command runs in your checkout, which nsctl mounts at its own host path
+and names in ``HMD_WORKSPACE``. The same path matters when the command runs
+``docker compose``: the Docker daemon is the host's, so a relative bind mount
+such as ``./data`` only resolves because the path inside the container is the
+path on the host. Calling ``sh scripts/deploy-local.sh`` means an executable
+file bit is not required. The runner supplies the instance name, class name,
+version, and other context as environment variables. It also supplies:
+
+- resolved configuration as JSON in ``HMD_INSTANCE_CONFIG``;
+- ``COMPOSE_PROJECT_NAME``, set to ``<environment>-<instance>`` so two
+  compose repositories never share a project;
+- ``HMD_RESOURCES_OUTPUT_DIR``, a directory outside your checkout where the
+  command writes any Resources it produces as ``*.json``.
+
+Running the command leaves your checkout as it was, apart from what the
+command itself writes.
 
 For an actual application, change this script to perform your local deploy
 and choose an image containing its tools. Make the command safe to run again,

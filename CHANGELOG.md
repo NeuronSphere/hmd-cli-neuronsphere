@@ -2,6 +2,15 @@
 
 ## 2026-09-30
 
+- fix: a foreign (`exec`) node mounts its repository at its own host path and
+  names it in `HMD_WORKSPACE`, so a `docker compose` file's relative bind mounts
+  resolve on the host's daemon (D5). `COMPOSE_PROJECT_NAME` is
+  `<environment>-<instance>`, so two compose repositories no longer share one
+  project and network (D6).
+- fix: produced Resources go to `HMD_RESOURCES_OUTPUT_DIR`, a per-run directory
+  outside the working tree. An in-tree `meta-data/resources_output/` that the
+  runner created for older toolsets is removed after collection, so running a
+  repository leaves it as it was (D13).
 - feat: `env plan --from-repo <path>` previews what `env add --from-repo` would
   declare, and which artifacts it would fetch, offline: no control plane, no
   registry entry, no environment manifest (D4). Name an environment to plan
