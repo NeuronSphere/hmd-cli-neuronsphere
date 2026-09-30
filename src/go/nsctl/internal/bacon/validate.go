@@ -182,6 +182,55 @@ func (v *validator) structure() {
 	v.discovery()
 	v.licence()
 	v.access()
+	v.local()
+}
+
+// localKeys is what the local runtime reads (internal/localspec), per level.
+var localKeys = struct{ section, repo, gate map[string]bool }{
+	section: set("version", "stack", "default_profiles", "repos", "dependencies"),
+	repo:    set("instance_name", "repo_class_name", "version_spec", "profiles", "dependencies", "instance_configuration"),
+	gate:    set("profiles", "bind", "dependencies", "instance_configuration", "suggest", "external"),
+}
+
+func set(keys ...string) map[string]bool {
+	out := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		out[k] = true
+	}
+	return out
+}
+
+// local warns on keys under `local` the runtime does not read (D15). A
+// warning, not an error: a newer manifest should still validate here, but a
+// misspelled field should not pass silently. The section's meaning is
+// checked where the runtime reads it (stackFindings); this is its spelling.
+func (v *validator) local() {
+	local, ok := v.doc.Object("local")
+	if !ok {
+		return
+	}
+	unknown := func(path string, obj *Object, known map[string]bool) {
+		for _, key := range obj.Keys() {
+			if !known[key] {
+				v.add(Warning, path+"."+key, "is not a key this nsctl reads, and is ignored")
+			}
+		}
+	}
+	unknown("local", local, localKeys.section)
+	if repos, ok := local.Array("repos"); ok {
+		for i, raw := range repos {
+			if repo, isObj := raw.(*Object); isObj {
+				unknown(fmt.Sprintf("local.repos[%d]", i), repo, localKeys.repo)
+			}
+		}
+	}
+	if gates, ok := local.Object("dependencies"); ok {
+		for _, role := range gates.Keys() {
+			if gate, ok := gates.Object(role); ok {
+				unknown("local.dependencies."+role, gate, localKeys.gate)
+			}
+		}
+	}
 }
 
 // literalSecretKeys are the key names an access entry must never carry.

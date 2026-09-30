@@ -158,6 +158,29 @@ type Dependency struct {
 // string the schema's enum demands, the resource block when any of its keys
 // are given, the role replaced in place.
 func AddDependency(doc *Object, role string, d Dependency) (string, error) {
+	if d.ResourceNamespace != "" || d.ResourceDefinitionName != "" || d.ResourceVersion != "" ||
+		d.ResourceVersionSpec != "" || len(d.Tags) > 0 {
+		// ms-deployment keys a ResourceDefinition by namespace, name and
+		// version, and refuses a resource missing any of them, so the verb
+		// refuses too rather than write what `validate` rejects (D14). The
+		// version names the definition; version_spec is the range a
+		// producer's version must satisfy, and is optional.
+		var missing []string
+		for _, f := range []struct{ flag, value string }{
+			{"--resource-namespace", d.ResourceNamespace},
+			{"--resource-definition-name", d.ResourceDefinitionName},
+			{"--resource-version", d.ResourceVersion},
+		} {
+			if f.value == "" {
+				missing = append(missing, f.flag)
+			}
+		}
+		if len(missing) > 0 {
+			return "", fmt.Errorf("a resource needs %s: the version names the ResourceDefinition,"+
+				" and --resource-version-spec is only the range a producer must satisfy",
+				strings.Join(missing, ", "))
+		}
+	}
 	deps, err := ensurePath(doc, "deploy", "dependencies")
 	if err != nil {
 		return "", err
@@ -170,7 +193,8 @@ func AddDependency(doc *Object, role string, d Dependency) (string, error) {
 	if d.VersionSpec != "" {
 		entry.Set("version_spec", d.VersionSpec)
 	}
-	if d.ResourceNamespace != "" || d.ResourceDefinitionName != "" || d.ResourceVersion != "" {
+	if d.ResourceNamespace != "" || d.ResourceDefinitionName != "" || d.ResourceVersion != "" ||
+		d.ResourceVersionSpec != "" || len(d.Tags) > 0 {
 		res := NewObject()
 		if d.ResourceNamespace != "" {
 			res.Set("resource_namespace", d.ResourceNamespace)

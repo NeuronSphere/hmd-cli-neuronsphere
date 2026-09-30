@@ -1,6 +1,7 @@
 package bacon
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,6 +82,9 @@ func TestValidateRules(t *testing.T) {
 		{"required as boolean", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"dependencies":{"db":{"required":true,"repo_class_name":"x"}}}}`, nil, Known{}, Warning, "JSON boolean"},
 		{"required as garbage", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"dependencies":{"db":{"required":"yes","repo_class_name":"x"}}}}`, nil, Known{}, Error, "db.required"},
 		{"resource missing identity", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"dependencies":{"db":{"required":"true","resource":{"resource_namespace":"x"}}}}}`, nil, Known{}, Error, "resource_definition_name"},
+		{"local key misspelled", `{"name":"n","description":"d","build":{},"local":{"version":1,"default_profile":["x"]}}`, nil, Known{}, Warning, "local.default_profile"},
+		{"local gate key unknown", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"dependencies":{"db":{"required":"false","repo_class_name":"x"}}},"local":{"version":1,"dependencies":{"db":{"env":{"A":"b"}}}}}`, nil, Known{}, Warning, "local.dependencies.db.env"},
+		{"local companion key unknown", `{"name":"n","description":"d","build":{},"local":{"version":1,"repos":[{"instance_name":"a","repo_class_name":"b","version":"1"}]}}`, nil, Known{}, Warning, "local.repos[0].version"},
 		{"deploy.resources missing version", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"r":{"resource_namespace":"x","resource_definition_name":"y"}}}}`, nil, Known{}, Error, "deploy.resources.r.version"},
 		{"capability kind", `{"name":"n","description":"d","build":{},"discovery":{"capabilities":[{"name":"c","kind":"widget","description":"d"}]}}`, nil, Known{}, Error, "capabilities[0].kind"},
 		{"entry point without description", `{"name":"n","description":"d","build":{},"discovery":{"entry_points":[{"path":"p"}]}}`, nil, Known{}, Error, "entry_points[0].description"},
@@ -167,5 +171,44 @@ func TestValidateAcceptsAStackWithNoDeployCommands(t *testing.T) {
 	got := messages(Validate(s, Known{}), Error)
 	if strings.Contains(got, "declares no commands") {
 		t.Errorf("stack should not need deploy.commands: %v", Validate(s, Known{}))
+	}
+}
+
+// D14: add-dependency refuses a resource it cannot complete instead of
+// writing what validate rejects, and what it does write -- version and range
+// together -- validates, with the known local keys producing no warning.
+func TestAddDependencyWritesOnlyValidResources(t *testing.T) {
+	t.Parallel()
+
+	for _, d := range []Dependency{
+		{ResourceVersionSpec: "~= 0.1"},
+		{ResourceNamespace: "database.neuronsphere.io", ResourceDefinitionName: "database-account", ResourceVersionSpec: "~= 0.1"},
+		{Tags: map[string]string{"a": "b"}},
+	} {
+		if _, err := AddDependency(NewObject(), "w", d); err == nil || !strings.Contains(err.Error(), "--resource-version") {
+			t.Errorf("%+v: err = %v, want a refusal naming --resource-version", d, err)
+		}
+	}
+
+	doc := NewObject()
+	if _, err := AddDependency(doc, "warehouse", Dependency{
+		ResourceNamespace: "database.neuronsphere.io", ResourceDefinitionName: "database-account",
+		ResourceVersion: "0.1.0", ResourceVersionSpec: "~= 0.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deps, _ := doc.Lookup("deploy", "dependencies")
+	body, err := json.Marshal(map[string]any{"name": "n", "description": "d", "build": map[string]any{},
+		"deploy": map[string]any{"commands": [][]string{{"exec", "a"}}, "dependencies": deps},
+		"local": map[string]any{"version": 1, "stack": false, "default_profiles": []string{}, "repos": []any{},
+			"dependencies": map[string]any{"warehouse": map[string]any{"external": true, "suggest": "x"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := classDir(t, string(body), map[string]string{"meta-data/VERSION": "0.1\n"})
+	for _, f := range Validate(s, Known{}) {
+		if strings.HasPrefix(f.Path, "deploy.dependencies") || strings.HasPrefix(f.Path, "local") {
+			t.Errorf("unexpected finding %s", f)
+		}
 	}
 }

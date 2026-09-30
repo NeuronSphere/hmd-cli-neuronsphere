@@ -568,7 +568,7 @@ expectation to violate. --no-pull suppresses it.`,
 				return nserr.Wrap(nserr.Fail, err)
 			}
 
-			renderNewEnvironment(cmd, env)
+			renderNewEnvironment(cmd, env, opts.Lookup)
 			if plan == nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
 				return nil
@@ -838,7 +838,7 @@ func confirmFullPurge(cmd *cobra.Command, opts *Options) bool {
 // Shared by `env add` and by `env start`'s first-run registration so the two
 // read identically: the same act deserves the same words whichever verb
 // performed it.
-func renderNewEnvironment(cmd *cobra.Command, env *registry.Environment) {
+func renderNewEnvironment(cmd *cobra.Command, env *registry.Environment, lookup func(string) string) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Registered environment %q\n", env.Slug)
 	fmt.Fprintf(out, "  account:  %s\n", env.AccountID)
@@ -853,7 +853,7 @@ func renderNewEnvironment(cmd *cobra.Command, env *registry.Environment) {
 	// Before the choice is acted on, not after it fails.
 	environment.WarnUndeployableSlug(func(format string, a ...any) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: "+format+"\n", a...)
-	}, env.Slug)
+	}, env.Slug, lookup)
 }
 
 // resolveStartTarget settles which environment `env start` is about, before
@@ -879,7 +879,7 @@ func resolveStartTarget(cmd *cobra.Command, opts *Options, home, name string) (s
 		return "", nserr.Wrap(nserr.Usage, err)
 	}
 	if created {
-		renderNewEnvironment(cmd, env)
+		renderNewEnvironment(cmd, env, opts.Lookup)
 		fmt.Fprintln(cmd.OutOrStdout())
 		return env.Slug, nil
 	}

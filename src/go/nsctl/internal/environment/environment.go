@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
 // Options configures a start or stop.
@@ -1165,11 +1167,12 @@ func refreshAfterDeploy(ctx context.Context, opts *Options, reg *registry.Regist
 // HmdCdkTfStack.is_local carries the answer to all seventeen sites that used
 // to compare the name.
 //
-// The warning stays anyway, because the fix lives in a library that reaches a
-// deploy only through the projectbuilder image. Until one ships carrying it,
-// a differently-named environment still fails exactly as described, and a
-// removed warning would leave that unexplained. Delete this, its two callers
-// and the bullets in docs/nsctl.rst and the README once the image has it.
+// The fix reaches a deploy only through the projectbuilder image, and 0.5.388
+// is the first that carries it. The default is newer, so the warning now fires
+// only for an image pinned older than that, or one whose version cannot be
+// read (D10: before this, every environment not named `local` -- which is
+// every repository-scoped one -- warned against the default image).
+//
 // provisionEnvironment creates the account resources, and decides which of
 // them a start may proceed without.
 //
@@ -1213,7 +1216,13 @@ func provisionEnvironment(ctx context.Context, prov accountProvisioner, names fl
 	return nserr.Wrap(nserr.Fail, prov.CheckStorage(ctx, bucket))
 }
 
+// DeployableSlug is the one name that deploys on a projectbuilder image
+// without hmd-lib-cdktf's fix; see the comment above provisionEnvironment's.
 const DeployableSlug = "local"
+
+// FixedProjectBuilder is the first projectbuilder whose hmd-lib-cdktf decides
+// S3 addressing by endpoint rather than by environment name.
+var FixedProjectBuilder = [3]int{0, 5, 388}
 
 // WarnUndeployableSlug names the defect above before it costs a deploy.
 //
@@ -1225,8 +1234,8 @@ const DeployableSlug = "local"
 //
 // Named at both ends: `env add`, so the choice is informed, and the start, so
 // the failure 955 log lines into `tofu init` has something attached to it.
-func WarnUndeployableSlug(warn func(string, ...any), slug string) {
-	if slug == "" || slug == DeployableSlug {
+func WarnUndeployableSlug(warn func(string, ...any), slug string, lookup func(string) string) {
+	if slug == "" || slug == DeployableSlug || projectBuilderHasFix(runner.ProjectBuilderRef(lookup)) {
 		return
 	}
 	warn("environment %q is not named %q. Its CDKTF nodes will fail in `tofu init` with "+
@@ -1236,4 +1245,28 @@ func WarnUndeployableSlug(warn func(string, ...any), slug string) {
 		"name, while ms-deployment passes the environment's own slug as --environment.\n"+
 		"  The substrate's cluster and database come up either way; only deploys are affected. "+
 		"See SPEC014.", slug, DeployableSlug)
+}
+
+// projectBuilderHasFix reports whether a projectbuilder image reference is at
+// or past FixedProjectBuilder. A tag that is not MAJOR.MINOR.PATCH cannot be
+// vouched for, so it reports false and the warning stands.
+func projectBuilderHasFix(ref string) bool {
+	i := strings.LastIndex(ref, ":")
+	if i < 0 || strings.Contains(ref[i:], "/") {
+		return false
+	}
+	parts := strings.Split(ref[i+1:], ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for n, part := range parts {
+		v, err := strconv.Atoi(part)
+		if err != nil {
+			return false
+		}
+		if v != FixedProjectBuilder[n] {
+			return v > FixedProjectBuilder[n]
+		}
+	}
+	return true
 }

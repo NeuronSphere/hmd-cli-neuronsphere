@@ -788,7 +788,7 @@ already exist.
 .. spec:: Onboarding a foreign repository: what the lab broke
     :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD010
-    :status: open
+    :status: implemented
 
     **Added 2026-09-30.** The ns-onboard-lab harness onboarded eight foreign
     repositories with nsctl 1.0.238 and found that a manifest-only,
@@ -849,6 +849,12 @@ already exist.
     - A key under ``local`` that this nsctl does not know is a warning. It is not
       an error, so a newer manifest still validates, but a misspelled field no
       longer passes silently.
+    - ``repoclass deploy add-dependency`` refuses a ``resource`` it cannot
+      complete, instead of writing one ``validate`` rejects (D14). The
+      definition's ``version`` is required: ms-deployment keys a
+      ResourceDefinition by namespace, name and version, and refuses a
+      dependency without all three. ``version_spec`` is only the range a
+      producer's version must satisfy, so a range alone is not enough.
 
     **``env delete`` owns the environment manifest (D3).** This amends SPEC005.
 
@@ -863,8 +869,12 @@ already exist.
     ``env add --from-repo`` would declare. It uses the same profiles, the same
     naming order and the same fill rules, and it touches neither the registry,
     the environment manifest, the network nor the control plane.
-    ``--env <name>`` plans against an existing environment's providers and
-    bindings.
+    Naming an environment (``env plan <name> --from-repo``) plans against its
+    providers and bindings.
+
+    **Implemented 2026-09-30.** After D11, D12, D1 and D7, the lab's principled
+    recipes, unchanged, pass ``validate``, ``lock``, ``lock --check`` and
+    ``env add --from-repo`` on all eight corpus repositories.
 
 Risks
 -----

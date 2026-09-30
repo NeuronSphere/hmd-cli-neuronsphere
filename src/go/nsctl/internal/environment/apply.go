@@ -217,7 +217,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 
 	// Said here so the `tofu init` failure 955 log lines below has a cause
 	// attached to it, rather than reading as a broken bundled tree.
-	WarnUndeployableSlug(opts.warn, env.Slug)
+	WarnUndeployableSlug(opts.warn, env.Slug, opts.Lookup)
 
 	if prov, err := floci.NewProvisioner(ctx, target, opts.Out, opts.Err); err == nil {
 		// Clear a database record Floci cannot serve, so the deploy below

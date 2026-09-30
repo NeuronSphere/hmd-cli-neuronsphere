@@ -425,17 +425,23 @@ func TestAnUndeployableSlugIsNamedBeforeItCostsADeploy(t *testing.T) {
 	var got []string
 	warn := func(format string, a ...any) { got = append(got, fmt.Sprintf(format, a...)) }
 
-	WarnUndeployableSlug(warn, DeployableSlug)
+	old := func(k string) string {
+		if k == "HMD_PROJECTBUILDER_VERSION" {
+			return "0.5.387"
+		}
+		return ""
+	}
+	WarnUndeployableSlug(warn, DeployableSlug, old)
 	if len(got) != 0 {
 		t.Fatalf("the deployable slug must warn about nothing: %v", got)
 	}
 
-	WarnUndeployableSlug(warn, "")
+	WarnUndeployableSlug(warn, "", old)
 	if len(got) != 0 {
 		t.Fatalf("an unnamed environment is not a naming problem: %v", got)
 	}
 
-	WarnUndeployableSlug(warn, "dev2")
+	WarnUndeployableSlug(warn, "dev2", old)
 	if len(got) != 1 {
 		t.Fatalf("want one warning, got %v", got)
 	}
@@ -510,5 +516,36 @@ func TestReadySummaryUILinksCarryAMovedHTTPPort(t *testing.T) {
 	moved := strings.Join(readySummary(env, manifest.SubstrateFull, nil, f), "\n")
 	if !strings.Contains(moved, "http://airflow.ns.local:8080/") {
 		t.Errorf("on a moved HTTP port the UI link must carry it, got:\n%s", moved)
+	}
+}
+
+// D10: the default projectbuilder carries hmd-lib-cdktf's fix, so an
+// environment named anything else -- every repository-scoped one -- is not
+// warned about. A pinned older image, or a tag nobody can vouch for, still is.
+func TestTheSlugWarningFollowsTheProjectBuilderImage(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		version string
+		warns   bool
+	}{
+		{"", false}, // the default
+		{"0.5.388", false},
+		{"0.6.1", false},
+		{"0.5.387", true},
+		{"latest", true},
+	} {
+		var got []string
+		warn := func(format string, a ...any) { got = append(got, fmt.Sprintf(format, a...)) }
+		lookup := func(k string) string {
+			if k == "HMD_PROJECTBUILDER_VERSION" {
+				return tt.version
+			}
+			return ""
+		}
+		WarnUndeployableSlug(warn, "ob-0", lookup)
+		if (len(got) > 0) != tt.warns {
+			t.Errorf("version %q: warned %v, want %v", tt.version, got, tt.warns)
+		}
 	}
 }

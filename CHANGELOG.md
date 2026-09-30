@@ -2,6 +2,16 @@
 
 ## 2026-09-30
 
+- fix: `repoclass deploy add-dependency` refuses a resource without
+  `--resource-version` (and namespace and name), instead of writing a manifest
+  `validate` rejects; `--resource-version-spec` or `--tag` alone is no longer
+  silently dropped (D14).
+- fix: `repoclass validate` warns on a key under `local` that nsctl does not
+  read, so a misspelled field no longer validates clean (D15).
+- fix: the CDKTF `tofu init` warning for an environment not named `local` fires
+  only when the projectbuilder image predates hmd-lib-cdktf's fix (before
+  0.5.388) or its version is unknown. The default image has the fix, so
+  repo-scoped environments are no longer warned (D10).
 - fix: a foreign (`exec`) node mounts its repository at its own host path and
   names it in `HMD_WORKSPACE`, so a `docker compose` file's relative bind mounts
   resolve on the host's daemon (D5). `COMPOSE_PROJECT_NAME` is
