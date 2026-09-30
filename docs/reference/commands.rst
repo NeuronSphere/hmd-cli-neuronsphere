@@ -1422,6 +1422,12 @@ exactly the gap a reviewer needs closed before merging a proposal.
 into a pull request body; --output json is the same data for a script to
 consume.
 
+With --from-repo it previews a repository instead, offline: what
+`env add --from-repo` would declare, under the same profiles, naming and
+fill rules, and which artifacts it would fetch. It contacts nothing and writes
+nothing -- no registry entry, no environment manifest -- so it needs no control
+plane. Name an environment to plan against its bindings and providers.
+
 Usage
 ~~~~~
 
@@ -1437,11 +1443,17 @@ Examples
    nsctl env plan
      nsctl env plan dev --output json
      nsctl env plan dev --output md > plan.md
+     nsctl env plan --from-repo . --profile warehouse
 
 Local flags
 ~~~~~~~~~~~
 
+* ``--all-profiles`` — Activate every profile the lock mentions
+* ``--from-repo`` — Build the environment from the repository at this path
+* ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
+* ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--output`` — Output format: text, json or md (default: ``text``)
+* ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
 
 Inherited flags
 ~~~~~~~~~~~~~~~

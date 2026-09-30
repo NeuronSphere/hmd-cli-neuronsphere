@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 )
 
 // NERD010 SPEC009: roles the lock cannot pin -- external ones, and ones that
@@ -233,5 +234,35 @@ func TestEnvDeleteThenAddDoesNotInheritInstances(t *testing.T) {
 	}
 	if got := instanceNames(loadEnv(t, home, "ob-0")); !contains(got, "jaffle-shop-duckdb") {
 		t.Errorf("--adopt dropped the kept manifest's instances: %v", got)
+	}
+}
+
+// D4: a repository can be planned with no control plane, and planning it
+// registers nothing and writes nothing.
+func TestEnvPlanFromRepoIsOfflineAndWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	repo := subjectRepo(t, home, subjectManifest)
+	regBefore, err := os.ReadFile(registry.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := run(t, fakeEnv(env), "env", "plan", "--from-repo", repo, "--lean")
+	if err != nil {
+		t.Fatalf("env plan --from-repo: %v", err)
+	}
+	for _, s := range []string{"offline; nothing written", "ms-myapi", "cache", "Profiles: none (lean)"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("plan does not mention %q:\n%s", s, out)
+		}
+	}
+	regAfter, _ := os.ReadFile(registry.Path(home))
+	if string(regBefore) != string(regAfter) {
+		t.Error("planning changed the registry")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, "environments")); len(entries) != 0 {
+		t.Errorf("planning wrote %d environment manifest(s)", len(entries))
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 func newEnvPlanCommand(opts *Options) *cobra.Command {
 	var output string
+	var repo fromRepo
 	cmd := &cobra.Command{
 		Use:   "plan [name]",
 		Short: "Preview what `env apply` would add or change, without applying it",
@@ -32,10 +33,17 @@ exactly the gap a reviewer needs closed before merging a proposal.
 
 --output md renders the same result as Markdown suitable for pasting directly
 into a pull request body; --output json is the same data for a script to
-consume.`,
+consume.
+
+With --from-repo it previews a repository instead, offline: what
+` + "`env add --from-repo`" + ` would declare, under the same profiles, naming and
+fill rules, and which artifacts it would fetch. It contacts nothing and writes
+nothing -- no registry entry, no environment manifest -- so it needs no control
+plane. Name an environment to plan against its bindings and providers.`,
 		Example: `  nsctl env plan
   nsctl env plan dev --output json
-  nsctl env plan dev --output md > plan.md`,
+  nsctl env plan dev --output md > plan.md
+  nsctl env plan --from-repo . --profile warehouse`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -52,6 +60,12 @@ consume.`,
 			var name string
 			if len(args) == 1 {
 				name = args[0]
+			}
+			if repo.requested() {
+				if output != "text" {
+					return nserr.New(nserr.Usage, "--from-repo prints text only")
+				}
+				return planRepoOffline(cmd, opts, &repo, home, name)
 			}
 			result, err := environment.ComputePlan(cmd.Context(), &environment.Options{
 				Home: home, Lookup: opts.Lookup,
@@ -77,7 +91,42 @@ consume.`,
 		},
 	}
 	cmd.Flags().StringVar(&output, "output", "text", "Output format: text, json or md")
+	repo.bind(cmd)
 	return cmd
+}
+
+// planRepoOffline is `env plan --from-repo` (NERD010 SPEC009, D4): the pure
+// half of `env add --from-repo`, rendered, with nothing registered, written
+// or contacted. name, when given, is an environment whose manifest supplies
+// the recorded bindings and the providers roles are filled from.
+func planRepoOffline(cmd *cobra.Command, opts *Options, repo *fromRepo, home, name string) error {
+	slug := "<new>"
+	var existing *manifest.Manifest
+	if name != "" {
+		m, err := manifest.Load(home, name, opts.Lookup)
+		if err != nil {
+			return nserr.Wrap(nserr.Usage, err)
+		}
+		existing, slug = m, name
+		repo.providers = environmentProviders(opts, home, m)
+	}
+	plan, err := planFromRepo(repo, existing)
+	if err != nil {
+		return err
+	}
+	if err := checkNamesAreUsed(repo, plan); err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "Plan for %s in %s (offline; nothing written)\n", plan.Spec.RepoClassName, slug)
+	plan.render(cmd, slug)
+	if missing := plan.missingArtifacts(home); len(missing) > 0 {
+		fmt.Fprintf(out, "\nNot cached (`env add` fetches these; `env apply` needs --pull):\n")
+		for _, in := range missing {
+			fmt.Fprintf(out, "  %s\n", in.spec())
+		}
+	}
+	return nil
 }
 
 // renderPlanText is the terminal-friendly default.

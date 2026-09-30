@@ -2,6 +2,10 @@
 
 ## 2026-09-30
 
+- feat: `env plan --from-repo <path>` previews what `env add --from-repo` would
+  declare, and which artifacts it would fetch, offline: no control plane, no
+  registry entry, no environment manifest (D4). Name an environment to plan
+  against its bindings and providers.
 - fix: `env delete` removes the environment's manifest under
   `$HMD_HOME/environments` (`--keep-manifest` keeps it), and `env add` refuses
   to silently merge into a manifest no registered environment owns unless
