@@ -5,7 +5,7 @@ NERD031 Workstation Install Items
 
 .. req:: An artifact declares what installing it puts on a workstation
     :id: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: partial
 
     A RepoClass's published artifact shall be able to declare, in its own
     BACON manifest, what installing it onto a person's workstation does: the
@@ -94,7 +94,7 @@ Out of scope, deliberately:
 .. spec:: The install section
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
     .. code-block:: json
 
@@ -138,7 +138,7 @@ Out of scope, deliberately:
 .. spec:: The librarian plugin source
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
     .. code-block:: text
 
@@ -165,7 +165,7 @@ Out of scope, deliberately:
 .. spec:: The declaration records what was installed
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD018_SPEC001
-    :status: proposed
+    :status: implemented
 
     .. code-block:: toml
 
@@ -200,7 +200,7 @@ Out of scope, deliberately:
 .. spec:: The install transaction
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
     ``install`` proceeds in a fixed order, and nothing is written outside
     ``nsctl``'s artifact cache until every check has passed:
@@ -210,10 +210,14 @@ Out of scope, deliberately:
     #. Check every ``requires`` binary. Check that ``HMD_REPO_HOME`` is set if
        any item is git-sourced. Check nouns (SPEC003). **All** failures are
        reported together, each with its hint.
-    #. Place each item into
-       ``$HMD_HOME/.cache/neuronsphere/installs/<class>@<version>/<n>.installing/``
-       and rename it into place on success. This is ``internal/plugin``'s
-       stage-and-rename, per item.
+    #. Place every item into one staging directory,
+       ``$HMD_HOME/.cache/neuronsphere/installs/<class>@<version>.installing/``,
+       with one subdirectory per item. Clones and skills are placed where they
+       belong (SPEC009, SPEC011), and skills are placed last, because they are
+       the only writes outside ``HMD_HOME`` and the repository folder.
+    #. Update the docs index, then rename the staging directory into place.
+       This is ``internal/plugin``'s stage-and-rename, applied to the whole
+       version.
     #. Write the declaration last.
 
     If any item fails, the items already placed by this run are removed, the
@@ -235,7 +239,7 @@ Out of scope, deliberately:
 .. spec:: command + python
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
-    :status: proposed
+    :status: implemented
 
     The item's placed directory is a ``uv`` virtual environment:
 
@@ -250,10 +254,13 @@ Out of scope, deliberately:
     hashes is a validation error, because an unhashed lock pins names, not
     content.
 
-    **The environment is keyed by the lock.** The placed directory is
+    **The environment is created** ``--relocatable``, so the staged
+    directory can be renamed into place. Its placed directory is
     ``installs/<class>@<version>/<noun>``, and the declaration records the
-    lock's sha256. An upgrade whose lock hash is unchanged renames the
-    previous environment forward instead of resolving again.
+    lock's sha256. *Not built:* reusing the previous environment on an
+    upgrade whose lock hash is unchanged. Every upgrade re-provisions today,
+    which is correct but slower. The recorded hash is what that
+    optimisation will compare against.
 
     **Success is not "uv exited zero".** Before the rename, ``nsctl`` runs the
     environment's interpreter to import ``module`` and resolve ``function``
@@ -271,7 +278,7 @@ Out of scope, deliberately:
 .. spec:: The package index is the user's setup
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD031_SPEC005
-    :status: proposed
+    :status: implemented
 
     ``hmd-cli-*`` distributions live on a private index. ``nsctl`` does not
     resolve, store or discover its credential. The environment it composes
@@ -306,7 +313,7 @@ Out of scope, deliberately:
 .. spec:: command + scripts
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
-    :status: proposed
+    :status: implemented
 
     ``runtime.scripts`` maps a subcommand name to a file. Install copies the
     files into the placed directory and sets the executable bit. Each file is
@@ -324,7 +331,7 @@ Out of scope, deliberately:
 .. spec:: command + binary
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD018_SPEC002
-    :status: proposed
+    :status: implemented
 
     ``runtime.binaries`` maps ``GOOS_GOARCH`` to a path inside the artifact.
     Install copies the one for the running platform, or refuses and names the
@@ -338,7 +345,7 @@ Out of scope, deliberately:
 .. spec:: agent-skills
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD015
-    :status: proposed
+    :status: implemented
 
     ``dir`` holds skill directories, each with a ``SKILL.md``. Install hands
     them to the NERD015 installer, whose source is generalised from the
@@ -361,12 +368,13 @@ Out of scope, deliberately:
 .. spec:: docs
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC010
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
-    An artifact-sourced docs item is copied to
-    ``$HMD_HOME/knowledge/<class>/<n>/``. One version is current, and an
-    upgrade replaces it. A git-sourced one stays where it was cloned
-    (SPEC011).
+    An artifact-sourced docs item is copied into its installed version's
+    directory, ``installs/<class>@<version>/docs-<n>/``, so that an upgrade
+    replaces it and ``remove`` deletes it with everything else. A git-sourced
+    one stays where it was cloned (SPEC011). Consumers find either through the
+    index, not through the path.
 
     Either way, ``$HMD_HOME/knowledge/index.json`` gains an entry with the
     class, version, ``title``, ``format`` and absolute path. ``format``
@@ -383,7 +391,7 @@ Out of scope, deliberately:
 .. spec:: The git source
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC011
     :links: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
-    :status: proposed
+    :status: implemented
 
     ``"source": {"git": "<url>", "ref": "<branch|tag>"}`` places an item by
     cloning, not by copying from the artifact. It is allowed for ``docs``,
@@ -421,7 +429,7 @@ Out of scope, deliberately:
 .. spec:: Dispatch, and what a command noun adds
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC012
     :links: HMD_CLI_NEURONSPHERE_NERD018_SPEC005
-    :status: proposed
+    :status: implemented
 
     Each command item attaches one node under NERD018 SPEC004, in the plugin
     help group, with the item's ``summary`` as its short help. The exec
@@ -451,7 +459,7 @@ Out of scope, deliberately:
 .. spec:: Reachable only through nsctl
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC013
     :links: HMD_CLI_NEURONSPHERE_NERD031_SPEC005
-    :status: proposed
+    :status: implemented
 
     A python item leaves **no executable named for its noun** anywhere:
 
@@ -472,7 +480,7 @@ Out of scope, deliberately:
 .. spec:: list, update, remove
     :id: HMD_CLI_NEURONSPHERE_NERD031_SPEC014
     :links: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
-    :status: proposed
+    :status: implemented
 
     * ``list`` prints one row per plugin and one indented row per item: kind,
       noun or title, path, and a state (``installed``, ``missing``, or

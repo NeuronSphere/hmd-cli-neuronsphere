@@ -3,7 +3,9 @@ Install and write CLI plugins
 
 A **CLI plugin** adds one top-level noun to ``nsctl``: ``nsctl <name> ...``
 runs an executable called ``nsctl-<name>`` with everything after the noun
-passed through verbatim. A plugin runs because
+passed through verbatim. A plugin installed from the Artifact Librarian can
+add several nouns, agent skills and documents at once (see *Install from the
+Artifact Librarian* below). A plugin runs because
 ``$HMD_HOME/.config/nsctl.toml`` declares it under ``[plugin.<name>]`` and
 for no other reason -- nothing on ``PATH`` or under the cache is scanned.
 
@@ -41,6 +43,85 @@ Public namespaces need no credential. For a private one, set
 A plugin needs an ``HMD_HOME`` to be found: with none set and no ``--home``
 before the noun, no plugins are attached and ``nsctl hello`` is an unknown
 command.
+
+Install from the Artifact Librarian
+-----------------------------------
+
+A RepoClass artifact can declare, in its BACON manifest's ``install``
+section, what installing it puts on your workstation: ``nsctl`` commands,
+agent skills, and documents. ``nsctl`` carries that out::
+
+   nsctl plugin install librarian:hmd-cli-toolchain
+   nsctl plugin install "librarian:hmd-cli-toolchain@~= 1.4"
+   nsctl plugin install librarian:acme-kit --scope project --host claude
+
+The artifact is fetched from the Artifact Librarian (``--url``, or your
+tenant's) and resolved to the newest matching version. Then each item is
+placed:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Item
+     - What you get
+   * - ``command`` / ``python``
+     - ``nsctl <noun> ...``, run from a ``uv`` environment built from the
+       artifact's hashed lock. No executable named after the noun is left
+       anywhere, so ``nsctl`` is the only way to reach it.
+   * - ``command`` / ``scripts``
+     - ``nsctl <noun> <script> ...`` for each script the manifest names.
+       ``nsctl <noun>`` alone lists them.
+   * - ``command`` / ``binary``
+     - ``nsctl <noun> ...``, running this platform's binary.
+   * - ``agent-skills``
+     - The skills, installed for Claude Code and/or Codex (``--host``), for
+       you (``--scope user``, the default) or for one project
+       (``--scope project --path <dir>``).
+   * - ``docs``
+     - The documents, listed in ``$HMD_HOME/knowledge/index.json``. A
+       command or skill finds that directory through ``NSCTL_KNOWLEDGE``.
+
+An item may instead come from a git repository. That item is cloned into
+``$HMD_REPO_HOME``, where you keep your own checkouts. It is cloned once:
+``nsctl`` never pulls or resets it, and ``plugin remove`` never deletes it.
+A directory already at the target that is not a clone of the same origin is
+refused.
+
+**Installing never runs code the artifact carries.** Everything the artifact
+needs from your machine, such as ``uv`` or ``git``, is checked on ``PATH``
+first. A missing one is reported with the install hint the artifact's author
+wrote, and nothing is written.
+
+**The package index is your setup.** A Python item's packages come from the
+index you configured for ``uv``: ``$HMD_HOME/.config/uv.toml``, which
+``nsctl`` points ``UV_CONFIG_FILE`` at when it exists and you have not set
+one, or ``UV_INDEX_URL`` / ``UV_EXTRA_INDEX_URL`` in your shell or
+``hmd.env``. ``uv`` does not read ``PIP_INDEX_URL``. ``nsctl`` never reads
+or stores the credential, and removes it from any URL it prints.
+
+The declaration records what was placed::
+
+   [plugin.hmd-cli-toolchain]
+   source  = "librarian:hmd-cli-toolchain"
+   version = "1.4.12"
+   digest  = "sha256:..."
+
+     [[plugin.hmd-cli-toolchain.item]]
+     kind    = "command"
+     runtime = "python"
+     noun    = "hmd"
+     summary = "The Python hmd toolset"
+
+``plugin update hmd-cli-toolchain`` installs the newest version and removes
+the previous one. ``plugin remove hmd-cli-toolchain`` removes every item
+except a git clone and any skill you have edited; both are kept, and their
+paths are printed.
+
+To declare an install section for your own RepoClass, see the BACON
+specification's *Install Section*. ``nsctl repoclass validate`` checks it
+against your tree, including that a Python lock carries hashes
+(``uv pip compile --generate-hashes``).
 
 Run a local build
 -----------------
@@ -95,6 +176,9 @@ A plugin is any executable. ``nsctl`` runs it with this contract:
      - The declared version, or ``dev`` for a ``path``.
    * - ``NSCTL_PLUGIN_DIR``
      - The directory holding the binary.
+   * - ``NSCTL_KNOWLEDGE``
+     - For a command installed from the Artifact Librarian: the directory
+       holding the docs index, ``index.json``.
 
 No profile and no credential are passed. A plugin that needs the login token
 reads ``$HMD_HOME/.cache/tokens.yaml`` as ``nsctl`` does; a plugin that needs

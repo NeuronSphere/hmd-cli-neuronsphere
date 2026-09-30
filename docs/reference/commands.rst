@@ -1695,15 +1695,22 @@ Inherited flags
 nsctl plugin
 ------------
 
-A CLI plugin is an executable that adds one top-level noun to nsctl:
-"nsctl <name> ..." runs "nsctl-<name>" with every argument after the noun.
+A plugin is what one published artifact puts on this workstation: nsctl
+nouns, agent skills and documents.
+
+The simplest is an executable that adds one top-level noun: "nsctl <name> ..."
+runs "nsctl-<name>" with every argument after the noun. "install" fetches one
+from an OCI registry (a bare name expands to ghcr.io/neuronsphere/plugins).
+
+"install librarian:<repo-class>" instead fetches a RepoClass artifact from the
+Artifact Librarian and carries out the install section of its BACON manifest:
+a Python toolset in a uv environment, a set of scripts, a binary, agent skills
+or docs, from the artifact or cloned into $HMD_REPO_HOME. Installing never
+runs code the artifact carries.
 
 A plugin runs because $HMD_HOME/.config/nsctl.toml declares it under
 [plugin.<name>], and for no other reason; nothing on PATH or under the cache
-is scanned. "install" fetches a published plugin from an OCI registry (a bare
-name expands to ghcr.io/neuronsphere/plugins), unpacks this platform's
-binary under $HMD_HOME/.cache/neuronsphere/plugins/, and writes the
-declaration. A local build is declared by hand with "path = ..." instead.
+is scanned. A local build is declared by hand with "path = ..." instead.
 
 Usage
 ~~~~~
@@ -1727,6 +1734,12 @@ one is installed and printed. Public namespaces need no credential; a private
 one takes HMD_REGISTRY_TOKEN, or a profile whose registry_url matches the
 host after "nsctl login".
 
+librarian:<repo-class>[@<version-or-spec>] fetches a RepoClass artifact from
+the Artifact Librarian (--url, or the tenant's) and carries out its manifest's
+install section. What it needs on the host, such as uv, is checked first and
+named with the artifact's own install hint; a Python item's packages come from
+the index you configured, in $HMD_HOME/.config/uv.toml or UV_INDEX_URL.
+
 Usage
 ~~~~~
 
@@ -1742,11 +1755,19 @@ Examples
    nsctl plugin install hello
      nsctl plugin install ghcr.io/acme/plugins/deploy:1.4.0
      nsctl plugin install hello --spec "~= 1.2"
+     nsctl plugin install librarian:hmd-cli-toolchain
+     nsctl plugin install "librarian:hmd-cli-toolchain@~= 1.4" --scope project --host claude
 
 Local flags
 ~~~~~~~~~~~
 
+* ``--host`` — for an artifact's agent skills: codex, claude or all (default: ``all``)
+* ``--path`` — project directory for --scope project (default: the current directory)
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--repo-home`` — where an artifact's git items are cloned (default: $HMD_REPO_HOME)
+* ``--scope`` — for an artifact's agent skills: user, or project (with --path) (default: ``user``)
 * ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 1.2")
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1811,7 +1832,7 @@ Inherited flags
 nsctl plugin remove
 -------------------
 
-Remove the [plugin.<name>] table from nsctl.toml and delete every installed version under the cache. A path declared for a dev build is never touched.
+Remove the [plugin.<name>] table from nsctl.toml and delete every installed version under the cache. A path declared for a dev build is never touched. For a plugin installed from the Artifact Librarian, every item it placed is removed, except a git clone in your repository folder and a skill you have edited, which are kept and named.
 
 Usage
 ~~~~~
@@ -1837,7 +1858,17 @@ Usage
 
 .. code-block:: text
 
-   nsctl plugin update [<name>]
+   nsctl plugin update [<name>] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--host`` — for an artifact's agent skills: codex, claude or all (default: ``all``)
+* ``--path`` — project directory for --scope project (default: the current directory)
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--repo-home`` — where an artifact's git items are cloned (default: $HMD_REPO_HOME)
+* ``--scope`` — for an artifact's agent skills: user, or project (with --path) (default: ``user``)
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
 ~~~~~~~~~~~~~~~

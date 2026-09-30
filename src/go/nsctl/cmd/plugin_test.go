@@ -136,6 +136,16 @@ func TestPluginInstallListUpdateRemove(t *testing.T) {
 		t.Errorf("list: %q, %v", out, err)
 	}
 
+	// Help shows the descriptor's summary, recorded at install (NERD018
+	// SPEC008), rather than "plugin hello 1.0.0".
+	if decl.Summary != "Say hello" {
+		t.Errorf("summary not recorded: %+v", decl)
+	}
+	out, _, _ = runFor(t, env, "--home", home, "--help")
+	if !strings.Contains(out, "Say hello") {
+		t.Errorf("--help does not show the summary:\n%s", out)
+	}
+
 	// Update resolves the newest tag from the registry.
 	out, _, err = run(t, env, "--home", home, "plugin", "update", "hello")
 	if err != nil {

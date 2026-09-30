@@ -13,6 +13,7 @@ import (
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bacon"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bundled"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/installitems"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/localspec"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -392,6 +393,7 @@ promotes warnings to errors. Never rewrites the file.`,
 				ReservedNames:  manifest.ReservedNames(),
 			})
 			findings = append(findings, stackFindings(s.Dir)...)
+			findings = append(findings, installFindings(s.Dir)...)
 			errs, warns, notes := bacon.Summary(findings)
 			failed := errs > 0 || (strict && warns > 0)
 			if asJSON {
@@ -599,6 +601,23 @@ were there are replaced, and named.`,
 // that names companions, the lock must cover every want and every role must
 // be bound, external, or pinned. A manifest with no local section, or an
 // empty one, is not a stack and gets nothing here.
+// installFindings checks the install section against the tree it will be
+// published from (NERD031 SPEC001). It lives here rather than in bacon
+// because installitems reads manifests through bacon.
+func installFindings(dir string) []bacon.Finding {
+	sec, err := installitems.ParseDir(dir)
+	if errors.Is(err, installitems.ErrNoSection) {
+		return nil
+	}
+	if err == nil {
+		err = sec.Validate(dir)
+	}
+	if err != nil {
+		return []bacon.Finding{{Severity: bacon.Error, Path: "install", Message: err.Error()}}
+	}
+	return nil
+}
+
 func stackFindings(dir string) []bacon.Finding {
 	spec, err := localspec.Load(dir)
 	if err != nil || spec.Local.Version == 0 {

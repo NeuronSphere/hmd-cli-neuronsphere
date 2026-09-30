@@ -250,7 +250,7 @@ Scope and terminology
 .. spec:: Skills from an installed artifact (amendment)
     :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
     Amended 2026-09-30 by NERD031 SPEC009. The installer's source is
     generalised from the embedded set to any directory tree of ``SKILL.md``

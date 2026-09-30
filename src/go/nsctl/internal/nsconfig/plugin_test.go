@@ -113,3 +113,106 @@ func TestPluginNameGrammar(t *testing.T) {
 		}
 	}
 }
+
+// NERD031 SPEC003: a plugin installed from an artifact records the items it
+// placed, and a declaration with none is one binary item named by its key.
+
+func TestPluginItemsRoundTrip(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]byte(`[plugin.hmd-cli-toolchain]
+source  = "librarian:hmd-cli-toolchain"
+version = "1.4.12"
+digest  = "sha256:abc"
+
+  [[plugin.hmd-cli-toolchain.item]]
+  kind    = "command"
+  runtime = "python"
+  noun    = "hmd"
+  summary = "The Python hmd toolset"
+  path    = "/h/.cache/neuronsphere/installs/hmd-cli-toolchain@1.4.12/hmd"
+  target  = "/h/.cache/neuronsphere/installs/hmd-cli-toolchain@1.4.12/hmd/env/bin/python"
+  args    = ["-c", "launch"]
+
+  [[plugin.hmd-cli-toolchain.item]]
+  kind  = "agent-skills"
+  paths = ["/u/.claude/skills/transform-author"]
+
+  [[plugin.hmd-cli-toolchain.item]]
+  kind  = "docs"
+  title = "Design notes"
+  path  = "/repos/design-notes"
+  clone = true
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Plugins["hmd-cli-toolchain"]
+	if len(p.Items) != 3 {
+		t.Fatalf("items = %+v", p.Items)
+	}
+	cmds := p.Commands()
+	if len(cmds) != 1 || cmds[0].Noun != "hmd" || cmds[0].Args[1] != "launch" {
+		t.Errorf("Commands() = %+v", cmds)
+	}
+	if !p.Items[2].Clone {
+		t.Error("a clone must be recorded as one, or remove would delete someone's working tree")
+	}
+
+	home := t.TempDir()
+	if err := Save(home, noEnv, cfg); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load(home, noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := back.Plugins["hmd-cli-toolchain"]; len(got.Items) != 3 || got.Items[0].Target != p.Items[0].Target {
+		t.Errorf("round trip lost items: %+v", got.Items)
+	}
+}
+
+func TestADeclarationWithoutItemsIsOneBinaryCommand(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]byte("[plugin.hello]\nsource = \"oci://x/hello\"\nversion = \"1.2.0\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmds := cfg.Plugins["hello"].Commands()
+	if len(cmds) != 1 || cmds[0].Noun != "hello" || cmds[0].Runtime != RuntimeBinary {
+		t.Errorf("Commands() = %+v", cmds)
+	}
+}
+
+func TestPluginItemRefusals(t *testing.T) {
+	t.Parallel()
+	head := "[plugin.kit]\nsource = \"librarian:kit\"\nversion = \"1.0.0\"\n"
+	cases := map[string]string{
+		"unknown kind":         "[[plugin.kit.item]]\nkind = \"exec\"\n",
+		"command without noun": "[[plugin.kit.item]]\nkind = \"command\"\nruntime = \"scripts\"\n",
+		"reserved noun":        "[[plugin.kit.item]]\nkind = \"command\"\nruntime = \"binary\"\nnoun = \"env\"\n",
+		"noun twice":           "[[plugin.kit.item]]\nkind = \"command\"\nruntime = \"binary\"\nnoun = \"a\"\n[[plugin.kit.item]]\nkind = \"command\"\nruntime = \"binary\"\nnoun = \"a\"\n",
+		"unknown item key":     "[[plugin.kit.item]]\nkind = \"docs\"\nwhatever = 1\n",
+	}
+	for name, body := range cases {
+		if _, err := Parse([]byte(head + body)); err == nil {
+			t.Errorf("%s: parsed", name)
+		}
+	}
+}
+
+func TestNounOwnerSpansPlugins(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{}
+	cfg.SetPlugin(Plugin{Name: "hello", Source: "oci://x/hello", Version: "1"})
+	cfg.SetPlugin(Plugin{Name: "kit", Source: "librarian:kit", Version: "1",
+		Items: []PluginItem{{Kind: KindCommand, Runtime: RuntimeScripts, Noun: "ops"}}})
+	if owner, ok := cfg.NounOwner("ops"); !ok || owner != "kit" {
+		t.Errorf("ops owner = %q %v", owner, ok)
+	}
+	if owner, ok := cfg.NounOwner("hello"); !ok || owner != "hello" {
+		t.Errorf("hello owner = %q %v", owner, ok)
+	}
+	if _, ok := cfg.NounOwner("kit"); ok {
+		t.Error("a plugin with items answers only to its items' nouns, not its class name")
+	}
+}

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hmdenv"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/installitems"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/plugin"
@@ -96,14 +99,152 @@ func attachPlugins(root *cobra.Command, opts *Options, process hmdenv.Lookup, ar
 		return
 	}
 	root.AddGroup(&cobra.Group{ID: pluginGroupID, Title: "Plugin commands (declared in nsctl.toml):"})
+	attached := map[string]string{}
+	claim := func(noun, owner string) bool {
+		if err := reservedNoun(root, noun); err != nil {
+			fmt.Fprintf(warn, "warning: %v\n", err)
+			return false
+		}
+		if first, ok := attached[noun]; ok {
+			fmt.Fprintf(warn, "warning: plugins %s and %s both declare the noun %q; %s wins\n", first, owner, noun, first)
+			return false
+		}
+		attached[noun] = owner
+		return true
+	}
 	for _, name := range cfg.PluginNames() {
 		decl := cfg.Plugins[name]
-		if err := reservedNoun(root, name); err != nil {
-			fmt.Fprintf(warn, "warning: %v\n", err)
+		if len(decl.Items) == 0 {
+			if claim(name, name) {
+				root.AddCommand(newPluginDispatchCommand(opts, process, decl, inv))
+			}
 			continue
 		}
-		root.AddCommand(newPluginDispatchCommand(opts, process, decl, inv))
+		// NERD031 SPEC012: one node per command item.
+		for _, it := range decl.Commands() {
+			if claim(it.Noun, name) {
+				root.AddCommand(newItemDispatchCommand(opts, process, decl, it, inv))
+			}
+		}
 	}
+}
+
+// newItemDispatchCommand is the cobra node for one command item of a plugin
+// installed from an artifact. The exec protocol is NERD018 SPEC005's, with
+// the noun as the plugin name and NSCTL_KNOWLEDGE added.
+func newItemDispatchCommand(opts *Options, process hmdenv.Lookup, decl nsconfig.Plugin, it nsconfig.PluginItem, inv invocation) *cobra.Command {
+	short := it.Summary
+	if short == "" {
+		short = "plugin " + decl.Name
+	}
+	return &cobra.Command{
+		Use:                it.Noun,
+		Short:              short,
+		Long:               itemLong(decl, it),
+		GroupID:            pluginGroupID,
+		DisableFlagParsing: true,
+		SilenceUsage:       true,
+		SilenceErrors:      true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts.resolve(inv.home, process, func(msg string) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", msg)
+			})
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			args := inv.args
+			if inv.noun != it.Noun {
+				args = nil
+			}
+			bin, argv, err := itemTarget(cmd, decl, it, args)
+			if err != nil || bin == "" {
+				return err
+			}
+			file, _ := hmdenv.Load(home)
+			env := plugin.Environ(os.Environ(), file, map[string]string{
+				"HMD_HOME":                 home,
+				plugin.EnvHome:             home,
+				plugin.EnvVersion:          opts.Version,
+				plugin.EnvBinary:           plugin.Executable(),
+				plugin.EnvPluginName:       it.Noun,
+				plugin.EnvPluginVersion:    decl.Version,
+				plugin.EnvPluginDir:        it.Path,
+				"NSCTL_PLUGIN_DECLARED_IN": nsconfig.Path(home, process),
+				installitems.KnowledgeEnv:  installitems.KnowledgeDir(home),
+			})
+			code, err := plugin.Run(bin, argv, env, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+			if err != nil {
+				return nserr.Wrap(nserr.Fail, fmt.Errorf("%s: %w", it.Noun, err))
+			}
+			return nserr.Silent(code)
+		},
+	}
+}
+
+// itemTarget is what to exec for an item and the user's args. An empty bin
+// with a nil error means the node answered itself (a scripts listing).
+func itemTarget(cmd *cobra.Command, decl nsconfig.Plugin, it nsconfig.PluginItem, args []string) (string, []string, error) {
+	remedy := fmt.Sprintf("run `nsctl plugin install %s`", decl.Source)
+	switch it.Runtime {
+	case nsconfig.RuntimeScripts:
+		if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+			fmt.Fprint(cmd.OutOrStdout(), scriptsHelp(decl, it))
+			return "", nil, nil
+		}
+		file, ok := it.Scripts[args[0]]
+		if !ok {
+			return "", nil, nserr.New(nserr.Usage, "%s has no script %q; it has: %s",
+				it.Noun, args[0], strings.Join(scriptNames(it), ", "))
+		}
+		if _, err := os.Stat(file); err != nil {
+			return "", nil, nserr.New(nserr.Usage, "%s %s: %v; %s", it.Noun, args[0], err, remedy)
+		}
+		if it.Interpreter == "" {
+			return file, args[1:], nil
+		}
+		interp, err := exec.LookPath(it.Interpreter)
+		if err != nil {
+			return "", nil, nserr.New(nserr.Usage, "%s needs %s on PATH to run its scripts", it.Noun, it.Interpreter)
+		}
+		return interp, append([]string{file}, args[1:]...), nil
+	default:
+		if _, err := os.Stat(it.Target); err != nil {
+			return "", nil, nserr.New(nserr.Usage, "%s is declared but not installed (%s is missing); %s",
+				it.Noun, it.Target, remedy)
+		}
+		return it.Target, append(append([]string(nil), it.Args...), args...), nil
+	}
+}
+
+func scriptNames(it nsconfig.PluginItem) []string {
+	names := make([]string, 0, len(it.Scripts))
+	for name := range it.Scripts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func scriptsHelp(decl nsconfig.Plugin, it nsconfig.PluginItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\nUsage:\n  nsctl %s <script> [args...]\n\nScripts:\n", it.Summary, it.Noun)
+	for _, name := range scriptNames(it) {
+		fmt.Fprintf(&b, "  %s\n", name)
+	}
+	fmt.Fprintf(&b, "\nFrom %s %s.\n", decl.Name, decl.Version)
+	return b.String()
+}
+
+func itemLong(decl nsconfig.Plugin, it nsconfig.PluginItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\nInstalled by plugin %s %s from %s.", it.Summary, decl.Name, decl.Version, decl.Source)
+	if it.Runtime == nsconfig.RuntimeScripts {
+		fmt.Fprintf(&b, "\n\nScripts: %s", strings.Join(scriptNames(it), ", "))
+	}
+	b.WriteString("\n\nEverything after the noun is passed through verbatim; ask it for help with:\n  nsctl " +
+		it.Noun + " --help")
+	return b.String()
 }
 
 // newPluginDispatchCommand is the cobra node for one declared plugin. Flag
@@ -112,7 +253,9 @@ func attachPlugins(root *cobra.Command, opts *Options, process hmdenv.Lookup, ar
 // noun is nsctl's and one after it is the plugin's.
 func newPluginDispatchCommand(opts *Options, process hmdenv.Lookup, decl nsconfig.Plugin, inv invocation) *cobra.Command {
 	short := "plugin " + decl.Name
-	if decl.Dev() {
+	if decl.Summary != "" && !decl.Dev() {
+		short = decl.Summary
+	} else if decl.Dev() {
 		short += " (dev build at " + decl.Path + ")"
 	} else {
 		short += " " + decl.Version

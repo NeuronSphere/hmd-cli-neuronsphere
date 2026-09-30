@@ -18,7 +18,7 @@ NERD018 CLI Plugins
     is installed from an OCI artifact (``NERD016``) by version, recorded with
     its digest, and removed by name.
 
-    **Amended 2026-09-30 (proposed, NERD031).** A plugin is broadened from
+    **Amended 2026-09-30 (NERD031).** A plugin is broadened from
     "one declared executable" to "what one artifact's BACON ``install``
     section put on this workstation". That can be several command nouns,
     agent skills and docs. A plugin may also be installed from the Artifact
@@ -276,7 +276,7 @@ and plugin-to-plugin dependencies.
 .. spec:: Plugins as artifact install items (amendment)
     :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD031
-    :status: proposed
+    :status: implemented
 
     Amends SPEC001, SPEC003, SPEC004 and SPEC007 as follows. The rest of this
     document is unchanged.

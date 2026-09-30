@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-09-30
+
+- feat: `nsctl plugin install librarian:<class>` carries out a RepoClass
+  artifact's BACON `install` section (NERD031). An artifact can now declare
+  what it puts on a workstation:
+  - `command` nouns: a Python toolset in a uv environment built from a hashed
+    lock, a named set of scripts, or a per-platform binary;
+  - `agent-skills`, installed through NERD015's installer and owned by the
+    plugin;
+  - `docs`, indexed in `$HMD_HOME/knowledge/index.json`.
+
+  Any item may be cloned from git into `$HMD_REPO_HOME` instead. A clone is
+  made once, and is never pulled, reset or deleted by nsctl.
+
+  Installing never runs artifact code. Requirements such as uv are checked on
+  PATH and reported with the author's own install hint. Everything is staged
+  and renamed into place, so a failure undoes the whole install.
+
+  A Python item leaves no console script behind, so `nsctl hmd` is the only
+  way to reach it. uv uses the index the user configured
+  (`$HMD_HOME/.config/uv.toml` or `UV_INDEX_URL`), and URL credentials are
+  redacted from all output.
+
+  `plugin list`, `update` and `remove` work per class. `nsctl repoclass
+  validate` checks the section. OCI plugins now record their descriptor's
+  summary for help (NERD018 SPEC008).
+
 ## 2026-09-29
 
 - feat: a stack declares how its workloads are signed in to, and

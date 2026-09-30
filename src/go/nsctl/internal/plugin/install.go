@@ -47,6 +47,7 @@ func (i *Installed) Declaration(ref oci.Ref) nsconfig.Plugin {
 		Source:  ref.WithTag("").String(),
 		Version: i.Descriptor.Version,
 		Digest:  i.Digest.String(),
+		Summary: i.Descriptor.Summary,
 	}
 }
 

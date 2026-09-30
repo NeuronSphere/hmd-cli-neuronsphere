@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/installitems"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci"
@@ -21,15 +22,22 @@ func newPluginCommand(opts *Options) *cobra.Command {
 	group := &cobra.Command{
 		Use:   "plugin",
 		Short: "Install, list, update, remove and publish CLI plugins",
-		Long: `A CLI plugin is an executable that adds one top-level noun to nsctl:
-"nsctl <name> ..." runs "nsctl-<name>" with every argument after the noun.
+		Long: `A plugin is what one published artifact puts on this workstation: nsctl
+nouns, agent skills and documents.
+
+The simplest is an executable that adds one top-level noun: "nsctl <name> ..."
+runs "nsctl-<name>" with every argument after the noun. "install" fetches one
+from an OCI registry (a bare name expands to ` + plugin.DefaultNamespace + `).
+
+"install librarian:<repo-class>" instead fetches a RepoClass artifact from the
+Artifact Librarian and carries out the install section of its BACON manifest:
+a Python toolset in a uv environment, a set of scripts, a binary, agent skills
+or docs, from the artifact or cloned into $HMD_REPO_HOME. Installing never
+runs code the artifact carries.
 
 A plugin runs because $HMD_HOME/.config/nsctl.toml declares it under
 [plugin.<name>], and for no other reason; nothing on PATH or under the cache
-is scanned. "install" fetches a published plugin from an OCI registry (a bare
-name expands to ` + plugin.DefaultNamespace + `), unpacks this platform's
-binary under $HMD_HOME/.cache/neuronsphere/plugins/, and writes the
-declaration. A local build is declared by hand with "path = ..." instead.`,
+is scanned. A local build is declared by hand with "path = ..." instead.`,
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -129,6 +137,7 @@ func classifyRegistryError(err error) error {
 
 func newPluginInstallCommand(opts *Options) *cobra.Command {
 	var spec string
+	var flags installFlags
 	cmd := &cobra.Command{
 		Use:   "install <ref>",
 		Short: "Install a published plugin and declare it in nsctl.toml",
@@ -137,22 +146,38 @@ func newPluginInstallCommand(opts *Options) *cobra.Command {
 ` + plugin.DefaultNamespace + `/<name>. Without a version the newest published
 one is installed and printed. Public namespaces need no credential; a private
 one takes HMD_REGISTRY_TOKEN, or a profile whose registry_url matches the
-host after "nsctl login".`,
+host after "nsctl login".
+
+librarian:<repo-class>[@<version-or-spec>] fetches a RepoClass artifact from
+the Artifact Librarian (--url, or the tenant's) and carries out its manifest's
+install section. What it needs on the host, such as uv, is checked first and
+named with the artifact's own install hint; a Python item's packages come from
+the index you configured, in $HMD_HOME/.config/uv.toml or UV_INDEX_URL.`,
 		Example: `  nsctl plugin install hello
   nsctl plugin install ghcr.io/acme/plugins/deploy:1.4.0
-  nsctl plugin install hello --spec "~= 1.2"`,
+  nsctl plugin install hello --spec "~= 1.2"
+  nsctl plugin install librarian:hmd-cli-toolchain
+  nsctl plugin install "librarian:hmd-cli-toolchain@~= 1.4" --scope project --host claude`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if isLibrarianSource(args[0]) {
+				if spec != "" {
+					return nserr.New(nserr.Usage, "with librarian:, put the version spec in the reference: librarian:<class>@<spec>")
+				}
+				return installFromLibrarian(cmd, opts, &flags, args[0])
+			}
 			return installPlugin(cmd, opts, args[0], spec)
 		},
 	}
 	cmd.Flags().StringVar(&spec, "spec", "", "a BACON version spec to choose the version by (e.g. \"~= 1.2\")")
+	flags.bind(cmd)
 	return cmd
 }
 
 func newPluginUpdateCommand(opts *Options) *cobra.Command {
+	var flags installFlags
 	cmd := &cobra.Command{
 		Use:   "update [<name>]",
 		Short: "Re-install a declared plugin at its newest published version",
@@ -184,7 +209,12 @@ declared with only a path is left alone.`,
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: declared by path only; nothing to update\n", name)
 					continue
 				}
-				if err := installPlugin(cmd, opts, decl.Source, ""); err != nil {
+				if isLibrarianSource(decl.Source) {
+					err = installFromLibrarian(cmd, opts, &flags, decl.Source)
+				} else {
+					err = installPlugin(cmd, opts, decl.Source, "")
+				}
+				if err != nil {
 					return err
 				}
 				updated++
@@ -195,6 +225,7 @@ declared with only a path is left alone.`,
 			return nil
 		},
 	}
+	flags.bind(cmd)
 	return cmd
 }
 
@@ -202,7 +233,7 @@ func newPluginRemoveCommand(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "remove <name>",
 		Short:         "Undeclare a plugin and delete its installed versions",
-		Long:          `Remove the [plugin.<name>] table from nsctl.toml and delete every installed version under the cache. A path declared for a dev build is never touched.`,
+		Long:          `Remove the [plugin.<name>] table from nsctl.toml and delete every installed version under the cache. A path declared for a dev build is never touched. For a plugin installed from the Artifact Librarian, every item it placed is removed, except a git clone in your repository folder and a skill you have edited, which are kept and named.`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -215,13 +246,20 @@ func newPluginRemoveCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !cfg.RemovePlugin(args[0]) {
+			decl, ok := cfg.Plugins[args[0]]
+			if !ok {
 				return nserr.New(nserr.Usage, "plugin %q is not declared in %s", args[0], nsconfig.Path(home, opts.Lookup))
 			}
+			cfg.RemovePlugin(args[0])
 			if err := nsconfig.Save(home, opts.Lookup, cfg); err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
-			if err := plugin.Remove(home, args[0]); err != nil {
+			if len(decl.Items) > 0 {
+				err = installitems.Remove(home, args[0], decl.Items, cmd.OutOrStdout())
+			} else {
+				err = plugin.Remove(home, args[0])
+			}
+			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed plugin %s\n", args[0])
@@ -240,6 +278,8 @@ type pluginRow struct {
 	Digest  string `json:"digest,omitempty"`
 	State   string `json:"state"`
 	Binary  string `json:"binary,omitempty"`
+	// Items is what a plugin from the Artifact Librarian placed.
+	Items []nsconfig.PluginItem `json:"items,omitempty"`
 }
 
 func newPluginListCommand(opts *Options) *cobra.Command {
@@ -264,9 +304,14 @@ func newPluginListCommand(opts *Options) *cobra.Command {
 			for _, name := range cfg.PluginNames() {
 				decl := cfg.Plugins[name]
 				row := pluginRow{Name: name, Version: decl.Version, Source: decl.Source, Path: decl.Path,
-					Digest: decl.Digest, State: string(plugin.StateOf(home, decl))}
-				if bin, err := plugin.Resolve(home, decl); err == nil {
-					row.Binary = bin
+					Digest: decl.Digest, Items: decl.Items}
+				if len(decl.Items) > 0 {
+					row.State = itemsState(decl.Items)
+				} else {
+					row.State = string(plugin.StateOf(home, decl))
+					if bin, err := plugin.Resolve(home, decl); err == nil {
+						row.Binary = bin
+					}
 				}
 				rows = append(rows, row)
 			}
@@ -294,6 +339,9 @@ func newPluginListCommand(opts *Options) *cobra.Command {
 					version = "-"
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, version, r.State, from)
+				for _, it := range r.Items {
+					fmt.Fprintf(tw, "  %s\t\t\t\n", describeItem(it))
+				}
 			}
 			return tw.Flush()
 		},

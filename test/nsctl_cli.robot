@@ -304,6 +304,43 @@ Reserved Plugin Name Is Refused
     Should Contain    ${result.stdout}    Usage:
     Should Contain    ${result.stderr}    warning: plugins not loaded
 
+Plugin Items Dispatch A Scripts Noun
+    [Documentation]    NERD031 SPEC003 and SPEC007: a plugin declared with items
+    ...                answers to each command item's noun, runs only the scripts
+    ...                it names with argv verbatim, lists them when asked, and
+    ...                shows its items in plugin list.
+    [Tags]    contract    nerd031
+    ${home}=      Create Scratch Home
+    ${script}=    Join Path    ${home}    drain.sh
+    Create File    ${script}    \#!/bin/sh\necho "drain argv: $*"\necho "noun=$NSCTL_PLUGIN_NAME knowledge=$NSCTL_KNOWLEDGE"\nexit 5\n
+    Run Process    chmod    755    ${script}
+    Create File    ${home}${/}.config${/}nsctl.toml    [plugin.acme-kit]\nsource = "librarian:acme-kit"\nversion = "1.0.0"\ndigest = "sha256:0"\n\n[[plugin.acme-kit.item]]\nkind = "command"\nruntime = "scripts"\nnoun = "ops"\nsummary = "Acme runbooks"\npath = "${home}"\nscripts = { drain = "${script}" }\n
+    ${result}=    Run nsctl In Home    ${home}    ops    drain    --now    x
+    Should Be Equal As Integers    ${result.rc}    5
+    Should Contain    ${result.stdout}    drain argv: --now x
+    Should Contain    ${result.stdout}    noun=ops knowledge=${home}${/}knowledge
+    Should Not Contain    ${result.stderr}    Error:
+    ${listing}=    Run nsctl In Home    ${home}    ops
+    Should Be Equal As Integers    ${listing.rc}    0
+    Should Contain    ${listing.stdout}    drain
+    ${unknown}=    Run nsctl In Home    ${home}    ops    nope
+    Should Be Equal As Integers    ${unknown.rc}    2
+    ${help}=      Run nsctl In Home    ${home}    --help
+    Should Contain    ${help.stdout}    Acme runbooks
+    ${list}=      Run nsctl In Home    ${home}    plugin    list
+    Should Be Equal As Integers    ${list.rc}    0
+    Should Contain    ${list.stdout}    acme-kit
+    Should Contain    ${list.stdout}    nsctl ops (scripts)
+
+Plugin Install From The Librarian Takes The Version In The Reference
+    [Documentation]    NERD031 SPEC002: a librarian reference carries its own
+    ...                version spec; --spec belongs to OCI references.
+    [Tags]    contract    nerd031
+    ${home}=      Create Scratch Home
+    ${result}=    Run nsctl In Home    ${home}    plugin    install    librarian:acme-kit    --spec    1.0
+    Should Be Equal As Integers    ${result.rc}    2
+    Should Contain    ${result.stderr}    librarian:<class>@<spec>
+
 Stack Add Without HMD_HOME Names Both Ways
     [Tags]    contract    nerd017
     ${result}=    Run nsctl    stack    add    observability

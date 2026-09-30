@@ -85,6 +85,73 @@ type Plugin struct {
 	// Path is a local executable to run instead: a dev build. With both
 	// Path and Source set, Path wins.
 	Path string `toml:"path,omitempty"`
+
+	// Summary is the descriptor's one-line summary, recorded at install so
+	// help can show it without the artifact (NERD018 SPEC008).
+	Summary string `toml:"summary,omitempty"`
+
+	// Items is the ledger of what installing an artifact's BACON install
+	// section placed (NERD031 SPEC003). nsctl reads this, never the
+	// artifact, to dispatch, list and remove. Empty for a NERD018
+	// single-binary plugin, which Commands reads as one binary item.
+	Items []PluginItem `toml:"item,omitempty"`
+}
+
+// Item kinds and command runtimes. NERD031 SPEC001.
+const (
+	KindCommand = "command"
+	KindSkills  = "agent-skills"
+	KindDocs    = "docs"
+
+	RuntimePython  = "python"
+	RuntimeScripts = "scripts"
+	RuntimeBinary  = "binary"
+)
+
+// PluginItem is one thing a plugin put on this workstation.
+type PluginItem struct {
+	Kind    string `toml:"kind"`
+	Runtime string `toml:"runtime,omitempty"`
+	Noun    string `toml:"noun,omitempty"`
+	Summary string `toml:"summary,omitempty"`
+	Title   string `toml:"title,omitempty"`
+	Format  string `toml:"format,omitempty"`
+
+	// Path is where the item was placed: its directory under the install
+	// cache, or the user's clone when Clone is set.
+	Path string `toml:"path,omitempty"`
+	// Clone marks Path as a git clone in the user's repository folder,
+	// which remove must never delete (NERD031 SPEC011).
+	Clone bool `toml:"clone,omitempty"`
+
+	// Target and Args are what a python or binary command execs, with the
+	// user's arguments appended.
+	Target string   `toml:"target,omitempty"`
+	Args   []string `toml:"args,omitempty"`
+	// Scripts maps a scripts command's subcommands to files, and
+	// Interpreter runs them when set.
+	Scripts     map[string]string `toml:"scripts,omitempty"`
+	Interpreter string            `toml:"interpreter,omitempty"`
+	// LockSHA256 is the hash of a python item's lock.
+	LockSHA256 string `toml:"lock_sha256,omitempty"`
+
+	// Paths are the destinations an agent-skills item wrote.
+	Paths []string `toml:"paths,omitempty"`
+}
+
+// Commands is every noun this declaration answers to. A declaration with no
+// items is a NERD018 plugin: one binary command named by the table key.
+func (p Plugin) Commands() []PluginItem {
+	if len(p.Items) == 0 {
+		return []PluginItem{{Kind: KindCommand, Runtime: RuntimeBinary, Noun: p.Name}}
+	}
+	var out []PluginItem
+	for _, it := range p.Items {
+		if it.Kind == KindCommand {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // Dev reports whether the declaration runs a local path rather than an
@@ -94,6 +161,9 @@ func (p Plugin) Dev() bool { return strings.TrimSpace(p.Path) != "" }
 // pluginNameRe is a plugin noun: lower case, starts with a letter, dashes
 // allowed. The same shape as a cobra command name.
 var pluginNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// ValidScriptName is a scripts command's subcommand name: the noun grammar.
+func ValidScriptName(name string) bool { return pluginNameRe.MatchString(name) }
 
 // ReservedPluginNames are nouns cobra itself owns; the built-in command
 // tree adds its own at attach time.
@@ -133,18 +203,59 @@ var builtinNouns = []string{
 func BuiltinNouns() []string { return append([]string(nil), builtinNouns...) }
 
 func (p Plugin) validate() error {
-	if err := ValidPluginName(p.Name); err != nil {
-		return err
+	if !pluginNameRe.MatchString(p.Name) {
+		return fmt.Errorf("plugin name %q must match %s", p.Name, pluginNameRe)
+	}
+	// Without items the key is the noun, so it answers to the noun rules;
+	// with items it is a class name and only the items' nouns do.
+	if len(p.Items) == 0 {
+		if err := ValidPluginName(p.Name); err != nil {
+			return err
+		}
 	}
 	if !p.Dev() {
 		if strings.TrimSpace(p.Source) == "" {
-			return fmt.Errorf("plugin %q needs a source (an OCI reference) or a path (a local executable)", p.Name)
+			return fmt.Errorf("plugin %q needs a source (an OCI reference or librarian:<class>) or a path (a local executable)", p.Name)
 		}
 		if strings.TrimSpace(p.Version) == "" {
 			return fmt.Errorf("plugin %q has a source but no version", p.Name)
 		}
 	}
+	nouns := map[string]bool{}
+	for i, it := range p.Items {
+		switch it.Kind {
+		case KindCommand:
+			switch it.Runtime {
+			case RuntimePython, RuntimeScripts, RuntimeBinary:
+			default:
+				return fmt.Errorf("plugin %q item %d: unknown command runtime %q", p.Name, i+1, it.Runtime)
+			}
+			if err := ValidPluginName(it.Noun); err != nil {
+				return fmt.Errorf("plugin %q item %d: %w", p.Name, i+1, err)
+			}
+			if nouns[it.Noun] {
+				return fmt.Errorf("plugin %q declares the noun %q twice", p.Name, it.Noun)
+			}
+			nouns[it.Noun] = true
+		case KindSkills, KindDocs:
+		default:
+			return fmt.Errorf("plugin %q item %d: unknown kind %q (want %s, %s or %s)",
+				p.Name, i+1, it.Kind, KindCommand, KindSkills, KindDocs)
+		}
+	}
 	return nil
+}
+
+// NounOwner is the plugin whose command answers to noun.
+func (c *Config) NounOwner(noun string) (string, bool) {
+	for _, name := range c.PluginNames() {
+		for _, it := range c.Plugins[name].Commands() {
+			if it.Noun == noun {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }
 
 // Profile is one endpoint's configuration.
