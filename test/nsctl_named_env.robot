@@ -124,12 +124,14 @@ The Kubeconfig Is For This Cluster
 The Substrate's Database Secret Is Named After The Environment
     [Documentation]    ms-deployment passes the environment's own name as
     ...                --environment, so the substrate's database admin secret is
-    ...                `environment-db_..._<deployment id>_<env>_..._db-secret`, and
-    ...                nothing in the account is named for an environment called
-    ...                `local`.
-    Floci Account Should Hold A Secret Named Like    ${ACCOUNT}    ${FLOCI}
-    ...    environment-db_hmd-postgres-rds_${DID}_${ENV}_    _db-secret
-    Floci Account Should Hold No Secret Named Like    ${ACCOUNT}    ${FLOCI}    _${DID}_local_
+    ...                make_standard_name(environment-db, hmd-postgres-rds, <id>, <env>)
+    ...                -- shortened when that reaches 64 characters, which a long
+    ...                environment name does -- and nothing is named for `local`.
+    ${base}=     Standard Name    environment-db    hmd-postgres-rds    ${DID}    ${ENV}
+    ${local}=    Standard Name    environment-db    hmd-postgres-rds    ${DID}    local
+    Set Suite Variable    ${DB SECRET BASE}    ${base}
+    Floci Account Should Hold Secret        ${ACCOUNT}    ${FLOCI}    ${base}_db-secret
+    Floci Account Should Not Hold Secret    ${ACCOUNT}    ${FLOCI}    ${local}_db-secret
 
 A Database Account Deploys In It
     [Documentation]    The whole hmd-database-account path: the deploy node takes
@@ -147,8 +149,7 @@ A Database Account Deploys In It
     Should Be Equal As Integers    ${applied.rc}    0
     Should Not Contain    ${applied.stdout}    IndexError
     Should Not Contain    ${applied.stdout}    not found in PS or SM
-    Floci Account Should Hold A Secret Named Like    ${ACCOUNT}    ${FLOCI}
-    ...    environment-db_hmd-postgres-rds_${DID}_${ENV}_    _${DB NAME}
+    Floci Account Should Hold Secret    ${ACCOUNT}    ${FLOCI}    ${DB SECRET BASE}_${DB NAME}
 
 A Second Apply Changes Nothing
     ${again}=    Run nsctl    env    apply    ${ENV}

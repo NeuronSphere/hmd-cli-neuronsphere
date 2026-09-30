@@ -243,3 +243,38 @@ class FlociLib:
         hits = [n for n in names if contains in n]
         if hits:
             raise AssertionError(f"account {account} holds {hits}, named with {contains!r}")
+
+    @keyword
+    def standard_name(self, instance_name, repo_name, deployment_id, environment):
+        """The name make_standard_name gives, shortening included: a name of 64
+        characters or more loses most of its environment and customer code,
+        which a long environment name reaches. Region and customer code come
+        from $HMD_HOME/.config/hmd.env, as nsctl reads them."""
+        from hmd_cli_tools.hmd_cli_tools import make_standard_name
+
+        values = {"HMD_REGION": "reg1", "HMD_CUSTOMER_CODE": "none"}
+        path = os.path.join(os.environ.get("HMD_HOME", ""), ".config", "hmd.env")
+        if os.path.exists(path):
+            for line in open(path):
+                key, sep, value = line.strip().removeprefix("export ").partition("=")
+                if sep and key in values and value.strip().strip("'\""):
+                    values[key] = value.strip().strip("'\"")
+        for key in values:
+            values[key] = os.environ.get(key) or values[key]
+        return make_standard_name(
+            instance_name, repo_name, deployment_id, environment,
+            values["HMD_REGION"], values["HMD_CUSTOMER_CODE"],
+        )
+
+    @keyword
+    def floci_account_should_hold_secret(self, account, endpoint, name):
+        """Assert that ``account`` holds a secret or parameter called ``name``."""
+        names = self._secret_names_in_account(account, endpoint)
+        if name not in names:
+            raise AssertionError(f"account {account} holds no {name!r}; it holds: {names}")
+
+    @keyword
+    def floci_account_should_not_hold_secret(self, account, endpoint, name):
+        """Assert that ``account`` holds no secret or parameter called ``name``."""
+        if name in self._secret_names_in_account(account, endpoint):
+            raise AssertionError(f"account {account} holds {name!r}")
