@@ -18,6 +18,15 @@ NERD018 CLI Plugins
     is installed from an OCI artifact (``NERD016``) by version, recorded with
     its digest, and removed by name.
 
+    **Amended 2026-09-30 (proposed, NERD031).** A plugin is broadened from
+    "one declared executable" to "what one artifact's BACON ``install``
+    section put on this workstation". That can be several command nouns,
+    agent skills and docs. A plugin may also be installed from the Artifact
+    Librarian (``librarian:<class>``). The declaration records the items it
+    placed, and each command item attaches one noun. A declaration with no
+    items is today's single-binary plugin, unchanged. SPEC008 below states
+    the amendment; NERD031 specifies it.
+
 Motivation
 ----------
 
@@ -263,6 +272,36 @@ and plugin-to-plugin dependencies.
     path and then says the rest is ``nsctl <noun> --help``. The reference
     excludes plugins by construction (SPEC004), and the how-to for writing
     one documents SPEC005 as the contract a plugin author codes against.
+
+.. spec:: Plugins as artifact install items (amendment)
+    :id: HMD_CLI_NEURONSPHERE_NERD018_SPEC008
+    :links: HMD_CLI_NEURONSPHERE_NERD031
+    :status: proposed
+
+    Amends SPEC001, SPEC003, SPEC004 and SPEC007 as follows. The rest of this
+    document is unchanged.
+
+    * **Declaration (SPEC001).** The table key may be a RepoClass name, and
+      the table may hold ``[[plugin.<key>.item]]`` records of what was
+      installed (NERD031 SPEC003). A table with no items is read as one
+      ``command``/``binary`` item whose noun is the key, so every existing
+      declaration keeps its meaning. ``source`` may be
+      ``librarian:<class>``, and ``digest`` is then the sha256 of the fetched
+      zip.
+    * **Install (SPEC003).** ``install librarian:<class>[@<spec>]`` fetches
+      through the Artifact Librarian (NERD011 resolution) and carries out the
+      artifact's install section (NERD031 SPEC004). ``remove <key>`` removes
+      every item. It never deletes a git clone, and never deletes a skill the
+      user has edited.
+    * **Dispatch (SPEC004).** One node is attached per command item, not per
+      table. Reservation and "a noun already claimed by another plugin" are
+      checked per noun, at install and at attach.
+    * **Help (SPEC007).** A command item's ``summary`` is recorded in the
+      declaration at install and becomes its short help. This fixes a gap
+      that predates this amendment: the declaration never carried the
+      descriptor's summary, so help read ``plugin <noun> <version>``. OCI
+      single-binary installs record the descriptor's ``summary`` the same
+      way.
 
 Testing
 -------

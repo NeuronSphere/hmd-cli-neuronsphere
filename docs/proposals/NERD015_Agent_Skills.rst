@@ -247,6 +247,29 @@ Scope and terminology
     first remedy, because nothing it could read said otherwise.  See NERD024
     SPEC007.
 
+.. spec:: Skills from an installed artifact (amendment)
+    :id: HMD_CLI_NEURONSPHERE_NERD015_SPEC007
+    :links: HMD_CLI_NEURONSPHERE_NERD031
+    :status: proposed
+
+    Amended 2026-09-30 by NERD031 SPEC009. The installer's source is
+    generalised from the embedded set to any directory tree of ``SKILL.md``
+    directories. This lets an ``agent-skills`` item of an artifact installed
+    with ``nsctl plugin install`` place its skills through the same code.
+    Destinations, frontmatter validation and modification detection are
+    unchanged, and so is ``nsctl agent skills``, which still manages only the
+    bundled set.
+
+    Two rules are added:
+
+    * An artifact skill whose name matches a bundled skill is refused.
+    * An artifact skill is removed by ``nsctl plugin remove``, not by ``nsctl
+      agent skills remove``.
+
+    Such skills are the artifact author's guidance, not ``nsctl``'s. The
+    requirement that a skill document only verbs of the same release's
+    command tree binds the bundled set only.
+
 Testing
 -------
 
