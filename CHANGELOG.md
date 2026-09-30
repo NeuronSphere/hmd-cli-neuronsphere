@@ -2,6 +2,11 @@
 
 ## 2026-09-30
 
+- fix: `env delete` removes the environment's manifest under
+  `$HMD_HOME/environments` (`--keep-manifest` keeps it), and `env add` refuses
+  to silently merge into a manifest no registered environment owns unless
+  `--adopt` is given (D3). A second repository onboarded under a reused name no
+  longer inherits the first one's instances.
 - fix: `repoclass validate` reports a `local` section the runtime cannot read,
   one error per problem, instead of passing it and failing later at `lock`
   (D12). Only a manifest marked `local.stack` has to name a companion, so a

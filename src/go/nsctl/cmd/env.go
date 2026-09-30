@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -503,7 +504,7 @@ func state(c status.Container) string {
 }
 
 func newEnvAddCommand(opts *Options) *cobra.Command {
-	var makeDefault, noPull bool
+	var makeDefault, noPull, adopt bool
 	var repo fromRepo
 	var libs librarians
 
@@ -551,6 +552,9 @@ expectation to violate. --no-pull suppresses it.`,
 
 			reg, home, err := loadRegistry(opts)
 			if err != nil {
+				return err
+			}
+			if err := refuseOrphanedManifest(reg, home, args[0], adopt); err != nil {
 				return err
 			}
 			env, err := reg.NewEnvironment(home, args[0], opts.Lookup)
@@ -605,18 +609,49 @@ expectation to violate. --no-pull suppresses it.`,
 	cmd.Flags().BoolVar(&makeDefault, "default", false, "Make this the default environment")
 	cmd.Flags().BoolVar(&noPull, "no-pull", false,
 		"Do not fetch the artifacts the declaration names")
+	cmd.Flags().BoolVar(&adopt, "adopt", false,
+		"Take over an environment manifest left under this name by a delete or purge")
 	repo.bind(cmd)
 	libs.bind(cmd)
 	return cmd
 }
 
+// refuseOrphanedManifest stops `env add` silently adopting a manifest no
+// registered environment owns -- what a purge, or a delete with
+// --keep-manifest, leaves behind (NERD010 SPEC009, D3). Adopting it is
+// sometimes exactly the point, so --adopt says so.
+func refuseOrphanedManifest(reg *registry.Registry, home, name string, adopt bool) error {
+	if adopt {
+		return nil
+	}
+	slug, err := registry.ValidateSlug(name)
+	if err != nil {
+		// NewEnvironment refuses it in its own words.
+		return nil
+	}
+	if _, taken := reg.Environments[slug]; taken {
+		return nil
+	}
+	owned := manifest.Owned(home, slug)
+	if len(owned) == 0 {
+		return nil
+	}
+	return nserr.New(nserr.Usage,
+		"%s already describes an environment named %q that is not registered, left by an"+
+			" earlier delete or purge.\nAdopt it with --adopt, or remove the file to start empty",
+		owned[0], name)
+}
+
 func newEnvDeleteCommand(opts *Options) *cobra.Command {
-	var yes bool
+	var yes, keepManifest bool
 	cmd := &cobra.Command{
 		Use:     "delete <name>",
 		Aliases: []string{"rm"},
 		Short:   "Unregister an environment",
-		Long: `Removes an environment from the registry, freeing its account and port slot.
+		Long: `Removes an environment from the registry, freeing its account and port slot,
+and removes its manifest under $HMD_HOME/environments (keep it with
+--keep-manifest). A manifest left behind would be silently adopted by the
+next environment added under the same name.
 
 This is a registry edit, not a teardown. Stop the environment first: an
 unregistered environment whose containers are still running is worse than
@@ -655,6 +690,20 @@ either state alone, because nothing left knows how to address them.`,
 				return nserr.Wrap(nserr.Fail, err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Unregistered %s\n", env.Slug)
+			// The manifest goes with the registration (NERD010 SPEC009, D3):
+			// left behind, `env add` under the same name merged a second
+			// repository's instances into the first one's.
+			for _, path := range manifest.Owned(home, env.Slug) {
+				if keepManifest {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"note: kept %s; `nsctl env add %s --adopt` picks it up again\n", path, env.Slug)
+					continue
+				}
+				if err := os.Remove(path); err != nil {
+					return nserr.Wrap(nserr.Fail, err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", path)
+			}
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"note: its state directory %s is left in place; remove it by hand if you want the disk back\n",
 				env.StateDir)
@@ -662,6 +711,8 @@ either state alone, because nothing left knows how to address them.`,
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm the removal")
+	cmd.Flags().BoolVar(&keepManifest, "keep-manifest", false,
+		"Keep the environment manifest under $HMD_HOME/environments")
 	return cmd
 }
 

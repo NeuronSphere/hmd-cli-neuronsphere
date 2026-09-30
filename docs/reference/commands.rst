@@ -1234,6 +1234,7 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
+* ``--adopt`` — Take over an environment manifest left under this name by a delete or purge
 * ``--all-profiles`` — Activate every profile the lock mentions
 * ``--default`` — Make this the default environment
 * ``--from-repo`` — Build the environment from the repository at this path
@@ -1357,7 +1358,10 @@ Inherited flags
 nsctl env delete
 ----------------
 
-Removes an environment from the registry, freeing its account and port slot.
+Removes an environment from the registry, freeing its account and port slot,
+and removes its manifest under $HMD_HOME/environments (keep it with
+--keep-manifest). A manifest left behind would be silently adopted by the
+next environment added under the same name.
 
 This is a registry edit, not a teardown. Stop the environment first: an
 unregistered environment whose containers are still running is worse than
@@ -1375,6 +1379,7 @@ Aliases: ``rm``.
 Local flags
 ~~~~~~~~~~~
 
+* ``--keep-manifest`` — Keep the environment manifest under $HMD_HOME/environments
 * ``--yes`` — Confirm the removal
 
 Inherited flags

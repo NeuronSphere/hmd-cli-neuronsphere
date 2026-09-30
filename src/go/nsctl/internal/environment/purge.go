@@ -284,7 +284,7 @@ func purgeEnvironment(ctx context.Context, opts *Options, reg *registry.Registry
 	// deliberate and surprising.
 	if path := manifest.DefaultPath(opts.Home, env.Slug); path != "" {
 		if _, err := os.Stat(path); err == nil {
-			opts.step("  kept %s; `nsctl env add %s` will pick it up again", path, env.Slug)
+			opts.step("  kept %s; `nsctl env add %s --adopt` picks it up again", path, env.Slug)
 		}
 	}
 	return nil

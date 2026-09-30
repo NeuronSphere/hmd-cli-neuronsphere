@@ -194,3 +194,44 @@ func TestARepositoryThatPinsNothingNeedsNoLock(t *testing.T) {
 		}
 	}
 }
+
+// D3: deleting an environment removes its manifest, so a second repository
+// onboarded under the same name starts empty instead of inheriting the first
+// one's instances. A manifest deliberately left behind is adopted only when
+// asked.
+func TestEnvDeleteThenAddDoesNotInheritInstances(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	first := subjectRepo(t, home, subjectManifest)
+	second := foreignRepo(t, `{"name": "jaffle-shop-duckdb"}`)
+
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "ob-0", "--from-repo", first, "--no-pull"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := run(t, fakeEnv(env), "env", "delete", "ob-0", "--yes")
+	if err != nil || !strings.Contains(out, "Removed") {
+		t.Fatalf("env delete: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "ob-0", "--from-repo", second, "--no-pull"); err != nil {
+		t.Fatal(err)
+	}
+	if got := instanceNames(loadEnv(t, home, "ob-0")); len(got) != 1 || got[0] != "jaffle-shop-duckdb" {
+		t.Errorf("declared %v, want only the second repository", got)
+	}
+
+	// --keep-manifest leaves it, and env add then refuses until --adopt.
+	if _, _, err := run(t, fakeEnv(env), "env", "delete", "ob-0", "--yes", "--keep-manifest"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = run(t, fakeEnv(env), "env", "add", "ob-0", "--from-repo", first, "--no-pull")
+	if err == nil || !strings.Contains(err.Error(), "--adopt") {
+		t.Fatalf("an orphaned manifest was adopted silently: %v", err)
+	}
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "ob-0", "--from-repo", first, "--no-pull", "--adopt"); err != nil {
+		t.Fatalf("--adopt: %v", err)
+	}
+	if got := instanceNames(loadEnv(t, home, "ob-0")); !contains(got, "jaffle-shop-duckdb") {
+		t.Errorf("--adopt dropped the kept manifest's instances: %v", got)
+	}
+}

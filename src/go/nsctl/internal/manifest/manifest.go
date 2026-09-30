@@ -466,6 +466,21 @@ func DefaultPath(home, slug string) string {
 	return filepath.Join(Root(home), slug+".yaml")
 }
 
+// Owned lists the manifest files under $HMD_HOME/environments that belong to
+// a slug, in any extension. Unlike Find it ignores the path override: a file
+// the user pointed nsctl at elsewhere is theirs, never an environment's to
+// adopt or delete.
+func Owned(home, slug string) []string {
+	var out []string
+	for _, ext := range Extensions {
+		candidate := filepath.Join(Root(home), slug+ext)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
 // Validate reports every problem at once rather than failing on the first, so
 // a user fixing a hand-edited manifest sees the whole list.
 //
