@@ -49,6 +49,10 @@ ${KEEP}           ${False}
 # fetches it otherwise.
 ${DB ACCOUNT CLASS}    hmd-database-account@0.1.3
 ${DB NAME}        nsctl_named_env
+# Set once this suite's `env add` succeeds. The teardown purges only then: a
+# setup that stops because the name is already registered must not purge the
+# environment it refused to touch.
+${CREATED}        ${False}
 
 *** Keywords ***
 Run nsctl
@@ -79,8 +83,12 @@ Create The Environment
     ${listed}=    Run nsctl    env    list
     Should Not Match Regexp    ${listed.stdout}    (?m)^${ENV}\\b
     ...    msg=${ENV} is already registered; this suite needs the first start of a new environment.
+    Set Suite Variable    ${MANIFEST}    ${home}/environments/${ENV}.yaml
+    File Should Not Exist    ${MANIFEST}
+    ...    msg=${MANIFEST} is left from an earlier environment; `env add` would refuse it. Remove it or choose another slug.
     ${added}=    Run nsctl    env    add    ${ENV}
     Should Be Equal As Integers    ${added.rc}    0
+    Set Suite Variable    ${CREATED}    ${True}
     Set Suite Variable    ${ADD OUTPUT}    ${added.stdout}
     ${account}=    Registry Value    environments    ${ENV}    account_id
     ${did}=        Registry Value    environments    ${ENV}    deployment_id
@@ -92,12 +100,19 @@ Create The Environment
     Set Suite Variable    ${STATE DIR}   ${state}
 
 Purge The Environment
+    IF    not ${CREATED}
+        RETURN
+    END
     IF    ${KEEP}
         Log    Kept ${ENV} (KEEP=True)    WARN
         RETURN
     END
     ${purged}=    Run nsctl    env    purge    ${ENV}    --yes
     Should Be Equal As Integers    ${purged.rc}    0
+    # Purge keeps the environment manifest on purpose (a rebuild adopts it);
+    # this suite wrote it, so it removes it, or the next run's `env add`
+    # refuses the orphan.
+    Remove File    ${MANIFEST}
 
 *** Test Cases ***
 Adding It Does Not Warn About Its Name
