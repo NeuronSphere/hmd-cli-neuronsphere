@@ -293,6 +293,7 @@ func applyFromRepo(cmd *cobra.Command, opts *Options, repo *fromRepo, libs *libr
 	if err != nil {
 		return err
 	}
+	repo.providers = environmentProviders(opts, home, existing)
 	plan, err := planFromRepo(repo, existing)
 	if err != nil {
 		return err

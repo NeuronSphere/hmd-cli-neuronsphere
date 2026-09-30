@@ -645,7 +645,7 @@ func stackFindings(dir string) []bacon.Finding {
 			Message: "pins " + strings.Join(extra, ", ") + ", which the manifest no longer declares -- run `nsctl lock`"})
 	}
 	for _, w := range spec.Wants() {
-		if len(w.Satisfies) == 0 || w.Bind != "" || w.External {
+		if len(w.Satisfies) == 0 || !w.Pinned() {
 			continue
 		}
 		if _, ok := l.Entry(w.RepoClassName); !ok {

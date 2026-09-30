@@ -2,6 +2,14 @@
 
 ## 2026-09-30
 
+- fix: a `deploy.dependencies` role may name a resource type instead of a repo
+  class (D11). `lock` and `env add` no longer refuse it. The lock never pins
+  it, and `env add` / `env apply --from-repo` fill it from a recorded binding,
+  a `--name`, or an instance in the environment that produces the type. An
+  optional role nothing provides is left unfilled with a note; a required one
+  is refused (NERD010 SPEC009).
+- fix: `env add --from-repo --profile` no longer demands a lock pin for a
+  profile-gated external role that `lock --check` calls covered (D2).
 - fix: installing a Python item names the likely cause when a locked
   distribution has no wheel for the declared Python and cannot be built. The
   hmd-cli toolset hits this on 3.12, through `frozenlist==1.3.3`.

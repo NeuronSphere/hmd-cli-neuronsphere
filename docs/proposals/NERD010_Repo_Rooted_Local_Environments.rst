@@ -785,6 +785,87 @@ already exist.
     precedence is what lets a developer of any *companion* do the same for
     theirs.
 
+.. spec:: Onboarding a foreign repository: what the lab broke
+    :id: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
+    :links: HMD_CLI_NEURONSPHERE_NERD010
+    :status: open
+
+    **Added 2026-09-30.** The ns-onboard-lab harness onboarded eight foreign
+    repositories with nsctl 1.0.238 and found that a manifest-only,
+    resource-typed onboarding could not work at all. Its defect IDs (D1-D15,
+    ``ns-onboard-lab/FINDINGS.md`` section 0) are cited below. This SPEC amends
+    SPEC001, SPEC004, SPEC005 and SPEC006. It rewrites none of them.
+
+    **A dependency role names a class or a resource type (D11).** Every
+    ``deploy.dependencies`` role must carry either ``repo_class_name`` or a
+    ``resource`` with both ``resource_namespace`` and
+    ``resource_definition_name``. Both are also fine, and both is what SPEC0008
+    manifests carry. The local runtime used to demand ``repo_class_name``,
+    while ``repoclass validate`` (and BACON itself) accepted either. So the
+    generic dependency the ``add-dependency --resource-*`` flags write was
+    refused by ``lock`` and ``env add``. The runtime now matches the validator.
+
+    **What fills a role nothing pins (D11, D2).** Three kinds of activated role
+    have no class for the lock to pin:
+
+    - a bound role (``bind``);
+    - an external role (``external = true``, written by ``local require``);
+    - a resource-only role, which has no ``repo_class_name``.
+
+    The lock and ``lock --check`` already skipped the first two. They now skip
+    the third as well. ``env add`` / ``env apply --from-repo`` fill the second
+    and third the same way, in this order:
+
+    #. What the environment manifest already binds, or a ``--name <role>=<instance>``.
+    #. An instance the environment already declares that produces the role's
+       resource type (``NERD017`` SPEC010 rule 1, the same provider index).
+    #. Otherwise the role is **left unfilled** when it is optional, and the
+       plan prints a note naming the type and any ``suggest``. When it is
+       required, the command refuses: ``ms-deployment`` fails the whole
+       ChangeSet on an unmet required role, and it is better to say so now.
+
+    None of these steps ever demands a pin. Before this, an activated external
+    role fell through to the lock lookup. That is how
+    ``env add --profile platform`` demanded a pin for a profile-gated external
+    role that ``lock --check`` had correctly called covered (D2).
+
+    **A lock is optional when there is nothing to pin (D7).** This amends
+    SPEC005 step 1. If ``neuronsphere.lock`` is absent and every want the
+    manifest declares under any profile is bound, external or resource-only,
+    then an empty lock is assumed and nothing is written. ``lock --check``
+    reports that no lock is needed, and ``repoclass validate`` does not ask for
+    one. As soon as a want needs a pinned version, the SPEC005 refusal stands
+    unchanged. The rationale for that refusal was reproducibility, and nothing
+    unpinned is being reproduced.
+
+    **``repoclass validate`` checks what the runtime reads (D12, D1, D15).**
+
+    - A ``local`` section the runtime cannot parse is reported as errors, one
+      per problem. Before, ``validate`` passed it silently and it failed only at
+      ``lock``.
+    - "A stack declares at least one companion" applies only to a manifest
+      marked ``local.stack = true``. A repository that only binds or requires
+      roles is not a stack.
+    - A key under ``local`` that this nsctl does not know is a warning. It is not
+      an error, so a newer manifest still validates, but a misspelled field no
+      longer passes silently.
+
+    **``env delete`` owns the environment manifest (D3).** This amends SPEC005.
+
+    - ``env delete`` removes ``environments/<name>.yaml`` along with the
+      registry entry. ``--keep-manifest`` retains it.
+    - ``env add`` that finds an environment manifest with no registry entry
+      refuses, names the file, and offers ``--adopt``. Before, it merged into
+      the file silently, so a second repository onboarded under a reused name
+      inherited every instance of the first.
+
+    **An offline plan (D4).** ``nsctl env plan --from-repo <path>`` prints what
+    ``env add --from-repo`` would declare. It uses the same profiles, the same
+    naming order and the same fill rules, and it touches neither the registry,
+    the environment manifest, the network nor the control plane.
+    ``--env <name>`` plans against an existing environment's providers and
+    bindings.
+
 Risks
 -----
 

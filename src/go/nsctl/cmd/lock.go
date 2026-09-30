@@ -188,6 +188,9 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 			bound[w.RepoClassName] = w.Bind
 			continue
 		}
+		if !w.Pinned() {
+			continue
+		}
 		wanted[w.RepoClassName] = true
 	}
 	// Every class the manifest names at all, which is a larger set: an optional
@@ -196,7 +199,9 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 	// message they can act on and one they cannot.
 	declared := map[string]bool{}
 	for _, d := range m.Dependencies {
-		declared[d.RepoClassName] = true
+		if d.RepoClassName != "" {
+			declared[d.RepoClassName] = true
+		}
 	}
 	for _, r := range m.Local.Repos {
 		declared[r.RepoClassName] = true
@@ -226,7 +231,7 @@ func runLockWrite(cmd *cobra.Command, opts *Options, repoDir string,
 	if resolver != nil {
 		var failures []string
 		for _, w := range wants {
-			if w.Bind != "" || w.External {
+			if !w.Pinned() {
 				continue
 			}
 			if _, ok := pinned[w.RepoClassName]; ok {

@@ -473,3 +473,28 @@ func TestGateRefusals(t *testing.T) {
 		})
 	}
 }
+
+// NERD010 SPEC009: a role names a repo class or a resource type. A
+// resource-only role is read, carries its type, and the lock never pins it.
+func TestLoadAcceptsAResourceOnlyRole(t *testing.T) {
+	t.Parallel()
+
+	m, err := Load(writeManifest(t, `{"name":"x","deploy":{"dependencies":{
+		"warehouse":{"required":"false","resource":{"resource_namespace":"database.neuronsphere.io",
+			"resource_definition_name":"database-account","version":"0.1.0"}}}},
+		"local":{"version":1,"dependencies":{"warehouse":{"external":true,"profiles":["w"]}}}}`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	wants := m.Activate([]string{"w"})
+	if len(wants) != 1 {
+		t.Fatalf("wants = %+v, want the warehouse role", wants)
+	}
+	w := wants[0]
+	if w.Resource != "database.neuronsphere.io/database-account" || w.RepoClassName != "" {
+		t.Errorf("want = %+v", w)
+	}
+	if w.Pinned() {
+		t.Error("a resource-only role is pinned")
+	}
+}

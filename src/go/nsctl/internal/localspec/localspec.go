@@ -266,9 +266,14 @@ func Parse(data []byte) (*Manifest, error) {
 	for _, role := range roles {
 		block := doc.Deploy.Dependencies[role]
 		isRole[role] = true
-		if block.RepoClassName == "" {
+		hasResource := block.Resource != nil && block.Resource.Namespace != "" && block.Resource.Name != ""
+		if block.RepoClassName == "" && !hasResource {
+			// Either names the role: a class to deploy, or a resource type the
+			// environment fills (NERD010 SPEC009). BACON and `repoclass
+			// validate` already accept either, and the runtime must agree.
 			problems = append(problems, fmt.Sprintf(
-				"deploy.dependencies.%s: 'repo_class_name' is required", role))
+				"deploy.dependencies.%s: name a 'repo_class_name' or a 'resource'"+
+					" (resource_namespace and resource_definition_name)", role))
 			continue
 		}
 		required, err := truthy(block.Required)
@@ -283,7 +288,7 @@ func Parse(data []byte) (*Manifest, error) {
 			InstanceName:  block.InstanceName,
 			Required:      required,
 		}
-		if block.Resource != nil && block.Resource.Namespace != "" && block.Resource.Name != "" {
+		if hasResource {
 			d.Resource = block.Resource.Namespace + "/" + block.Resource.Name
 		}
 		m.Dependencies = append(m.Dependencies, d)
@@ -488,6 +493,14 @@ func (m *Manifest) Activate(profiles []string) []Want {
 		})
 	}
 	return wants
+}
+
+// Pinned reports whether the lock pins a version for this want. A bound or
+// external role is the environment's, and a resource-only role names a type
+// rather than a class, so there is nothing to pin for any of them (NERD010
+// SPEC009): they are filled from the environment at plan time.
+func (w Want) Pinned() bool {
+	return w.Bind == "" && !w.External && w.RepoClassName != ""
 }
 
 // Wants is every declared want, whatever profile it is gated by.

@@ -1,0 +1,164 @@
+package cmd
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
+)
+
+// NERD010 SPEC009: roles the lock cannot pin -- external ones, and ones that
+// name a resource type instead of a repo class -- are filled from the
+// environment, never by demanding a pin.
+
+// A foreign repository that names what it needs by type only: the shape
+// `add-dependency --resource-*` plus `local require` writes, and the one the
+// onboarding principles call for.
+const resourceOnlyManifest = `{
+  "name": "jaffle-shop-cloud",
+  "deploy": {"dependencies": {
+    "warehouse": {"required": "false", "resource": {
+      "resource_namespace": "database.neuronsphere.io",
+      "resource_definition_name": "database-account", "version": "0.1.0"}}
+  }},
+  "local": {"version": 1, "dependencies": {
+    "warehouse": {"external": true, "profiles": ["warehouse"]}
+  }}
+}`
+
+// foreignRepo writes a manifest and generates its lock, which for these
+// fixtures pins nothing.
+func foreignRepo(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "meta-data", "manifest.json"), body)
+	writeFile(t, filepath.Join(dir, "meta-data", "VERSION"), "0.1")
+	if _, _, err := run(t, fakeEnv(nil), "lock", dir); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	return dir
+}
+
+func TestLockAcceptsAResourceOnlyRole(t *testing.T) {
+	t.Parallel()
+
+	repo := foreignRepo(t, resourceOnlyManifest)
+	out, _, err := run(t, fakeEnv(nil), "lock", "--check", repo)
+	if err != nil {
+		t.Fatalf("lock --check: %v", err)
+	}
+	if !strings.Contains(out, "0 pinned") {
+		t.Errorf("lock --check pinned something for a role naming no class:\n%s", out)
+	}
+}
+
+func TestEnvAddLeavesAnOptionalResourceRoleUnfilled(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	repo := foreignRepo(t, resourceOnlyManifest)
+
+	_, stderr, err := run(t, fakeEnv(env), "env", "add", "scratch", "--from-repo", repo,
+		"--no-pull", "--profile", "warehouse")
+	if err != nil {
+		t.Fatalf("env add: %v", err)
+	}
+	if !strings.Contains(stderr, "database.neuronsphere.io/database-account") ||
+		!strings.Contains(stderr, "left unfilled") {
+		t.Errorf("no note naming the unfilled role:\n%s", stderr)
+	}
+	m := loadEnv(t, home, "scratch")
+	if got := instanceNames(m); len(got) != 1 {
+		t.Errorf("declared %v, want only the subject", got)
+	}
+	if _, ok := subjectDeps(t, m)["warehouse"]; ok {
+		t.Error("the subject is wired to a warehouse nothing provides")
+	}
+}
+
+func TestEnvAddRefusesARequiredResourceRoleNothingProvides(t *testing.T) {
+	t.Parallel()
+
+	_, env := fromRepoEnv(t)
+	// A required role cannot be profile-gated, so the gate loses its profiles.
+	repo := foreignRepo(t, strings.Replace(strings.Replace(resourceOnlyManifest,
+		`"required": "false"`, `"required": "true"`, 1),
+		`, "profiles": ["warehouse"]`, ``, 1))
+
+	_, _, err := run(t, fakeEnv(env), "env", "add", "scratch", "--from-repo", repo, "--no-pull")
+	if err == nil {
+		t.Fatal("succeeded, want a refusal")
+	}
+	for _, s := range []string{"required", "database.neuronsphere.io/database-account", "--name warehouse="} {
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("error does not contain %q:\n%s", s, err)
+		}
+	}
+}
+
+func TestEnvAddBindsAResourceRoleByName(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	repo := foreignRepo(t, resourceOnlyManifest)
+
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "scratch", "--from-repo", repo,
+		"--no-pull", "--profile", "warehouse", "--name", "warehouse=team-db"); err != nil {
+		t.Fatalf("env add: %v", err)
+	}
+	m := loadEnv(t, home, "scratch")
+	if got := subjectDeps(t, m)["warehouse"]; got != "team-db" {
+		t.Errorf("warehouse bound to %q, want team-db", got)
+	}
+	if contains(instanceNames(m), "team-db") {
+		t.Error("declared the bound instance; the environment provides it")
+	}
+}
+
+func TestEnvApplyFillsAResourceRoleFromAProducer(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	if _, err := artifact.Store(home, "hmd-database-account", "0.1.7",
+		producingZip(t, "hmd-database-account", "0.1.7", "database.neuronsphere.io", "database-account")); err != nil {
+		t.Fatal(err)
+	}
+	declareArtifact(t, home, env, "shared-db", "hmd-database-account", "0.1.7")
+	repo := foreignRepo(t, resourceOnlyManifest)
+
+	runApplyFromRepo(t, env, "local", "--from-repo", repo, "--profile", "warehouse")
+
+	m := loadEnv(t, home, "local")
+	if got := subjectDeps(t, m)["warehouse"]; got != "shared-db" {
+		t.Errorf("warehouse bound to %q, want the producer shared-db", got)
+	}
+}
+
+// D2: `lock --check` skips a profile-gated external role, and so must
+// `env add --profile`, instead of demanding a pin the lock rightly lacks.
+func TestEnvAddDoesNotPinAProfileGatedExternalRole(t *testing.T) {
+	t.Parallel()
+
+	_, env := fromRepoEnv(t)
+	repo := foreignRepo(t, `{
+  "name": "de-project-template",
+  "deploy": {"dependencies": {
+    "orchestrator": {"repo_class_name": "hmd-app-airflow", "required": "false", "version_spec": "~= 0.1"}
+  }},
+  "local": {"version": 1, "dependencies": {
+    "orchestrator": {"external": true, "profiles": ["platform"]}
+  }}
+}`)
+	if _, _, err := run(t, fakeEnv(env), "lock", "--check", repo); err != nil {
+		t.Fatalf("lock --check: %v", err)
+	}
+	_, stderr, err := run(t, fakeEnv(env), "env", "add", "scratch", "--from-repo", repo,
+		"--no-pull", "--profile", "platform")
+	if err != nil {
+		t.Fatalf("env add --profile platform: %v", err)
+	}
+	if !strings.Contains(stderr, "hmd-app-airflow") {
+		t.Errorf("no note about the unfilled external role:\n%s", stderr)
+	}
+}

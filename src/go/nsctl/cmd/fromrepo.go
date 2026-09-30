@@ -14,6 +14,8 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lock"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/stack"
 )
 
 // fromRepo holds the flags `env add` and `env apply` share when they build an
@@ -41,6 +43,10 @@ type fromRepo struct {
 	// dependency naming the want's default name is rewritten to the bound
 	// instance.
 	compose func(spec *localspec.Manifest, wants []localspec.Want, l *lock.Lock, overrides map[string]string) (map[string]string, error)
+	// providers, when set, lists the instances the environment already
+	// declares that produce a resource type. It is how an external or
+	// resource-only role the lock cannot pin is filled (NERD010 SPEC009).
+	providers func(resource string) []string
 }
 
 // recordedPlan is what a previous run of the same planner recorded.
@@ -100,6 +106,10 @@ type repoPlan struct {
 	// Composed is what the environment already provided for this plan's
 	// wants (NERD017 SPEC010), for the report.
 	Composed map[string]string
+	// Unfilled is the optional roles nothing pins and nothing in the
+	// environment provides (NERD010 SPEC009). They stay undeclared, and the
+	// report says so.
+	Unfilled []localspec.Want
 }
 
 // planFromRepo reads a repository's declaration and lock and works out what the
@@ -189,6 +199,31 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 				Repo: manifest.Repo{InstanceName: w.Bind, RepoClassName: w.RepoClassName}})
 			continue
 		}
+		if !w.Pinned() {
+			// External or resource-only: the environment fills it, and the lock
+			// has nothing to say (NERD010 SPEC009). Demanding a pin here is how
+			// a profile-gated external role failed after `lock --check` had
+			// called the lock covered.
+			name, err := fillFromEnvironment(f, w, overrides, bound)
+			if err != nil {
+				return nil, err
+			}
+			if name == "" {
+				if w.Required {
+					return nil, nserr.New(nserr.Usage, "%s", unfilledMessage(spec.Path, w, true))
+				}
+				plan.Unfilled = append(plan.Unfilled, w)
+				continue
+			}
+			w.Bind = name
+			plan.Bindings[w.Key] = name
+			for _, role := range w.Satisfies {
+				roles[role] = name
+			}
+			plan.Instances = append(plan.Instances, plannedInstance{Want: w, Substrate: true,
+				Repo: manifest.Repo{InstanceName: name, RepoClassName: w.RepoClassName}})
+			continue
+		}
 		entry, pinned := l.Entry(w.RepoClassName)
 		if !pinned {
 			return nil, nserr.New(nserr.Usage,
@@ -266,6 +301,68 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 	// alone drops the repository --from-repo exists to declare.
 	plan.DeclareSubject = !spec.Local.Stack
 	return plan, nil
+}
+
+// fillFromEnvironment names the instance that fills an external or
+// resource-only role, or "" when nothing does. The order is the naming
+// order's upper half -- a recorded binding, then --name -- and then an
+// instance the environment declares that produces the role's resource type.
+func fillFromEnvironment(f *fromRepo, w localspec.Want, overrides, bound map[string]string) (string, error) {
+	if name, ok := overrides[w.Key]; ok {
+		return name, nil
+	}
+	if name, ok := bound[w.Key]; ok {
+		return name, nil
+	}
+	if f.providers == nil || w.Resource == "" {
+		return "", nil
+	}
+	providers := f.providers(w.Resource)
+	switch len(providers) {
+	case 0:
+		return "", nil
+	case 1:
+		return providers[0], nil
+	}
+	for _, p := range providers {
+		if p == w.DefaultName {
+			return p, nil
+		}
+	}
+	return "", nserr.New(nserr.Usage,
+		"role %q needs %s, and the environment has %d instances that produce it: %s.\n"+
+			"Choose one with --name %s=<instance>",
+		w.Key, w.Resource, len(providers), strings.Join(providers, ", "), w.Key)
+}
+
+// unfilledMessage says what a role nothing fills needs, and how to fill it.
+func unfilledMessage(path string, w localspec.Want, required bool) string {
+	what := w.Resource
+	if what == "" {
+		what = w.RepoClassName
+	} else if w.RepoClassName != "" {
+		what += " (" + w.RepoClassName + ")"
+	}
+	msg := fmt.Sprintf("role %q needs %s, and nothing in the environment provides it", w.Key, what)
+	if required {
+		msg = fmt.Sprintf("%s declares %q required; ", path, w.Key) + msg
+	}
+	if w.Suggest != "" {
+		msg += fmt.Sprintf(" (suggested: %s)", w.Suggest)
+	}
+	return msg + fmt.Sprintf(". Bind an existing instance with --name %s=<instance>", w.Key)
+}
+
+// environmentProviders indexes what an environment manifest already
+// declares, by the resource types each instance produces (NERD017 SPEC010's
+// index), for filling roles the lock does not pin.
+func environmentProviders(opts *Options, home string, m *manifest.Manifest) func(string) []string {
+	if m == nil || len(m.Repos) == 0 {
+		return nil
+	}
+	resolver := repoclass.NewWithHome(opts.Lookup("HMD_REPO_HOME"), home, opts.Lookup)
+	repoclass.Seed(resolver, m.Repos)
+	return stack.IndexProviders(m, resolver).For
 }
 
 // activeProfiles settles which profiles are on: what was asked for, then what
@@ -596,6 +693,10 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 			fmt.Fprintf(out, "  %-28s %-34s %s\n",
 				in.Repo.InstanceName, in.Repo.RepoClassName, in.Repo.Version)
 		}
+	}
+	for _, w := range p.Unfilled {
+		fmt.Fprintf(cmd.ErrOrStderr(), "note: optional %s; left unfilled\n",
+			unfilledMessage(p.Spec.Path, w, false))
 	}
 	for _, previous := range p.Renamed {
 		fmt.Fprintf(cmd.ErrOrStderr(),
