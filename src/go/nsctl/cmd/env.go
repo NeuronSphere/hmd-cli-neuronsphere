@@ -686,6 +686,9 @@ either state alone, because nothing left knows how to address them.`,
 			if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
+			// Delete is a registry edit: the account's Floci resources stay,
+			// so the account must never be handed to another environment.
+			reg.RetireAccount(env.AccountID)
 			if err := reg.Save(home); err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
@@ -707,6 +710,9 @@ either state alone, because nothing left knows how to address them.`,
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"note: its state directory %s is left in place; remove it by hand if you want the disk back\n",
 				env.StateDir)
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"note: account %s keeps its Floci resources and is retired, so no new environment is given it;"+
+					" `nsctl env purge` instead of delete frees an account\n", env.AccountID)
 			return nil
 		},
 	}

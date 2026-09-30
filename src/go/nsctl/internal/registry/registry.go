@@ -255,7 +255,14 @@ type Registry struct {
 	ControlPlane ControlPlane           `json:"control_plane"`
 	DefaultEnv   string                 `json:"default_env"`
 	Environments map[string]Environment `json:"environments"`
-	Version      int                    `json:"version"`
+	// RetiredAccounts are Floci accounts of environments unregistered by
+	// `env delete`, which leaves the account's resources in place. They are
+	// never allocated again: a new environment handed one inherits its VPC,
+	// subnet groups and secrets, and its first start fails in `tofu apply`
+	// with "already exists". `env purge` destroys the resources, so a purged
+	// environment's account is not retired.
+	RetiredAccounts []string `json:"retired_accounts,omitempty"`
+	Version         int      `json:"version"`
 
 	// Path is the file this was read from, for an error that can name it.
 	Path string `json:"-"`
@@ -580,7 +587,25 @@ func (r *Registry) UsedAccounts() map[string]bool {
 	for _, e := range r.Environments {
 		used[e.AccountID] = true
 	}
+	for _, id := range r.RetiredAccounts {
+		used[id] = true
+	}
 	return used
+}
+
+// RetireAccount records that an account still holds an unregistered
+// environment's resources, so AllocateAccountID never hands it out again.
+func (r *Registry) RetireAccount(id string) {
+	if id == "" {
+		return
+	}
+	for _, have := range r.RetiredAccounts {
+		if have == id {
+			return
+		}
+	}
+	r.RetiredAccounts = append(r.RetiredAccounts, id)
+	sort.Strings(r.RetiredAccounts)
 }
 
 // AllocatePortSlot picks a stable port slot for a name.

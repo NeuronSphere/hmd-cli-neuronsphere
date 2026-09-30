@@ -2,6 +2,11 @@
 
 ## 2026-09-30
 
+- fix: `env delete` retires the environment's Floci account, and a new
+  environment is never given a retired one. Delete leaves the account's
+  resources in place, so reusing it made the next environment's first start
+  fail in `tofu apply` with "DBSubnetGroupAlreadyExists". `env purge` destroys
+  the resources and does not retire the account.
 - fix: foundation service Lambdas get `HMD_ENVIRONMENT_NAME`, set to the
   environment's name, beside `HMD_ENVIRONMENT=local`. The environment's dbaccount
   service is refreshed when its deployed value is missing or wrong, even at an

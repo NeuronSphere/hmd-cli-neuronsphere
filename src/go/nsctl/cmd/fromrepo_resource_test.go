@@ -266,3 +266,27 @@ func TestEnvPlanFromRepoIsOfflineAndWritesNothing(t *testing.T) {
 		t.Errorf("planning wrote %d environment manifest(s)", len(entries))
 	}
 }
+
+// An environment `env delete` unregistered leaves its Floci resources in its
+// account, so that account is retired: the next environment gets a fresh one
+// rather than inheriting a VPC whose subnet group already exists.
+func TestEnvDeleteRetiresTheAccount(t *testing.T) {
+	t.Parallel()
+
+	home, env := fromRepoEnv(t)
+	dev, _ := loadReg(t, home).Environment("dev", nil)
+	if _, _, err := run(t, fakeEnv(env), "env", "delete", "dev", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run(t, fakeEnv(env), "env", "add", "fresh"); err != nil {
+		t.Fatal(err)
+	}
+	reg := loadReg(t, home)
+	fresh, _ := reg.Environment("fresh", nil)
+	if fresh.AccountID == dev.AccountID {
+		t.Errorf("the new environment was given %s, the deleted environment's account", dev.AccountID)
+	}
+	if !contains(reg.RetiredAccounts, dev.AccountID) {
+		t.Errorf("retired accounts = %v, want %s", reg.RetiredAccounts, dev.AccountID)
+	}
+}

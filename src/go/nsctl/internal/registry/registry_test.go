@@ -903,3 +903,17 @@ func TestTheRouterNameIsDerivedWhenItWasNeverRecorded(t *testing.T) {
 		t.Errorf("Router() = %q, want the bare fallback", got)
 	}
 }
+
+func TestRetiredAccountsAreNeverAllocated(t *testing.T) {
+	t.Parallel()
+
+	r := &Registry{Environments: map[string]Environment{"a": {AccountID: "000000000001"}}}
+	r.RetireAccount("000000000002")
+	r.RetireAccount("000000000002")
+	if len(r.RetiredAccounts) != 1 {
+		t.Errorf("retired twice: %v", r.RetiredAccounts)
+	}
+	if got := r.AllocateAccountID(); got != "000000000003" {
+		t.Errorf("allocated %s, want 000000000003 past the retired account", got)
+	}
+}
