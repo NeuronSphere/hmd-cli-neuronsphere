@@ -607,3 +607,31 @@ time="2026-09-25T15:11:18Z" level=fatal msg="something else entirely"`
 		t.Errorf("a healthy-boot warning produced a diagnosis: %q", d)
 	}
 }
+
+// A kubeconfig left by an earlier cluster of the same name is present,
+// readable and wrong: the new cluster answers 401. Staleness is decided by
+// what the running cluster would give, not by the file existing.
+func TestKubeconfigStaleComparesAgainstTheRunningCluster(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	current := &kubeconfigExecer{out: []byte("apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n  name: default\nusers:\n- name: default\n  user:\n    client-key-data: NEW\n")}
+
+	if !KubeconfigStale(ctx, current, "k3s", path, 19072) {
+		t.Error("an absent kubeconfig is not stale")
+	}
+	if err := WriteKubeconfig(ctx, current, "k3s", path, 19072); err != nil {
+		t.Fatal(err)
+	}
+	if KubeconfigStale(ctx, current, "k3s", path, 19072) {
+		t.Error("the kubeconfig just written from this cluster is stale")
+	}
+	recreated := &kubeconfigExecer{out: []byte(strings.Replace(string(current.out), "NEW", "OTHER", 1))}
+	if !KubeconfigStale(ctx, recreated, "k3s", path, 19072) {
+		t.Error("a kubeconfig from an earlier cluster is not stale")
+	}
+	if KubeconfigStale(ctx, &kubeconfigExecer{out: []byte("")}, "k3s", path, 19072) {
+		t.Error("an unreadable cluster made the kubeconfig stale")
+	}
+}

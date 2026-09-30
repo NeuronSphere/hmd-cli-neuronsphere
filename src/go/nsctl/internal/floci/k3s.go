@@ -1,6 +1,7 @@
 package floci
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -399,6 +400,29 @@ func WriteKubeconfig(ctx context.Context, d K3sExecer, name, path string, hostPo
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	return nil
+}
+
+// KubeconfigStale reports whether the kubeconfig at path is not the one the
+// running cluster would give: written for an earlier cluster, whose
+// certificates this one rejects with 401 Unauthorized. A cluster recreated
+// under the same name -- a Floci recreate, a purge, a new environment reusing
+// a slug -- leaves the old file present and readable, so presence alone says
+// nothing. False when the cluster cannot be read: that is not evidence the
+// file is wrong, and the caller has no better one to write.
+func KubeconfigStale(ctx context.Context, d K3sExecer, name, path string, hostPort int) bool {
+	out, err := d.Exec(ctx, name, "cat", "/etc/rancher/k3s/k3s.yaml")
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(out)), "apiVersion") {
+		return false
+	}
+	want, err := PointKubeconfigAtHost(out, hostPort)
+	if err != nil {
+		return false
+	}
+	have, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	return !bytes.Equal(have, want)
 }
 
 // PointKubeconfigAtHost rewrites a kubeconfig's server to a host-reachable port.

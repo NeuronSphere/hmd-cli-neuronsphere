@@ -750,7 +750,12 @@ func provisionNewCluster(ctx context.Context, opts *Options, reg *registry.Regis
 		// worse than reporting it once from the one that can act on it.
 		return
 	}
-	if !kubeconfigUnusable(env.Kubeconfig) {
+	// Present is not enough: a cluster the substrate just created has new
+	// certificates, and a kubeconfig left by an earlier cluster of the same
+	// name is readable, non-empty and rejected with 401 Unauthorized by the
+	// first chart that uses it.
+	if !kubeconfigUnusable(env.Kubeconfig) &&
+		!floci.KubeconfigStale(ctx, d, cluster, env.Kubeconfig, env.K3sPort()) {
 		return
 	}
 

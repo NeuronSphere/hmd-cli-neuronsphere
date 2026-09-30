@@ -2,6 +2,10 @@
 
 ## 2026-09-30
 
+- fix: a cluster the substrate creates during `env start` is re-provisioned
+  when the kubeconfig on disk came from an earlier cluster of the same name,
+  not only when the file is missing. Before, the stale file was kept and the
+  first chart (ext-secrets-crds) failed with 401 Unauthorized.
 - fix: the warnings about a Floci-spawned database left "failed" (on recreating
   Floci, and on starting an environment) name `nsctl env start <name>
   --force-full-redeploy` instead of the unsupported `hmd neuronsphere up`.
