@@ -230,10 +230,12 @@ parser.
 
     Definitions are files, ``src/perspectives/<name>.perspective.json`` (the
     layout ``hmd-lib-django-modeling`` NERD003 SPEC007 proposes). ``nsctl``
-    embeds the ones its inspectors need (``trino``, ``dbt``,
-    ``postgres-view``, ``librarian-content``) as defaults; a definition of
-    the same name in an inspected repository overrides the default. ``nsctl``
-    does not copy the Modeler's ``ansi-sql`` or ``django-models``.
+    embeds none: it reads them from the inspected repositories, or derives
+    them from the files that realise a model and holds them until they are
+    materialised into a repository (NERD033). The spike's embedded ``trino``,
+    ``dbt``, ``postgres-view`` and ``librarian-content`` definitions are
+    superseded by NERD033 SPEC001. ``nsctl`` does not copy the Modeler's
+    ``ansi-sql`` or ``django-models``.
 
     **Perspective values** of a noun live in a sidecar file
     ``<name>.<perspective>.hms`` beside ``<name>.hms``, which
@@ -289,7 +291,8 @@ parser.
       ``billing_staging.aws_billing`` is the ``staging`` binding of the
       ``trino`` perspective of ``billing.aws_billing``. ``dbt`` uses
       ``<project>.<model>``. Layer conventions live in the inspector, never
-      in the model.
+      in the model. NERD033 SPEC003 replaces the built-in layer suffixes
+      with a name pattern derived from the files.
 
     Two perspective bindings belong to one noun when they share an
     identity, or the same physical ``schema.table`` (catalog ignored), or an
