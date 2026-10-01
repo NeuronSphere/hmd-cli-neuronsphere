@@ -55,6 +55,15 @@ func TestDiffReportsSemanticChanges(t *testing.T) {
 	}
 }
 
+func TestDiffIgnoresAFindingThatOnlyMoved(t *testing.T) {
+	t.Parallel()
+	a := []Disagreement{{Severity: SevInfo, Code: "unused-run-param", Subject: "repo/ddl.yaml:190", Message: "x"}}
+	b := []Disagreement{{Severity: SevInfo, Code: "unused-run-param", Subject: "repo/ddl.yaml:191", Message: "x"}}
+	if cs := Diff(&Model{Disagreements: a}, &Model{Disagreements: b}); len(cs) != 0 {
+		t.Errorf("changes:\n%s", changes(cs))
+	}
+}
+
 func TestDiffHMSAttributeAdded(t *testing.T) {
 	t.Parallel()
 	doc, _ := loadHMS(t, "environment.hms")

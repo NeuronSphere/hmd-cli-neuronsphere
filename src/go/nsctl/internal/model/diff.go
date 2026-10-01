@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -284,9 +285,15 @@ func diffEdges(a, b []Edge) []Change {
 	return out
 }
 
+// lineRef matches the ":<line>" of a file:line reference.
+var lineRef = regexp.MustCompile(`(\.ya?ml|\.sql|\.hms|\.json):\d+`)
+
+// diffDisagreements reports disagreements that appeared or went away. A
+// disagreement's identity ignores line numbers: an edit that only moves a
+// finding down a line has not changed it.
 func diffDisagreements(a, b []Disagreement) []Change {
 	key := func(d Disagreement) string {
-		return string(d.Severity) + " " + d.Subject + " [" + d.Code + "] " + d.Message
+		return lineRef.ReplaceAllString(string(d.Severity)+" "+d.Subject+" ["+d.Code+"] "+d.Message, "$1")
 	}
 	ia, ib := map[string]bool{}, map[string]bool{}
 	for _, d := range a {

@@ -2,6 +2,9 @@
 
 ## 2026-10-01
 
+- fix: `nsctl inspect diff` ignores line numbers when matching disagreements.
+  A finding that an edit only moved down a line is no longer reported as
+  resolved and reintroduced.
 - feat: `nsctl inspect diff [path...]` compares the latest two snapshots of the
   same directories, or with `--live` the latest snapshot against the working
   tree. It prints semantic changes: nouns, attributes, type, requiredness,
