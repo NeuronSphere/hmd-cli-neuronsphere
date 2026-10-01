@@ -38,6 +38,11 @@ NERD032 Data Model Inspection
     and which disagreements it introduced, so the checks a change needs can be
     named before it merges.
 
+    ``nsctl`` shall remember which repositories depend on which, including
+    repositories the engineer does not have checked out. A repository's
+    manifest shall be able to say which others a change across a seam needs.
+    Neither shall be something a person has to keep up to date by hand.
+
     This NERD is the proposal behind an exploratory spike. Its status stays
     ``proposed`` until the spike report (``spikes/2026-10-01-nsctl-inspect.md``)
     has been reviewed.
@@ -489,13 +494,14 @@ catalog the model, through an export no consumer is baked into.
     (``ns.name#attr``), a binding (``ns.name@perspective:binding``), a column
     of a binding (``ns.name#attr@perspective:binding``), or a physical
     location (``schema.table``). These are the semantic identities of SPEC006.
+    A repository, named by its repo class, is an element too (SPEC018).
 
 *Edge*
     A typed connection between two elements: ``binds`` (a noun and its
     binding), ``column`` (an attribute and a binding's column of it),
     ``lineage`` (derived from), ``relationship`` (an ``.hms`` relationship's
     ``ref_from`` and ``ref_to``), ``alias`` (two identities consolidation made
-    one noun, with its reason).
+    one noun, with its reason), and between repositories ``reads`` (SPEC018).
 
 .. spec:: One model per workspace, refreshed incrementally
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC011
@@ -688,6 +694,140 @@ catalog the model, through an export no consumer is baked into.
     ``impact --changed``, with the reach handed to the command runner or to
     an agent.
 
+.. spec:: Repositories the workspace does not hold
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC018
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    In a repository-per-component setup, a seam usually crosses into a
+    repository that is not checked out. Without help, ``impact`` then goes
+    quiet where it should say "and something you do not have". This spec
+    keeps what ``nsctl`` learns about other repositories, and lets a
+    manifest carry the part a fresh clone needs. It asks a person only to
+    confirm guesses.
+
+    **The repository graph.** The inspection store (SPEC005) keeps a graph
+    of repositories beside the workspace model:
+
+    * **Nodes** are repositories, named by repo class. A node records where
+      the repository is checked out, if anywhere, and its known sources:
+      git URLs or artifacts, each with the evidence for it.
+    * **Edges** are ``reads``: a repository's files read a location, noun or
+      attribute that another repository defines. An edge records the elements
+      it carries, its evidence, its first-seen and last-seen revisions, and a
+      status:
+
+      * ``derived`` when inspection resolved both ends;
+      * ``proposed`` when the other end is a guess;
+      * ``confirmed`` when a person or a manifest stated it;
+      * ``stale`` when the last inspection of the reading repository no
+        longer shows it.
+
+    ``nsctl`` learns the graph as a side effect of work it already does:
+
+    * every inspection, whether a workspace refresh, a one-off
+      ``nsctl model inspect <path>``, or an ``impact --since`` baseline;
+    * environment and control-plane manifests, whose instances name their
+      repo class and source;
+    * BACON ``deploy.dependencies``;
+    * ``related`` sections of manifests it reads;
+    * outside observations (SPEC016).
+
+    Removing a root or deleting a checkout does not forget what was learned
+    from it. Its edges keep their last-seen revision. The graph lives in the
+    store under ``.cache`` because all of it can be learned again. The part
+    worth keeping is also in manifests, so losing the store loses only
+    memory of repositories no longer at hand.
+
+    **Unresolved references.** A binding that reads a location nothing in
+    the workspace defines produces an ``info`` finding,
+    ``reference-unresolved``. If the graph knows a repository that defines
+    that location, because it was inspected once even if it is not checked
+    out now, the finding names it. If not, ``nsctl`` proposes a source,
+    strongest evidence first:
+
+    #. an instance in an environment or control-plane manifest whose repo
+       class defines that location;
+    #. an external identifier whose catalog entry names its defining
+       repository (SPEC016);
+    #. ``neuronsphere.lock``;
+    #. the naming convention: the reading repository's ``origin`` with its
+       last path segment replaced by the candidate repo class. This guess is
+       labelled as a guess.
+
+    **Queries.** A repository is an element, so ``nsctl model related
+    <repo class> [--direction up|down]`` answers from the graph.
+
+    * **Upstream** is "what does this read".
+    * **Downstream** is "who reads this". The graph knows a reader only if
+      some inspection on this machine has seen it, so a downstream answer
+      gives when each reader was last seen and never claims to be complete.
+
+    ``impact`` uses the graph too. Reach into a repository that is not
+    checked out is reported, with its source and the command that fetches
+    it, rather than stopping.
+
+    **The manifest's** ``related`` **section.** This is a list of the
+    repositories a change across this repository's seams needs:
+
+    .. code-block:: json
+
+       "related": [
+         { "repo_class": "hmd-lang-ntc",
+           "source": { "git": "git@github.com:hmdlabs/hmd-lang-ntc.git", "ref": "main" },
+           "reason": "model",
+           "elements": ["ntc.instance"] }
+       ]
+
+    ``source`` takes the forms an install item's ``source`` takes in BACON
+    (git, or artifact). ``reason`` is ``model`` (it reads this repository's
+    data) or ``deploy`` (a deploy dependency, for when the source is
+    wanted). ``elements`` is optional and informational.
+
+    Entries are upstream only, since a repository can state what it reads
+    but not who reads it. The field belongs in the BACON specification
+    (``hmd-docs-bacon``), and ``nsctl`` reads it before that is published.
+
+    The section is written by ``nsctl``. People only answer its questions:
+
+    * ``nsctl repoclass related sync [path]`` writes every ``derived`` and
+      ``confirmed`` upstream edge of the repository into its manifest. It
+      adds new ones and reports stale ones. It removes an entry only with
+      ``--prune``.
+    * ``nsctl repoclass related confirm <repo class> [--source <url>]``
+      turns a ``proposed`` edge into a ``confirmed`` one, optionally
+      correcting the source.
+    * ``nsctl repoclass related list [path]`` prints the entries with each
+      one's status in the graph.
+    * Hand edits are allowed. An entry a person wrote counts as
+      ``confirmed``.
+
+    ``nsctl repoclass validate`` checks the entries' shape. ``nsctl inspect``
+    reports ``related-stale`` (``warning``) for an entry no current edge
+    supports, and ``related-missing`` (``info``) for a ``derived`` edge the
+    manifest lacks. With those findings and an agent able to run ``sync``,
+    keeping the section current is a review step, not authoring.
+
+    **Fetching.** ``nsctl model fetch [<repo class>...] [--related] [--edit]``
+    gets repositories the workspace needs. ``--related`` fetches every
+    ``related`` entry of the workspace's repositories. The fetch has two
+    modes:
+
+    * **For reading**, the default: a partial clone into
+      ``$HMD_HOME/.cache/neuronsphere/inspect/sources/``. It is inspected at
+      a ref, as ``impact --since`` reads revisions, and is never edited or
+      shown as a working tree. It joins the workspace as a read-only member,
+      and a refresh fetches it again. An artifact source is inspected from
+      the artifact.
+    * **For editing**, with ``--edit``: a clone into the user's repositories
+      folder under BACON's rules for git sources. ``nsctl`` uses the user's
+      own credentials and stores none, never fetches into or resets an
+      existing clone, and refuses a directory that is a clone of another
+      URL. The clone is then added to ``[model] roots``.
+
+    By default ``fetch`` follows one hop. It lists the ``related`` entries
+    of what it fetched without following them, unless ``--depth`` is given.
+
 .. spec:: Export as a documented interchange document
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC014
     :links: HMD_CLI_NEURONSPHERE_NERD032
@@ -802,3 +942,10 @@ Open questions
    list that a new column shifts?
 #. Should ``impact --since`` take a ref per repository, for a change that
    spans branches named differently in each repository?
+#. Should the repository graph also be shared, for example through the
+   deployment control plane, which knows every repo class and could answer
+   "who lists me in ``related``" for an organisation instead of for one
+   machine?
+#. Should an edge whose source was found in an environment manifest count as
+   ``derived`` rather than ``proposed``, so ``sync`` writes it without a
+   confirmation?
