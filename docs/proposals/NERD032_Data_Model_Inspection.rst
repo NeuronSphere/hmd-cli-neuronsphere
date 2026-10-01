@@ -113,6 +113,14 @@ parser.
       ``TrinoOperator`` parameters, Jinja rendering from ``run_params``,
       layer naming and the ``dep_tf_name`` chain.
     * ``dbt``: any dbt project. Nothing in it is NeuronSphere-specific.
+    * ``nsexport``: export producers (a Gremlin ``hasLabel(...).project(...)``
+      uploaded under a literal Librarian content item type) and content item
+      type entities. The content type is the join key from a graph noun to
+      the transform that reads its export. Everything it reports is
+      evidence, not a decision: it does not parse Python.
+
+    A source is named by its directory, which is what a person opens. A BACON
+    manifest whose ``name`` differs is reported, not used.
 
     A small DDL-subset parser (``CREATE SCHEMA|TABLE|VIEW``,
     ``INSERT … SELECT``, ``DROP``) is shared by inspectors. It is not a
