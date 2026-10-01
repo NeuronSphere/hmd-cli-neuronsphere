@@ -266,6 +266,7 @@ func statementObservations(file string, line int, st sqlddl.Statement) []model.O
 		}
 		m := manifestation(file, line, st, "trino-table", model.AuthInsertSelect, "INSERT target")
 		m.Manifest.Primary = false
+		m.Manifest.Reference = true
 		obs = append(obs, m)
 		obs = append(obs, named(model.KindReference, file, line, "table", strings.ToLower(st.Name.Schema()+"."+st.Name.Table()), "insert into"))
 		obs = append(obs, selectObservations(file, line, st, m)...)

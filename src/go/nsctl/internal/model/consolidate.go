@@ -78,6 +78,8 @@ type consolidator struct {
 	reasons  map[ID]string
 	// locIndex maps a location key to the identity that first claimed it.
 	locIndex map[string]ID
+	// provides holds the location keys some non-reference manifestation states.
+	provides map[string]bool
 	nouns    map[ID]*Noun
 	canonIDs map[ID]ID
 	model    *Model
@@ -142,6 +144,7 @@ func (c *consolidator) union(a, b ID, reason string) {
 // an explicit same-as declaration.
 func (c *consolidator) link(obs []Observation) {
 	c.locIndex = map[string]ID{}
+	c.provides = map[string]bool{}
 	for _, o := range obs {
 		c.find(o.Subject)
 		switch {
@@ -149,6 +152,9 @@ func (c *consolidator) link(obs []Observation) {
 			key := o.Manifest.Location.Key()
 			if key == "" {
 				continue
+			}
+			if !o.Manifest.Reference {
+				c.provides[key] = true
 			}
 			if first, ok := c.locIndex[key]; ok {
 				if first != o.Subject {
@@ -298,10 +304,12 @@ func (c *consolidator) buildManifestations(obs []Observation) {
 				Key: mo.Key, Tech: mo.Tech, Scope: mo.Scope, Location: mo.Location,
 				Layer: mo.Layer, Format: mo.Format, Partitions: mo.Partitions,
 				Template: mo.Template, Primary: mo.Primary,
+				Reference: mo.Reference,
 			}
 			n.Manifestations = append(n.Manifestations, m)
 		} else {
 			m.Primary = m.Primary || mo.Primary
+			m.Reference = m.Reference && mo.Reference
 			if len(m.Partitions) == 0 {
 				m.Partitions = mo.Partitions
 			}
@@ -609,7 +617,8 @@ func (c *consolidator) resolveLineage(obs []Observation) {
 }
 
 // resolveReferences reports every reference no inspected artifact provides.
-// Every manifestation provides its table; every noun provides itself.
+// Every manifestation that is not a reference provides its table; every noun
+// provides itself.
 func (c *consolidator) resolveReferences(obs []Observation) {
 	provided := map[string]bool{}
 	for _, o := range obs {
@@ -617,7 +626,7 @@ func (c *consolidator) resolveReferences(obs []Observation) {
 			provided[o.Named.Kind+"\x00"+o.Named.Key] = true
 		}
 	}
-	for key := range c.locIndex {
+	for key := range c.provides {
 		provided["table\x00"+key] = true
 	}
 	for id := range c.canonIDs {

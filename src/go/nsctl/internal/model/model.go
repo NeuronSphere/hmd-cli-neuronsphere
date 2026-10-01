@@ -258,10 +258,12 @@ type Manifestation struct {
 	Partitions []string `json:"partitions,omitempty"`
 	// Template is the physical name before run-time values were known, with
 	// each such value written {name}. Empty for a fully static name.
-	Template string       `json:"template,omitempty"`
-	Primary  bool         `json:"primary,omitempty"`
-	Columns  []Column     `json:"columns,omitempty"`
-	Sources  []Provenance `json:"sources,omitempty"`
+	Template string `json:"template,omitempty"`
+	Primary  bool   `json:"primary,omitempty"`
+	// Reference is true when every source only refers to this binding.
+	Reference bool         `json:"reference,omitempty"`
+	Columns   []Column     `json:"columns,omitempty"`
+	Sources   []Provenance `json:"sources,omitempty"`
 }
 
 // Column is a manifestation's column.

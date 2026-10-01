@@ -135,6 +135,10 @@ type ManifestObs struct {
 	Partitions []string `json:"partitions,omitempty"`
 	Template   string   `json:"template,omitempty"`
 	Primary    bool     `json:"primary,omitempty"`
+	// Reference marks a manifestation that names a table owned elsewhere (a
+	// dbt source, an INSERT target): it links identities but does not count as
+	// providing the table, so a reference to it can still go unresolved.
+	Reference bool `json:"reference,omitempty"`
 }
 
 // Endpoint names one end of a lineage edge: a noun when the inspector knows
