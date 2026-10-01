@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: ntc
+    schema: ntc
+    tables:
+      - name: fact_transform_instance_count
+        description: "Source table containing NTC instances count data."
+      - name: fact_transform_instance_times
+        description: "Source table containing NTC instances timing data."
+      - name: dim_date_hour
+        description: "Source table containing NTC instances count data."
+      - name: dim_environment
+        description: "Source table containing NTC instances count data."
+      - name: dim_transform
+        description: "Source table containing NTC instances count data."
+      - name: dim_status
+        description: "Source table containing NTC instances count data."

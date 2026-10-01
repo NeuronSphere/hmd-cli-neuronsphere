@@ -135,6 +135,33 @@ GRANT SELECT ON x TO y`)
 	}
 }
 
+func TestFinalSelectSkipsCTEs(t *testing.T) {
+	t.Parallel()
+	st, ok := FinalSelect(`
+WITH base AS (
+    SELECT a, COUNT(*) AS n FROM s.t GROUP BY a
+),
+joined AS (SELECT b.a, b.n FROM base b)
+SELECT
+    __jinja__ AS transform_id,
+    j.a,
+    n instance_count
+FROM joined j`)
+	if !ok {
+		t.Fatal("no select")
+	}
+	var names []string
+	for _, it := range st.Select {
+		names = append(names, it.Name)
+	}
+	if !reflect.DeepEqual(names, []string{"transform_id", "a", "instance_count"}) || st.From[0].String() != "joined" {
+		t.Errorf("names = %v from = %v", names, st.From)
+	}
+	if _, ok := FinalSelect("-- nothing here"); ok {
+		t.Error("found a select in a comment")
+	}
+}
+
 func TestPlaceholderWithArgumentsStaysOneName(t *testing.T) {
 	t.Parallel()
 	st := Parse(`CREATE TABLE ntc_source.ntc_instances_export_{iso_date|replace(-,_)}_{environment} (nid VARCHAR)`)[0]

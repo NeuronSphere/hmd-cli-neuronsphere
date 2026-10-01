@@ -2,6 +2,15 @@
 
 ## 2026-10-01
 
+- feat: the `dbt` inspector reads any dbt project. It covers sources, models,
+  each model's final select list, `ref()`/`source()` lineage, materialization,
+  and `not_null`/`unique` tests (a `not_null` test makes the attribute
+  required). Models are `<project>.<model>`, scoped `dbt:<project>` so that a
+  transform's target schema can bind them. This lets another project's
+  sources resolve to them. It reports:
+  - undocumented models;
+  - documented columns a model does not select;
+  - sources nothing produces.
 - feat: the `nstransform` inspector reads NeuronSphere transform YAML.
   - It renders the Trino SQL's Jinja from the transform's own `run_params`.
     A value known only at run time becomes a stable `{placeholder}`, keeping

@@ -110,6 +110,31 @@ func Parse(text string) []Statement {
 	return out
 }
 
+// FinalSelect parses a bare query, such as a dbt model: the select list of
+// its last top-level SELECT (after any WITH clauses) and the tables that
+// SELECT reads. ok is false when there is no top-level SELECT.
+func FinalSelect(text string) (st Statement, ok bool) {
+	toks := lex(text)
+	last, depth := -1, 0
+	for i, t := range toks {
+		switch {
+		case t.punct("("):
+			depth++
+		case t.punct(")"):
+			depth--
+		case depth == 0 && t.is("select"):
+			last = i
+		}
+	}
+	if last < 0 {
+		return Statement{}, false
+	}
+	st = Statement{Kind: Other, Line: toks[last].line}
+	p := &parser{toks: toks, pos: last}
+	p.selectStatement(&st)
+	return st, true
+}
+
 type tkind int
 
 const (
