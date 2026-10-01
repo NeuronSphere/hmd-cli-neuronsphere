@@ -42,6 +42,9 @@ NERD032 Data Model Inspection
     repositories the engineer does not have checked out. A repository's
     manifest shall be able to say which others a change across a seam needs.
     Neither shall be something a person has to keep up to date by hand.
+    The repository graph shall be shareable through the control plane, and
+    buildable in CI or from a code host without cloning repositories onto an
+    engineer's machine.
 
     This NERD is the proposal behind an exploratory spike. Its status stays
     ``proposed`` until the spike report (``spikes/2026-10-01-nsctl-inspect.md``)
@@ -759,9 +762,11 @@ catalog the model, through an export no consumer is baked into.
     <repo class> [--direction up|down]`` answers from the graph.
 
     * **Upstream** is "what does this read".
-    * **Downstream** is "who reads this". The graph knows a reader only if
-      some inspection on this machine has seen it, so a downstream answer
-      gives when each reader was last seen and never claims to be complete.
+    * **Downstream** is "who reads this". Locally, the graph knows a reader
+      only if some inspection on this machine has seen it. With a shared
+      graph, it knows the readers that have been published (SPEC019). A
+      downstream answer therefore gives when each reader was last seen and
+      what the answer covers, and never claims to be complete.
 
     ``impact`` uses the graph too. Reach into a repository that is not
     checked out is reported, with its source and the command that fetches
@@ -827,6 +832,101 @@ catalog the model, through an export no consumer is baked into.
 
     By default ``fetch`` follows one hop. It lists the ``related`` entries
     of what it fetched without following them, unless ``--depth`` is given.
+
+.. spec:: The repository graph is shared through the control plane
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC019
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    One machine's graph only knows the readers that machine has inspected.
+    The deployment control plane already knows every repo class an
+    organisation deploys, so it is where the graph is shared.
+
+    ``nsctl model publish [path...]`` sends the control plane one **slice**
+    per repository. A slice is the repository's observations at one revision,
+    in the shape outside observations take (SPEC016), plus its repository
+    node and its ``reads`` edges. A slice carries:
+
+    * the repo class;
+    * the repository's sources (its ``origin`` URL, its ``related`` entries);
+    * the ref and revision.
+
+    A newer revision of the same ref replaces the older one. ``publish``
+    refuses a working tree with uncommitted changes, because a slice has to
+    name a revision others can read.
+
+    Every workspace that can reach the control plane receives the published
+    slices of repositories it does not hold. It receives them as read-only
+    members, ingested as SPEC016 ingests any observations file, and refresh
+    re-reads them. Each element they contribute carries provenance naming the
+    control plane, the revision and when it was published. A checked-out
+    repository always takes precedence over its published slice.
+
+    This makes ``related <repo class> --direction down`` and ``impact``
+    organisation-wide for every published repository. They still say
+    which repositories their answer covers.
+
+    ``nsctl`` uses the control-plane login it already has (NERD008) and adds
+    no credential. A local control plane gives a team nothing, so
+    publishing is for a shared or cloud control plane, selected like any
+    other control-plane command.
+
+    This spec fixes only the slice and the commands. How the control plane
+    stores slices and answers for them is designed in ``hmd-ms-deployment``,
+    in a proposal of its own. The control plane can then also answer "who
+    lists me in ``related``" without being sent any edges.
+
+.. spec:: Building the graph in CI or from a code host, without clones
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC020
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    No engineer should need every repository checked out to see across a
+    seam. There are two ways to fill the shared graph, and an organisation
+    may use either or both.
+
+    **Each repository's CI publishes itself.** A job on the default branch
+    runs ``nsctl model publish``. The repository is already checked out
+    there, so nothing else is cloned.
+
+    On a pull request, CI runs ``nsctl model impact --since <base>``. The
+    workspace is the one checked-out repository plus every published slice,
+    so the reach crosses the organisation without cloning anything. The
+    result is the usual ``--json``. Commenting on the pull request, failing
+    the check, or both, is the CI wrapper's decision.
+
+    A GitHub Action (or the equivalent for another CI system) that wraps
+    these two calls is a separate deliverable in its own repository. It is
+    not part of ``nsctl``, just as a catalog generator is not (SPEC015).
+
+    **A scan of a code host, for repositories whose CI does not publish.**
+    ``nsctl model scan <host>/<organisation>``:
+
+    #. lists the organisation's repositories that contain a BACON manifest;
+    #. reads each manifest;
+    #. reads only the files that manifest's inspectors need.
+
+    It never makes a working tree, and it writes the results into the
+    local graph. With ``--publish``, it publishes each repository's slice as
+    ``publish`` does.
+
+    How files are read:
+
+    * Listing repositories needs the host's API. GitHub is the first
+      supported host, using the user's existing ``gh`` login or
+      ``GITHUB_TOKEN``, never a stored credential.
+    * Reading files uses git itself: a partial, sparse fetch of the needed
+      paths into the cache (SPEC018's read mode). Supporting another host
+      then means only another way to list repositories.
+
+    Run on a schedule in CI, ``scan --publish`` gives an organisation a
+    shared graph with nothing added to any repository except the manifest.
+    A repository whose own CI publishes is skipped when its published
+    revision is current.
+
+    A scan reads what is on the default branch. A pull request's change is
+    seen only by ``impact`` in that pull request's CI, or on an engineer's
+    machine.
 
 .. spec:: Export as a documented interchange document
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC014
@@ -942,10 +1042,9 @@ Open questions
    list that a new column shifts?
 #. Should ``impact --since`` take a ref per repository, for a change that
    spans branches named differently in each repository?
-#. Should the repository graph also be shared, for example through the
-   deployment control plane, which knows every repo class and could answer
-   "who lists me in ``related``" for an organisation instead of for one
-   machine?
+#. Should a published slice carry the observations' file contents
+   (``rawSql`` and the like), or only what consolidation needs, to keep
+   source code out of the control plane?
 #. Should an edge whose source was found in an environment manifest count as
    ``derived`` rather than ``proposed``, so ``sync`` writes it without a
    confirmation?
