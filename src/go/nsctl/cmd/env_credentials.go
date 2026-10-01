@@ -104,7 +104,7 @@ local state and works with nothing running.`,
 			// declaration when the name is what is wrong.
 			if instance != "" && !declaresInstance(repos, instance) {
 				return nserr.New(nserr.Usage,
-					"environment %q declares no instance named %q; `nsctl repo list %s` lists them",
+					"environment %q declares no instance named %q; `nsctl instance list %s` lists them",
 					env.Slug, instance, env.Slug)
 			}
 

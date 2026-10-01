@@ -2,7 +2,7 @@
 //
 // A manifest at $HMD_HOME/environments/<slug>.{yaml,yml,json} declares the
 // repo instances a user wants deployed on top of the substrate nsctl ships.
-// It is the source of truth: `nsctl repo add` and `repo remove` edit this
+// It is the source of truth: `nsctl instance add` and `instance remove` edit this
 // file, and `nsctl env apply` reconciles the environment to it. Editing it by
 // hand and running `env apply` is the same operation, which is the point --
 // the imperative verbs are wrappers, not a second way to say the same thing.

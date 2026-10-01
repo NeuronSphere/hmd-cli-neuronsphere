@@ -43,11 +43,11 @@ func readCPManifest(t *testing.T, env map[string]string) *manifest.Manifest {
 }
 
 // The first `add` creates the manifest rather than requiring one to exist.
-func TestControlPlaneRepoAddCreatesTheManifest(t *testing.T) {
+func TestControlPlaneInstanceAddCreatesTheManifest(t *testing.T) {
 	t.Parallel()
 
 	home, env := cpEnv(t, "hmd-inf-local-registry")
-	out, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add", "hmd-inf-local-registry")
+	out, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add", "hmd-inf-local-registry")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -69,11 +69,11 @@ func TestControlPlaneRepoAddCreatesTheManifest(t *testing.T) {
 }
 
 // Declaring is not starting, and the output has to say which verb does.
-func TestControlPlaneRepoAddPointsAtApply(t *testing.T) {
+func TestControlPlaneInstanceAddPointsAtApply(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	out, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add", "hmd-inf-local-registry")
+	out, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add", "hmd-inf-local-registry")
 	if err != nil {
 		t.Fatalf("add: %v", err)
 	}
@@ -84,11 +84,11 @@ func TestControlPlaneRepoAddPointsAtApply(t *testing.T) {
 
 // Dotted keys nest, which is what makes `pypi.enabled=true` the block shape
 // NERD006 writes by hand and cpext reads as a profile.
-func TestControlPlaneRepoAddNestsDottedConfig(t *testing.T) {
+func TestControlPlaneInstanceAddNestsDottedConfig(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	_, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add", "hmd-inf-local-registry",
+	_, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add", "hmd-inf-local-registry",
 		"--name", "package-registry",
 		"--config", "pypi.enabled=true",
 		"--config", "url=http://registry.local.neuronsphere.io")
@@ -109,11 +109,11 @@ func TestControlPlaneRepoAddNestsDottedConfig(t *testing.T) {
 }
 
 // Overwriting a scalar with a block silently would drop the earlier --config.
-func TestControlPlaneRepoAddRefusesConflictingConfig(t *testing.T) {
+func TestControlPlaneInstanceAddRefusesConflictingConfig(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	_, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add", "hmd-inf-local-registry",
+	_, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add", "hmd-inf-local-registry",
 		"--config", "pypi=yes", "--config", "pypi.enabled=true")
 	if err == nil {
 		t.Fatal("a conflicting --config was accepted")
@@ -126,11 +126,11 @@ func TestControlPlaneRepoAddRefusesConflictingConfig(t *testing.T) {
 	}
 }
 
-func TestControlPlaneRepoAddRefusesAReservedName(t *testing.T) {
+func TestControlPlaneInstanceAddRefusesAReservedName(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	_, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add", "hmd-inf-local-registry",
+	_, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add", "hmd-inf-local-registry",
 		"--name", "control-plane-db")
 	if err == nil {
 		t.Fatal("a reserved name was accepted")
@@ -140,11 +140,11 @@ func TestControlPlaneRepoAddRefusesAReservedName(t *testing.T) {
 	}
 }
 
-func TestControlPlaneRepoAddRefusesADuplicate(t *testing.T) {
+func TestControlPlaneInstanceAddRefusesADuplicate(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	args := []string{"control-plane", "repo", "add", "hmd-inf-local-registry"}
+	args := []string{"control-plane", "instance", "add", "hmd-inf-local-registry"}
 	if _, _, err := run(t, fakeEnv(env), args...); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
@@ -159,16 +159,16 @@ func TestControlPlaneRepoAddRefusesADuplicate(t *testing.T) {
 
 // Removing a line is not an instruction to destroy what it started, and the
 // note has to say so or a user will assume it was torn down.
-func TestControlPlaneRepoRemoveSaysNothingWasTornDown(t *testing.T) {
+func TestControlPlaneInstanceRemoveSaysNothingWasTornDown(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	if _, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add",
+	if _, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add",
 		"hmd-inf-local-registry", "--name", "package-registry"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
-	out, errOut, err := run(t, fakeEnv(env), "control-plane", "repo", "remove", "package-registry")
+	out, errOut, err := run(t, fakeEnv(env), "control-plane", "instance", "remove", "package-registry")
 	if err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -183,15 +183,15 @@ func TestControlPlaneRepoRemoveSaysNothingWasTornDown(t *testing.T) {
 	}
 }
 
-func TestControlPlaneRepoRemoveNamesWhatIsDeclared(t *testing.T) {
+func TestControlPlaneInstanceRemoveNamesWhatIsDeclared(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
-	if _, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add",
+	if _, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add",
 		"hmd-inf-local-registry", "--name", "package-registry"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	_, _, err := run(t, fakeEnv(env), "control-plane", "repo", "remove", "nosuch")
+	_, _, err := run(t, fakeEnv(env), "control-plane", "instance", "remove", "nosuch")
 	if err == nil {
 		t.Fatal("removing an undeclared instance succeeded")
 	}
@@ -200,11 +200,11 @@ func TestControlPlaneRepoRemoveNamesWhatIsDeclared(t *testing.T) {
 	}
 }
 
-func TestControlPlaneRepoRemoveWithoutAManifest(t *testing.T) {
+func TestControlPlaneInstanceRemoveWithoutAManifest(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t)
-	_, _, err := run(t, fakeEnv(env), "control-plane", "repo", "remove", "anything")
+	_, _, err := run(t, fakeEnv(env), "control-plane", "instance", "remove", "anything")
 	if err == nil {
 		t.Fatal("removing from a nonexistent manifest succeeded")
 	}
@@ -215,23 +215,23 @@ func TestControlPlaneRepoRemoveWithoutAManifest(t *testing.T) {
 
 // An HMD_HOME declaring nothing says so and names the verb that changes it,
 // rather than printing an empty table.
-func TestControlPlaneRepoListWithNoExtensions(t *testing.T) {
+func TestControlPlaneInstanceListWithNoExtensions(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t)
-	out, _, err := run(t, fakeEnv(env), "control-plane", "repo", "list")
+	out, _, err := run(t, fakeEnv(env), "control-plane", "instance", "list")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if !strings.Contains(out, "declares no extensions") ||
-		!strings.Contains(out, "control-plane repo add") {
+		!strings.Contains(out, "control-plane instance add") {
 		t.Errorf("output %q", out)
 	}
 }
 
 // The version source is a column of its own: "0.1.4 from a working tree" and
 // "0.1.4 from a bundled tree" are different facts.
-func TestControlPlaneRepoListReportsTheVersionSource(t *testing.T) {
+func TestControlPlaneInstanceListReportsTheVersionSource(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t, "hmd-inf-local-registry")
@@ -242,12 +242,12 @@ func TestControlPlaneRepoListReportsTheVersionSource(t *testing.T) {
 	if err := os.WriteFile(version, []byte("0.1.4\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := run(t, fakeEnv(env), "control-plane", "repo", "add",
+	if _, _, err := run(t, fakeEnv(env), "control-plane", "instance", "add",
 		"hmd-inf-local-registry", "--name", "package-registry"); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
-	out, _, err := run(t, fakeEnv(env), "control-plane", "repo", "list")
+	out, _, err := run(t, fakeEnv(env), "control-plane", "instance", "list")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestControlPlaneRepoListReportsTheVersionSource(t *testing.T) {
 
 // A declaration that will not resolve still appears, with its reason: dropping
 // it would lose the only place its name is shown.
-func TestControlPlaneRepoListShowsAnUnresolvedExtension(t *testing.T) {
+func TestControlPlaneInstanceListShowsAnUnresolvedExtension(t *testing.T) {
 	t.Parallel()
 
 	_, env := cpEnv(t)
@@ -275,7 +275,7 @@ func TestControlPlaneRepoListShowsAnUnresolvedExtension(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, err := run(t, fakeEnv(env), "control-plane", "repo", "list")
+	out, _, err := run(t, fakeEnv(env), "control-plane", "instance", "list")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

@@ -1,0 +1,45 @@
+{
+  "name": "content_item",
+  "namespace": "hmd_lang_librarian",
+  "metatype": "noun",
+  "attributes": {
+    "content_item_path": {
+      "type": "string",
+      "description": "The slash-separated upload path.",
+      "required": true
+    },
+    "created_ts": {
+      "type": "timestamp",
+      "description": "The time that the content item was created in the librarian."
+    },
+    "file_size_bytes": {
+      "type": "integer",
+      "description": "The content item object size, in bytes."
+    },
+    "upload_info": {
+      "type": "mapping",
+      "description": "The upload spec that describes the upload into the librarian."
+    },
+    "status": {
+      "type": "enum",
+      "enum_def": [
+        "created",
+        "closed_with_file",
+        "closed_no_file",
+        "not_closed_with_file",
+        "not_closed_no_file",
+        "closed_with_duplicate_path_instances",
+        "invalid_path_missing_root",
+        "invalid_path_invalid_root",
+        "invalid_path_missing_path_element",
+        "invalid_path_no_matching_spec",
+        "invalid_path_no_object_found",
+        "invalid_path_unrecognized_trailing_characters",
+        "invalid_path_duplicate_root_paths",
+        "closed_with_error",
+        "invalid_path_missing_entity",
+        "invalid_path_entity"
+      ]
+    }
+  }
+}

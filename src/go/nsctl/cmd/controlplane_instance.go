@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newControlPlaneRepoCommand(opts *Options) *cobra.Command {
-	repo := &cobra.Command{
-		Use:   "repo",
+func newControlPlaneInstanceCommand(opts *Options) *cobra.Command {
+	inst := &cobra.Command{
+		Use:   "instance",
 		Short: "Declare the repo instances the control plane runs alongside itself",
 		Long: `Edits the control-plane manifest at $HMD_HOME/.config/control-plane.yaml.
 
@@ -28,18 +28,18 @@ result -- so nothing here touches a running control plane on its own.
 An extension declared here outlives every environment, is up whenever the
 control plane is, and there is one of it per HMD_HOME. Anything that should be
 one-per-environment belongs in an environment manifest instead; see
-` + "`nsctl repo add`" + `.`,
+` + "`nsctl instance add`" + `.`,
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	repo.AddCommand(
-		newControlPlaneRepoAddCommand(opts),
-		newControlPlaneRepoRemoveCommand(opts),
-		newControlPlaneRepoListCommand(opts),
+	inst.AddCommand(
+		newControlPlaneInstanceAddCommand(opts),
+		newControlPlaneInstanceRemoveCommand(opts),
+		newControlPlaneInstanceListCommand(opts),
 	)
-	return repo
+	return inst
 }
 
 // openControlPlaneManifest reads the control-plane manifest, or builds an empty
@@ -62,7 +62,7 @@ func openControlPlaneManifest(opts *Options, home string) (*manifest.Manifest, e
 	return m, nil
 }
 
-func newControlPlaneRepoAddCommand(opts *Options) *cobra.Command {
+func newControlPlaneInstanceAddCommand(opts *Options) *cobra.Command {
 	var instanceName, path string
 	var config []string
 
@@ -76,9 +76,9 @@ The instance is named after the repo class with its hmd- prefix dropped unless
 src/local/docker-compose.extension.yml; that file is what it contributes.
 
 Declaring is not starting. Run ` + "`nsctl control-plane apply`" + ` to start the result.`,
-		Example: `  nsctl control-plane repo add hmd-inf-local-registry --name registry \
+		Example: `  nsctl control-plane instance add hmd-inf-local-registry --name registry \
     --config url=http://registry.ns.local --config upstream=server:3141
-  nsctl control-plane repo add hmd-inf-local-registry --config pypi.enabled=true`,
+  nsctl control-plane instance add hmd-inf-local-registry --config pypi.enabled=true`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -148,7 +148,7 @@ Declaring is not starting. Run ` + "`nsctl control-plane apply`" + ` to start th
 	return cmd
 }
 
-func newControlPlaneRepoRemoveCommand(opts *Options) *cobra.Command {
+func newControlPlaneInstanceRemoveCommand(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "remove <instance>",
 		Aliases: []string{"rm"},
@@ -200,7 +200,7 @@ the verb that does, and it removes the whole control plane with it.`,
 	return cmd
 }
 
-func newControlPlaneRepoListCommand(opts *Options) *cobra.Command {
+func newControlPlaneInstanceListCommand(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "Show what the control plane declares and whether it resolved",
@@ -231,7 +231,7 @@ and "0.1.4 from a bundled tree" are different facts.`,
 			if len(exts) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(),
 					"The control plane declares no extensions.\n"+
-						"Declare one with `nsctl control-plane repo add <repo-class>`.\n")
+						"Declare one with `nsctl control-plane instance add <repo-class>`.\n")
 				return nil
 			}
 			renderExtensionTable(cmd.OutOrStdout(), exts)

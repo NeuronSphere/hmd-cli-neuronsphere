@@ -1,0 +1,83 @@
+{
+  "perspective_name": "dbt",
+  "perspective_display": "dbt",
+  "graph_display": {},
+  "binding_key": "binding",
+  "entity_extensions": [
+    {
+      "binding": {
+        "display": "Binding",
+        "description": "\"model\" for the dbt model that builds this noun, or \"source:<source name>\" for a dbt source that reads it.",
+        "extension_type": "short_text",
+        "default": "model"
+      }
+    },
+    {
+      "project": {
+        "display": "Project",
+        "description": "The dbt project's name.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "materialized": {
+        "display": "Materialization",
+        "description": "How dbt builds the model.",
+        "extension_type": "enum",
+        "default": "view",
+        "enum_values": [
+          { "id": "view", "description": "View", "definition": "view" },
+          { "id": "table", "description": "Table", "definition": "table" },
+          { "id": "incremental", "description": "Incremental table", "definition": "incremental" },
+          { "id": "ephemeral", "description": "Ephemeral (CTE)", "definition": "ephemeral" },
+          { "id": "materialized_view", "description": "Materialized view", "definition": "materialized_view" }
+        ]
+      }
+    },
+    {
+      "database": {
+        "display": "Database",
+        "description": "The source's database (catalog), when stated.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "schema_name": {
+        "display": "Schema",
+        "description": "The source's schema, or the model's target schema when something binds the project to one.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "table_name": {
+        "display": "Relation",
+        "description": "The source table, or the model's relation name.",
+        "extension_type": "short_text",
+        "default": "{entity.name}"
+      }
+    }
+  ],
+  "noun_extensions": [],
+  "relationship_extensions": [],
+  "attribute_extensions": [
+    {
+      "data_type": {
+        "display": "Data Type",
+        "description": "The column's data_type as schema.yml declares it.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "tests": {
+        "display": "Tests",
+        "description": "The column's generic tests, comma-separated.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    }
+  ]
+}

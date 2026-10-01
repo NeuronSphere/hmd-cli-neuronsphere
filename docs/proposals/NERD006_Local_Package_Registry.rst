@@ -213,7 +213,7 @@ and a deploy node. One service that does both is worth a wrapper image.
     it passed: nothing in ``nsctl`` changed to run this.
 
     It is declared in ``$HMD_HOME/.config/control-plane.yaml``, written by
-    ``nsctl control-plane repo add`` rather than by hand:
+    ``nsctl control-plane instance add`` rather than by hand:
 
     .. code-block:: yaml
 
