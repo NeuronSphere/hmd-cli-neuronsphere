@@ -2,6 +2,13 @@
 
 ## 2026-10-01
 
+- feat: `internal/inspect`, the inspector boundary for `nsctl inspect`
+  (NERD032 SPEC001). An `Inspector` reports observations about a `Source`,
+  meaning one repository with its name and git revision (read from `.git`
+  without running git). `Discover` treats a non-repository directory as the
+  repositories inside it. An inspector that fails becomes a finding; the rest
+  of the inspection carries on. `inspect/sqlddl` parses the structural SQL
+  subset: CREATE SCHEMA/TABLE/VIEW, INSERT ... SELECT, and DROP.
 - feat: `internal/model`, the canonical data model behind `nsctl inspect`
   (NERD032). It has nouns, attributes and relationships shaped like `.hms`,
   plus provenance, physical manifestations, lineage, and the `date` and
