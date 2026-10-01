@@ -7,7 +7,7 @@ NERD032 Data Model Inspection
     :id: HMD_CLI_NEURONSPHERE_NERD032
     :status: proposed
 
-    ``nsctl inspect`` shall read one or more repositories, find the logical
+    ``nsctl model inspect`` shall read one or more repositories, find the logical
     data structures they describe (nouns, their attributes, the relationships
     between them, and the physical tables, views and exports that carry
     them), and present them as one model. Every element of that model shall
@@ -19,9 +19,19 @@ NERD032 Data Model Inspection
     say. A noun the model learned from ``.hms`` alone shall export back to a
     valid ``.hms`` document.
 
-    Successive inspections shall be storable, so that ``nsctl inspect diff``
+    Successive inspections shall be storable, so that ``nsctl model diff``
     can describe a change semantically ("this attribute changed type"), not
     as a list of changed files.
+
+    ``nsctl inspect`` shall run the ``inspect`` verb of every noun that has
+    one (``repoclass``, ``instance``, ``model``) over the same repositories,
+    and report one list of findings in one shape: what each repository is,
+    where its repo classes are instantiated, and the data model they describe.
+
+    ``nsctl`` shall keep the model of a whole workspace current in its store,
+    with no setup beyond naming the repositories, answer questions about it by
+    command (find, where, related, impact), and export it as a documented
+    interchange document that tools outside ``nsctl`` consume.
 
     This NERD is the proposal behind an exploratory spike. Its status stays
     ``proposed`` until the spike report (``spikes/2026-10-01-nsctl-inspect.md``)
@@ -89,7 +99,7 @@ Scope and terminology
     Two observations about the same element that cannot both be true, or a
     reference to something no inspected artifact produces.
 
-Out of scope: a universal catalog; replacing dbt, DataHub or OpenMetadata;
+Out of scope: a universal catalog; replacing dbt or a data catalog;
 LLM or statistical inference; a user-facing schema language; generating
 downstream artifacts; querying live Trino, Hive or Postgres; a general SQL
 parser.
@@ -265,7 +275,7 @@ parser.
     the placement ``hmd-lib-ns-model``'s spec leaves open; a loader that
     wants ``attributes.<attr>.extensions.<perspective>`` redistributes them.
 
-    ``nsctl inspect`` validates every perspective value against its
+    ``nsctl model inspect`` validates every perspective value against its
     definition, as ``hmd-lib-ns-model`` specifies: an unknown perspective, a
     key not declared at that attach point, or an enum value outside
     ``enum_values`` is a disagreement. The ``hms`` inspector reads existing
@@ -273,7 +283,7 @@ parser.
     perspective value outranks one inferred from DDL, and the two can
     disagree.
 
-    ``nsctl inspect <noun> --hms`` prints the core document and one sidecar
+    ``nsctl model inspect <noun> --hms`` prints the core document and one sidecar
     per perspective; ``--out <dir>`` writes them as files under ``<dir>``
     (never into an inspected repository).
 
@@ -338,12 +348,12 @@ parser.
     Without ``HMD_HOME`` inspection still works; nothing is stored and
     ``diff`` reports a usage error.
 
-.. spec:: nsctl inspect and nsctl inspect diff
+.. spec:: nsctl model inspect and nsctl model diff
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD032
     :status: proposed
 
-    ``nsctl inspect [path|noun]...`` inspects the named directories (default
+    ``nsctl model inspect [path|noun]...`` inspects the named directories (default
     the current one). A directory that is not itself a repository stands for
     the repositories directly inside it. An argument that is not a directory
     filters the output to matching nouns. ``--json`` prints the model;
@@ -351,7 +361,7 @@ parser.
     again and stores a new snapshot (otherwise the latest snapshot for the
     same roots is shown, taking one first if none exists).
 
-    ``nsctl inspect diff [path...]`` compares the latest two snapshots for
+    ``nsctl model diff [path...]`` compares the latest two snapshots for
     those roots (``--live``: the latest against the working tree) and prints
     each change under the semantic identity ``hmd-lib-ns-model`` defines:
     ``<ns>.<name>``, ``<ns>.<name>#<attribute>``, and a perspective value at
@@ -362,3 +372,290 @@ parser.
 
     Reads print a table, or JSON under ``--json``, as every other read in
     ``nsctl`` does (NERD009). ``inspect`` writes nothing in any repository.
+
+    The model's verbs are under the ``model`` noun, as every ``nsctl``
+    command is ``noun verb``: ``nsctl model inspect``, ``nsctl model diff``,
+    ``nsctl model perspective`` (NERD033). ``nsctl inspect`` is the composite
+    of SPEC008.
+
+Inspecting everything at once
+-----------------------------
+
+A repository is several things at once to ``nsctl``: a repo class (what its
+BACON manifest says it builds and deploys), the instances of that class
+declared in environments, and the data model its files describe. Each has a
+noun, and each noun answers "what is this, and what is wrong with it" in its
+own words: ``repoclass validate`` findings, ``repoclass detect``'s undecided
+questions, model disagreements. ``nsctl inspect`` asks all of them in one
+pass, in one vocabulary, so that a person or an agent pointed at an unfamiliar
+directory gets one answer, and so that a finding can relate two nouns (a
+repository whose transforms build tables that a repo class it does not
+declare a dependency on consumes).
+
+.. spec:: nsctl inspect runs every noun's inspect
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC008
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    A noun that has an ``inspect`` verb contributes a **section** to
+    ``nsctl inspect [path...]``: a summary, and findings. A finding has a
+    severity (``error``, ``warning``, ``info``), a code, the subject it is
+    about, a message, and where it was learned (repository, file, line). Each
+    noun maps what it already reports onto that shape and nothing more:
+    ``repoclass validate``'s error, warning and note become error, warning and
+    info; ``repoclass detect``'s undecided questions are warnings and its
+    refusals info; model disagreements keep their severities.
+
+    ``nsctl inspect`` discovers repositories as ``nsctl model inspect`` does
+    (a directory that is not a repository stands for the repositories in
+    it), runs each section over them, and prints one section per noun, then
+    a count of findings by severity. ``--only <noun>,...`` and ``--skip
+    <noun>,...`` choose sections; ``--json`` prints one document, sections
+    keyed by noun. A section that cannot run (``instance`` without
+    ``HMD_HOME``) says why and the others still run.
+
+    It exits 1 when any section reports an error, so it can gate a change,
+    and 0 otherwise. It writes nothing in any repository. Each noun's own
+    ``inspect`` verb prints that noun's section alone, in more detail.
+
+    Adding a noun's section is a function and a line in the list of
+    sections; the composite has no knowledge of any noun.
+
+.. spec:: nsctl repoclass inspect
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC009
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    For a repository with a BACON manifest: its summary as ``repoclass
+    describe`` gives it (name, description, build and deploy mechanism,
+    dependencies), and ``repoclass validate``'s findings. For one without:
+    ``repoclass detect``'s classification and its undecided and refused
+    findings. ``nsctl repoclass inspect`` takes ``--path`` like the other
+    ``repoclass`` verbs; the composite runs it on every repository found.
+
+.. spec:: nsctl instance inspect
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC010
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    For each repo class among the repositories, every instance of it that an
+    environment manifest under ``HMD_HOME`` declares (and the control-plane
+    manifest): the environment, the instance name, the version, where it
+    deploys from (a checkout or an artifact), and its dependency wiring. The
+    findings are about the declarations, read from files only, without the
+    control plane:
+
+    * a dependency role wired to an instance its manifest does not declare
+      and that is not substrate (``error``: a deploy would fail on it);
+    * a repo class among the repositories that no environment declares
+      (``info``);
+    * an instance deploying from a checkout that is not the repository
+      inspected, when a repository of the same repo class was inspected
+      (``info``: which working tree is live is not obvious).
+
+    ``nsctl instance inspect [path...] [--env <name>]`` prints the section
+    alone. Without ``HMD_HOME`` the section says there are no environments to
+    read.
+
+Workspace, queries and export
+-----------------------------
+
+``nsctl model inspect <noun>`` shows one noun and one hop of lineage, and the
+store keys snapshots by the exact directories inspected, so inspecting one
+repository and the directory that holds it give unrelated models. The
+questions people ask are searches and traversals over everything: *what is*
+``ntc_final.ntc_instances_export``; *where else* does ``export_date`` live;
+*what reads* this table two hops on; *what breaks* if this column changes.
+
+Data catalogs offer discovery, ownership and runtime lineage built from
+deployed systems after the fact; some represent one logical model with
+several physical children, others attach a table to the file that defines it.
+None derives the logical model from the repositories before a change merges.
+That is what ``nsctl`` adds, and the way to add it to a catalog is to hand the
+catalog the model, through an export no consumer is baked into.
+
+*Workspace*
+    The repositories one ``HMD_HOME`` models together. Each ``HMD_HOME`` is
+    one workspace, as it is one set of environments; ``--home`` selects
+    another, as everywhere in ``nsctl``.
+
+*Element*
+    Anything a query can name: a noun (``ns.name``), an attribute
+    (``ns.name#attr``), a binding (``ns.name@perspective:binding``), a column
+    of a binding (``ns.name#attr@perspective:binding``), or a physical
+    location (``schema.table``). These are the semantic identities of SPEC006.
+
+*Edge*
+    A typed connection between two elements: ``binds`` (a noun and its
+    binding), ``column`` (an attribute and a binding's column of it),
+    ``lineage`` (derived from), ``relationship`` (an ``.hms`` relationship's
+    ``ref_from`` and ``ref_to``), ``alias`` (two identities consolidation made
+    one noun, with its reason).
+
+.. spec:: One model per workspace, refreshed incrementally
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC011
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    An ``HMD_HOME`` keeps one current workspace model, laid out as the rest of
+    ``nsctl``'s state:
+
+    * **What is in it is configuration**, in ``$HMD_HOME/.config/nsctl.toml``
+      under ``[model]``: ``roots``, a list of directories, each a repository
+      or a directory of repositories as ``nsctl model inspect`` accepts.
+      ``nsctl model add <path>...`` and ``nsctl model remove <path>...`` edit
+      the list; ``nsctl model roots`` prints it with the repositories each
+      root expands to. A root that no longer exists is reported and skipped,
+      not removed.
+    * **The model itself is derived state**, in the inspection store at
+      ``$HMD_HOME/.cache/neuronsphere/inspect/model.db`` (SPEC005),
+      beside the per-scope snapshots ``diff`` uses. Deleting it loses only
+      what a refresh rebuilds. Perspective edits (NERD033 SPEC005) for the
+      workspace are kept with it, across rebuilds, as edits already are.
+
+    Without ``HMD_HOME`` there is no workspace; ``nsctl model`` says so and
+    ``nsctl model inspect <path>`` still works as before.
+
+    Refreshing a workspace re-inspects only the repositories whose state
+    changed since the last refresh: a different git revision, or for a
+    working tree with changes, a different digest of the files its
+    inspectors read. Observations are kept per repository, so a refresh
+    replaces one repository's observations, then derives (NERD033) and
+    consolidates the whole workspace again. Derivation and consolidation see
+    every repository, so identities, layers and lineage are the same as
+    inspecting the whole workspace at once.
+
+    A query refreshes first unless ``--no-refresh`` is given, and says how
+    many repositories it re-inspected. ``nsctl model refresh`` refreshes
+    alone; ``--full`` re-inspects everything. Adding or removing a root
+    refreshes the repositories it adds or drops.
+
+.. spec:: Query commands
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC012
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    Under ``nsctl model``:
+
+    * ``find <text>`` searches element names, physical locations and
+      descriptions, and ranks exact identities, then exact physical names,
+      then prefixes, then substrings. A physical name finds its noun:
+      ``find ntc_final.ntc_instances_export`` answers
+      ``ntc.ntc_instances_export@trino:final``.
+    * ``show <element>`` prints one element: for a noun, the view of SPEC006; for
+      an attribute, its core type and every column that carries it, with each
+      column's perspective values and source.
+    * ``where <attribute>`` lists every manifestation of an attribute: each
+      binding's column of it, across perspectives and layers, with physical
+      type and source file and line.
+    * ``related <element> [--depth N] [--via <edge kind>,...] [--direction
+      up|down|both]`` walks edges from the element and prints what it reaches,
+      each with the path that reached it. The default is depth 1, every edge
+      kind, both directions.
+    * ``impact <element>`` is ``related --via lineage,column --direction
+      down`` with no depth limit, at column level when the element is an
+      attribute: every binding, column and downstream noun a change to it
+      reaches. Where column-level lineage is unknown (a ``select *``, an
+      untyped dbt column), the reach widens to the whole binding and says so.
+
+    Every result carries provenance (repository, file, line, revision) and,
+    where a disagreement concerns it, the disagreement. A query never writes
+    into a repository.
+
+.. spec:: A stable machine contract, for scripts and agents
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC013
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    Every ``nsctl model`` command takes ``--json``. Its output is a
+    documented, versioned schema (``schema_version`` in every document);
+    a change that removes or renames a field is a new major version.
+    Elements are always given by their semantic identity, so the output of
+    one query is valid input to the next.
+
+    ``nsctl model mcp`` serves the same queries over the Model Context
+    Protocol on stdio, one tool per command, with the same JSON schema as
+    results. An agent asking "what breaks if I change this column" calls
+    ``impact``, rather than reading repositories.
+
+.. spec:: Export as a documented interchange document
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC014
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    ``nsctl model export [--out <file>]`` writes the workspace model as one
+    JSON document, versioned like SPEC013, holding:
+
+    * **logical entities**: each noun with its metatype, attributes and their
+      core types, requiredness, enumerations and descriptions, and for a
+      relationship its ``ref_from`` and ``ref_to``;
+    * **physical bindings**: each binding with its perspective, binding name,
+      physical location, whether it is primary or a reference, its
+      perspective values, and its columns, each aligned to the logical
+      attribute it carries (by name today; an alignment carries the rule that
+      made it, so a future rename-aware alignment can say so);
+    * **perspective definitions** in effect, declared or derived (NERD033);
+    * **lineage**, at binding level and at column level where known, with how
+      each edge was learned;
+    * **provenance** for every element: repository, file, line, revision,
+      and the authority and confidence of the source;
+    * **disagreements**, with their severity, code and subject.
+
+    The export names no consumer and has no consumer-specific fields. It is
+    the contract every consumer builds on, and its schema is published with
+    the command reference.
+
+    ``nsctl model inspect <noun> --context`` (NERD033 SPEC004) remains the
+    per-noun form of the same information, for generators that work one noun
+    at a time.
+
+.. spec:: Consumers are generators outside nsctl
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC015
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    Turning the export into a particular catalog's entities is a generator:
+    a template set rendered by ``hmd-cli-mickey`` over the export, a program
+    generated from the export's schema, or a script. It lives in its own
+    repository, versioned with the catalog it targets, never in ``nsctl``.
+    Publishing (calling a catalog's API) is the generator's job as well.
+
+    A catalog's mapping is expected to follow one shape regardless of
+    target: a logical noun becomes the catalog's closest logical or business
+    construct; each physical binding becomes, or links to, the catalog's
+    physical asset for that location; columns are linked to the logical
+    attribute they carry where the catalog can say so; lineage and
+    provenance (a link to the defining file and line) are carried across;
+    disagreements become whatever the catalog uses for quality findings.
+    Where a catalog lacks a construct (a logical entity with typed
+    attributes, a column-level mapping), the generator degrades, and that is
+    its decision, not ``nsctl``'s.
+
+    The first generator is a separate deliverable from this NERD. ``nsctl``
+    is done when the export carries everything the mapping above needs.
+
+.. spec:: The workspace model can also take observations from outside
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC016
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    The reverse direction uses the same boundary: an inspector that reads a
+    file of observations in the export's shape (for example, the deployed
+    schemas a catalog has ingested, produced by a generator outside
+    ``nsctl``) adds them at their own authority. A deployed table that
+    differs from the repository's DDL is then one more disagreement. This
+    NERD reserves the shape; the inspector is later work.
+
+Open questions
+--------------
+
+#. Should the per-scope snapshots of SPEC005 become snapshots of the
+   workspace model (``diff`` between two workspace refreshes), or stay
+   separate?
+#. Which column alignments beyond same-name are worth deriving (a column
+   renamed between layers by an ``INSERT ... SELECT`` alias), and should
+   they be edits like NERD033's?
+#. Does ``nsctl model mcp`` belong in ``nsctl``, or in a separate binary that
+   reads the same store?
+#. Should ``nsctl model inspect <path>`` offer to add what it inspected to the
+   workspace, so the first inspection is also the setup?

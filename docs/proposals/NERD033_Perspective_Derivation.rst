@@ -88,8 +88,8 @@ Terminology
 
     A definition in a repository wins over a derived one of the same name.
     A perspective nothing declares is derived as part of every inspection
-    (SPEC003), so ``nsctl inspect`` shows the same model whether or not a
-    person has looked at the derivation; ``nsctl inspect perspective derive``
+    (SPEC003), so ``nsctl model inspect`` shows the same model whether or not a
+    person has looked at the derivation; ``nsctl model perspective derive``
     shows what was derived and why.
 
     This amends NERD032 SPEC007, which had ``nsctl`` embed the definitions its
@@ -225,7 +225,7 @@ Terminology
     first slice still carries the per-binding ``template`` value as the text
     NERD032 renders, and that remains to be done.
 
-    ``nsctl inspect <noun> --context`` prints, and ``--out <dir>`` writes as
+    ``nsctl model inspect <noun> --context`` prints, and ``--out <dir>`` writes as
     ``<namespace>.<name>.json``, the merged context a generator reads: the ``.hms`` document with each
     perspective's values under ``extensions[<perspective>]``, as
     ``hmd-schema-loader`` merges sidecars. It is plain JSON, usable by any
@@ -260,26 +260,26 @@ Terminology
     the files that realise it shows up as a disagreement between a declared
     and an observed value. That is the drift check NERD032 demonstrated.
 
-.. spec:: nsctl inspect perspective
+.. spec:: nsctl model perspective
     :id: HMD_CLI_NEURONSPHERE_NERD033_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD033
     :status: proposed
 
-    * ``nsctl inspect perspective list [path...]`` lists the definitions in
+    * ``nsctl model perspective list [path...]`` lists the definitions in
       the registry with their origin (a repository file, or ``derived``).
-    * ``nsctl inspect perspective derive [path...]`` inspects again, derives
+    * ``nsctl model perspective derive [path...]`` inspects again, derives
       (SPEC003), stores the result in the IR and prints the proposal with its
       review flags. ``--evidence`` adds the rule, support and examples per
       item; ``--json`` prints the derivations.
-    * ``nsctl inspect perspective show <perspective> [path...]`` prints a
+    * ``nsctl model perspective show <perspective> [path...]`` prints a
       definition as its file would be.
-    * ``nsctl inspect perspective edit <perspective> <op> <arg>... [--path
+    * ``nsctl model perspective edit <perspective> <op> <arg>... [--path
       <dir>]`` records an edit (SPEC005). It needs ``HMD_HOME``.
-    * ``nsctl inspect perspective materialise <perspective> [path...] --to
+    * ``nsctl model perspective materialise <perspective> [path...] --to
       <repo>`` (SPEC005).
 
-    ``nsctl inspect perspectives`` is an alias of ``nsctl inspect
-    perspective``. ``nsctl inspect --hms`` and ``--out`` also write each
+    ``nsctl model perspectives`` is an alias of ``nsctl model inspect
+    perspective``. ``nsctl model inspect --hms`` and ``--out`` also write each
     perspective's definition under ``src/perspectives/``, so an export reads
     back without the repositories it came from.
 

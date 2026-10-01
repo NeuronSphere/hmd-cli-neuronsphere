@@ -1,4 +1,4 @@
-# Spike report: `nsctl inspect`, data-model inspection and change detection
+# Spike report: `nsctl model inspect`, data-model inspection and change detection
 
 - **Date:** 2026-10-01
 - **Branch:** `feat/nsctl-inspect-spike` (not pushed; a push to `main` tags a release)
@@ -52,8 +52,8 @@ The existing code had nothing for schemas, SQL, dbt or `.hms`, and no SQL driver
 | `de23df0` feat(inspect) | generic `dbt` inspector, `sqlddl.FinalSelect` |
 | `6002f32` feat(modelstore) | SQLite snapshots (`modernc.org/sqlite`) |
 | `8eeb33c` fix(inspect) | fixes from the first corpus run (below) |
-| `238b37f` feat(cmd) | `nsctl inspect` |
-| `89dfbd7` feat(model) | semantic diff, `nsctl inspect diff`, Robot contract tests |
+| `238b37f` feat(cmd) | `nsctl model inspect` |
+| `89dfbd7` feat(model) | semantic diff, `nsctl model diff`, Robot contract tests |
 | `c541b66` fix(model) | disagreement identity ignores line numbers |
 | `b716c64` fix(inspect) | repositories named by directory; a mismatched manifest `name` is reported |
 | `45d5a64` feat(inspect) | `nsexport`: graph noun → Librarian content type → consumer |
@@ -148,7 +148,7 @@ The four definitions were first embedded in `nsctl`. They are now test fixtures 
 Consequences:
 
 - `--lossy` is now needed only for attributes no artifact types (dbt SQL columns). `DATE` no longer blocks a valid `.hms` export.
-- `nsctl inspect <noun> --out <dir>` writes the core `.hms` file plus one sidecar per perspective. Inspecting that directory gives the same noun with the same perspective values (`TestInspectExportRoundTripsThroughSidecars`).
+- `nsctl model inspect <noun> --out <dir>` writes the core `.hms` file plus one sidecar per perspective. Inspecting that directory gives the same noun with the same perspective values (`TestInspectExportRoundTripsThroughSidecars`).
 - A sidecar is read at `.hms` authority. A **declared** perspective value therefore outranks one inferred from DDL, and a contradiction between them is a disagreement (see *Declared perspectives against the DDL* below).
 - Every value is validated against its definition, by `hmd-lib-ns-model`'s rules:
   - an unknown perspective is an error;
@@ -165,7 +165,7 @@ The prompt listed `object`, `array`, `items` and `definition` as `.hms` keys in 
 ### NTC chain: one logical thing, five technologies
 
 ```
-$ nsctl inspect <corpus> ntc_instances_export
+$ nsctl model inspect <corpus> ntc_instances_export
 ntc.ntc_instances_export  (noun)
   @dbt:source:ntc_final hive.ntc_final.ntc_instances_export (reference)
   @trino:final ntc_final.ntc_instances_export (table, parquet, primary)
@@ -257,7 +257,7 @@ Two `--refresh` runs with no edits: `No model changes (snapshot #1 -> #2).` This
 3. In `hmd_lang_nsreporting/environment.hms`, a `region` attribute was added.
 
 ```
-$ nsctl inspect diff /tmp/…/scratch
+$ nsctl model diff /tmp/…/scratch
 8 model changes (snapshot #2 -> #3):
 
 billing.aws_billing#line_item_unblended_rate
@@ -321,10 +321,10 @@ Embedding the definitions was not the whole problem. Each inspector was a hand-w
 
   Every piece carries evidence: the rule, the support, examples, exceptions and a review flag.
 - **A declared definition wins.** If a repository has `src/perspectives/trino.perspective.json`, nothing is derived. Its `name_pattern` decides identity, and properties map through key names or `aliases`.
-- **The IR is the store.** Derivations are kept per snapshot, and edits (`rename`, `rename-key`, `drop-key`, `hms-type`) are kept per scope, surviving store rebuilds. `nsctl inspect perspective materialise trino --to <repo>` writes the definition and one sidecar per noun into that repository only.
+- **The IR is the store.** Derivations are kept per snapshot, and edits (`rename`, `rename-key`, `drop-key`, `hms-type`) are kept per scope, surviving store rebuilds. `nsctl model perspective materialise trino --to <repo>` writes the definition and one sidecar per noun into that repository only.
 - **dbt, postgres-view and librarian-content** inspectors still name their bindings. Only their definitions are derived (from their values). Turning them into neutral parsers is the next step.
 
-The test of the design: the model derived from the billing and reporting fixtures is **identical** to the one the hand-written inspector and the embedded definition produced. That covers every noun, binding, value, column type, lineage edge and disagreement (`TestDerivationReproducesTheSpikesModel`, against dumps frozen before the change). The derived `trino` definition agrees with the embedded one on every key, kind, enum value and `hms_type` the files mention (`TestDerivedTrinoAgreesWithTheSpikeDefinition`). Run over the real repositories, `nsctl inspect perspective derive` prints:
+The test of the design: the model derived from the billing and reporting fixtures is **identical** to the one the hand-written inspector and the embedded definition produced. That covers every noun, binding, value, column type, lineage edge and disagreement (`TestDerivationReproducesTheSpikesModel`, against dumps frozen before the change). The derived `trino` definition agrees with the embedded one on every key, kind, enum value and `hms_type` the files mention (`TestDerivedTrinoAgreesWithTheSpikeDefinition`). Run over the real repositories, `nsctl model perspective derive` prints:
 
 ```
 trino  (derived)
@@ -338,6 +338,16 @@ trino  (derived)
 ```
 
 `catalog` and `is_nullable` are absent because no file in the corpus states them. A derived perspective describes what the files say, not what the technology could say.
+
+### Commands are `nsctl model ...`; `nsctl inspect` runs every noun
+
+After the spike, the model's verbs moved under the `model` noun to follow `nsctl`'s `noun verb` form: `nsctl model inspect`, `nsctl model diff` and `nsctl model perspective`. This report uses the new names throughout. `nsctl inspect` is now a composite (NERD032 SPEC008). It runs the `inspect` verb of every noun that has one over the same repositories, and reports one list of findings in one shape:
+
+- `repoclass inspect` gives each repository's manifest summary and validation, or detection's view of a repository without one;
+- `instance inspect` gives where those repo classes are declared in environments, and whether their dependency wiring resolves;
+- `model inspect` gives the data model.
+
+It exits 1 on any error. The noun that edits environment manifests is now `nsctl instance` (formerly `nsctl repo`). It sits beside `nsctl repoclass` as instance beside type.
 
 ## Per-repository detection
 
@@ -395,7 +405,7 @@ trino  (derived)
 
     JSON Schema would follow the same pattern with a `json-schema` perspective.
 11. **What metadata would help?**
-    - `.hms` plus perspective sidecars for reporting tables, which `nsctl inspect <noun> --out` now writes as a starting point. This would make `ntc.ntc_instances_export` authoritative, with every DDL change checked against the declared `trino` perspective.
+    - `.hms` plus perspective sidecars for reporting tables, which `nsctl model inspect <noun> --out` now writes as a starting point. This would make `ntc.ntc_instances_export` authoritative, with every DDL change checked against the declared `trino` perspective.
     - `data_type` and tests on every dbt model.
     - A declared content type for each producer, which `cur_export_parquet` lacks.
     - A `layer` annotation, instead of relying on schema suffixes.
@@ -406,7 +416,7 @@ trino  (derived)
     - a type change in a non-primary layer with no downstream cast;
     - a declared perspective value the implementation contradicts (`perspective-value-conflict`). This already works.
 
-    Then a change is "complete" when `nsctl inspect diff --live` introduces no error-level disagreement. A good first CI candidate is `hmd-config-billing-transforms`.
+    Then a change is "complete" when `nsctl model diff --live` introduces no error-level disagreement. A good first CI candidate is `hmd-config-billing-transforms`.
 
 ## Limitations and open questions
 
