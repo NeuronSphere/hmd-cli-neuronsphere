@@ -199,6 +199,7 @@ above that is a RepoClass you add.`,
 	)
 	assign(groupAuthor,
 		newRepoClassCommand(opts),
+		newModelCommand(opts),
 		newInspectCommand(opts),
 		newStackCommand(opts),
 		newPluginCommand(opts),

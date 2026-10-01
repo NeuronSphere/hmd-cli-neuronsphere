@@ -27,7 +27,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
-// inspectors is every inspector nsctl inspect runs. Adding one is a new
+// inspectors is every inspector nsctl model inspect runs. Adding one is a new
 // package and a line here (NERD032 SPEC001).
 func inspectors() []inspect.Inspector {
 	return []inspect.Inspector{
@@ -82,7 +82,7 @@ func inspectNow(ctx context.Context, srcs []inspect.Source, decl *perspective.Re
 // attributeLimit caps the attributes printed per noun when no noun is named.
 const attributeLimit = 25
 
-func newInspectCommand(opts *Options) *cobra.Command {
+func newModelInspectCommand(opts *Options) *cobra.Command {
 	var asJSON, sources, refresh, asHMS, lossy, asContext bool
 	var outDir string
 	cmd := &cobra.Command{
@@ -101,7 +101,7 @@ qualified name (hmd_lang_transform.transform_instance) or just its name.
 
 Perspectives are not built in: a repository declares one under
 src/perspectives/<name>.perspective.json, or it is derived from the files
-(` + "`nsctl inspect perspective`" + `). NERD033.
+(` + "`nsctl model perspective`" + `). NERD033.
 
 With --hms the selected nouns are printed as an .hms document plus one
 <name>.<perspective>.hms sidecar per perspective, and each perspective's
@@ -113,15 +113,15 @@ perspective's values under extensions.<perspective>.
 Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
 directories inspected. Without --refresh the latest snapshot is shown; with it,
 the directories are inspected again and a new snapshot is stored, which
-` + "`nsctl inspect diff`" + ` compares with the one before. Without HMD_HOME
+` + "`nsctl model diff`" + ` compares with the one before. Without HMD_HOME
 nothing is stored.
 
-nsctl inspect never writes to the inspected repositories. NERD032.`,
-		Example: `  nsctl inspect
-  nsctl inspect ../hmd-config-transform-reporting ../hmd-lang-transform
-  nsctl inspect ~/src --refresh
-  nsctl inspect ~/src ntc_instances_export --sources
-  nsctl inspect ~/src ntc_instances_export --hms --out /tmp/model`,
+nsctl model inspect never writes to the inspected repositories. NERD032.`,
+		Example: `  nsctl model inspect
+  nsctl model inspect ../hmd-config-transform-reporting ../hmd-lang-transform
+  nsctl model inspect ~/src --refresh
+  nsctl model inspect ~/src ntc_instances_export --sources
+  nsctl model inspect ~/src ntc_instances_export --hms --out /tmp/model`,
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -172,11 +172,10 @@ nsctl inspect never writes to the inspected repositories. NERD032.`,
 	cmd.Flags().StringVar(&outDir, "out", "", "With --hms or --context, write the documents under this directory instead of printing them")
 	cmd.Flags().BoolVar(&asContext, "context", false, "Print each selected noun as a generator context: .hms plus extensions.<perspective>")
 	cmd.Flags().BoolVar(&lossy, "lossy", false, "With --hms, write attributes of unknown type as string instead of refusing")
-	cmd.AddCommand(newInspectDiffCommand(opts), newInspectPerspectiveCommand(opts))
 	return cmd
 }
 
-// inspection is what one run of nsctl inspect shows.
+// inspection is what one run of nsctl model inspect shows.
 type inspection struct {
 	Snapshot *modelstore.Snapshot `json:"snapshot,omitempty"`
 	// Fresh is false when the model came from a stored snapshot rather than
@@ -571,7 +570,7 @@ func renderNoun(out io.Writer, n *model.Noun, r *perspective.Registry, full, sou
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for i, a := range n.Attributes {
 		if !full && i == attributeLimit {
-			fmt.Fprintf(w, "    ... %d more (nsctl inspect %s)\n", len(n.Attributes)-attributeLimit, n.ID)
+			fmt.Fprintf(w, "    ... %d more (nsctl model inspect %s)\n", len(n.Attributes)-attributeLimit, n.ID)
 			break
 		}
 		var notes []string

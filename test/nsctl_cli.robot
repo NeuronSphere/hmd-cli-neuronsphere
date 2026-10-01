@@ -129,7 +129,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    instance    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
+    FOR    ${command}    IN    env    instance    repoclass    model    inspect    control-plane    authd    login    logout    whoami    version    stack    plugin
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -611,7 +611,7 @@ Inspect Reports A Model And Writes Nothing
     [Tags]    contract    nerd032    nerd033
     ${dir}=       Create Inspect Repos
     ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
-    ${r}=         Run nsctl    inspect    ${dir}
+    ${r}=         Run nsctl    model    inspect    ${dir}
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     Should Contain    ${r.stdout}    hmd_lang_demo.environment
     Should Contain    ${r.stdout}    demo.thing
@@ -632,22 +632,22 @@ Inspect Derives A Perspective And Materialises It Only Where Told
     ${home}=      Create Scratch Home
     ${lang}=      Create Scratch Repo
     ${empty}=     Create Scratch Repo
-    ${r}=         Run nsctl    inspect    perspective    list    ${empty}
+    ${r}=         Run nsctl    model    perspective    list    ${empty}
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     Should Not Contain    ${r.stdout}    trino
-    ${r}=         Run nsctl    inspect    perspective    derive    ${dir}    --evidence
+    ${r}=         Run nsctl    model    perspective    derive    ${dir}    --evidence
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     Should Contain    ${r.stdout}    layer: staging -> final
     Should Contain    ${r.stdout}    date→timestamp
     Should Contain    ${r.stdout}    the same table name in schemas that differ only in their last _-separated segment
-    ${r}=         Run nsctl    --home    ${home}    inspect    perspective    edit    trino    rename-key    format    storage_format    --path    ${dir}
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    format    storage_format    --path    ${dir}
     Should Be Equal As Integers    ${r.rc}    2    msg=an edit for a key nothing derived must be refused
-    ${r}=         Run nsctl    --home    ${home}    inspect    perspective    edit    trino    rename-key    is_partition    partition_key    --path    ${dir}
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    is_partition    partition_key    --path    ${dir}
     Should Be Equal As Integers    ${r.rc}    2    msg=no table here is partitioned, so there is no is_partition to rename
-    ${r}=         Run nsctl    --home    ${home}    inspect    perspective    edit    trino    rename-key    table_type    kind    --path    ${dir}
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    table_type    kind    --path    ${dir}
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
-    ${r}=         Run nsctl    --home    ${home}    inspect    perspective    materialise    trino    ${dir}    --to    ${lang}
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    materialise    trino    ${dir}    --to    ${lang}
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     File Should Exist    ${lang}${/}src${/}perspectives${/}trino.perspective.json
     File Should Exist    ${lang}${/}src${/}schemas${/}demo${/}thing.trino.hms
@@ -655,7 +655,7 @@ Inspect Derives A Perspective And Materialises It Only Where Told
     Should Contain    ${def}    "kind"
     ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
     Should Be Equal    ${before}    ${after}
-    ${r}=         Run nsctl    inspect    perspective    list    ${dir}    ${lang}
+    ${r}=         Run nsctl    model    perspective    list    ${dir}    ${lang}
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     Should Contain    ${r.stdout}    src/perspectives/trino.perspective.json
 
@@ -664,9 +664,32 @@ Inspect Diff Needs A Home
     ...                without one is a usage error, not an empty diff.
     [Tags]    contract    nerd032
     ${dir}=       Create Scratch Repo
-    ${r}=         Run nsctl    inspect    diff    ${dir}
+    ${r}=         Run nsctl    model    diff    ${dir}
     Should Be Equal As Integers    ${r.rc}    2
     Should Contain    ${r.stderr}    HMD_HOME
+
+Inspect Runs Every Noun And Gates On Errors
+    [Documentation]    NERD032 SPEC008: nsctl inspect runs the inspect verb of
+    ...                every noun that has one over the same repositories, in one
+    ...                shape of finding. A section that cannot run says why and
+    ...                the rest still run; any error exits 1, so it can gate a
+    ...                change; nothing is written.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Inspect Repos
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    1    msg=the demo manifests lack a description, which validate reports as an error
+    Should Contain    ${r.stdout}    REPOCLASS
+    Should Contain    ${r.stdout}    repoclass-validate
+    Should Contain    ${r.stdout}    INSTANCE
+    Should Contain    ${r.stdout}    skipped: HMD_HOME is not set
+    Should Contain    ${r.stdout}    MODEL
+    Should Contain    ${r.stdout}    @trino:final @trino:staging
+    ${r}=         Run nsctl    inspect    ${dir}    --only    model
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stdout}
+    Should Not Contain    ${r.stdout}    REPOCLASS
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
 
 Detect Refuses To Infer Dependencies Or Resources
     [Documentation]    NERD009 SPEC010, and the assertions that matter most: a

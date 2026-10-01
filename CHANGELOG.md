@@ -2,6 +2,20 @@
 
 ## 2026-10-01
 
+- feat: `nsctl inspect` runs every noun's `inspect` over the same
+  repositories and reports one list of findings in one shape (NERD032 SPEC008).
+  It exits 1 on any error. The sections are:
+  - `repoclass` (new `nsctl repoclass inspect`): each repository's manifest
+    summary and validation, or detection's view of one without a manifest;
+  - `instance` (new `nsctl instance inspect`): where those repo classes are
+    declared in environment and control-plane manifests, and dependency wiring
+    to undeclared, non-substrate instances;
+  - `model`: the data model.
+
+  `--only`, `--skip`, `--json` and `--info` select and shape the output.
+- refactor: the data model's verbs move under the `model` noun: `nsctl model
+  inspect`, `nsctl model diff` and `nsctl model perspective`.
+
 - refactor: the `nsctl repo` noun is now `nsctl instance`, and
   `nsctl control-plane repo` is `nsctl control-plane instance`.
   - What these verbs edit is a repo class's instances in an environment (or

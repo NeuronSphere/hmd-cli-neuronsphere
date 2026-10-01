@@ -38,6 +38,7 @@ result -- so nothing here touches a running environment on its own.`,
 		newInstanceRemoveCommand(opts),
 		newInstanceListCommand(opts),
 		newInstanceImportCommand(opts),
+		newInstanceInspectCommand(opts),
 	)
 	return inst
 }

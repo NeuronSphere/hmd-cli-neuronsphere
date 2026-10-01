@@ -20,10 +20,10 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
-// newInspectPerspectiveCommand is the perspective IR (NERD033 SPEC006):
+// newModelPerspectiveCommand is the perspective IR (NERD033 SPEC006):
 // which perspectives are in effect, what was derived and why, edits to a
 // derivation, and materialising one into a repository.
-func newInspectPerspectiveCommand(opts *Options) *cobra.Command {
+func newModelPerspectiveCommand(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "perspective",
 		Aliases: []string{"perspectives"},
@@ -35,11 +35,11 @@ src/perspectives/<name>.perspective.json; otherwise nsctl derives it from the
 files that realise the model (Trino DDL in transforms, dbt projects), with the
 evidence for each piece, and keeps it with the inspection under HMD_HOME until
 it is edited and materialised into a repository. NERD033.`,
-		Example: `  nsctl inspect perspective list ~/src
-  nsctl inspect perspective derive ~/src --evidence
-  nsctl inspect perspective show trino ~/src
-  nsctl inspect perspective edit trino rename-key format storage_format --path ~/src
-  nsctl inspect perspective materialise trino ~/src --to ~/src/hmd-lang-reporting`,
+		Example: `  nsctl model perspective list ~/src
+  nsctl model perspective derive ~/src --evidence
+  nsctl model perspective show trino ~/src
+  nsctl model perspective edit trino rename-key format storage_format --path ~/src
+  nsctl model perspective materialise trino ~/src --to ~/src/hmd-lang-reporting`,
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -147,7 +147,7 @@ no inspected repository declares: its keys, each key's kind, enum values, the
 core .hms type of each physical type, the binding key and name pattern. Each
 piece carries the rule that produced it and the objects that support it; a
 piece marked for review is one the files could not decide. Edits recorded with
-` + "`nsctl inspect perspective edit`" + ` are replayed. NERD033 SPEC003.`,
+` + "`nsctl model perspective edit`" + ` are replayed. NERD033 SPEC003.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -298,7 +298,7 @@ func newPerspectiveShowCommand(opts *Options) *cobra.Command {
 			}
 			d := res.registry.Get(args[0])
 			if d == nil {
-				return nserr.New(nserr.Usage, "no perspective %q; nsctl inspect perspective list shows the ones in effect", args[0])
+				return nserr.New(nserr.Usage, "no perspective %q; nsctl model perspective list shows the ones in effect", args[0])
 			}
 			_, err = cmd.OutOrStdout().Write(d.Marshal())
 			return err
@@ -400,7 +400,7 @@ and a file that later disagrees with them is reported. NERD033 SPEC005.`,
 			name := args[0]
 			d := res.registry.Get(name)
 			if d == nil {
-				return nserr.New(nserr.Usage, "no perspective %q; nsctl inspect perspective list shows the ones in effect", name)
+				return nserr.New(nserr.Usage, "no perspective %q; nsctl model perspective list shows the ones in effect", name)
 			}
 			files := []hmsFile{{filepath.Join(perspective.Dir, d.Name+perspective.Suffix), d.Marshal()}}
 			for _, n := range res.Model.Nouns {

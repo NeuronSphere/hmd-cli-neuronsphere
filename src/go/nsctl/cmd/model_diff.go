@@ -14,7 +14,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 )
 
-func newInspectDiffCommand(opts *Options) *cobra.Command {
+func newModelDiffCommand(opts *Options) *cobra.Command {
 	var asJSON, live bool
 	cmd := &cobra.Command{
 		Use:   "diff [path...]",
@@ -25,12 +25,12 @@ result), and prints the semantic difference: nouns and attributes added or
 removed, an attribute's type, requiredness or enum values changed, a column
 added to one layer, lineage edges and disagreements that appeared or went away.
 
-Snapshots are taken by ` + "`nsctl inspect --refresh`" + ` and stored under HMD_HOME. NERD032.`,
-		Example: `  nsctl inspect ~/src --refresh   # baseline
+Snapshots are taken by ` + "`nsctl model inspect --refresh`" + ` and stored under HMD_HOME. NERD032.`,
+		Example: `  nsctl model inspect ~/src --refresh   # baseline
   # ...edit a transform or an .hms schema...
-  nsctl inspect ~/src --refresh
-  nsctl inspect diff ~/src
-  nsctl inspect diff ~/src --live`,
+  nsctl model inspect ~/src --refresh
+  nsctl model diff ~/src
+  nsctl model diff ~/src --live`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,7 +90,7 @@ func diffModels(ctx context.Context, opts *Options, srcs []inspect.Source, live 
 	}
 	if len(snaps) < want {
 		return nil, nil, "", nserr.New(nserr.Usage,
-			"%d snapshot(s) of these directories, %d needed; take one with `nsctl inspect --refresh`", len(snaps), want)
+			"%d snapshot(s) of these directories, %d needed; take one with `nsctl model inspect --refresh`", len(snaps), want)
 	}
 	if live {
 		if before, err = store.Model(snaps[0].ID); err != nil {

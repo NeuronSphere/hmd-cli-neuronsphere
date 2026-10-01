@@ -1580,42 +1580,29 @@ Inherited flags
 nsctl inspect
 -------------
 
-Reads .hms language pack schemas and their perspective sidecars, NeuronSphere
-transform SQL and dbt projects in the named directories (default: the current
-one) and prints the logical model they describe: nouns and their .hms
-attributes, each noun's perspective bindings (the Trino tables, views and dbt
-models that carry it, with their physical types), lineage between nouns, and
-every place the artifacts disagree. A directory that is not itself a repository
-stands for the repositories directly inside it.
+Runs the inspect verb of every noun that has one over the repositories in the
+named directories (default: the current one; a directory that is not itself a
+repository stands for the repositories in it), and prints one section per noun:
 
-An argument that is not a directory names a noun to show in full: its fully
-qualified name (hmd_lang_transform.transform_instance) or just its name.
+  repoclass  what each repository is: its BACON manifest's summary and
+             validation, or for one without a manifest, what detection
+             can and cannot tell
+  instance   where those repo classes are declared in environments under
+             HMD_HOME, and whether their dependency wiring resolves
+  model      the data model the repositories describe, and every place
+             its artifacts disagree
 
-Perspectives are not built in: a repository declares one under
-src/perspectives/<name>.perspective.json, or it is derived from the files
-(`nsctl inspect perspective`). NERD033.
-
-With --hms the selected nouns are printed as an .hms document plus one
-<name>.<perspective>.hms sidecar per perspective, and each perspective's
-definition; with --out <dir> those files are written under <dir>, laid out as
-src/schemas/<namespace>/ and src/perspectives/. With --context each noun is
-printed as the one document a code generator reads: the .hms schema with each
-perspective's values under extensions.<perspective>.
-
-Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
-directories inspected. Without --refresh the latest snapshot is shown; with it,
-the directories are inspected again and a new snapshot is stored, which
-`nsctl inspect diff` compares with the one before. Without HMD_HOME
-nothing is stored.
-
-nsctl inspect never writes to the inspected repositories. NERD032.
+Findings share one shape and one severity scale across nouns. Exits 1 when
+any section reports an error, so it can gate a change. Writes nothing in any
+repository. Each noun's own inspect verb shows its section in more detail.
+NERD032 SPEC008.
 
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl inspect [path|noun]... [flags]
+   nsctl inspect [path...] [flags]
 
 Examples
 ~~~~~~~~
@@ -1623,223 +1610,17 @@ Examples
 .. code-block:: shell
 
    nsctl inspect
-     nsctl inspect ../hmd-config-transform-reporting ../hmd-lang-transform
-     nsctl inspect ~/src --refresh
-     nsctl inspect ~/src ntc_instances_export --sources
-     nsctl inspect ~/src ntc_instances_export --hms --out /tmp/model
+     nsctl inspect ~/src --only repoclass,model
+     nsctl inspect ~/src/hmd-config-transform-reporting --json
 
 Local flags
 ~~~~~~~~~~~
 
-* ``--context`` — Print each selected noun as a generator context: .hms plus extensions.<perspective>
-* ``--hms`` — Print the selected nouns as .hms documents and perspective sidecars
-* ``--json`` — Print the model as JSON
-* ``--lossy`` — With --hms, write attributes of unknown type as string instead of refusing
-* ``--out`` — With --hms or --context, write the documents under this directory instead of printing them
-* ``--refresh`` — Inspect again and store a new snapshot
-* ``--sources`` — Show where every noun, attribute and link came from, and informational notes
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect diff
-------------------
-
-Compares the latest two snapshots of the same directories, or with --live the
-latest snapshot against the directories as they are now (without storing the
-result), and prints the semantic difference: nouns and attributes added or
-removed, an attribute's type, requiredness or enum values changed, a column
-added to one layer, lineage edges and disagreements that appeared or went away.
-
-Snapshots are taken by `nsctl inspect --refresh` and stored under HMD_HOME. NERD032.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect diff [path...] [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl inspect ~/src --refresh   # baseline
-     # ...edit a transform or an .hms schema...
-     nsctl inspect ~/src --refresh
-     nsctl inspect diff ~/src
-     nsctl inspect diff ~/src --live
-
-Local flags
-~~~~~~~~~~~
-
-* ``--json`` — Print the changes as JSON
-* ``--live`` — Compare the latest snapshot with the directories as they are now
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective
--------------------------
-
-A perspective is the data a generator needs beside the core .hms schema to
-produce one technology's manifestation of a noun: a table's storage format, a
-column's physical type. nsctl embeds none. A repository declares one under
-src/perspectives/<name>.perspective.json; otherwise nsctl derives it from the
-files that realise the model (Trino DDL in transforms, dbt projects), with the
-evidence for each piece, and keeps it with the inspection under HMD_HOME until
-it is edited and materialised into a repository. NERD033.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl inspect perspective list ~/src
-     nsctl inspect perspective derive ~/src --evidence
-     nsctl inspect perspective show trino ~/src
-     nsctl inspect perspective edit trino rename-key format storage_format --path ~/src
-     nsctl inspect perspective materialise trino ~/src --to ~/src/hmd-lang-reporting
-
-Aliases: ``perspectives``.
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective derive
---------------------------------
-
-Inspects the directories again and derives a definition for every perspective
-no inspected repository declares: its keys, each key's kind, enum values, the
-core .hms type of each physical type, the binding key and name pattern. Each
-piece carries the rule that produced it and the objects that support it; a
-piece marked for review is one the files could not decide. Edits recorded with
-`nsctl inspect perspective edit` are replayed. NERD033 SPEC003.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective derive [path...] [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--evidence`` — Show the rule and support behind every piece
-* ``--json`` — Print the derivations as JSON
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective edit
-------------------------------
-
-Records an edit to a derived perspective, replayed every time it is derived
-again, so it survives changes to the files:
-
-  rename <new-name>             rename the perspective
-  rename-key <key> <new-key>    rename a key (its values follow)
-  drop-key <key>                drop a key (its values go)
-  hms-type <enum-value> <type>  set the core .hms type of a data type value
-
-Edits are kept under HMD_HOME for the inspected directories. An edit that
-does not apply to the current derivation is refused. NERD033 SPEC005.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective edit <perspective> <op> <arg>... [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--path`` — The inspected directories the edit belongs to (default: the current one) (default: ``[]``)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective list
-------------------------------
-
-List the perspectives in effect, declared or derived
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective list [path...] [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--json`` — Print the definitions as JSON
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective materialise
--------------------------------------
-
-Writes src/perspectives/<perspective>.perspective.json and one
-<noun>.<perspective>.hms sidecar per noun (under src/schemas/<namespace>/) into
-the repository named by --to, and nowhere else. From then on that repository
-declares the perspective: inspecting it reads the sidecars as declared values,
-and a file that later disagrees with them is reported. NERD033 SPEC005.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective materialise <perspective> [path...] --to <repository> [flags]
-
-Aliases: ``materialize``.
-
-Local flags
-~~~~~~~~~~~
-
-* ``--to`` — The repository to write into
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl inspect perspective show
-------------------------------
-
-Print a perspective's definition
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl inspect perspective show <perspective> [path...]
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print every section as one JSON document
+* ``--only`` — Run only these sections (repoclass, instance, model) (default: ``[]``)
+* ``--refresh`` — Inspect the data model again rather than show its latest snapshot
+* ``--skip`` — Skip these sections (default: ``[]``)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1939,6 +1720,40 @@ Local flags
 * ``--all`` — Import instances that are not currently deployed too
 * ``--dry-run`` — Show what would be declared without writing
 * ``--env`` — Environment to import from (default: the default environment)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance inspect
+----------------------
+
+For each repo class among the repositories in the named directories (default:
+the current one), lists every instance of it an environment manifest under
+HMD_HOME declares, and the control-plane manifest: the environment, instance
+name, version, where it deploys from and its dependency wiring. Reads the
+manifests only; no control plane is asked.
+
+Findings: a dependency wired to an instance its manifest does not declare and
+that is not substrate (error -- the deploy would fail on it); a repo class no
+environment declares (info); an instance deploying from a checkout other than
+the repository inspected (info). Exits 1 on an error. This is the instance
+section of `nsctl inspect`. NERD032 SPEC010.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance inspect [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Only this environment (default: every environment, and the control plane)
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print the section as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2131,6 +1946,306 @@ Usage
 .. code-block:: text
 
    nsctl logout
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model
+-----------
+
+The logical data model a set of repositories describes: .hms nouns, the
+tables, views, dbt models and exports that carry them, lineage between them,
+and every place those artifacts disagree. Nothing has to be declared first:
+perspectives no repository declares are derived from the files. NERD032,
+NERD033.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect ~/src
+     nsctl model inspect ~/src ntc_instances_export --sources
+     nsctl model diff ~/src --live
+     nsctl model perspective derive ~/src --evidence
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model diff
+----------------
+
+Compares the latest two snapshots of the same directories, or with --live the
+latest snapshot against the directories as they are now (without storing the
+result), and prints the semantic difference: nouns and attributes added or
+removed, an attribute's type, requiredness or enum values changed, a column
+added to one layer, lineage edges and disagreements that appeared or went away.
+
+Snapshots are taken by `nsctl model inspect --refresh` and stored under HMD_HOME. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model diff [path...] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect ~/src --refresh   # baseline
+     # ...edit a transform or an .hms schema...
+     nsctl model inspect ~/src --refresh
+     nsctl model diff ~/src
+     nsctl model diff ~/src --live
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the changes as JSON
+* ``--live`` — Compare the latest snapshot with the directories as they are now
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model inspect
+-------------------
+
+Reads .hms language pack schemas and their perspective sidecars, NeuronSphere
+transform SQL and dbt projects in the named directories (default: the current
+one) and prints the logical model they describe: nouns and their .hms
+attributes, each noun's perspective bindings (the Trino tables, views and dbt
+models that carry it, with their physical types), lineage between nouns, and
+every place the artifacts disagree. A directory that is not itself a repository
+stands for the repositories directly inside it.
+
+An argument that is not a directory names a noun to show in full: its fully
+qualified name (hmd_lang_transform.transform_instance) or just its name.
+
+Perspectives are not built in: a repository declares one under
+src/perspectives/<name>.perspective.json, or it is derived from the files
+(`nsctl model perspective`). NERD033.
+
+With --hms the selected nouns are printed as an .hms document plus one
+<name>.<perspective>.hms sidecar per perspective, and each perspective's
+definition; with --out <dir> those files are written under <dir>, laid out as
+src/schemas/<namespace>/ and src/perspectives/. With --context each noun is
+printed as the one document a code generator reads: the .hms schema with each
+perspective's values under extensions.<perspective>.
+
+Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
+directories inspected. Without --refresh the latest snapshot is shown; with it,
+the directories are inspected again and a new snapshot is stored, which
+`nsctl model diff` compares with the one before. Without HMD_HOME
+nothing is stored.
+
+nsctl model inspect never writes to the inspected repositories. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model inspect [path|noun]... [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect
+     nsctl model inspect ../hmd-config-transform-reporting ../hmd-lang-transform
+     nsctl model inspect ~/src --refresh
+     nsctl model inspect ~/src ntc_instances_export --sources
+     nsctl model inspect ~/src ntc_instances_export --hms --out /tmp/model
+
+Local flags
+~~~~~~~~~~~
+
+* ``--context`` — Print each selected noun as a generator context: .hms plus extensions.<perspective>
+* ``--hms`` — Print the selected nouns as .hms documents and perspective sidecars
+* ``--json`` — Print the model as JSON
+* ``--lossy`` — With --hms, write attributes of unknown type as string instead of refusing
+* ``--out`` — With --hms or --context, write the documents under this directory instead of printing them
+* ``--refresh`` — Inspect again and store a new snapshot
+* ``--sources`` — Show where every noun, attribute and link came from, and informational notes
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective
+-----------------------
+
+A perspective is the data a generator needs beside the core .hms schema to
+produce one technology's manifestation of a noun: a table's storage format, a
+column's physical type. nsctl embeds none. A repository declares one under
+src/perspectives/<name>.perspective.json; otherwise nsctl derives it from the
+files that realise the model (Trino DDL in transforms, dbt projects), with the
+evidence for each piece, and keeps it with the inspection under HMD_HOME until
+it is edited and materialised into a repository. NERD033.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model perspective list ~/src
+     nsctl model perspective derive ~/src --evidence
+     nsctl model perspective show trino ~/src
+     nsctl model perspective edit trino rename-key format storage_format --path ~/src
+     nsctl model perspective materialise trino ~/src --to ~/src/hmd-lang-reporting
+
+Aliases: ``perspectives``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective derive
+------------------------------
+
+Inspects the directories again and derives a definition for every perspective
+no inspected repository declares: its keys, each key's kind, enum values, the
+core .hms type of each physical type, the binding key and name pattern. Each
+piece carries the rule that produced it and the objects that support it; a
+piece marked for review is one the files could not decide. Edits recorded with
+`nsctl model perspective edit` are replayed. NERD033 SPEC003.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective derive [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--evidence`` — Show the rule and support behind every piece
+* ``--json`` — Print the derivations as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective edit
+----------------------------
+
+Records an edit to a derived perspective, replayed every time it is derived
+again, so it survives changes to the files:
+
+  rename <new-name>             rename the perspective
+  rename-key <key> <new-key>    rename a key (its values follow)
+  drop-key <key>                drop a key (its values go)
+  hms-type <enum-value> <type>  set the core .hms type of a data type value
+
+Edits are kept under HMD_HOME for the inspected directories. An edit that
+does not apply to the current derivation is refused. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective edit <perspective> <op> <arg>... [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--path`` — The inspected directories the edit belongs to (default: the current one) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective list
+----------------------------
+
+List the perspectives in effect, declared or derived
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective list [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the definitions as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective materialise
+-----------------------------------
+
+Writes src/perspectives/<perspective>.perspective.json and one
+<noun>.<perspective>.hms sidecar per noun (under src/schemas/<namespace>/) into
+the repository named by --to, and nowhere else. From then on that repository
+declares the perspective: inspecting it reads the sidecars as declared values,
+and a file that later disagrees with them is reported. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective materialise <perspective> [path...] --to <repository> [flags]
+
+Aliases: ``materialize``.
+
+Local flags
+~~~~~~~~~~~
+
+* ``--to`` — The repository to write into
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective show
+----------------------------
+
+Print a perspective's definition
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective show <perspective> [path...]
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -3051,6 +3166,35 @@ Local flags
 * ``--at`` — Where to put it: meta-data (root not implemented yet) (default: ``meta-data``)
 * ``--description`` — The repo class's one-line description
 * ``--format`` — Manifest format: json (toml not implemented yet) (default: ``json``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass inspect
+-----------------------
+
+Describes and validates the repo class manifest under --path, or for a
+repository without one, prints what detection can and cannot tell about it.
+A --path that is not itself a repository stands for the repositories in it.
+Findings are those of validate (error, warning; a note is info) and of detect
+(an undecided question is a warning, a refusal info). Exits 1 on an error.
+This is the repoclass section of `nsctl inspect`. NERD032 SPEC009.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass inspect [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print the section as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~

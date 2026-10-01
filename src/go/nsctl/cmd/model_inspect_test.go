@@ -54,7 +54,7 @@ config:
 func TestInspectPrintsTheModelOfAParentDirectory(t *testing.T) {
 	t.Parallel()
 	dir := inspectRepo(t)
-	out, errOut, err := run(t, fakeEnv(nil), "inspect", dir)
+	out, errOut, err := run(t, fakeEnv(nil), "model", "inspect", dir)
 	if err != nil {
 		t.Fatalf("inspect: %v\n%s", err, errOut)
 	}
@@ -77,15 +77,15 @@ func TestInspectPrintsTheModelOfAParentDirectory(t *testing.T) {
 func TestInspectStoresSnapshotsUnderHome(t *testing.T) {
 	t.Parallel()
 	dir, home := inspectRepo(t), t.TempDir()
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", dir)
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "model", "inspect", dir)
 	if err != nil || !strings.Contains(out, "stored as snapshot #1") {
 		t.Fatalf("first: %v\n%s", err, out)
 	}
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", dir)
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "model", "inspect", dir)
 	if err != nil || !strings.Contains(out, "from snapshot #1") {
 		t.Fatalf("second: %v\n%s", err, out)
 	}
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", dir, "--refresh")
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "model", "inspect", dir, "--refresh")
 	if err != nil || !strings.Contains(out, "stored as snapshot #2") {
 		t.Fatalf("refresh: %v\n%s", err, out)
 	}
@@ -98,11 +98,11 @@ func TestInspectStoresSnapshotsUnderHome(t *testing.T) {
 func TestInspectDiffAfterAnEdit(t *testing.T) {
 	t.Parallel()
 	dir, home := inspectRepo(t), t.TempDir()
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir); err == nil ||
-		!strings.Contains(err.Error(), "nsctl inspect --refresh") {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "model", "diff", dir); err == nil ||
+		!strings.Contains(err.Error(), "nsctl model inspect --refresh") {
 		t.Fatalf("diff with no snapshots: %v", err)
 	}
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", dir, "--refresh"); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "model", "inspect", dir, "--refresh"); err != nil {
 		t.Fatal(err)
 	}
 	hmsPath := filepath.Join(dir, "lang/src/schemas/hmd_lang_demo/environment.hms")
@@ -116,14 +116,14 @@ func TestInspectDiffAfterAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir, "--live")
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "model", "diff", dir, "--live")
 	if err != nil || !strings.Contains(out, "snapshot #1 -> working tree") {
 		t.Fatalf("live diff: %v\n%s", err, out)
 	}
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", dir, "--refresh"); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "model", "inspect", dir, "--refresh"); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir)
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "model", "diff", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,10 +146,10 @@ func TestInspectDiffAfterAnEdit(t *testing.T) {
 func TestInspectExportRoundTripsThroughSidecars(t *testing.T) {
 	t.Parallel()
 	dir, outDir := inspectRepo(t), t.TempDir()
-	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--out", outDir); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "model", "inspect", dir, "demo.thing", "--out", outDir); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := run(t, fakeEnv(nil), "inspect", outDir, "demo.thing")
+	out, _, err := run(t, fakeEnv(nil), "model", "inspect", outDir, "demo.thing")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestInspectExportRoundTripsThroughSidecars(t *testing.T) {
 
 func TestInspectPerspectiveListShowsDerivedOnes(t *testing.T) {
 	t.Parallel()
-	out, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "list", inspectRepo(t))
+	out, _, err := run(t, fakeEnv(nil), "model", "perspective", "list", inspectRepo(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestInspectPerspectiveListShowsDerivedOnes(t *testing.T) {
 		}
 	}
 	// Nothing is built in: with nothing to inspect there is nothing in effect.
-	out, _, err = run(t, fakeEnv(nil), "inspect", "perspectives", "list", t.TempDir())
+	out, _, err = run(t, fakeEnv(nil), "model", "perspectives", "list", t.TempDir())
 	if err != nil || strings.Contains(out, "trino") {
 		t.Errorf("empty directory lists %q (%v)", out, err)
 	}
@@ -180,7 +180,7 @@ func TestInspectPerspectiveListShowsDerivedOnes(t *testing.T) {
 
 func TestInspectPerspectiveDeriveExplainsItself(t *testing.T) {
 	t.Parallel()
-	out, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "derive", inspectRepo(t), "--evidence")
+	out, _, err := run(t, fakeEnv(nil), "model", "perspective", "derive", inspectRepo(t), "--evidence")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,27 +203,27 @@ func TestInspectPerspectiveDeriveExplainsItself(t *testing.T) {
 func TestInspectPerspectiveEditAndMaterialise(t *testing.T) {
 	t.Parallel()
 	dir, home, lang := inspectRepo(t), t.TempDir(), t.TempDir()
-	if _, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
+	if _, _, err := run(t, fakeEnv(nil), "model", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
 		"--path", dir); err == nil || !strings.Contains(err.Error(), "HMD_HOME") {
 		t.Fatalf("edit without a home: %v", err)
 	}
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "edit", "trino", "drop-key", "colour",
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "model", "perspective", "edit", "trino", "drop-key", "colour",
 		"--path", dir); err == nil || !strings.Contains(err.Error(), "does not apply") {
 		t.Fatalf("an edit that does not apply: %v", err)
 	}
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "model", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
 		"--path", dir)
 	if err != nil || !strings.Contains(out, "recorded") {
 		t.Fatalf("edit: %v\n%s", err, out)
 	}
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "derive", dir)
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "model", "perspective", "derive", dir)
 	if err != nil || !strings.Contains(out, "trino  (edited)") || !strings.Contains(out, "partition_key") {
 		t.Fatalf("derive after the edit: %v\n%s", err, out)
 	}
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "materialise", "trino", dir); err == nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "model", "perspective", "materialise", "trino", dir); err == nil {
 		t.Error("materialise without --to")
 	}
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "materialise", "trino", dir, "--to", lang)
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "model", "perspective", "materialise", "trino", dir, "--to", lang)
 	if err != nil || !strings.Contains(out, "materialised trino: a definition and 1 sidecars") {
 		t.Fatalf("materialise: %v\n%s", err, out)
 	}
@@ -234,11 +234,11 @@ func TestInspectPerspectiveEditAndMaterialise(t *testing.T) {
 	}
 	// The materialised repository now declares trino: nothing is derived for
 	// it, and its sidecar agrees with the DDL.
-	out, _, err = run(t, fakeEnv(nil), "inspect", "perspective", "list", dir, lang)
+	out, _, err = run(t, fakeEnv(nil), "model", "perspective", "list", dir, lang)
 	if err != nil || !strings.Contains(out, "src/perspectives/trino.perspective.json") {
 		t.Fatalf("list after materialise: %v\n%s", err, out)
 	}
-	out, _, err = run(t, fakeEnv(nil), "inspect", dir, lang, "demo.thing")
+	out, _, err = run(t, fakeEnv(nil), "model", "inspect", dir, lang, "demo.thing")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestInspectPerspectiveEditAndMaterialise(t *testing.T) {
 // merged under extensions, as hmd-schema-loader merges a sidecar.
 func TestInspectContextMergesExtensions(t *testing.T) {
 	t.Parallel()
-	out, _, err := run(t, fakeEnv(nil), "inspect", inspectRepo(t), "demo.thing", "--context")
+	out, _, err := run(t, fakeEnv(nil), "model", "inspect", inspectRepo(t), "demo.thing", "--context")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestInspectContextMergesExtensions(t *testing.T) {
 func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 	t.Parallel()
 	dir := inspectRepo(t)
-	out, _, err := run(t, fakeEnv(nil), "inspect", dir, "environment", "--json")
+	out, _, err := run(t, fakeEnv(nil), "model", "inspect", dir, "environment", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,13 +293,13 @@ func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 		t.Fatalf("json = %s (%v)", out, err)
 	}
 
-	out, _, err = run(t, fakeEnv(nil), "inspect", dir, "hmd_lang_demo.environment", "--hms")
+	out, _, err = run(t, fakeEnv(nil), "model", "inspect", dir, "hmd_lang_demo.environment", "--hms")
 	if err != nil || !strings.Contains(out, `"namespace": "hmd_lang_demo"`) {
 		t.Errorf("hms: %v\n%s", err, out)
 	}
 	// A DATE column is a timestamp in the core document; DATE itself goes to
 	// the trino perspective sidecar beside it.
-	out, _, err = run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--hms")
+	out, _, err = run(t, fakeEnv(nil), "model", "inspect", dir, "demo.thing", "--hms")
 	if err != nil {
 		t.Fatalf("hms export: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 		}
 	}
 	outDir := t.TempDir()
-	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--out", outDir); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "model", "inspect", dir, "demo.thing", "--out", outDir); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"src/schemas/demo/thing.hms", "src/schemas/demo/thing.trino.hms"} {
@@ -321,7 +321,7 @@ func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 			t.Errorf("--out: %v", err)
 		}
 	}
-	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "no_such_noun"); err == nil {
+	if _, _, err := run(t, fakeEnv(nil), "model", "inspect", dir, "no_such_noun"); err == nil {
 		t.Error("an unknown noun should be a usage error")
 	}
 }
