@@ -87,9 +87,10 @@ Terminology
     #. perspectives in the perspective IR (SPEC005) for the same roots.
 
     A definition in a repository wins over a derived one of the same name.
-    With no definition at all, inspection still produces the core model and
-    the format parsers' trees; ``nsctl inspect`` says that no perspective
-    covers them and suggests ``nsctl inspect perspective derive``.
+    A perspective nothing declares is derived as part of every inspection
+    (SPEC003), so ``nsctl inspect`` shows the same model whether or not a
+    person has looked at the derivation; ``nsctl inspect perspective derive``
+    shows what was derived and why.
 
     This amends NERD032 SPEC007, which had ``nsctl`` embed the definitions its
     inspectors need. The four spike definitions become test fixtures, and the
@@ -100,21 +101,32 @@ Terminology
     :links: HMD_CLI_NEURONSPHERE_NERD033
     :status: proposed
 
-    A format parser reads one format and produces, per object it declares
-    (a table, a view, a dbt model or source), a tree whose node paths come
-    from the format's grammar: ``name.catalog``, ``name.schema``,
-    ``name.table``, ``kind`` (``table``/``view``), ``with.<property>``,
-    ``partitioned_by``, ``columns[].name``, ``columns[].type.base``,
-    ``columns[].type.args[]``, ``columns[].not_null``. A parser names no
-    perspective, assigns no namespace and applies no project convention.
+    A format parser reads one format and reports, per object it declares or
+    names (a table, a view, an ``INSERT`` target), an *object observation*:
+    the object's dialect, its physical location, and its properties keyed by
+    the grammar's names, each with the class the grammar gives its value
+    (identifier, keyword, text, list, flag or data type). For SQL these are
+    ``catalog``, ``schema_name``, ``table_name``, ``table_type``, every
+    ``WITH`` property under its own name (``format``, ``partitioned_by``,
+    ``external_location``, ...), and per column ``datatype`` (parsed into its
+    base type, arguments, the grammar's names for them and the type's SQL
+    category), ``is_nullable`` (stated by ``NOT NULL``) and ``is_partition``.
+    A select list's columns are reported separately, with names and order
+    only. A parser names no perspective, assigns no namespace and applies no
+    project convention. Grammar facts stay in the parser: SQL's own type
+    synonyms (``int`` is ``integer``) and argument names (``DECIMAL(precision,
+    scale)``).
 
     Inspectors keep what is not a perspective: discovering files, rendering
     the literal parts of templated SQL (NERD032 SPEC004), lineage, provide and
     reference observations, and core attributes (name, position, core type
     when a definition gives one, ``required`` from ``NOT NULL``).
 
-    The first parsers are the existing SQL DDL subset
-    (``internal/inspect/sqlddl``) and dbt ``schema.yml``.
+    The first parser is the existing SQL DDL subset
+    (``internal/inspect/sqlddl``), for Trino SQL in transforms. dbt
+    ``schema.yml``, Postgres views and Librarian exports follow; until then
+    their inspectors name their bindings themselves, and only their
+    definitions are derived (from the values, SPEC003).
 
 .. spec:: Derivation from files alone
     :id: HMD_CLI_NEURONSPHERE_NERD033_SPEC003
@@ -124,13 +136,19 @@ Terminology
     ``derive`` takes the trees of one format family from the inspected roots
     and proposes one perspective:
 
-    #. **Name pattern.** Physical names are compared across objects. A
-       segment that varies over a small set of values while the rest of
-       the name stays fixed becomes a pattern variable: ``billing_final`` and
-       ``billing_staging`` give ``{namespace}_{layer}``. The variable that
-       distinguishes several objects of one noun becomes the definition's
-       ``binding_key``; its values become binding names. The pattern replaces
-       NERD032 SPEC004's built-in layer suffixes.
+    #. **Name pattern.** Physical names are compared across objects. Objects
+       with the same table name (run-time ``{placeholder}`` segments removed),
+       in schemas that differ only in their last ``_``-separated segment, are
+       one noun's objects: ``billing_staging.aws_billing`` and
+       ``billing_final.aws_billing`` give ``<namespace>_<layer>``. The varying
+       segment becomes the definition's ``binding_key`` (named ``layer``; a
+       person may rename it), an enum whose values are in the order data flows
+       between them, read from ``INSERT ... SELECT`` lineage between two
+       objects of one noun. A noun's primary binding is its most downstream
+       one whose columns are declared (a view's are only selected). One table
+       alone shows no varying segment, so it binds without a layer, in its own
+       schema's namespace. The pattern replaces NERD032 SPEC004's built-in
+       layer suffixes.
     #. **Align.** Each object is aligned to a noun: the ``.hms`` noun of the
        same identity when one exists, otherwise the identity the name pattern
        gives.
@@ -143,19 +161,33 @@ Terminology
        ``columns[].type`` → ``datatype``, ``columns[].not_null`` →
        ``is_nullable`` (inverted). A path's naming is a parser fact, so a
        format family always derives the same key names.
-    #. **Kinds.** A key whose values are booleans is ``bool``. A key with few
-       distinct values across many objects is ``enum``; its distinct values
-       become ``enum_values``, and a type's arguments become ``parameters``
-       in order. Anything else is ``short_text``. The thresholds are in the
+    #. **Kinds.** A flag is ``bool``, with the default the grammar leaves
+       unstated. A keyword is an ``enum``. A data type is an ``enum`` with one
+       value per base type, its arguments as ``parameters`` with their
+       ``position``, and the spellings seen as ``aliases``. Text is an
+       ``enum`` when it has at most six distinct bare-word values and each is
+       seen twice on average; otherwise, like an identifier or a list, it is
+       ``short_text``. An identifier that equals the noun's name in most
+       objects defaults to ``{"ref": "name"}``. The thresholds are in the
        evidence, so a reviewer can see why a key is an enum.
     #. **Type mappings.** For each ``datatype`` enum value, ``hms_type`` is the
-       core type of the ``.hms`` attributes it is paired with. A value seen
-       with two core types, or with none, is flagged for review rather than
-       guessed.
+       core type of the ``.hms`` attributes it is paired with (same noun, same
+       attribute name). A value paired with two core types takes the majority
+       and is flagged for review, with the others as exceptions. A value paired
+       with none takes the nearest ``.hms`` type of its SQL category
+       (character → ``string``, exact and approximate numerics → ``integer`` /
+       ``float``, ``DATE`` → ``timestamp``), and an unknown type is flagged for
+       review rather than guessed.
     #. **Existing definition.** If the registry (SPEC001) already has a
-       definition the trees fit, ``derive`` maps into it instead of
-       proposing a new one: it fills values, and reports enum values and keys
-       the definition lacks.
+       definition of the dialect's name, nothing is derived: properties map
+       into it by key name or by a key's ``aliases`` (a renamed key keeps its
+       old name as one), its ``name_pattern`` decides identity, and a property
+       it has no key for is reported once, as information, and given no value.
+       Enum values outside it are reported by validation.
+
+    Bindings an inspector still names itself (SPEC002) get a definition
+    derived from their values the same way: the keys seen, each key's kind
+    from its values.
 
     Every derived key, enum value, pattern and mapping carries its evidence:
     the objects that support it, the exceptions, and the rule that produced
@@ -177,7 +209,8 @@ Terminology
     Modeler reader ignores:
 
     * ``aliases`` on an enum value: other spellings that mean it
-      (``int`` → ``integer``).
+      (``int`` → ``integer``); and on an extension, other names of the key
+      (a property renamed by an edit keeps the parser's name as an alias).
     * ``position`` on a parameter: its order, since a JSON object has none
       (``decimal``: ``precision`` 1, ``scale`` 2).
     * ``name_pattern`` on a definition: the physical name as a sequence of
@@ -187,11 +220,13 @@ Terminology
 
     Strings that are themselves templates are replaced: a default of
     ``"{entity.name}"`` becomes ``{"ref": "name"}``. A run-time placeholder in
-    a physical name (NERD032's ``template`` value) is written
-    ``{"runtime": "<param>"}`` inside a ``name_pattern``, not as text.
+    a physical name (NERD032's ``template`` value) is to be written
+    ``{"runtime": "<param>"}`` inside a ``name_pattern``, not as text; the
+    first slice still carries the per-binding ``template`` value as the text
+    NERD032 renders, and that remains to be done.
 
-    ``nsctl inspect <noun> --context`` prints, and ``--out <dir>`` writes, the
-    merged context a generator reads: the ``.hms`` document with each
+    ``nsctl inspect <noun> --context`` prints, and ``--out <dir>`` writes as
+    ``<namespace>.<name>.json``, the merged context a generator reads: the ``.hms`` document with each
     perspective's values under ``extensions[<perspective>]``, as
     ``hmd-schema-loader`` merges sidecars. It is plain JSON, usable by any
     generator and as a ``hmd-cli-mickey`` context.
@@ -202,11 +237,16 @@ Terminology
     :status: proposed
 
     Derived perspectives live in the inspection store (NERD032 SPEC005) beside
-    the snapshot they were derived from: definitions, values and evidence. A
-    perspective in the IR is ``derived`` or ``edited``. ``edited`` covers renaming
-    a key, merging two enum values, accepting a flagged ``hms_type``, or
-    dropping a key. Edits are stored as operations on the derivation, so
-    deriving again after the files change keeps them.
+    the snapshot they were derived from: definitions and evidence (the values
+    are the snapshot's model). A perspective in the IR is ``derived`` or
+    ``edited``. The edits are ``rename`` (the perspective), ``rename-key``,
+    ``drop-key`` and ``hms-type`` (set the core type of a data type value,
+    which also settles a review flag). Edits are stored per set of inspected
+    roots as operations on the derivation, so deriving again after the files
+    change keeps them; an edit that no longer applies is reported as stale,
+    and one that does not apply when it is made is refused. Unlike snapshots,
+    edits are a person's work: a store rebuild for a new schema version keeps
+    them.
 
     ``materialise <perspective> --to <repo>`` writes
     ``src/perspectives/<perspective>.perspective.json`` and one
@@ -227,15 +267,21 @@ Terminology
 
     * ``nsctl inspect perspective list [path...]`` lists the definitions in
       the registry with their origin (a repository file, or ``derived``).
-    * ``nsctl inspect perspective derive [path...] [--format <family>]
-      [--name <perspective>]`` derives (SPEC003), stores the result in the IR and
-      prints the proposal with its review flags. ``--evidence`` adds the
-      supporting objects per item.
-    * ``nsctl inspect perspective show <perspective>`` prints a definition and its
-      values; ``--json`` as everywhere.
-    * ``nsctl inspect perspective edit <perspective> <operation>`` records an edit
-      (SPEC005).
-    * ``nsctl inspect perspective materialise <perspective> --to <repo>`` (SPEC005).
+    * ``nsctl inspect perspective derive [path...]`` inspects again, derives
+      (SPEC003), stores the result in the IR and prints the proposal with its
+      review flags. ``--evidence`` adds the rule, support and examples per
+      item; ``--json`` prints the derivations.
+    * ``nsctl inspect perspective show <perspective> [path...]`` prints a
+      definition as its file would be.
+    * ``nsctl inspect perspective edit <perspective> <op> <arg>... [--path
+      <dir>]`` records an edit (SPEC005). It needs ``HMD_HOME``.
+    * ``nsctl inspect perspective materialise <perspective> [path...] --to
+      <repo>`` (SPEC005).
+
+    ``nsctl inspect perspectives`` is an alias of ``nsctl inspect
+    perspective``. ``nsctl inspect --hms`` and ``--out`` also write each
+    perspective's definition under ``src/perspectives/``, so an export reads
+    back without the repositories it came from.
 
 .. spec:: Render-and-compare, when a generator exists
     :id: HMD_CLI_NEURONSPHERE_NERD033_SPEC007
@@ -263,5 +309,8 @@ Open questions
    live: a perspective-pack repository distributed like stacks and plugins
    (NERD016–018), or the Modeler (``hmd-ms-mickey``) once NERD003 of
    ``hmd-lib-django-modeling`` makes its perspectives Git artifacts?
-#. Do the ``name_pattern`` parts belong in the Modeler's shape upstream, so
-   ``hmd-app-modeler`` can edit them?
+#. Do the ``name_pattern`` parts and key ``aliases`` belong in the Modeler's
+   shape upstream, so ``hmd-app-modeler`` can edit them?
+#. A dropped key survives materialisation only as an information finding per
+   property. Should a definition be able to say "ignore this property"
+   explicitly?

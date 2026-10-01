@@ -67,15 +67,16 @@ Each commit before `85501b5` is independently droppable. `85501b5` replaces the 
 
 ```
 internal/model/                IR, observations, Consolidate, Diff, ParseHMS/ExportHMS, sidecar codec
-internal/perspective/          perspective definitions (embedded + repo overrides), SQL datatype values, validation
+internal/perspective/          perspective definitions (repositories only, none embedded), derivations, edits, validation
+internal/derive/               perspectives derived from the files: identity, bindings, definitions, evidence (NERD033)
 internal/inspect/              Inspector, Source, Run, Discover, Revision, Walk
-internal/inspect/sqlddl/       CREATE SCHEMA|TABLE|VIEW, INSERT…SELECT, DROP, FinalSelect
+internal/inspect/sqlddl/       CREATE SCHEMA|TABLE|VIEW, INSERT…SELECT, DROP, FinalSelect; SQL types (grammar facts only)
 internal/inspect/hms/          language packs                       (NS conventions)
 internal/inspect/nstransform/  transform YAML + Trino SQL           (NS conventions)
 internal/inspect/nsexport/     producers + content item types       (NS conventions)
 internal/inspect/dbt/          any dbt project                      (generic)
 internal/modelstore/           SQLite snapshots
-cmd/inspect.go, inspect_diff.go
+cmd/inspect.go, inspect_diff.go, inspect_perspective.go
 ```
 
 ### The inspector boundary
@@ -142,7 +143,7 @@ Additions to the Modeler's definition shape (both optional, ignored by a Modeler
 
 Attribute-level values sit under the sidecar's `attributes` member. This settles the placement `hmd-lib-ns-model`'s spec leaves open: its loader merges a sidecar only at object level.
 
-The four embedded definitions are in `internal/perspective/defs/*.perspective.json`. The `trino` datatype enum mirrors mickey's `ansi-sql` `datatype` entries, plus `hms_type`. `nsctl inspect perspectives` lists the definitions, and `src/perspectives/<name>.perspective.json` in any inspected repository overrides one by name. A test parses mickey's real `ansi-sql` definition (converted to JSON) to prove the shape is the Modeler's.
+The four definitions were first embedded in `nsctl`. They are now test fixtures (`internal/perspective/testdata/spike-*.perspective.json`): `nsctl` embeds no perspective, and derives the ones no repository declares (see *Perspectives derived, not embedded* below). The `trino` datatype enum mirrored mickey's `ansi-sql` `datatype` entries, plus `hms_type`. A test parses mickey's real `ansi-sql` definition (converted to JSON) to prove the shape is the Modeler's.
 
 Consequences:
 
@@ -306,6 +307,38 @@ Disagreements: 1 error, 2 warning, 7 info
 
 The exported `.hms` makes the noun authoritative. The sidecar's declared values outrank what the DDL implies, and every contradiction names both files. This is the shape of the "declared model versus implementation" check that `verify` needs.
 
+### Perspectives derived, not embedded (NERD033)
+
+Embedding the definitions was not the whole problem. Each inspector was a hand-written reader for a perspective that existed only in Go: its name, its key names, which DDL slot fills which key, the `_source/_staging/_final/_ux` layer rule and the "final is primary" rule. NERD033 makes a perspective data only, which `nsctl` derives from the files that realise a model and never ships:
+
+- **Parsers report neutral objects.** `nstransform` reports each table, view and `INSERT` target with its properties keyed by the SQL grammar's names (`format`, `partitioned_by`, `datatype`, ...), and a parsed type (base, arguments, SQL category). It names no perspective, namespace or layer.
+- **`internal/derive` decides the rest**, from the whole corpus:
+  - identity, from tables with the same name in schemas that differ only in their last segment;
+  - the binding key and its order (`source -> staging -> final -> ux`), from `INSERT ... SELECT` lineage;
+  - the primary binding (the most downstream one with declared columns);
+  - each key's kind (bool, enum or text) from its values;
+  - each type's `hms_type`, from pairing with `.hms` attributes, else the SQL category.
+
+  Every piece carries evidence: the rule, the support, examples, exceptions and a review flag.
+- **A declared definition wins.** If a repository has `src/perspectives/trino.perspective.json`, nothing is derived. Its `name_pattern` decides identity, and properties map through key names or `aliases`.
+- **The IR is the store.** Derivations are kept per snapshot, and edits (`rename`, `rename-key`, `drop-key`, `hms-type`) are kept per scope, surviving store rebuilds. `nsctl inspect perspective materialise trino --to <repo>` writes the definition and one sidecar per noun into that repository only.
+- **dbt, postgres-view and librarian-content** inspectors still name their bindings. Only their definitions are derived (from their values). Turning them into neutral parsers is the next step.
+
+The test of the design: the model derived from the billing and reporting fixtures is **identical** to the one the hand-written inspector and the embedded definition produced. That covers every noun, binding, value, column type, lineage edge and disagreement (`TestDerivationReproducesTheSpikesModel`, against dumps frozen before the change). The derived `trino` definition agrees with the embedded one on every key, kind, enum value and `hms_type` the files mention (`TestDerivedTrinoAgreesWithTheSpikeDefinition`). Run over the real repositories, `nsctl inspect perspective derive` prints:
+
+```
+trino  (derived)
+  binding key  layer: source -> staging -> final -> ux
+  name pattern <namespace>_<layer>.<name>
+  entity     format             enum parquet
+  entity     table_type         enum table, view
+  attribute  datatype           enum date→timestamp, double→float, timestamp→timestamp, varchar→string
+  attribute  is_partition       bool
+  ...
+```
+
+`catalog` and `is_nullable` are absent because no file in the corpus states them. A derived perspective describes what the files say, not what the technology could say.
+
 ## Per-repository detection
 
 | Repository | Inspector | What it yielded | Accuracy and limits |
@@ -384,8 +417,10 @@ The exported `.hms` makes the noun authoritative. The sidecar's declared values 
 - `--sources` output is long. The text UX was deliberately not polished.
 - Disagreements are not acknowledged or suppressed yet. A verification gate would need that.
 - **Perspectives are shared with the Modeler but not yet with its code.**
-  - The embedded definitions follow mickey's shape. `hms_type` and `binding_key` are additions to it, so mickey or `hmd-lib-ns-model` should adopt or reject them.
-  - Mickey still serves its own Python-literal definitions. `hmd-lib-django-modeling` NERD003 SPEC007 proposes moving them to `src/perspectives/*.perspective.json`; once that lands, `nsctl` could read the same files instead of embedding its own.
+  - Definitions follow mickey's shape. `hms_type`, `binding_key`, `name_pattern`, parameter `position` and value and key `aliases` are additions to it, so mickey or `hmd-lib-ns-model` should adopt or reject them.
+  - Mickey still serves its own Python-literal definitions. `hmd-lib-django-modeling` NERD003 SPEC007 proposes moving them to `src/perspectives/*.perspective.json`; once that lands, `nsctl` reads the same files, as it does any repository's.
+- The per-binding `template` value is still a text string with `{placeholders}`. NERD033 SPEC004 wants it as structured `name_pattern` parts.
+- A dropped key survives materialisation only as one information finding per property. A definition cannot yet say "ignore this property".
   - The `hmd-lib-ns-model` spec this design leans on is uncommitted in its repository.
 - `hmd-schema-loader` merges a whole sidecar into `extensions[<perspective>]`, so the `attributes` member does not reach `attributes.<attr>.extensions`. That is harmless, but a loader that wants per-attribute placement must redistribute it.
 - Validation of attribute values applies to every binding column, including columns a binding lists but the core noun does not have (an INSERT's select list). A stricter rule could reject sidecar values for attributes the core noun lacks.
