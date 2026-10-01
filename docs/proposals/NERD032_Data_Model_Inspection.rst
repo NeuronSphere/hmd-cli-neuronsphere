@@ -855,6 +855,30 @@ catalog the model, through an export no consumer is baked into.
     refuses a working tree with uncommitted changes, because a slice has to
     name a revision others can read.
 
+    **A slice references source code and never holds it.** It carries:
+
+    * the model's structure: identities, attributes and columns, their types
+      and requiredness, enumerations, lineage, relationships and
+      disagreements, plus descriptions an ``.hms`` gives;
+    * perspective values whose key the definition declares as ``enum``,
+      ``bool`` or ``short_text``, and their parameters;
+    * for everything else, a reference instead: repository, path, line
+      range, revision and the file's blob digest. That covers SQL
+      statements, view and model bodies, templates, expressions, text
+      literals, and anything an inspector keeps as extra raw data.
+
+    The digest tells a reader whether a reference is still current without
+    sending the file. Whoever needs the code reads it from the repository
+    with their own access (SPEC018's read mode). The control plane is
+    therefore never a way to read code someone has no access to. What
+    anyone with control-plane access can see is the structure: names,
+    columns, types and lineage.
+
+    ``publish`` builds a slice by this rule, not by trusting each inspector.
+    A slice that would carry a value outside it is refused with the
+    offending element named. ``scan --publish`` (SPEC020) uses the same
+    builder. (Amended 2026-10-01.)
+
     Every workspace that can reach the control plane receives the published
     slices of repositories it does not hold. It receives them as read-only
     members, ingested as SPEC016 ingests any observations file, and refresh
@@ -1042,9 +1066,6 @@ Open questions
    list that a new column shifts?
 #. Should ``impact --since`` take a ref per repository, for a change that
    spans branches named differently in each repository?
-#. Should a published slice carry the observations' file contents
-   (``rawSql`` and the like), or only what consolidation needs, to keep
-   source code out of the control plane?
 #. Should an edge whose source was found in an environment manifest count as
    ``derived`` rather than ``proposed``, so ``sync`` writes it without a
    confirmation?
