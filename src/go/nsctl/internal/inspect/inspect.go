@@ -21,8 +21,11 @@ import (
 type Source struct {
 	// Root is the absolute directory.
 	Root string `json:"root"`
-	// Repo is the repository's name: its BACON name, else its directory name.
+	// Repo is the repository's directory name: what a person opens, and so
+	// what provenance names.
 	Repo string `json:"repo"`
+	// Class is the name its BACON manifest declares, "" without one.
+	Class string `json:"class,omitempty"`
 	// Revision is the commit HEAD points at, "" when it cannot be read.
 	Revision string `json:"revision,omitempty"`
 	// FS reads the repository; paths are slash-separated and repo-relative.
@@ -58,6 +61,17 @@ func Run(ctx context.Context, sources []Source, inspectors []Inspector) ([]model
 	var all []model.Observation
 	var reports []Report
 	for _, src := range sources {
+		if src.Class != "" && src.Class != src.Repo {
+			// A manifest whose name is not its directory's: often a template
+			// placeholder nobody replaced, and the RepoClass registers under it.
+			all = append(all, model.Observation{
+				Kind: model.KindFinding,
+				Finding: &model.FindingObs{Severity: model.SevWarning, Code: "manifest-name-mismatch",
+					Message: fmt.Sprintf("meta-data/manifest.json names this repository %q", src.Class)},
+				Provenance: model.Provenance{Inspector: "inspect", Repo: src.Repo, Revision: src.Revision,
+					File: "meta-data/manifest.json", Authority: model.AuthDDL, Confidence: model.Decided},
+			})
+		}
 		for _, ins := range inspectors {
 			if err := ctx.Err(); err != nil {
 				return all, reports
@@ -143,11 +157,11 @@ func Discover(paths []string) ([]Source, error) {
 
 // NewSource describes one directory.
 func NewSource(dir string) Source {
-	name := filepath.Base(dir)
-	if m, err := repoclass.ReadManifest(dir); err == nil && m != nil && m.Name != "" {
-		name = m.Name
+	src := Source{Root: dir, Repo: filepath.Base(dir), Revision: Revision(dir), FS: os.DirFS(dir)}
+	if m, err := repoclass.ReadManifest(dir); err == nil && m != nil {
+		src.Class = m.Name
 	}
-	return Source{Root: dir, Repo: name, Revision: Revision(dir), FS: os.DirFS(dir)}
+	return src
 }
 
 func isRepo(dir string) bool {

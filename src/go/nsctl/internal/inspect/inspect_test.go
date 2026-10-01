@@ -39,7 +39,7 @@ func TestDiscoverExpandsAParentDirectory(t *testing.T) {
 	if len(srcs) != 2 {
 		t.Fatalf("sources = %+v", srcs)
 	}
-	if srcs[0].Repo != "hmd-lang-a" || srcs[1].Repo != "repo-b" || srcs[1].Revision != "0123456789abcdef" {
+	if srcs[0].Repo != "repo-a" || srcs[0].Class != "hmd-lang-a" || srcs[1].Repo != "repo-b" || srcs[1].Revision != "0123456789abcdef" {
 		t.Errorf("sources = %+v", srcs)
 	}
 }
@@ -61,6 +61,15 @@ func TestRevisionFollowsRefsAndPackedRefs(t *testing.T) {
 		if got := Revision(filepath.Join(root, dir)); got != want {
 			t.Errorf("Revision(%s) = %q, want %q", dir, got, want)
 		}
+	}
+}
+
+func TestRunReportsAManifestNamedForAnotherRepository(t *testing.T) {
+	t.Parallel()
+	srcs := []Source{{Repo: "hmd-tf-ntc-export", Class: "repo_name"}, {Repo: "same", Class: "same"}, {Repo: "none"}}
+	obs, _ := Run(context.Background(), srcs, nil)
+	if len(obs) != 1 || obs[0].Finding.Code != "manifest-name-mismatch" || obs[0].Provenance.Repo != "hmd-tf-ntc-export" {
+		t.Errorf("observations = %+v", obs)
 	}
 }
 
