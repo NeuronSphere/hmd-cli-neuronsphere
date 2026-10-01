@@ -71,6 +71,27 @@ func TestNSReportingLanguagePack(t *testing.T) {
 	}
 }
 
+// The real transform_instance view selects created_at twice: the .hms
+// attribute out of content, and the entity table's own column. Postgres
+// refuses such a view.
+func TestViewSelectingAColumnTwice(t *testing.T) {
+	t.Parallel()
+	m, _ := run(t, "transform")
+	got := codes(m)
+	if len(got["view-duplicate-column"]) != 1 || got["view-duplicate-column"][0] != "hmd_lang_transform.transform_instance" {
+		t.Errorf("view-duplicate-column = %v", got["view-duplicate-column"])
+	}
+	// Every attribute is projected, so the attribute sets agree.
+	if len(got["view-attributes-differ"]) != 0 {
+		t.Errorf("view-attributes-differ = %v", m.Disagreements)
+	}
+	// A relationship has no attributes of its own, whatever its view selects.
+	rel := m.Noun(model.ID{Namespace: "hmd_lang_transform", Name: "transform_has_transform_version"})
+	if rel == nil || len(rel.Attributes) != 0 || len(rel.Manifestations) != 1 {
+		t.Errorf("relationship = %+v", rel)
+	}
+}
+
 func TestUIDisplayNamingNoAttribute(t *testing.T) {
 	t.Parallel()
 	m, _ := run(t, "librarian")

@@ -214,16 +214,32 @@ func inspectViews(src inspect.Source, docs map[model.ID]*model.HMSDoc) ([]model.
 				Why: "view generated from the .hms schema"}
 			obs = append(obs, model.Observation{Kind: model.KindManifestation, Subject: id, Provenance: prov,
 				Manifest: &model.ManifestObs{Key: key, Tech: "postgres-view", Location: model.Location{Table: st.Name.Table()}}})
+			// An attribute is projected out of the content document
+			// (content -> 'x'); anything else is one of the entity table's own
+			// columns. Deciding by expression, not by name, is what catches
+			// an attribute that shares a system column's name.
 			var cols []string
+			names := map[string]int{}
 			for i, it := range st.Select {
 				t, phys := model.Unknown, "jsonb"
-				if sys, ok := systemColumns[it.Name]; ok {
-					t, phys = sys, ""
-				} else {
+				if strings.Contains(it.Expr, "content") && strings.Contains(it.Expr, ">") {
 					cols = append(cols, it.Name)
+				} else if sys, ok := systemColumns[it.Name]; ok {
+					t, phys = sys, ""
 				}
+				names[it.Name]++
 				obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: id, Provenance: prov,
 					Attr: &model.AttrObs{Name: it.Name, Manifestation: key, Position: i + 1, Type: t, PhysicalType: phys}})
+			}
+			for _, name := range sortedNames(names) {
+				if names[name] < 2 {
+					continue
+				}
+				o := finding(f, model.SevError, "view-duplicate-column",
+					fmt.Sprintf("view %s selects %s %d times; Postgres refuses to create it. The attribute collides with the entity table's own %s column",
+						st.Name, name, names[name], name))
+				o.Subject, o.Provenance.Line = id, st.Line
+				obs = append(obs, o)
 			}
 			if doc, ok := docs[id]; ok {
 				var want []string
@@ -264,6 +280,15 @@ func statementText(text string, line int) string {
 		return rest[:i]
 	}
 	return rest
+}
+
+func sortedNames(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sortedIDs(docs map[model.ID]*model.HMSDoc) []model.ID {

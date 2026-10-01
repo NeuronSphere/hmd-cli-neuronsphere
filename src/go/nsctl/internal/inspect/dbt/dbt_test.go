@@ -64,6 +64,10 @@ func TestReportingProject(t *testing.T) {
 	if dim == nil || dim.Description == nil || *dim.Description != "Transform dimension (name + version)." {
 		t.Fatalf("dim_transform = %+v", dim)
 	}
+	// No config() in the SQL: dbt_project.yml's staging folder says table.
+	if dim.Manifestations[0].Format != "table" {
+		t.Errorf("dim_transform materialized = %q", dim.Manifestations[0].Format)
+	}
 	if a := dim.Attribute("transform_id"); a == nil || a.Required == nil || !*a.Required {
 		t.Errorf("transform_id should be required by its not_null test: %+v", a)
 	}

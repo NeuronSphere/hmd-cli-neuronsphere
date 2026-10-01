@@ -2,6 +2,16 @@
 
 ## 2026-10-01
 
+- fix: `nsctl inspect` fixes from its first run over the reporting corpus.
+  - The `hms` inspector decides whether a generated view's column is an
+    attribute by its expression (`content -> 'x'`), not its name. It reports a
+    view that selects one column twice. The real `transform_instance` view
+    selects `created_at` both as the attribute and as the entity table's own
+    column, so Postgres cannot create it.
+  - An `.hms` relationship with no attributes no longer takes its view's system
+    columns as attributes.
+  - dbt models without `config()` take their materialization from
+    `dbt_project.yml`'s folder settings.
 - feat: `internal/modelstore` keeps `nsctl inspect` snapshots in SQLite at
   `$HMD_HOME/.cache/neuronsphere/inspect/model.db` (NERD032 SPEC005).
   - Each snapshot stores the observations and the consolidated model, keyed by

@@ -39,8 +39,9 @@ func projects(src inspect.Source) ([]string, error) {
 }
 
 type projectFile struct {
-	Name       string   `yaml:"name"`
-	ModelPaths []string `yaml:"model-paths"`
+	Name       string         `yaml:"name"`
+	ModelPaths []string       `yaml:"model-paths"`
+	Models     map[string]any `yaml:"models"`
 }
 
 type schemaFile struct {
@@ -168,7 +169,7 @@ func inspectProject(src inspect.Source, projectYML string) ([]model.Observation,
 		if err != nil {
 			return nil, err
 		}
-		obs = append(obs, inspectModel(project, scope, f, string(body), docs[name])...)
+		obs = append(obs, inspectModel(project, scope, f, string(body), docs[name], folderMaterialization(pf, root, f))...)
 	}
 	for _, name := range sortedKeys(docs) {
 		if !seen[name] {
@@ -246,7 +247,7 @@ var (
 	jinjaCommentRE = regexp.MustCompile(`(?s)\{#.*?#\}`)
 )
 
-func inspectModel(project, scope, file, body string, doc modelDoc) []model.Observation {
+func inspectModel(project, scope, file, body string, doc modelDoc, mat string) []model.Observation {
 	name := strings.TrimSuffix(path.Base(file), ".sql")
 	id := model.ID{Namespace: project, Name: name}
 	key := "dbt-model:" + project + "." + name
@@ -254,7 +255,6 @@ func inspectModel(project, scope, file, body string, doc modelDoc) []model.Obser
 	if doc.file != "" {
 		auth, why = model.AuthDbtYAML, "dbt model, documented"
 	}
-	mat := "view"
 	if m := materializeRE.FindStringSubmatch(body); m != nil {
 		mat = m[1]
 	}
@@ -313,6 +313,34 @@ func inspectModel(project, scope, file, body string, doc modelDoc) []model.Obser
 	}
 	obs = append(obs, compareDocumented(id, file, doc, produced)...)
 	return obs
+}
+
+// folderMaterialization reads the materialization dbt_project.yml assigns a
+// model by folder: models.<project>.<dir>...: +materialized, the deepest
+// setting winning. dbt's own default is view.
+func folderMaterialization(pf projectFile, root, file string) string {
+	mat := "view"
+	var rel string
+	for _, mp := range pf.ModelPaths {
+		prefix := path.Join(root, mp) + "/"
+		if strings.HasPrefix(file, prefix) {
+			rel = strings.TrimPrefix(file, prefix)
+		}
+	}
+	cfg, _ := pf.Models[pf.Name].(map[string]any)
+	dirs := strings.Split(path.Dir(rel), "/")
+	for i := 0; cfg != nil; i++ {
+		for _, k := range []string{"+materialized", "materialized"} {
+			if v, ok := cfg[k].(string); ok {
+				mat = v
+			}
+		}
+		if i >= len(dirs) || dirs[i] == "." {
+			break
+		}
+		cfg, _ = cfg[dirs[i]].(map[string]any)
+	}
+	return mat
 }
 
 func blankKeepLines(s string) string { return strings.Repeat("\n", strings.Count(s, "\n")) }

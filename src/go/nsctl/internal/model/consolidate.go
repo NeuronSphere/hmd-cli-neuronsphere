@@ -380,6 +380,9 @@ func (c *consolidator) buildAttributes(obs []Observation) {
 			c.nounAttributesFromHMS(n, attrs)
 			continue
 		}
+		if n.Authoritative {
+			continue // an .hms noun with no attributes has none, whatever its views select
+		}
 		c.nounAttributesFromManifestation(n)
 	}
 }
