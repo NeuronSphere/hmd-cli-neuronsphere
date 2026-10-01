@@ -236,7 +236,7 @@ func planFromRepo(f *fromRepo, existing *manifest.Manifest) (*repoPlan, error) {
 		if previous, ok := bound[w.Key]; ok && previous != name {
 			// A rename adds the new instance and leaves the old one deployed.
 			// Nothing tears an instance down on the user's behalf -- the promise
-			// `nsctl repo remove` already makes -- and a rename of a deployed
+			// `nsctl instance remove` already makes -- and a rename of a deployed
 			// instance is a teardown in ms-deployment's terms, not a relabel.
 			plan.Renamed = append(plan.Renamed, previous)
 		}
@@ -535,7 +535,7 @@ func checkNamesAreUsed(f *fromRepo, plan *repoPlan) error {
 // quietly undeclaring them would make a later apply look like it had lost them.
 //
 // Neither is ever torn down. These verbs edit a manifest, which is the promise
-// `nsctl repo remove` already makes.
+// `nsctl instance remove` already makes.
 func (p *repoPlan) apply(m *manifest.Manifest, prune bool) (added, kept []string) {
 	added, kept = p.applyInto(m, prune, &m.Bindings)
 	m.Profiles = p.Profiles
@@ -703,7 +703,7 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 	for _, previous := range p.Renamed {
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"warning: %s was renamed, so it is no longer declared. Anything already deployed"+
-				" under that name stays deployed -- `nsctl repo list --env %s` shows it as"+
+				" under that name stays deployed -- `nsctl instance list --env %s` shows it as"+
 				" undeclared\n", previous, slug)
 	}
 }

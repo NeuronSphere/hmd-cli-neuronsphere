@@ -129,7 +129,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
+    FOR    ${command}    IN    env    instance    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -561,7 +561,7 @@ Help Leads With What A First Run Needs
     ${start}=     Get Line    ${result.stdout}    ${{ $result.stdout.splitlines().index('Start here:') + 1 }}
     Should Contain    ${start}    quickstart
     # Grouping is presentation only: every command is still listed.
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
+    FOR    ${command}    IN    env    instance    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
         Should Contain    ${result.stdout}    ${command}
     END
 

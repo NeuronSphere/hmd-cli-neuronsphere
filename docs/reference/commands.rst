@@ -775,7 +775,7 @@ declared extensions without the Floci health wait, the bootstrap or the route
 rewrite a full start does.
 
 Editing the manifest by hand and running this is the same operation as using
-`nsctl control-plane repo`.
+`nsctl control-plane instance`.
 
 An extension that fails is reported and skipped; nothing else is affected. The
 exit status is non-zero when any did, so a script notices.
@@ -797,8 +797,8 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo
-------------------------
+nsctl control-plane instance
+----------------------------
 
 Edits the control-plane manifest at $HMD_HOME/.config/control-plane.yaml.
 
@@ -809,22 +809,22 @@ result -- so nothing here touches a running control plane on its own.
 An extension declared here outlives every environment, is up whenever the
 control plane is, and there is one of it per HMD_HOME. Anything that should be
 one-per-environment belongs in an environment manifest instead; see
-`nsctl repo add`.
+`nsctl instance add`.
 
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl control-plane repo
+   nsctl control-plane instance
 
 Inherited flags
 ~~~~~~~~~~~~~~~
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo add
-----------------------------
+nsctl control-plane instance add
+--------------------------------
 
 Adds a repo class to the control-plane manifest.
 
@@ -839,16 +839,16 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo add <repo-class>[@<version>] [flags]
+   nsctl control-plane instance add <repo-class>[@<version>] [flags]
 
 Examples
 ~~~~~~~~
 
 .. code-block:: shell
 
-   nsctl control-plane repo add hmd-inf-local-registry --name registry \
+   nsctl control-plane instance add hmd-inf-local-registry --name registry \
        --config url=http://registry.ns.local --config upstream=server:3141
-     nsctl control-plane repo add hmd-inf-local-registry --config pypi.enabled=true
+     nsctl control-plane instance add hmd-inf-local-registry --config pypi.enabled=true
 
 Local flags
 ~~~~~~~~~~~
@@ -862,8 +862,8 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo list
------------------------------
+nsctl control-plane instance list
+---------------------------------
 
 Lists the control-plane manifest's declarations with their resolved versions.
 
@@ -875,15 +875,15 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo list
+   nsctl control-plane instance list
 
 Inherited flags
 ~~~~~~~~~~~~~~~
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo remove
--------------------------------
+nsctl control-plane instance remove
+-----------------------------------
 
 Removes an instance from the control-plane manifest.
 
@@ -896,7 +896,7 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo remove <instance>
+   nsctl control-plane instance remove <instance>
 
 Aliases: ``rm``.
 
@@ -1203,7 +1203,7 @@ This only writes the registry. The environment's database, cluster and routes
 are created by `nsctl env start <name>`, which is also what makes it usable.
 
 A new environment is empty: it gets the substrate and nothing else. Declare
-what should run on it with `nsctl repo add --env <name> <repo-class>`.
+what should run on it with `nsctl instance add --env <name> <repo-class>`.
 
 With --from-repo it is not empty. The repository's `local` section and its
 checked-in neuronsphere.lock say what to stand up alongside it, every activated
@@ -1256,7 +1256,7 @@ nsctl env apply
 Deploys the environment substrate and everything the manifest declares.
 
 The manifest at $HMD_HOME/environments/<name>.yaml is the desired state.
-Editing it by hand and running this is the same operation as `nsctl repo add`,
+Editing it by hand and running this is the same operation as `nsctl instance add`,
 which edits that file and reconciles for you.
 
 This is what `env start` runs at the end, so applying after an edit does not
@@ -1846,6 +1846,165 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl instance
+--------------
+
+Edits the environment manifest at $HMD_HOME/environments/<env>.yaml.
+
+These verbs are wrappers: they change that file and nothing else. Editing it
+by hand is equivalent, and either way `nsctl env apply` is what deploys the
+result -- so nothing here touches a running environment on its own.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance add
+------------------
+
+Adds a repo class to the environment's manifest.
+
+The instance is named after the repo class with its hmd- prefix dropped unless
+--name says otherwise, so `nsctl instance add hmd-ms-transform` declares an
+instance called ms-transform.
+
+Declaring is not deploying. Run `nsctl env apply` to deploy the result.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance add <repo-class>[@<version>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl instance add hmd-ms-transform
+     nsctl instance add hmd-ms-transform@0.3 --name transform
+     nsctl instance add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
+     nsctl instance add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2
+
+Local flags
+~~~~~~~~~~~
+
+* ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
+* ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
+* ``--env`` — Environment to declare it in (default: the default environment)
+* ``--name`` — Instance name (default: the repo class without its hmd- prefix)
+* ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance import
+---------------------
+
+Reads what the deployment graph has for this environment and declares it.
+
+This is the migration path from the Python CLI. An environment brought up by
+`hmd neuronsphere up` gets its workloads from installed plugin packages, which
+nsctl does not read -- so those instances show as "undeclared" until they are
+written into a manifest. This writes them.
+
+Substrate instances are skipped: nsctl deploys those whether or not a manifest
+names them, and declaring one would make it removable by deleting a line.
+
+Instances the manifest already declares are left exactly as they are, so
+running this twice changes nothing the second time and a hand-edited
+declaration is never overwritten.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance import [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all`` — Import instances that are not currently deployed too
+* ``--dry-run`` — Show what would be declared without writing
+* ``--env`` — Environment to import from (default: the default environment)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance list
+-------------------
+
+Lists the environment manifest's declarations beside the deployment graph.
+
+The substrate is listed too, marked as such: nsctl deploys it whether or not a
+manifest exists, so seeing it here explains instances you never declared.
+
+An instance shown as undeclared is deployed but named by no manifest -- what a
+deleted line leaves behind.
+
+DECLARED and FROM answer two different questions. DECLARED is where the
+declaration came from; FROM is where the version came from, which the
+declaration cannot say -- an instance deploying 0.1.4 out of an artifact and one
+deploying 0.1.4 out of a checkout are both declared in the manifest.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to list (default: the default environment)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance remove
+---------------------
+
+Removes an instance from the environment's manifest.
+
+This edits the manifest only. What is already deployed stays deployed: nsctl
+does not tear an instance down on your behalf.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance remove <instance> [flags]
+
+Aliases: ``rm``.
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to edit (default: the default environment)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl lock
 ----------
 
@@ -2201,165 +2360,6 @@ Local flags
 * ``--repo`` — A repository to offer adopting, instead of asking for one
 * ``--stack`` — Deploy this stack into the new environment; bare --stack means analytics
 * ``--yes`` — Take the default answer to every question
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo
-----------
-
-Edits the environment manifest at $HMD_HOME/environments/<env>.yaml.
-
-These verbs are wrappers: they change that file and nothing else. Editing it
-by hand is equivalent, and either way `nsctl env apply` is what deploys the
-result -- so nothing here touches a running environment on its own.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo add
---------------
-
-Adds a repo class to the environment's manifest.
-
-The instance is named after the repo class with its hmd- prefix dropped unless
---name says otherwise, so `nsctl repo add hmd-ms-transform` declares an
-instance called ms-transform.
-
-Declaring is not deploying. Run `nsctl env apply` to deploy the result.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo add <repo-class>[@<version>] [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl repo add hmd-ms-transform
-     nsctl repo add hmd-ms-transform@0.3 --name transform
-     nsctl repo add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
-     nsctl repo add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2
-
-Local flags
-~~~~~~~~~~~
-
-* ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
-* ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
-* ``--env`` — Environment to declare it in (default: the default environment)
-* ``--name`` — Instance name (default: the repo class without its hmd- prefix)
-* ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo import
------------------
-
-Reads what the deployment graph has for this environment and declares it.
-
-This is the migration path from the Python CLI. An environment brought up by
-`hmd neuronsphere up` gets its workloads from installed plugin packages, which
-nsctl does not read -- so those instances show as "undeclared" until they are
-written into a manifest. This writes them.
-
-Substrate instances are skipped: nsctl deploys those whether or not a manifest
-names them, and declaring one would make it removable by deleting a line.
-
-Instances the manifest already declares are left exactly as they are, so
-running this twice changes nothing the second time and a hand-edited
-declaration is never overwritten.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo import [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--all`` — Import instances that are not currently deployed too
-* ``--dry-run`` — Show what would be declared without writing
-* ``--env`` — Environment to import from (default: the default environment)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo list
----------------
-
-Lists the environment manifest's declarations beside the deployment graph.
-
-The substrate is listed too, marked as such: nsctl deploys it whether or not a
-manifest exists, so seeing it here explains instances you never declared.
-
-An instance shown as undeclared is deployed but named by no manifest -- what a
-deleted line leaves behind.
-
-DECLARED and FROM answer two different questions. DECLARED is where the
-declaration came from; FROM is where the version came from, which the
-declaration cannot say -- an instance deploying 0.1.4 out of an artifact and one
-deploying 0.1.4 out of a checkout are both declared in the manifest.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo list [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to list (default: the default environment)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo remove
------------------
-
-Removes an instance from the environment's manifest.
-
-This edits the manifest only. What is already deployed stays deployed: nsctl
-does not tear an instance down on your behalf.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo remove <instance> [flags]
-
-Aliases: ``rm``.
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to edit (default: the default environment)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2782,7 +2782,7 @@ nsctl repoclass deploy set-config
 ---------------------------------
 
 Writes a dotted key under deploy.default_configuration. The value is typed
-the way nsctl repo add --config types it: valid JSON is taken as JSON
+the way nsctl instance add --config types it: valid JSON is taken as JSON
 (2 is a number, true a boolean, {"a":1} an object), anything else as the
 literal string.
 

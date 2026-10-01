@@ -19,9 +19,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newRepoCommand(opts *Options) *cobra.Command {
-	repo := &cobra.Command{
-		Use:   "repo",
+func newInstanceCommand(opts *Options) *cobra.Command {
+	inst := &cobra.Command{
+		Use:   "instance",
 		Short: "Declare the repo instances an environment deploys",
 		Long: `Edits the environment manifest at $HMD_HOME/environments/<env>.yaml.
 
@@ -33,13 +33,13 @@ result -- so nothing here touches a running environment on its own.`,
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
-	repo.AddCommand(
-		newRepoAddCommand(opts),
-		newRepoRemoveCommand(opts),
-		newRepoListCommand(opts),
-		newRepoImportCommand(opts),
+	inst.AddCommand(
+		newInstanceAddCommand(opts),
+		newInstanceRemoveCommand(opts),
+		newInstanceListCommand(opts),
+		newInstanceImportCommand(opts),
 	)
-	return repo
+	return inst
 }
 
 // resolveEnvSlug picks the environment to act on: the flag, else the default.
@@ -56,7 +56,7 @@ func resolveEnvSlug(opts *Options, name string) (*registry.Registry, string, str
 }
 
 // openManifest reads the environment's manifest, or builds an empty one when
-// it has none so the first `repo add` creates the file rather than failing.
+// it has none so the first `instance add` creates the file rather than failing.
 func openManifest(opts *Options, home, slug string) (*manifest.Manifest, error) {
 	m, err := manifest.Load(home, slug, opts.Lookup)
 	if err != nil {
@@ -72,7 +72,7 @@ func openManifest(opts *Options, home, slug string) (*manifest.Manifest, error) 
 	return m, nil
 }
 
-func newRepoAddCommand(opts *Options) *cobra.Command {
+func newInstanceAddCommand(opts *Options) *cobra.Command {
 	var envName, instanceName, path string
 	var depends, config []string
 
@@ -82,14 +82,14 @@ func newRepoAddCommand(opts *Options) *cobra.Command {
 		Long: `Adds a repo class to the environment's manifest.
 
 The instance is named after the repo class with its hmd- prefix dropped unless
---name says otherwise, so ` + "`nsctl repo add hmd-ms-transform`" + ` declares an
+--name says otherwise, so ` + "`nsctl instance add hmd-ms-transform`" + ` declares an
 instance called ms-transform.
 
 Declaring is not deploying. Run ` + "`nsctl env apply`" + ` to deploy the result.`,
-		Example: `  nsctl repo add hmd-ms-transform
-  nsctl repo add hmd-ms-transform@0.3 --name transform
-  nsctl repo add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
-  nsctl repo add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2`,
+		Example: `  nsctl instance add hmd-ms-transform
+  nsctl instance add hmd-ms-transform@0.3 --name transform
+  nsctl instance add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
+  nsctl instance add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -176,7 +176,7 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` to deploy the result
 	return cmd
 }
 
-func newRepoRemoveCommand(opts *Options) *cobra.Command {
+func newInstanceRemoveCommand(opts *Options) *cobra.Command {
 	var envName string
 	cmd := &cobra.Command{
 		Use:     "remove <instance>",
@@ -228,7 +228,7 @@ does not tear an instance down on your behalf.`,
 	return cmd
 }
 
-func newRepoListCommand(opts *Options) *cobra.Command {
+func newInstanceListCommand(opts *Options) *cobra.Command {
 	var envName string
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -280,7 +280,7 @@ deploying 0.1.4 out of a checkout are both declared in the manifest.`,
 			if m == nil {
 				fmt.Fprintf(cmd.OutOrStdout(),
 					"%s has no manifest; it deploys the substrate alone.\n"+
-						"Declare something with `nsctl repo add <repo-class> --env %s`.\n\n", slug, slug)
+						"Declare something with `nsctl instance add <repo-class> --env %s`.\n\n", slug, slug)
 			}
 
 			// Two different facts, and one column used to carry both. DECLARED
@@ -468,7 +468,7 @@ func parseConfig(pairs []string) (map[string]any, error) {
 	return out, nil
 }
 
-func newRepoImportCommand(opts *Options) *cobra.Command {
+func newInstanceImportCommand(opts *Options) *cobra.Command {
 	var envName string
 	var dryRun, all bool
 

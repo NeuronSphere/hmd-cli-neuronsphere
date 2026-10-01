@@ -52,7 +52,7 @@ environment is a known-good version set that somebody is running in earnest, and
 it is the obvious thing to seed a local environment from. Today reproducing one
 locally means reading it by hand -- through the Deployment GUI, or
 ``hmd ns-bootstrap``'s ``get-deployment-bom`` -- and retyping the result as
-``nsctl repo add`` lines, once per instance, with the versions transcribed.
+``nsctl instance add`` lines, once per instance, with the versions transcribed.
 
 The cost is not only the typing. A version transcribed by hand is a version that
 can be transcribed wrongly, and the failure surfaces as a deploy that behaves
@@ -406,7 +406,7 @@ configuration keys, and a verb that joins two existing halves together.
     :links: HMD_CLI_NEURONSPHERE_NERD012
     :status: implemented
 
-    A new ``nsctl bom`` family, rather than flags on ``nsctl repo``. Every verb
+    A new ``nsctl bom`` family, rather than flags on ``nsctl instance``. Every verb
     in it reaches a cloud service, and nothing in ``repo`` does; keeping the
     boundary visible in the command name is worth more than the reuse.
 
@@ -455,7 +455,7 @@ configuration keys, and a verb that joins two existing halves together.
       substrate whether or not a manifest names it, and declaring one would make
       it removable by deleting a line.
     - Instances the local manifest already declares. A hand-edited declaration
-      is never overwritten, exactly as in ``nsctl repo import``.
+      is never overwritten, exactly as in ``nsctl instance import``.
     - Instances whose status is not ``DEPLOYED``, unless asked otherwise. A
       ``FAILED`` instance appears in a BOM and is not a thing to reproduce by
       default.
@@ -759,7 +759,7 @@ Acceptance criteria
    their own versions, while binding roles filled by the substrate rather than
    importing them; ``--no-deps`` imports only what was named.
 #. ``nsctl bom import <env> --instance <one>`` declares that instance, at the
-   cloud's version, from an artifact, and ``nsctl repo list`` then shows it with
+   cloud's version, from an artifact, and ``nsctl instance list`` then shows it with
    its artifact cached.
 #. An import whose artifact cannot be fetched declares nothing for that instance
    and exits non-zero naming it.

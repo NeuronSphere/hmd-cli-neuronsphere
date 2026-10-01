@@ -625,7 +625,7 @@ func SubstrateFor(env Environment, mode manifest.Substrate, withCluster bool) []
 }
 
 // SubstrateNames lists the instances a mode deploys, in deploy order. What
-// `repo list` prints as substrate rows; IsSubstrate is deliberately not
+// `instance list` prints as substrate rows; IsSubstrate is deliberately not
 // consulted, because a name is reserved whether or not this environment
 // deploys it.
 func SubstrateNames(mode manifest.Substrate) []string {

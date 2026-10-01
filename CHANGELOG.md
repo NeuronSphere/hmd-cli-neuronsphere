@@ -2,6 +2,13 @@
 
 ## 2026-10-01
 
+- refactor: the `nsctl repo` noun is now `nsctl instance`, and
+  `nsctl control-plane repo` is `nsctl control-plane instance`.
+  - What these verbs edit is a repo class's instances in an environment (or
+    in the control plane), not a repository.
+  - The command sits beside `nsctl repoclass` as instance beside type.
+  - No alias is kept.
+
 - feat: `nsctl inspect` derives perspectives instead of embedding them
   (NERD033).
   - `nsctl` ships no perspective definition. A repository declares one under
