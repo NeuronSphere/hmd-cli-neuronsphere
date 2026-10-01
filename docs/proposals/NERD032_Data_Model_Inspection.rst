@@ -74,9 +74,16 @@ Scope and terminology
     not *reconcile*, which in ``nsctl`` already means desired environment
     state against the deployment graph (:doc:`/explanation/reconciliation`).
 
-*Manifestation*
-    A physical binding of a logical noun: a Trino table, a dbt model, a
-    Postgres view, a parquet export.
+*Perspective*
+    Technology-specific metadata about a noun, defined by a perspective
+    definition and stored beside the core ``.hms`` schema (SPEC007), as in
+    the Modeler. ``trino``, ``dbt``, ``postgres-view`` and
+    ``librarian-content`` are the perspectives this NERD needs.
+
+*Binding*
+    One physical realisation of a noun within a perspective: the final Trino
+    table, the staging Trino table, a dbt model. A perspective whose
+    definition names a ``binding_key`` allows several per noun.
 
 *Disagreement*
     Two observations about the same element that cannot both be true, or a
@@ -131,7 +138,7 @@ parser.
     :links: HMD_CLI_NEURONSPHERE_NERD032
     :status: proposed
 
-    Every observation has a kind (noun, attribute, manifestation, lineage,
+    Every observation has a kind (noun, attribute, binding, lineage,
     constraint, finding), a subject identity, a payload, and a provenance:
     inspector, repository, revision, ``file:line``, an *authority*, a
     *confidence*, and a sentence saying why.
@@ -152,7 +159,7 @@ parser.
     Confidence reuses the ``repoclass detect`` vocabulary: ``decided`` when
     the artifact states it, ``evidence`` when it was inferred.
 
-.. spec:: The canonical model is .hms with named extensions
+.. spec:: The canonical model is .hms, and everything else is a perspective
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD032
     :status: proposed
@@ -161,35 +168,112 @@ parser.
     ``relationship``), ``attributes`` keyed by name, and for a relationship
     ``ref_from``/``ref_to`` as fully qualified noun names: the ``.hms``
     shape. Attribute ``type``, ``description``, ``required`` and ``enum_def``
-    carry their ``.hms`` meaning. The ``.hms`` aliases ``int``, ``boolean``
-    and ``enum`` (for ``enum_def``) are normalised on read. Keys the model
-    does not interpret (``adornments``, ``business_id``, ``advisory_lock``,
-    ``schema``, ``id``, ``position``, the ``ui`` extension) are kept verbatim
-    so that a noun learned from ``.hms`` exports back to an equal document.
+    carry their ``.hms`` meaning, and ``type`` is only ever an ``.hms`` type.
+    The ``.hms`` aliases ``int``, ``boolean`` and ``enum`` (for ``enum_def``)
+    are normalised on read. Keys the model does not interpret
+    (``adornments``, ``business_id``, ``advisory_lock``, ``schema``, ``id``,
+    ``position``, the ``ui`` extension) are kept verbatim so that a noun
+    learned from ``.hms`` exports back to an equal document.
 
-    The model adds, and only adds:
+    The core schema language is not extended. What ``.hms`` cannot say about
+    a noun is a **perspective** (SPEC007): technology-specific metadata kept
+    beside the core schema, not inside it, following the perspectives of the
+    Modeler (``hmd-ms-mickey``, ``hmd-tmpl-modeler``) and the sidecar layout
+    proposed by ``hmd-lib-ns-model`` and ``hmd-lib-django-modeling`` NERD003.
+    The first version of this spike added ``date`` and ``decimal`` as core
+    logical types and "manifestations" as a model concept; both are now
+    perspective values:
 
-    1. **Provenance** on every noun, attribute and manifestation. ``.hms``
-       has no notion of where a fact came from.
-    2. **Manifestations**: technology, physical location
-       (catalog/schema/table), layer label, format, partition columns, the
-       per-column physical type, and, for a name only known at run time, the
-       template it was rendered from.
-    3. **Two logical types**: ``date`` and ``decimal``. Physical types map
-       to logical ones explicitly (``varchar``→``string``,
-       ``double``/``real``→``float``, ``bigint``/``int``→``integer``,
-       ``timestamp(n)``→``timestamp``, ``boolean``→``bool``). The physical
-       type is always kept.
-    4. **Lineage**: directed edges between nouns with the mechanism that
-       produced them (``insert-select``, ``dbt-ref``, ``dbt-source``).
-    5. **Required as a tri-state.** ``.hms`` ``required``, SQL ``NOT NULL``
-       and a dbt ``not_null`` test all assert that a value is always present,
-       so they set the same flag. ``false`` is recorded only when ``.hms``
-       says so. Absent means *unknown*, because the absence of a constraint
-       in DDL is not proof that nulls are allowed.
+    * **Physical types.** An attribute's core type is the nearest ``.hms``
+      type (``DATE`` → ``timestamp``, ``DECIMAL(10,2)`` → ``float``,
+      ``VARCHAR`` → ``string``), chosen by the perspective definition's enum
+      value (its ``hms_type``). The exact type is the perspective value
+      ``datatype``: ``{"value": "date", "definition": "DATE"}``. Every noun
+      therefore exports to valid ``.hms``, and nothing is lost.
+    * **Physical bindings.** Where a noun lives (catalog, schema, table,
+      format, partitions, external location, the run-time template of its
+      name) are entity-level perspective values; per-column facts (type,
+      nullability, partition key) are attribute-level values.
+    * **Nullability.** ``is_nullable`` is a perspective value, as in the
+      Modeler's ``ansi-sql`` perspective. The core ``required`` stays a
+      tri-state: ``.hms`` ``required``, SQL ``NOT NULL`` and a dbt
+      ``not_null`` test all set it, ``false`` is recorded only when ``.hms``
+      says so, and absent means *unknown*.
 
-    Exporting a noun whose attributes use an extension type refuses and
-    lists those attributes, unless asked to downgrade them.
+    Two things the model carries are not schema at all and stay out of both
+    the core and the perspectives: **provenance** (where each fact was
+    learned) and **lineage** (which noun is derived from which, and how).
+    They describe an inspection, not a noun, and live in the IR and the
+    snapshot store only.
+
+.. spec:: Perspective definitions and perspective sidecar files
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC007
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    A **perspective definition** uses the Modeler's shape unchanged:
+    ``perspective_name``, ``perspective_display``, ``graph_display`` and
+    ``entity_extensions``, ``noun_extensions``, ``relationship_extensions``,
+    ``attribute_extensions``, each an array of single-key objects whose value
+    has ``display``, ``description``, ``extension_type`` (``short_text``,
+    ``bool``, ``enum``), ``default`` and, for an enum, ``enum_values`` of
+    ``{id, description, definition, parameters}``. Two optional keys are
+    added, both ignored by a reader that does not know them:
+
+    * ``hms_type`` on an enum value: the core ``.hms`` type an attribute with
+      that value has.
+    * ``binding_key`` on the definition: the entity extension that names one
+      of several bindings of a noun in the same technology. A noun with a
+      source, a staging and a final Trino table has three bindings of the
+      ``trino`` perspective, told apart by ``layer``. A definition without it
+      allows one binding per noun.
+
+    Definitions are files, ``src/perspectives/<name>.perspective.json`` (the
+    layout ``hmd-lib-django-modeling`` NERD003 SPEC007 proposes). ``nsctl``
+    embeds the ones its inspectors need (``trino``, ``dbt``,
+    ``postgres-view``, ``librarian-content``) as defaults; a definition of
+    the same name in an inspected repository overrides the default. ``nsctl``
+    does not copy the Modeler's ``ansi-sql`` or ``django-models``.
+
+    **Perspective values** of a noun live in a sidecar file
+    ``<name>.<perspective>.hms`` beside ``<name>.hms``, which
+    ``hmd-schema-loader`` already merges into the noun's
+    ``extensions[<perspective>]`` (as it does for ``.ui.hms``). A value has
+    the Modeler's shape, ``{"value": ..., "definition": ..., "parameters":
+    {...}}``. The sidecar file is::
+
+        {
+          "namespace": "ntc",
+          "name": "ntc_instances_export",
+          "bindings": [
+            {
+              "layer": {"value": "final"},
+              "schema_name": {"value": "ntc_final"},
+              "table_name": {"value": "ntc_instances_export"},
+              "attributes": {
+                "export_date": {"datatype": {"value": "date", "definition": "DATE"}}
+              }
+            }
+          ]
+        }
+
+    For a perspective without ``binding_key`` the entity values and
+    ``attributes`` sit at the top level instead of in ``bindings``.
+    Attribute-level values are carried in the sidecar's ``attributes`` member,
+    the placement ``hmd-lib-ns-model``'s spec leaves open; a loader that
+    wants ``attributes.<attr>.extensions.<perspective>`` redistributes them.
+
+    ``nsctl inspect`` validates every perspective value against its
+    definition, as ``hmd-lib-ns-model`` specifies: an unknown perspective, a
+    key not declared at that attach point, or an enum value outside
+    ``enum_values`` is a disagreement. The ``hms`` inspector reads existing
+    sidecars of known perspectives at ``.hms`` authority, so a declared
+    perspective value outranks one inferred from DDL, and the two can
+    disagree.
+
+    ``nsctl inspect <noun> --hms`` prints the core document and one sidecar
+    per perspective; ``--out <dir>`` writes them as files under ``<dir>``
+    (never into an inspected repository).
 
 .. spec:: Consolidation is deterministic and explains every link
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC004
@@ -202,23 +286,24 @@ parser.
     * Any other noun's namespace is assigned by its inspector, which records
       why. ``nstransform`` strips a layer suffix (``_source``, ``_staging``,
       ``_final``, ``_ux``) from the Trino schema, so
-      ``billing_staging.aws_billing`` is the ``staging`` manifestation of
-      ``billing.aws_billing``. ``dbt`` uses ``dbt_<project>.<model>``. Layer
-      conventions live in the inspector, never in the model.
+      ``billing_staging.aws_billing`` is the ``staging`` binding of the
+      ``trino`` perspective of ``billing.aws_billing``. ``dbt`` uses
+      ``<project>.<model>``. Layer conventions live in the inspector, never
+      in the model.
 
-    Two manifestations belong to one noun when they share an identity, or
-    the same physical ``schema.table`` (catalog ignored), or an inspector
-    said so explicitly. Each merge records its reason.
+    Two perspective bindings belong to one noun when they share an
+    identity, or the same physical ``schema.table`` (catalog ignored), or an
+    inspector said so explicitly. Each merge records its reason.
 
     An attribute's logical type comes from its highest-authority
-    observation. On a tie, the manifestation its inspector marked primary
+    observation. On a tie, the binding its inspector marked primary
     wins (``nstransform`` marks the final layer). Types that differ between
     layers are reported as information: casting between layers is the point
     of having layers.
 
     Disagreements are:
 
-    * one manifestation described inconsistently (a ``CREATE TABLE`` and the
+    * one binding described inconsistently (a ``CREATE TABLE`` and the
       ``INSERT`` into it list different column counts; a ``.hms`` noun and its
       generated view list different attributes);
     * a reference with no producer (a dbt source, a ``ref_to`` noun, a
@@ -229,8 +314,8 @@ parser.
     transform's own ``run_params`` when the value is a literal (including
     ``.replace('-', '_')``). A value known only at run time becomes a
     ``{k}`` placeholder. A table name with placeholder segments is reduced to
-    its stable stem and marked templated; the pattern is kept on the
-    manifestation. This keeps identities stable across runs.
+    its stable stem; the pattern is kept as the binding's ``template``
+    value. This keeps identities stable across runs.
 
 .. spec:: Inspections are snapshots in a local SQLite store
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC005
@@ -265,8 +350,12 @@ parser.
 
     ``nsctl inspect diff [path...]`` compares the latest two snapshots for
     those roots (``--live``: the latest against the working tree) and prints
-    changes per noun and attribute: added, removed, type, required,
-    manifestations.
+    each change under the semantic identity ``hmd-lib-ns-model`` defines:
+    ``<ns>.<name>``, ``<ns>.<name>#<attribute>``, and a perspective value at
+    ``...@<perspective>`` (``@<perspective>:<binding>`` for one of several
+    bindings). Change kinds follow its names: ``ConceptAdded``,
+    ``PropertyTypeChanged``, ``RequirednessChanged``,
+    ``PerspectiveValueChanged`` and so on.
 
     Reads print a table, or JSON under ``--json``, as every other read in
     ``nsctl`` does (NERD009). ``inspect`` writes nothing in any repository.
