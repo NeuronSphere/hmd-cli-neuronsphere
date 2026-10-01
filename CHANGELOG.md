@@ -2,6 +2,13 @@
 
 ## 2026-10-01
 
+- feat: the `hms` inspector reads a language pack's `src/schemas/**/*.hms` at
+  the highest authority. It also reads the Postgres views generated from those
+  schemas as manifestations. It reports four problems:
+  - a noun with no view, or a view whose columns differ from its schema;
+  - packaged `src/python/*/schemas` copies that are missing or stale;
+  - a namespace or name that does not match its path;
+  - an attribute type that `hmd-meta-types` rejects.
 - feat: `internal/inspect`, the inspector boundary for `nsctl inspect`
   (NERD032 SPEC001). An `Inspector` reports observations about a `Source`,
   meaning one repository with its name and git revision (read from `.git`
