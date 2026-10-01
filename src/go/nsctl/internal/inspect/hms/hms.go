@@ -20,12 +20,27 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/sqlddl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 const schemasDir = "src/schemas"
 
 // Inspector is the language pack inspector.
-type Inspector struct{}
+type Inspector struct {
+	// Perspectives names the sidecars (<name>.<perspective>.hms) read as
+	// perspective values; nil means the embedded defaults.
+	Perspectives *perspective.Registry
+}
+
+func (ins Inspector) registry() *perspective.Registry {
+	if ins.Perspectives == nil {
+		return perspective.Default()
+	}
+	return ins.Perspectives
+}
+
+// PostgresView is the perspective generated Postgres views bind to.
+const PostgresView = "postgres-view"
 
 func (Inspector) Name() string { return "hms" }
 
@@ -41,17 +56,31 @@ var systemColumns = map[string]model.LogicalType{
 	"from_id": model.String, "to_id": model.String,
 }
 
-func (Inspector) Inspect(_ context.Context, src inspect.Source) ([]model.Observation, error) {
+func (ins Inspector) Inspect(_ context.Context, src inspect.Source) ([]model.Observation, error) {
 	files, err := inspect.Walk(src, schemasDir, func(p string) bool { return strings.HasSuffix(p, ".hms") })
 	if err != nil {
 		return nil, err
 	}
+	reg := ins.registry()
 	var obs []model.Observation
 	docs := map[model.ID]*model.HMSDoc{}
 	var ui []string
 	for _, f := range files {
 		if isExtension(f) {
-			ui = append(ui, f)
+			switch ext := extensionName(f); {
+			case ext == "ui":
+				ui = append(ui, f)
+			case reg.Known(ext):
+				side, err := readSidecar(src, f, reg.Get(ext))
+				if err != nil {
+					obs = append(obs, finding(f, model.SevError, "unparseable-sidecar", err.Error()))
+					continue
+				}
+				obs = append(obs, side...)
+			default:
+				obs = append(obs, finding(f, model.SevInfo, "unknown-extension",
+					fmt.Sprintf("extension file for %q, which is neither ui nor a known perspective", ext)))
+			}
 			continue
 		}
 		data, err := fs.ReadFile(src.FS, f)
@@ -87,6 +116,34 @@ var extensionRE = regexp.MustCompile(`\.[a-zA-Z\-_]+\.hms$`)
 
 // isExtension matches hmd-schema-loader's rule for <name>.<ext>.hms.
 func isExtension(p string) bool { return extensionRE.MatchString(path.Base(p)) }
+
+// extensionName is the <ext> of <name>.<ext>.hms.
+func extensionName(p string) string {
+	base := strings.TrimSuffix(path.Base(p), ".hms")
+	return strings.ToLower(base[strings.LastIndex(base, ".")+1:])
+}
+
+// readSidecar reads a perspective sidecar at .hms authority: a declared
+// perspective value outranks one an inspector inferred. Each attribute's
+// core type comes from its values, by the definition's hms_type.
+func readSidecar(src inspect.Source, file string, def *perspective.Definition) ([]model.Observation, error) {
+	data, err := fs.ReadFile(src.FS, file)
+	if err != nil {
+		return nil, err
+	}
+	p := model.Provenance{File: file, Line: 1, Authority: model.AuthHMS, Confidence: model.Decided,
+		Why: "perspective sidecar"}
+	obs, err := model.SidecarObservations(data, def.Name, def.BindingKey, p)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range obs {
+		if o.Attr != nil {
+			o.Attr.Type = perspective.CoreType(def, o.Attr.Values)
+		}
+	}
+	return obs, nil
+}
 
 func finding(file string, sev model.Severity, code, msg string) model.Observation {
 	return model.Observation{
@@ -209,28 +266,37 @@ func inspectViews(src inspect.Source, docs map[model.ID]*model.HMSDoc) ([]model.
 				continue // the concatenated *_views.sql repeats each view
 			}
 			viewed[id] = true
-			key := "postgres-view:" + st.Name.String()
 			prov := model.Provenance{File: f, Line: st.Line, Authority: model.AuthDDL, Confidence: model.Decided,
 				Why: "view generated from the .hms schema"}
-			obs = append(obs, model.Observation{Kind: model.KindManifestation, Subject: id, Provenance: prov,
-				Manifest: &model.ManifestObs{Key: key, Tech: "postgres-view", Location: model.Location{Table: st.Name.Table()}}})
 			// An attribute is projected out of the content document
 			// (content -> 'x'); anything else is one of the entity table's own
 			// columns. Deciding by expression, not by name, is what catches
 			// an attribute that shares a system column's name.
-			var cols []string
+			var cols, system []string
 			names := map[string]int{}
-			for i, it := range st.Select {
-				t, phys := model.Unknown, "jsonb"
-				if strings.Contains(it.Expr, "content") && strings.Contains(it.Expr, ">") {
-					cols = append(cols, it.Name)
-				} else if sys, ok := systemColumns[it.Name]; ok {
-					t, phys = sys, ""
-				}
-				names[it.Name]++
-				obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: id, Provenance: prov,
-					Attr: &model.AttrObs{Name: it.Name, Manifestation: key, Position: i + 1, Type: t, PhysicalType: phys}})
+			bo := &model.BindingObs{Perspective: PostgresView, Location: model.Location{Table: st.Name.Table()},
+				Values: map[string]model.Value{"view_name": model.V(st.Name.String())}}
+			if len(st.From) > 0 {
+				base := st.From[0].Table()
+				bo.Values["base_table"] = model.Value{Value: base, Definition: base}
 			}
+			var colObs []model.Observation
+			for _, it := range st.Select {
+				names[it.Name]++
+				if !(strings.Contains(it.Expr, "content") && strings.Contains(it.Expr, ">")) {
+					system = append(system, it.Name)
+					continue
+				}
+				cols = append(cols, it.Name)
+				colObs = append(colObs, model.Observation{Kind: model.KindAttribute, Subject: id, Provenance: prov,
+					Attr: &model.AttrObs{Name: it.Name, Binding: bo.Key(), Position: len(cols), Type: model.Unknown,
+						Values: map[string]model.Value{"projection": model.V(strings.ReplaceAll(it.Expr, "- >", "->"))}}})
+			}
+			if len(system) > 0 {
+				bo.Values["system_columns"] = model.V(strings.Join(system, ","))
+			}
+			obs = append(obs, model.Observation{Kind: model.KindBinding, Subject: id, Provenance: prov, Binding: bo})
+			obs = append(obs, colObs...)
 			for _, name := range sortedNames(names) {
 				if names[name] < 2 {
 					continue

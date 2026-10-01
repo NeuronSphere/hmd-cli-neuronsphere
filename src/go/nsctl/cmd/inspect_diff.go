@@ -96,8 +96,8 @@ func diffModels(ctx context.Context, opts *Options, srcs []inspect.Source, live 
 		if before, err = store.Model(snaps[0].ID); err != nil {
 			return nil, nil, "", nserr.Wrap(nserr.Fail, err)
 		}
-		obs, _ := inspect.Run(ctx, srcs, inspectors())
-		return before, model.Consolidate(obs), fmt.Sprintf("snapshot #%d -> working tree", snaps[0].ID), nil
+		_, _, now := inspectNow(ctx, srcs, perspectives(srcs, io.Discard))
+		return before, now, fmt.Sprintf("snapshot #%d -> working tree", snaps[0].ID), nil
 	}
 	if before, err = store.Model(snaps[1].ID); err != nil {
 		return nil, nil, "", nserr.Wrap(nserr.Fail, err)
@@ -116,32 +116,22 @@ func renderChanges(out io.Writer, label string, changes []model.Change) {
 	fmt.Fprintf(out, "%d model changes (%s):\n\n", len(changes), label)
 	last := ""
 	for _, c := range changes {
-		if c.Subject != last {
-			fmt.Fprintln(out, c.Subject)
-			last = c.Subject
+		if c.SemanticID != last {
+			fmt.Fprintln(out, c.SemanticID)
+			last = c.SemanticID
 		}
-		switch c.Kind {
-		case model.Changed:
-			fmt.Fprintf(out, "  %s: %s -> %s\n", c.Field, orNoneCLI(c.From), orNoneCLI(c.To))
-		case model.Added:
-			if c.To != "" {
-				fmt.Fprintf(out, "  added: %s\n", c.To)
-			} else {
-				fmt.Fprintln(out, "  added")
-			}
-		case model.Removed:
-			if c.From != "" {
-				fmt.Fprintf(out, "  removed: %s\n", c.From)
-			} else {
-				fmt.Fprintln(out, "  removed")
-			}
+		line := "  " + string(c.Kind)
+		if c.Key != "" {
+			line += " " + c.Key
 		}
+		switch {
+		case c.From != "" && c.To != "":
+			line += ": " + c.From + " -> " + c.To
+		case c.To != "":
+			line += ": " + c.To
+		case c.From != "":
+			line += ": " + c.From
+		}
+		fmt.Fprintln(out, line)
 	}
-}
-
-func orNoneCLI(s string) string {
-	if s == "" {
-		return "(none)"
-	}
-	return s
 }

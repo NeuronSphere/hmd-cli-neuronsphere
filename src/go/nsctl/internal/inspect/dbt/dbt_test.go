@@ -49,7 +49,7 @@ func TestReportingProject(t *testing.T) {
 	const ns = "hmd_config_transform_reporting"
 
 	sti := m.Noun(model.ID{Namespace: ns, Name: "staging_transform_instance"})
-	if sti == nil || len(sti.Manifestations) != 1 || sti.Manifestations[0].Format != "incremental" {
+	if sti == nil || len(sti.Bindings) != 1 || sti.Bindings[0].Values["materialized"].String() != "incremental" {
 		t.Fatalf("staging_transform_instance = %+v", sti)
 	}
 	var names []string
@@ -65,8 +65,8 @@ func TestReportingProject(t *testing.T) {
 		t.Fatalf("dim_transform = %+v", dim)
 	}
 	// No config() in the SQL: dbt_project.yml's staging folder says table.
-	if dim.Manifestations[0].Format != "table" {
-		t.Errorf("dim_transform materialized = %q", dim.Manifestations[0].Format)
+	if dim.Binding("dbt", "model").Values["materialized"].String() != "table" {
+		t.Errorf("dim_transform materialized = %+v", dim.Bindings)
 	}
 	if a := dim.Attribute("transform_id"); a == nil || a.Required == nil || !*a.Required {
 		t.Errorf("transform_id should be required by its not_null test: %+v", a)
@@ -117,15 +117,15 @@ func TestViewsResolveAgainstBoundModels(t *testing.T) {
 		t.Errorf("without a binding: unresolved = %v", unbound)
 	}
 
-	obs = append(obs, model.Observation{Kind: model.KindBinding,
-		Binding:    &model.BindingObs{Scope: "dbt:hmd_config_transform_reporting", Schema: "ntc"},
+	obs = append(obs, model.Observation{Kind: model.KindScope,
+		Scope:      &model.ScopeObs{Scope: "dbt:hmd_config_transform_reporting", Schema: "ntc"},
 		Provenance: model.Provenance{Repo: "transform", File: "04.yaml", Authority: model.AuthDDL}})
 	m := model.Consolidate(obs)
 	if got := codes(m)["unresolved-reference"]; strings.Join(got, ",") != "ntc_final.ntc_instances_export" {
 		t.Errorf("with a binding: unresolved = %v", got)
 	}
 	fact := m.Noun(model.ID{Namespace: "hmd_config_transform_reporting", Name: "fact_transform_instance_count"})
-	if fact == nil || len(fact.Manifestations) != 2 || len(fact.Aliases) != 1 || fact.Aliases[0].ID.String() != "ntc.fact_transform_instance_count" {
+	if fact == nil || len(fact.Bindings) != 2 || len(fact.Aliases) != 1 || fact.Aliases[0].ID.String() != "ntc.fact_transform_instance_count" {
 		t.Fatalf("fact = %+v", fact)
 	}
 	var edge bool

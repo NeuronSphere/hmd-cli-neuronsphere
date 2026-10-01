@@ -21,37 +21,44 @@ func TestDiffIdenticalModelsIsEmpty(t *testing.T) {
 	}
 }
 
-func TestDiffReportsSemanticChanges(t *testing.T) {
+func TestDiffReportsCoreAndPerspectiveChanges(t *testing.T) {
 	t.Parallel()
 	before := layered()
 	after := layered()
 	for i := range after {
 		a := after[i].Attr
-		if a == nil {
-			continue
-		}
-		// The primary (final) layer's cost becomes a string; the staging
-		// layer gains a column.
-		if a.Name == "cost" && a.Manifestation == "trino:billing_final.aws_billing" {
-			a.Type, a.PhysicalType = String, "varchar"
+		if a != nil && a.Name == "cost" && a.Binding == "trino:final" {
+			a.Type = String
+			a.Values = map[string]Value{"datatype": datatype("varchar", "VARCHAR"), "is_partition": V(false)}
 		}
 	}
 	after = append(after, Observation{Kind: KindAttribute, Subject: ID{"billing", "aws_billing"},
 		Provenance: prov("ddl_staging.yaml", AuthDDL),
-		Attr:       &AttrObs{Name: "region", Manifestation: "trino:billing_staging.aws_billing", Position: 4, Type: String, PhysicalType: "varchar"}})
+		Attr: &AttrObs{Name: "region", Binding: "trino:staging", Position: 4, Type: String,
+			Values: map[string]Value{"datatype": datatype("varchar", "VARCHAR")}}})
 	got := changes(Diff(Consolidate(before), Consolidate(after)))
 	for _, want := range []string{
-		"billing.aws_billing.cost  type: float -> string",
-		"billing.aws_billing@billing_staging.aws_billing.region  added: string (varchar)",
+		"billing.aws_billing#cost  PropertyTypeChanged: float -> string",
+		"billing.aws_billing#cost@trino:final  PerspectiveValueChanged datatype: DOUBLE -> VARCHAR",
+		"billing.aws_billing#region@trino:staging  PerspectiveValueAdded datatype: VARCHAR",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
 	}
-	// The final layer is the noun's attributes, so its change is not repeated
-	// as a column change.
-	if strings.Contains(got, "@billing_final.aws_billing.cost") {
-		t.Errorf("primary layer change reported twice:\n%s", got)
+}
+
+func TestDiffParametersAreValues(t *testing.T) {
+	t.Parallel()
+	a := []Observation{{Kind: KindBinding, Subject: ID{"s", "t"}, Provenance: prov("a", AuthDDL),
+		Binding: &BindingObs{Perspective: "trino", Values: map[string]Value{"schema_name": V("s")}}},
+		{Kind: KindAttribute, Subject: ID{"s", "t"}, Provenance: prov("a", AuthDDL), Attr: &AttrObs{Name: "amt", Binding: "trino", Position: 1, Type: Float,
+			Values: map[string]Value{"datatype": {Value: "decimal", Definition: "DECIMAL", Parameters: map[string]any{"precision": 10, "scale": 2}}}}}}
+	b := []Observation{a[0], {Kind: KindAttribute, Subject: ID{"s", "t"}, Provenance: prov("a", AuthDDL), Attr: &AttrObs{Name: "amt", Binding: "trino", Position: 1, Type: Float,
+		Values: map[string]Value{"datatype": {Value: "decimal", Definition: "DECIMAL", Parameters: map[string]any{"precision": 12, "scale": 2}}}}}}
+	got := changes(Diff(Consolidate(a), Consolidate(b)))
+	if got != "s.t#amt@trino  PerspectiveValueChanged datatype: DECIMAL(precision=10,scale=2) -> DECIMAL(precision=12,scale=2)" {
+		t.Errorf("diff = %q", got)
 	}
 }
 
@@ -71,7 +78,7 @@ func TestDiffHMSAttributeAdded(t *testing.T) {
 	doc.Attributes = append(doc.Attributes, HMSAttribute{Name: "region", Type: "string", Required: BoolPtr(false)})
 	after := Consolidate(HMSObservations(doc, prov("environment.hms", AuthHMS)))
 	got := changes(Diff(before, after))
-	if got != "hmd_lang_nsreporting.environment.region  added: string, not required" {
+	if got != "hmd_lang_nsreporting.environment#region  PropertyAdded: string, not required" {
 		t.Errorf("diff = %q", got)
 	}
 }

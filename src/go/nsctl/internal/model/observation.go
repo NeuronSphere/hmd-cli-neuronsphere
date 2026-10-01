@@ -58,22 +58,22 @@ type Kind string
 const (
 	// KindNoun: a noun or relationship exists (NounObs).
 	KindNoun Kind = "noun"
-	// KindAttribute: an attribute of a noun, or a column of one of its
-	// manifestations when AttrObs.Manifestation is set.
+	// KindAttribute: an attribute of a noun, or, when AttrObs.Binding is
+	// set, that attribute as one perspective binding has it.
 	KindAttribute Kind = "attribute"
-	// KindManifestation: a physical binding of a noun.
-	KindManifestation Kind = "manifestation"
+	// KindBinding: a perspective binding of a noun (BindingObs).
+	KindBinding Kind = "binding"
 	// KindLineage: one thing is derived from another.
 	KindLineage Kind = "lineage"
 	// KindConstraint: a test or constraint on an attribute.
 	KindConstraint Kind = "constraint"
 	// KindProvide: an artifact provides something others may reference by
-	// name (a transform name, a table template).
+	// name (a transform name, a content type).
 	KindProvide Kind = "provide"
 	// KindReference: an artifact relies on something being provided.
 	KindReference Kind = "reference"
-	// KindBinding: a scope's manifestations live in a schema.
-	KindBinding Kind = "binding"
+	// KindScope: a scope's bindings live in a schema (ScopeObs).
+	KindScope Kind = "scope"
 	// KindSameAs: two identities are one noun, by explicit declaration.
 	KindSameAs Kind = "same_as"
 	// KindFinding: an inspector-local anomaly, passed through as-is.
@@ -86,11 +86,11 @@ type Observation struct {
 	Subject    ID             `json:"subject"`
 	Noun       *NounObs       `json:"noun,omitempty"`
 	Attr       *AttrObs       `json:"attr,omitempty"`
-	Manifest   *ManifestObs   `json:"manifest,omitempty"`
+	Binding    *BindingObs    `json:"binding,omitempty"`
 	Lineage    *LineageObs    `json:"lineage,omitempty"`
 	Constraint *ConstraintObs `json:"constraint,omitempty"`
 	Named      *NamedObs      `json:"named,omitempty"`
-	Binding    *BindingObs    `json:"binding,omitempty"`
+	Scope      *ScopeObs      `json:"scope,omitempty"`
 	SameAs     *SameAsObs     `json:"same_as,omitempty"`
 	Finding    *FindingObs    `json:"finding,omitempty"`
 	Provenance Provenance     `json:"provenance"`
@@ -105,40 +105,56 @@ type NounObs struct {
 	Extra       map[string]json.RawMessage `json:"extra,omitempty"`
 }
 
-// AttrObs is an attribute or a manifestation column.
+// AttrObs is an .hms attribute, or an attribute as a perspective binding has
+// it.
 type AttrObs struct {
 	Name string `json:"name"`
-	// Manifestation is the key of the manifestation this column belongs to;
-	// empty for an attribute of the noun itself (.hms).
-	Manifestation string      `json:"manifestation,omitempty"`
-	Position      int         `json:"position,omitempty"`
-	Type          LogicalType `json:"type"`
-	HMSType       string      `json:"hms_type,omitempty"`
-	PhysicalType  string      `json:"physical_type,omitempty"`
-	Required      *bool       `json:"required,omitempty"`
-	EnumDef       []string    `json:"enum_def,omitempty"`
-	Description   *string     `json:"description,omitempty"`
-	Partition     bool        `json:"partition,omitempty"`
+	// Binding is BindingKey(perspective, name) of the binding this column
+	// belongs to; empty for an attribute of the noun itself (.hms).
+	Binding string `json:"binding,omitempty"`
+	// Position orders a binding's columns (a CREATE TABLE, a select list).
+	// Zero means the source lists values for some attributes in no order (a
+	// perspective sidecar): they overlay the ordered columns by name and do
+	// not take part in column-list comparison.
+	Position    int         `json:"position,omitempty"`
+	Type        LogicalType `json:"type"`
+	HMSType     string      `json:"hms_type,omitempty"`
+	Required    *bool       `json:"required,omitempty"`
+	EnumDef     []string    `json:"enum_def,omitempty"`
+	Description *string     `json:"description,omitempty"`
+	// Values are the attribute-level perspective values.
+	Values map[string]Value `json:"values,omitempty"`
 	// Ordinal is the attribute's order within an .hms file.
 	Ordinal int                        `json:"ordinal,omitempty"`
 	Extra   map[string]json.RawMessage `json:"extra,omitempty"`
 }
 
-// ManifestObs is a physical binding.
-type ManifestObs struct {
-	Key        string   `json:"key"`
-	Tech       string   `json:"tech"`
-	Scope      string   `json:"scope,omitempty"`
-	Location   Location `json:"location"`
-	Layer      string   `json:"layer,omitempty"`
-	Format     string   `json:"format,omitempty"`
-	Partitions []string `json:"partitions,omitempty"`
-	Template   string   `json:"template,omitempty"`
-	Primary    bool     `json:"primary,omitempty"`
-	// Reference marks a manifestation that names a table owned elsewhere (a
-	// dbt source, an INSERT target): it links identities but does not count as
+// BindingObs is one perspective binding of Subject.
+type BindingObs struct {
+	Perspective string `json:"perspective"`
+	// Name is the binding_key value, "" for a single-binding perspective.
+	Name  string `json:"name,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	// Location links bindings across inspectors; LocationOf(Values) when
+	// unset.
+	Location Location         `json:"location"`
+	Primary  bool             `json:"primary,omitempty"`
+	Values   map[string]Value `json:"values,omitempty"`
+	// Reference marks a binding that names a table owned elsewhere (a dbt
+	// source, an INSERT target): it links identities but does not count as
 	// providing the table, so a reference to it can still go unresolved.
 	Reference bool `json:"reference,omitempty"`
+}
+
+// Key is the binding's identity within its noun.
+func (b *BindingObs) Key() string { return BindingKey(b.Perspective, b.Name) }
+
+// BindingKey identifies a binding within a noun.
+func BindingKey(perspective, name string) string {
+	if name == "" {
+		return perspective
+	}
+	return perspective + ":" + name
 }
 
 // Endpoint names one end of a lineage edge: a noun when the inspector knows
@@ -178,9 +194,8 @@ type NamedObs struct {
 	Via string `json:"via,omitempty"`
 }
 
-// BindingObs puts every manifestation of Scope that lacks a schema into
-// Schema.
-type BindingObs struct {
+// ScopeObs puts every binding of Scope that lacks a schema into Schema.
+type ScopeObs struct {
 	Scope  string `json:"scope"`
 	Schema string `json:"schema"`
 }

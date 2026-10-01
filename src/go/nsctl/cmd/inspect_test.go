@@ -51,8 +51,8 @@ func TestInspectPrintsTheModelOfAParentDirectory(t *testing.T) {
 		"Inspected 2 repositories",
 		"hmd_lang_demo.environment  (noun, .hms)",
 		"demo.thing  (noun)",
-		"~ trino-table demo_final.thing (final, primary)",
-		"partition, not an .hms type",
+		"@trino:final demo_final.thing (table, primary)",
+		"@trino:final DATE     partition",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
@@ -117,12 +117,46 @@ func TestInspectDiffAfterAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"2 model changes (snapshot #1 -> #2)",
-		"demo.thing.id\n  type: string -> integer",
-		"hmd_lang_demo.environment.region\n  added: string, not required",
+		"3 model changes (snapshot #1 -> #2)",
+		"demo.thing#id\n  PropertyTypeChanged: string -> integer",
+		"demo.thing#id@trino:final\n  PerspectiveValueChanged datatype: VARCHAR -> BIGINT",
+		"hmd_lang_demo.environment#region\n  PropertyAdded: string, not required",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("diff lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// An exported core document and its sidecar, inspected as a language pack,
+// give back the same noun with the same perspective values: the round trip
+// through files is lossless.
+func TestInspectExportRoundTripsThroughSidecars(t *testing.T) {
+	t.Parallel()
+	dir, outDir := inspectRepo(t), t.TempDir()
+	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--out", outDir); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := run(t, fakeEnv(nil), "inspect", outDir, "demo.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"demo.thing  (noun, .hms)", "@trino:final demo_final.thing", "@trino:final DATE     partition"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("re-inspected export lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestInspectPerspectivesListsDefinitions(t *testing.T) {
+	t.Parallel()
+	out, _, err := run(t, fakeEnv(nil), "inspect", "perspectives")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"trino", "layer", "datatype", "embedded", "postgres-view"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("perspectives lacks %q:\n%s", want, out)
 		}
 	}
 }
@@ -149,12 +183,28 @@ func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"namespace": "hmd_lang_demo"`) {
 		t.Errorf("hms: %v\n%s", err, out)
 	}
-	// A date attribute has no .hms type: refused unless lossy.
-	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--hms"); err == nil || !strings.Contains(err.Error(), "at (date)") {
-		t.Errorf("non-lossy export of a date: %v", err)
+	// A DATE column is a timestamp in the core document; DATE itself goes to
+	// the trino perspective sidecar beside it.
+	out, _, err = run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--hms")
+	if err != nil {
+		t.Fatalf("hms export: %v", err)
 	}
-	if out, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--hms", "--lossy"); err != nil || !strings.Contains(out, `"at": {"type":"string"}`) {
-		t.Errorf("lossy: %v\n%s", err, out)
+	for _, want := range []string{
+		"# src/schemas/demo/thing.hms", `"at": {"type":"timestamp"}`,
+		"# src/schemas/demo/thing.trino.hms", `"definition": "DATE"`, `"value": "final"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("export lacks %q:\n%s", want, out)
+		}
+	}
+	outDir := t.TempDir()
+	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "demo.thing", "--out", outDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"src/schemas/demo/thing.hms", "src/schemas/demo/thing.trino.hms"} {
+		if _, err := os.Stat(filepath.Join(outDir, f)); err != nil {
+			t.Errorf("--out: %v", err)
+		}
 	}
 	if _, _, err := run(t, fakeEnv(nil), "inspect", dir, "no_such_noun"); err == nil {
 		t.Error("an unknown noun should be a usage error")

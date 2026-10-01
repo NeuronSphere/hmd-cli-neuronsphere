@@ -51,8 +51,8 @@ func TestBillingLayersAreOneNoun(t *testing.T) {
 		t.Errorf("nouns = %d, want 1", len(m.Nouns))
 	}
 	var layers []string
-	for _, mf := range n.Manifestations {
-		layers = append(layers, mf.Layer)
+	for _, b := range n.Bindings {
+		layers = append(layers, b.Name)
 	}
 	sort.Strings(layers)
 	if strings.Join(layers, ",") != "final,source,staging,ux" {
@@ -61,22 +61,25 @@ func TestBillingLayersAreOneNoun(t *testing.T) {
 	if len(n.Attributes) != 171 {
 		t.Errorf("attributes = %d, want 171", len(n.Attributes))
 	}
-	if a := n.Attribute("line_item_unblended_cost"); a == nil || a.Type != model.Float || a.PhysicalType != "double" {
+	// Core attributes carry .hms types; the physical type is a trino value.
+	final := n.Binding("trino", "final")
+	if a := n.Attribute("line_item_unblended_cost"); a == nil || a.Type != model.Float ||
+		final.Column("line_item_unblended_cost").Values["datatype"].String() != "double" {
 		t.Errorf("line_item_unblended_cost = %+v", a)
 	}
 	for _, p := range []string{"year", "month"} {
-		if a := n.Attribute(p); a == nil || !a.Partition {
-			t.Errorf("%s should be a partition: %+v", p, a)
+		if c := final.Column(p); c == nil || c.Values["is_partition"].Value != true {
+			t.Errorf("%s should be a partition: %+v", p, c)
 		}
 	}
-	src := n.Manifestations[0]
-	for _, mf := range n.Manifestations {
-		if mf.Layer == "source" {
-			src = mf
-		}
+	if final.Values["partitioned_by"].String() != "year,month" || final.Values["format"].String() != "parquet" {
+		t.Errorf("final values = %+v", final.Values)
 	}
-	if !strings.HasPrefix(src.Template, "billing_source.aws_billing_{time.year~") {
-		t.Errorf("source template = %q", src.Template)
+	if tmpl := n.Binding("trino", "source").Values["template"].String(); !strings.HasPrefix(tmpl, "billing_source.aws_billing_{time.year~") {
+		t.Errorf("source template = %q", tmpl)
+	}
+	if ux := n.Binding("trino", "ux"); ux == nil || ux.Values["table_type"].String() != "view" {
+		t.Errorf("ux = %+v", ux)
 	}
 
 	// CREATE and INSERT ... SELECT agree on all 171 columns, so nothing about
@@ -114,26 +117,31 @@ func TestNTCExportChain(t *testing.T) {
 	if n == nil {
 		t.Fatalf("ntc.ntc_instances_export missing")
 	}
-	if len(n.Manifestations) != 3 {
-		t.Errorf("manifestations = %d", len(n.Manifestations))
+	if len(n.Bindings) != 3 {
+		t.Errorf("bindings = %d", len(n.Bindings))
 	}
-	// Attributes come from the final layer.
+	// Attributes come from the final layer, with the nearest .hms type; DATE
+	// stays exact as the trino datatype value.
 	want := map[string]model.LogicalType{
-		"identifier": model.String, "created_at": model.Timestamp, "export_date": model.Date,
-		"p_iso_date": model.Date, "p_environment": model.String,
+		"identifier": model.String, "created_at": model.Timestamp, "export_date": model.Timestamp,
+		"p_iso_date": model.Timestamp, "p_environment": model.String,
 	}
 	for name, typ := range want {
 		if a := n.Attribute(name); a == nil || a.Type != typ {
 			t.Errorf("%s = %+v, want %s", name, a, typ)
 		}
 	}
-	if a := n.Attribute("p_iso_date"); a == nil || !a.Partition {
+	final := n.Binding("trino", "final")
+	if c := final.Column("export_date"); c.Values["datatype"].Definition != "DATE" {
+		t.Errorf("export_date datatype = %+v", c.Values["datatype"])
+	}
+	if c := final.Column("p_iso_date"); c == nil || c.Values["is_partition"].Value != true {
 		t.Errorf("p_iso_date not a partition")
 	}
 	// created_at is a string in the source layer and a timestamp after it.
 	var layerChange bool
 	for _, d := range disagreements(m, "layer-type-change") {
-		if d.Subject == "ntc.ntc_instances_export.created_at" {
+		if d.Subject == "ntc.ntc_instances_export#created_at" {
 			layerChange = true
 		}
 	}
@@ -169,14 +177,14 @@ func TestDbtTransformBindsItsProjectSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var binding *model.BindingObs
-	for _, o := range inspectFile("nsreporting_04_ntc_dbt.yaml", data) {
-		if o.Binding != nil {
-			binding = o.Binding
+	var scope *model.ScopeObs
+	for _, o := range (Inspector{}).inspectFile("nsreporting_04_ntc_dbt.yaml", data) {
+		if o.Scope != nil {
+			scope = o.Scope
 		}
 	}
-	if binding == nil || binding.Scope != "dbt:hmd_config_transform_reporting" || binding.Schema != "ntc" {
-		t.Errorf("binding = %+v", binding)
+	if scope == nil || scope.Scope != "dbt:hmd_config_transform_reporting" || scope.Schema != "ntc" {
+		t.Errorf("scope = %+v", scope)
 	}
 }
 

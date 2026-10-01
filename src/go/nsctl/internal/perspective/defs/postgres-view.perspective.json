@@ -1,0 +1,47 @@
+{
+  "perspective_name": "postgres-view",
+  "perspective_display": "Generated Postgres view",
+  "graph_display": {},
+  "entity_extensions": [
+    {
+      "view_name": {
+        "display": "View Name",
+        "description": "The view hmd-lang-* code generation creates over the generic entity or relationship table.",
+        "extension_type": "short_text",
+        "default": "{entity.name}_{entity.namespace}"
+      }
+    },
+    {
+      "base_table": {
+        "display": "Base Table",
+        "description": "The generic table the view selects from.",
+        "extension_type": "enum",
+        "default": "entity",
+        "enum_values": [
+          { "id": "entity", "description": "Nouns", "definition": "entity" },
+          { "id": "relationship", "description": "Relationships", "definition": "relationship" }
+        ]
+      }
+    },
+    {
+      "system_columns": {
+        "display": "System Columns",
+        "description": "The base table's own columns the view selects, comma-separated.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    }
+  ],
+  "noun_extensions": [],
+  "relationship_extensions": [],
+  "attribute_extensions": [
+    {
+      "projection": {
+        "display": "Projection",
+        "description": "The expression that projects the attribute out of the content document.",
+        "extension_type": "short_text",
+        "default": "content -> '{attribute.name}'"
+      }
+    }
+  ]
+}

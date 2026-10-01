@@ -1580,15 +1580,20 @@ Inherited flags
 nsctl inspect
 -------------
 
-Reads .hms language pack schemas, NeuronSphere transform SQL and dbt projects
-in the named directories (default: the current one) and prints the logical
-model they describe: nouns and their attributes, the tables, views and dbt
-models that carry each one, lineage between them, and every place the artifacts
-disagree. A directory that is not itself a repository stands for the
-repositories directly inside it.
+Reads .hms language pack schemas and their perspective sidecars, NeuronSphere
+transform SQL and dbt projects in the named directories (default: the current
+one) and prints the logical model they describe: nouns and their .hms
+attributes, each noun's perspective bindings (the Trino tables, views and dbt
+models that carry it, with their physical types), lineage between nouns, and
+every place the artifacts disagree. A directory that is not itself a repository
+stands for the repositories directly inside it.
 
 An argument that is not a directory names a noun to show in full: its fully
 qualified name (hmd_lang_transform.transform_instance) or just its name.
+
+With --hms the selected nouns are printed as an .hms document plus one
+<name>.<perspective>.hms sidecar per perspective; with --out <dir> those files
+are written under <dir>, laid out as src/schemas/<namespace>/.
 
 Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
 directories inspected. Without --refresh the latest snapshot is shown; with it,
@@ -1614,14 +1619,15 @@ Examples
      nsctl inspect ../hmd-config-transform-reporting ../hmd-lang-transform
      nsctl inspect ~/src --refresh
      nsctl inspect ~/src ntc_instances_export --sources
-     nsctl inspect ~/src hmd_lang_nsreporting.environment --hms
+     nsctl inspect ~/src ntc_instances_export --hms --out /tmp/model
 
 Local flags
 ~~~~~~~~~~~
 
-* ``--hms`` — Print the selected nouns as .hms documents
+* ``--hms`` — Print the selected nouns as .hms documents and perspective sidecars
 * ``--json`` — Print the model as JSON
-* ``--lossy`` — With --hms, write types .hms lacks (date, decimal) as string instead of refusing
+* ``--lossy`` — With --hms, write attributes of unknown type as string instead of refusing
+* ``--out`` — With --hms, write the documents under this directory instead of printing them
 * ``--refresh`` — Inspect again and store a new snapshot
 * ``--sources`` — Show where every noun, attribute and link came from, and informational notes
 
@@ -1664,6 +1670,32 @@ Local flags
 
 * ``--json`` — Print the changes as JSON
 * ``--live`` — Compare the latest snapshot with the directories as they are now
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspectives
+--------------------------
+
+Lists the perspective definitions in effect: those embedded in nsctl, and any
+that a repository under --path overrides with src/perspectives/<name>.perspective.json.
+A definition has the Modeler's shape (hmd-ms-mickey); --json prints them whole.
+NERD032 SPEC007.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspectives [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the definitions as JSON
+* ``--path`` — Repositories whose src/perspectives override the embedded definitions (default: ``[]``)
 
 Inherited flags
 ~~~~~~~~~~~~~~~

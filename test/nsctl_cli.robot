@@ -606,7 +606,7 @@ Inspect Reports A Model And Writes Nothing
     Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
     Should Contain    ${r.stdout}    hmd_lang_demo.environment
     Should Contain    ${r.stdout}    demo.thing
-    Should Contain    ${r.stdout}    trino-table demo_final.thing
+    Should Contain    ${r.stdout}    @trino:final demo_final.thing
     Should Contain    ${r.stderr}    HMD_HOME is not set
     ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
     Should Be Equal    ${before}    ${after}

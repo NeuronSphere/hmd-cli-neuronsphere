@@ -49,9 +49,9 @@ func TestNSReportingLanguagePack(t *testing.T) {
 	if !env.Authoritative || len(env.Attributes) != 1 || env.Attributes[0].Name != "type" {
 		t.Fatalf("environment = %+v", env)
 	}
-	if len(env.Manifestations) != 1 || env.Manifestations[0].Tech != "postgres-view" ||
-		env.Manifestations[0].Location.Table != "environment_hmd_lang_nsreporting" {
-		t.Errorf("manifestations = %+v", env.Manifestations)
+	if len(env.Bindings) != 1 || env.Bindings[0].Perspective != "postgres-view" ||
+		env.Bindings[0].Location.Table != "environment_hmd_lang_nsreporting" {
+		t.Errorf("manifestations = %+v", env.Bindings)
 	}
 	rel := m.Noun(model.ID{Namespace: "hmd_lang_nsreporting", Name: "content_item_has_environment"})
 	if rel.Metatype != model.MetaRelationship || rel.RefFrom != "hmd_lang_librarian.content_item" {
@@ -87,8 +87,33 @@ func TestViewSelectingAColumnTwice(t *testing.T) {
 	}
 	// A relationship has no attributes of its own, whatever its view selects.
 	rel := m.Noun(model.ID{Namespace: "hmd_lang_transform", Name: "transform_has_transform_version"})
-	if rel == nil || len(rel.Attributes) != 0 || len(rel.Manifestations) != 1 {
+	if rel == nil || len(rel.Attributes) != 0 || len(rel.Bindings) != 1 {
 		t.Errorf("relationship = %+v", rel)
+	}
+}
+
+// A <name>.<perspective>.hms sidecar is read as perspective values at .hms
+// authority; the core schema keeps .hms types (DATE is timestamp there).
+func TestPerspectiveSidecar(t *testing.T) {
+	t.Parallel()
+	m, _ := run(t, "sidecar")
+	n := m.Noun(model.ID{Namespace: "hmd_lang_demo", Name: "export"})
+	if n == nil || !n.Authoritative {
+		t.Fatalf("noun = %+v", n)
+	}
+	if a := n.Attribute("export_date"); a.Type != model.Timestamp {
+		t.Errorf("core type = %s", a.Type)
+	}
+	b := n.Binding("trino", "final")
+	if b == nil || b.Location.String() != "demo_final.export" || b.Values["format"].String() != "parquet" {
+		t.Fatalf("binding = %+v", b)
+	}
+	c := b.Column("amount")
+	if c == nil || c.Type != model.Float || c.Values["datatype"].Parameters["scale"] != float64(2) {
+		t.Errorf("amount = %+v", c)
+	}
+	if got := codes(m)["unknown-extension"]; len(got) != 1 {
+		t.Errorf("unknown-extension = %v", got)
 	}
 }
 

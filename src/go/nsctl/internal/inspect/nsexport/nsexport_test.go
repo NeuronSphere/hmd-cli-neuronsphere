@@ -27,7 +27,7 @@ func TestExportsLinkGraphNounsToContentTypes(t *testing.T) {
 	if ntc == nil || len(ntc.Attributes) != 10 || ntc.Attributes[0].Name != "nid" || ntc.Attributes[9].Name != "_updated" {
 		t.Fatalf("ntc export = %+v", ntc)
 	}
-	if ntc.Manifestations[0].Sources[0].Confidence != model.Evidence {
+	if ntc.Bindings[0].Sources[0].Confidence != model.Evidence {
 		t.Errorf("a producer read without parsing Python is evidence, not a decision")
 	}
 	var edge bool

@@ -2,6 +2,28 @@
 
 ## 2026-10-01
 
+- refactor: `nsctl inspect` keeps `.hms` unextended. Physical types, physical
+  bindings and nullability are now **perspective** values (NERD032 SPEC007),
+  as in the Modeler (`hmd-ms-mickey`).
+  - The core types are `.hms` types only. `DATE` becomes `timestamp` and
+    `DECIMAL` becomes `float`, each chosen by the definition's `hms_type`. The
+    exact type is the perspective value `datatype`.
+  - Tables, views, dbt models and exports are bindings of the `trino`, `dbt`,
+    `postgres-view` and `librarian-content` perspectives. Their definitions
+    are embedded, in the Modeler's shape, and a repository's
+    `src/perspectives/*.perspective.json` overrides them.
+  - The `hms` inspector reads `<name>.<perspective>.hms` sidecars at `.hms`
+    authority. A declared value outranks one inferred from DDL, and a
+    contradiction is reported.
+  - Every value is validated against its definition.
+  - `--hms` and `--out <dir>` export the core document plus one sidecar per
+    perspective.
+  - `nsctl inspect perspectives` lists the definitions.
+  - `nsctl inspect diff` reports `hmd-lib-ns-model` semantic ids
+    (`ns.name#attr@trino:final`) and change kinds (`PropertyTypeChanged`,
+    `PerspectiveValueChanged`).
+  - The snapshot store moves to schema version 2, with a queryable
+    `perspective_value` table.
 - feat: the `nsexport` inspector links graph nouns to Librarian exports and on
   to their consumers. The Librarian content item type is the join key. A
   producer's Gremlin `hasLabel(...).project(...)` together with the content type

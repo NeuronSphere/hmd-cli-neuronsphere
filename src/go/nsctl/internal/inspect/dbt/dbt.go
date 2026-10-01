@@ -200,13 +200,16 @@ func inspectSchemaFile(src inspect.Source, file string, docs map[string]modelDoc
 		for _, t := range s.Tables {
 			id := model.ID{Namespace: s.Name, Name: t.Name}
 			line := inspect.LineOf(text, "name: "+t.Name)
-			key := "dbt-source:" + strings.ToLower(schema+"."+t.Name)
 			// A source names a table something else owns: it links to that
 			// table without providing it, and its identity is the weakest.
 			p := prov(file, line, model.AuthInferred, "dbt source")
-			obs = append(obs, model.Observation{Kind: model.KindManifestation, Subject: id, Provenance: p,
-				Manifest: &model.ManifestObs{Key: key, Tech: "dbt-source", Reference: true,
-					Location: model.Location{Catalog: s.Database, Schema: schema, Table: t.Name}}})
+			values := map[string]model.Value{"schema_name": model.V(schema), "table_name": model.V(t.Name)}
+			if s.Database != "" {
+				values["database"] = model.V(s.Database)
+			}
+			bo := &model.BindingObs{Perspective: Perspective, Name: "source:" + s.Name, Reference: true, Values: values}
+			key := bo.Key()
+			obs = append(obs, model.Observation{Kind: model.KindBinding, Subject: id, Provenance: p, Binding: bo})
 			obs = append(obs, model.Observation{Kind: model.KindReference, Provenance: prov(file, line, model.AuthDbtYAML, ""),
 				Named: &model.NamedObs{Kind: "table", Key: strings.ToLower(schema + "." + t.Name), Via: "dbt source " + s.Name}})
 			for i, c := range t.Columns {
@@ -222,10 +225,7 @@ func inspectSchemaFile(src inspect.Source, file string, docs map[string]modelDoc
 
 func columnObs(id model.ID, key, file, text string, i int, c column) []model.Observation {
 	p := prov(file, inspect.LineOf(text, "name: "+c.Name), model.AuthDbtYAML, "documented column")
-	a := &model.AttrObs{Name: c.Name, Manifestation: key, Position: i + 1, Type: model.Unknown}
-	if c.DataType != "" {
-		a.PhysicalType, a.Type = c.DataType, model.SQLType(c.DataType)
-	}
+	a := &model.AttrObs{Name: c.Name, Binding: key, Position: i + 1, Type: model.Unknown, Values: columnValues(c)}
 	if c.Description != "" {
 		a.Description = model.StrPtr(c.Description)
 	}
@@ -235,6 +235,24 @@ func columnObs(id model.ID, key, file, text string, i int, c column) []model.Obs
 			Constraint: &model.ConstraintObs{Attribute: c.Name, Constraint: test}})
 	}
 	return obs
+}
+
+// Perspective is the perspective dbt models and sources bind to.
+const Perspective = "dbt"
+
+// columnValues are a documented column's dbt perspective values.
+func columnValues(c column) map[string]model.Value {
+	values := map[string]model.Value{}
+	if c.DataType != "" {
+		values["data_type"] = model.V(c.DataType)
+	}
+	if tests := c.testNames(); len(tests) > 0 {
+		values["tests"] = model.V(strings.Join(tests, ","))
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 var (
@@ -250,7 +268,7 @@ var (
 func inspectModel(project, scope, file, body string, doc modelDoc, mat string) []model.Observation {
 	name := strings.TrimSuffix(path.Base(file), ".sql")
 	id := model.ID{Namespace: project, Name: name}
-	key := "dbt-model:" + project + "." + name
+	key := model.BindingKey(Perspective, "model")
 	auth, why := model.AuthDbtSQL, "dbt model SQL"
 	if doc.file != "" {
 		auth, why = model.AuthDbtYAML, "dbt model, documented"
@@ -259,9 +277,13 @@ func inspectModel(project, scope, file, body string, doc modelDoc, mat string) [
 		mat = m[1]
 	}
 	obs := []model.Observation{
-		{Kind: model.KindManifestation, Subject: id, Provenance: prov(file, 1, auth, why),
-			Manifest: &model.ManifestObs{Key: key, Tech: "dbt-model", Scope: scope, Format: mat, Primary: true,
-				Location: model.Location{Table: name}}},
+		{Kind: model.KindBinding, Subject: id, Provenance: prov(file, 1, auth, why),
+			Binding: &model.BindingObs{Perspective: Perspective, Name: "model", Scope: scope, Primary: true,
+				Location: model.Location{Table: name}, Values: map[string]model.Value{
+					"project":      model.V(project),
+					"materialized": {Value: mat, Definition: mat},
+					"table_name":   model.V(name),
+				}}},
 		{Kind: model.KindProvide, Provenance: prov(file, 1, model.AuthDbtSQL, ""),
 			Named: &model.NamedObs{Kind: "dbt-model", Key: project + "." + name}},
 	}
@@ -308,7 +330,7 @@ func inspectModel(project, scope, file, body string, doc modelDoc, mat string) [
 			produced = append(produced, it.Name)
 			obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: id,
 				Provenance: prov(file, it.Line, model.AuthDbtSQL, "select list"),
-				Attr:       &model.AttrObs{Name: it.Name, Manifestation: key, Position: i + 1, Type: model.Unknown}})
+				Attr:       &model.AttrObs{Name: it.Name, Binding: key, Position: i + 1, Type: model.Unknown}})
 		}
 	}
 	obs = append(obs, compareDocumented(id, file, doc, produced)...)
@@ -369,6 +391,13 @@ func compareDocumented(id model.ID, file string, doc modelDoc, produced []string
 		if len(produced) > 0 && !have[strings.ToLower(c.Name)] {
 			obs = append(obs, finding(doc.file, doc.line, id, model.SevWarning, "documented-column-missing",
 				fmt.Sprintf("documents column %s, which %s does not select", c.Name, file)))
+			continue
+		}
+		// What schema.yml documents about a selected column is a dbt
+		// perspective value on the model's binding: unordered, by name.
+		if values := columnValues(c); values != nil {
+			obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: id, Provenance: p,
+				Attr: &model.AttrObs{Name: c.Name, Binding: model.BindingKey(Perspective, "model"), Type: model.Unknown, Values: values}})
 		}
 	}
 	if len(doc.columns) > 0 {

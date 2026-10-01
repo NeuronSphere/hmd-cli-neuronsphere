@@ -86,58 +86,53 @@ func TestHMSAttributesKeepFileOrderAndAliases(t *testing.T) {
 	}
 }
 
-func TestExportRefusesExtensionTypes(t *testing.T) {
+// Only an attribute nothing typed blocks a valid .hms export: a DATE column
+// is already timestamp in the core, with DATE kept as a perspective value.
+func TestExportRefusesOnlyUnknownTypes(t *testing.T) {
 	t.Parallel()
 	n := &Noun{ID: ID{"ntc", "x"}, Metatype: MetaNoun, Attributes: []*Attribute{
-		{Name: "export_date", Type: Date},
-		{Name: "name", Type: String},
+		{Name: "export_date", Type: Timestamp},
+		{Name: "derived", Type: Unknown},
 	}}
 	_, err := ExportHMS(n, false)
 	var ee *ExportError
-	if !errors.As(err, &ee) || len(ee.Attributes) != 1 || !strings.Contains(ee.Attributes[0], "export_date") {
+	if !errors.As(err, &ee) || len(ee.Attributes) != 1 || !strings.Contains(ee.Attributes[0], "derived") {
 		t.Fatalf("err = %v", err)
 	}
 	out, err := ExportHMS(n, true)
-	if err != nil || !strings.Contains(string(out), `"export_date": {"type":"string"}`) {
+	if err != nil || !strings.Contains(string(out), `"derived": {"type":"string"}`) ||
+		!strings.Contains(string(out), `"export_date": {"type":"timestamp"}`) {
 		t.Fatalf("lossy export = %s, %v", out, err)
 	}
 }
 
-func TestSQLTypeMapping(t *testing.T) {
-	t.Parallel()
-	for physical, want := range map[string]LogicalType{
-		"varchar": String, "VARCHAR(255)": String, "double": Float, "timestamp(3)": Timestamp,
-		"TIMESTAMP": Timestamp, "DATE": Date, "bigint": Integer, "decimal(10,2)": Decimal,
-		"boolean": Bool, "array(varchar)": Collection, "geometry": Unknown,
-	} {
-		if got := SQLType(physical); got != want {
-			t.Errorf("SQLType(%q) = %s, want %s", physical, got, want)
-		}
-	}
-}
+func datatype(id, def string) Value { return Value{Value: id, Definition: def} }
 
-// layered is a three-layer table the way the NS transforms build one.
+// layered is a two-layer table the way the NS transforms build one, as
+// bindings of a trino perspective.
 func layered() []Observation {
 	var obs []Observation
 	id := ID{"billing", "aws_billing"}
 	for _, layer := range []struct {
 		name    string
 		primary bool
-		types   []string
+		types   []Value
+		core    []LogicalType
 	}{
-		{"staging", false, []string{"varchar", "varchar", "varchar"}},
-		{"final", true, []string{"varchar", "double", "varchar"}},
+		{"staging", false, []Value{datatype("varchar", "VARCHAR"), datatype("varchar", "VARCHAR"), datatype("varchar", "VARCHAR")},
+			[]LogicalType{String, String, String}},
+		{"final", true, []Value{datatype("varchar", "VARCHAR"), datatype("double", "DOUBLE"), datatype("varchar", "VARCHAR")},
+			[]LogicalType{String, Float, String}},
 	} {
-		key := "trino:billing_" + layer.name + ".aws_billing"
 		p := prov("ddl_"+layer.name+".yaml", AuthDDL)
-		obs = append(obs, Observation{Kind: KindManifestation, Subject: id, Provenance: p, Manifest: &ManifestObs{
-			Key: key, Tech: "trino-table", Location: Location{Schema: "billing_" + layer.name, Table: "aws_billing"},
-			Layer: layer.name, Primary: layer.primary, Partitions: []string{"year"},
-		}})
+		b := &BindingObs{Perspective: "trino", Name: layer.name, Primary: layer.primary, Values: map[string]Value{
+			"schema_name": V("billing_" + layer.name), "table_name": V("aws_billing"), "partitioned_by": V("year"),
+		}}
+		obs = append(obs, Observation{Kind: KindBinding, Subject: id, Provenance: p, Binding: b})
 		for i, col := range []string{"identity_line_item_id", "cost", "year"} {
 			obs = append(obs, Observation{Kind: KindAttribute, Subject: id, Provenance: p, Attr: &AttrObs{
-				Name: col, Manifestation: key, Position: i + 1,
-				PhysicalType: layer.types[i], Type: SQLType(layer.types[i]),
+				Name: col, Binding: b.Key(), Position: i + 1, Type: layer.core[i],
+				Values: map[string]Value{"datatype": layer.types[i], "is_partition": V(col == "year")},
 			}})
 		}
 	}
@@ -151,19 +146,19 @@ func TestConsolidateLayersIntoOneNoun(t *testing.T) {
 		t.Fatalf("nouns = %d", len(m.Nouns))
 	}
 	n := m.Nouns[0]
-	if len(n.Manifestations) != 2 {
-		t.Fatalf("manifestations = %d", len(n.Manifestations))
+	if len(n.Bindings) != 2 || n.Bindings[0].Label() != "trino:final" || n.Bindings[0].Location.String() != "billing_final.aws_billing" {
+		t.Fatalf("bindings = %+v", n.Bindings)
 	}
-	// Attributes come from the primary (final) layer.
+	// Attributes come from the primary (final) binding, core types only.
 	if a := n.Attribute("cost"); a == nil || a.Type != Float {
 		t.Errorf("cost = %+v", a)
 	}
-	if a := n.Attribute("year"); a == nil || !a.Partition {
-		t.Errorf("year = %+v", a)
+	if col := n.Binding("trino", "final").Column("cost"); col.Values["datatype"].Definition != "DOUBLE" {
+		t.Errorf("final cost datatype = %+v", col.Values)
 	}
 	var info bool
 	for _, d := range m.Disagreements {
-		if d.Code == "layer-type-change" && d.Severity == SevInfo && strings.HasSuffix(d.Subject, ".cost") {
+		if d.Code == "layer-type-change" && d.Severity == SevInfo && d.Subject == "billing.aws_billing#cost" {
 			info = true
 		} else if d.Severity != SevInfo {
 			t.Errorf("unexpected disagreement %v", d)
@@ -191,11 +186,10 @@ func TestConsolidateIsOrderIndependent(t *testing.T) {
 func TestInsertThatDisagreesWithCreateIsReported(t *testing.T) {
 	t.Parallel()
 	obs := layered()
-	key := "trino:billing_final.aws_billing"
 	p := prov("03-staging-to-final.yaml", AuthInsertSelect)
 	for i, col := range []string{"identity_line_item_id", "cost"} {
 		obs = append(obs, Observation{Kind: KindAttribute, Subject: ID{"billing", "aws_billing"}, Provenance: p,
-			Attr: &AttrObs{Name: col, Manifestation: key, Position: i + 1, Type: Unknown}})
+			Attr: &AttrObs{Name: col, Binding: "trino:final", Position: i + 1, Type: Unknown}})
 	}
 	m := Consolidate(obs)
 	var found bool
@@ -218,20 +212,20 @@ func TestSharedLocationLinksAcrossInspectors(t *testing.T) {
 	t.Parallel()
 	ddl := ID{"ntc", "ntc_instances_export"}
 	src := ID{"ntc_final", "ntc_instances_export"}
-	model := ID{"dbt_reporting", "staging_transform_instance"}
+	mdl := ID{"reporting", "staging_transform_instance"}
 	obs := []Observation{
-		{Kind: KindManifestation, Subject: ddl, Provenance: prov("ddl03.yaml", AuthDDL), Manifest: &ManifestObs{
-			Key: "trino:ntc_final.ntc_instances_export", Tech: "trino-table",
-			Location: Location{Schema: "ntc_final", Table: "ntc_instances_export"}, Layer: "final", Primary: true}},
-		{Kind: KindManifestation, Subject: src, Provenance: prov("schema.yml", AuthDbtYAML), Manifest: &ManifestObs{
-			Key: "dbt-source:ntc_final.ntc_instances_export", Tech: "dbt-source",
-			Location: Location{Catalog: "hive", Schema: "ntc_final", Table: "ntc_instances_export"}}},
-		{Kind: KindManifestation, Subject: model, Provenance: prov("staging.sql", AuthDbtSQL), Manifest: &ManifestObs{
-			Key: "dbt-model:staging_transform_instance", Tech: "dbt-model", Scope: "dbt:reporting",
-			Location: Location{Table: "staging_transform_instance"}}},
-		{Kind: KindBinding, Provenance: prov("04-dbt.yaml", AuthDDL), Binding: &BindingObs{Scope: "dbt:reporting", Schema: "ntc"}},
+		{Kind: KindBinding, Subject: ddl, Provenance: prov("ddl03.yaml", AuthDDL), Binding: &BindingObs{
+			Perspective: "trino", Name: "final", Primary: true,
+			Values: map[string]Value{"schema_name": V("ntc_final"), "table_name": V("ntc_instances_export")}}},
+		{Kind: KindBinding, Subject: src, Provenance: prov("schema.yml", AuthInferred), Binding: &BindingObs{
+			Perspective: "dbt", Name: "source:ntc_final", Reference: true,
+			Values: map[string]Value{"database": V("hive"), "schema_name": V("ntc_final"), "table_name": V("ntc_instances_export")}}},
+		{Kind: KindBinding, Subject: mdl, Provenance: prov("staging.sql", AuthDbtSQL), Binding: &BindingObs{
+			Perspective: "dbt", Name: "model", Scope: "dbt:reporting",
+			Values: map[string]Value{"table_name": V("staging_transform_instance")}}},
+		{Kind: KindScope, Provenance: prov("04-dbt.yaml", AuthDDL), Scope: &ScopeObs{Scope: "dbt:reporting", Schema: "ntc"}},
 		{Kind: KindLineage, Provenance: prov("staging.sql", AuthDbtSQL), Lineage: &LineageObs{
-			From: Endpoint{ID: src}, To: Endpoint{ID: model}, Via: "dbt-source"}},
+			From: Endpoint{ID: src}, To: Endpoint{ID: mdl}, Via: "dbt-source"}},
 		{Kind: KindReference, Provenance: prov("views.yml", AuthDbtYAML), Named: &NamedObs{
 			Kind: "table", Key: "ntc.staging_transform_instance", Via: "dbt source"}},
 		{Kind: KindReference, Provenance: prov("views.yml", AuthDbtYAML), Named: &NamedObs{
@@ -239,7 +233,7 @@ func TestSharedLocationLinksAcrossInspectors(t *testing.T) {
 	}
 	m := Consolidate(obs)
 	n := m.Noun(ddl)
-	if n == nil || len(n.Manifestations) != 2 || len(n.Aliases) != 1 || n.Aliases[0].ID != src {
+	if n == nil || len(n.Bindings) != 2 || len(n.Aliases) != 1 || n.Aliases[0].ID != src {
 		t.Fatalf("noun = %+v", n)
 	}
 	if !strings.Contains(n.Aliases[0].Reason, "same physical table ntc_final.ntc_instances_export") {
@@ -248,8 +242,11 @@ func TestSharedLocationLinksAcrossInspectors(t *testing.T) {
 	if len(m.Lineage) != 1 || m.Lineage[0].From != "ntc.ntc_instances_export" {
 		t.Errorf("lineage = %+v", m.Lineage)
 	}
-	// The binding put the dbt model in schema ntc, so the first reference
-	// resolves and only the second is reported.
+	// The scope put the dbt model in schema ntc, which is now also its
+	// schema_name value; the first reference resolves.
+	if b := m.Noun(mdl).Binding("dbt", "model"); b.Values["schema_name"].String() != "ntc" {
+		t.Errorf("scoped binding = %+v", b)
+	}
 	var unresolved []string
 	for _, d := range m.Disagreements {
 		if d.Code == "unresolved-reference" {
@@ -259,6 +256,10 @@ func TestSharedLocationLinksAcrossInspectors(t *testing.T) {
 	if !reflect.DeepEqual(unresolved, []string{"ntc.nothing_makes_this"}) {
 		t.Errorf("unresolved = %v", unresolved)
 	}
+	// Consolidation filled in locations on copies, not on the caller's data.
+	if obs[2].Binding.Location.Schema != "" {
+		t.Errorf("caller's observation was mutated")
+	}
 }
 
 func TestNotNullTestMakesAttributeRequired(t *testing.T) {
@@ -266,8 +267,8 @@ func TestNotNullTestMakesAttributeRequired(t *testing.T) {
 	id := ID{"dbt_r", "dim_status"}
 	p := prov("schema.yml", AuthDbtYAML)
 	obs := []Observation{
-		{Kind: KindManifestation, Subject: id, Provenance: p, Manifest: &ManifestObs{Key: "dbt-model:dim_status", Tech: "dbt-model"}},
-		{Kind: KindAttribute, Subject: id, Provenance: p, Attr: &AttrObs{Name: "status_id", Manifestation: "dbt-model:dim_status", Position: 1, Type: Unknown}},
+		{Kind: KindBinding, Subject: id, Provenance: p, Binding: &BindingObs{Perspective: "dbt", Name: "model"}},
+		{Kind: KindAttribute, Subject: id, Provenance: p, Attr: &AttrObs{Name: "status_id", Binding: "dbt:model", Position: 1, Type: Unknown}},
 		{Kind: KindConstraint, Subject: id, Provenance: p, Constraint: &ConstraintObs{Attribute: "status_id", Constraint: "not_null"}},
 		{Kind: KindConstraint, Subject: id, Provenance: p, Constraint: &ConstraintObs{Attribute: "ghost", Constraint: "unique"}},
 	}
@@ -292,5 +293,61 @@ func TestDuplicateHMSDefinitionIsReported(t *testing.T) {
 	}
 	if len(m.Nouns[0].Attributes) != 1 {
 		t.Errorf("attributes duplicated: %d", len(m.Nouns[0].Attributes))
+	}
+}
+
+// A noun's trino bindings export as one sidecar and read back as the same
+// bindings; read at .hms authority beside contradicting DDL, the declared
+// value wins and the contradiction is reported.
+func TestSidecarRoundTripAndDeclaredValuesWin(t *testing.T) {
+	t.Parallel()
+	m := Consolidate(layered())
+	n := m.Nouns[0]
+	data, ok := ExportSidecar(n, "trino", "layer")
+	if !ok || !strings.Contains(string(data), `"bindings"`) || !strings.Contains(string(data), `"layer": {`) {
+		t.Fatalf("sidecar = %s", data)
+	}
+	if _, ok := ExportSidecar(n, "dbt", "binding"); ok {
+		t.Error("a perspective the noun has no binding of exports nothing")
+	}
+
+	back, err := SidecarObservations(data, "trino", "layer", prov("aws_billing.trino.hms", AuthHMS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, o := range back {
+		if o.Kind == KindBinding {
+			names = append(names, o.Binding.Key())
+		}
+	}
+	if strings.Join(names, ",") != "trino:final,trino:staging" {
+		t.Fatalf("bindings read back = %v", names)
+	}
+	round := Consolidate(back).Nouns[0]
+	if c := round.Binding("trino", "final").Column("cost"); c == nil || c.Values["datatype"].Definition != "DOUBLE" {
+		t.Errorf("read back cost = %+v", c)
+	}
+
+	// Declare cost DECIMAL in the sidecar; the DDL still says DOUBLE.
+	declared := `{"namespace": "billing", "name": "aws_billing", "bindings": [
+		{"layer": {"value": "final"}, "attributes": {"cost": {"datatype": {"value": "decimal", "definition": "DECIMAL"}}}}]}`
+	side, err := SidecarObservations([]byte(declared), "trino", "layer", prov("aws_billing.trino.hms", AuthHMS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixed := Consolidate(append(layered(), side...))
+	col := mixed.Nouns[0].Binding("trino", "final").Column("cost")
+	if col.Values["datatype"].Value != "decimal" {
+		t.Errorf("declared value should win: %+v", col.Values["datatype"])
+	}
+	var conflict bool
+	for _, d := range mixed.Disagreements {
+		if d.Code == "perspective-value-conflict" && d.Subject == "billing.aws_billing#cost@trino:final" {
+			conflict = true
+		}
+	}
+	if !conflict {
+		t.Errorf("conflict not reported: %v", mixed.Disagreements)
 	}
 }

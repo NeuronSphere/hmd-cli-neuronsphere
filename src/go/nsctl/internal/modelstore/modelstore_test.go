@@ -14,11 +14,12 @@ func sample() ([]model.Observation, *model.Model) {
 	id := model.ID{Namespace: "billing", Name: "aws_billing"}
 	p := model.Provenance{Inspector: "t", Repo: "r", File: "f.yaml", Line: 3, Authority: model.AuthDDL}
 	obs := []model.Observation{
-		{Kind: model.KindManifestation, Subject: id, Provenance: p, Manifest: &model.ManifestObs{
-			Key: "trino:billing_final.aws_billing", Tech: "trino-table", Layer: "final", Primary: true,
-			Location: model.Location{Schema: "billing_final", Table: "aws_billing"}}},
+		{Kind: model.KindBinding, Subject: id, Provenance: p, Binding: &model.BindingObs{
+			Perspective: "trino", Name: "final", Primary: true,
+			Values: map[string]model.Value{"schema_name": model.V("billing_final"), "table_name": model.V("aws_billing")}}},
 		{Kind: model.KindAttribute, Subject: id, Provenance: p, Attr: &model.AttrObs{
-			Name: "cost", Manifestation: "trino:billing_final.aws_billing", Position: 1, Type: model.Float, PhysicalType: "double"}},
+			Name: "cost", Binding: "trino:final", Position: 1, Type: model.Float,
+			Values: map[string]model.Value{"datatype": {Value: "double", Definition: "DOUBLE"}}}},
 		{Kind: model.KindReference, Provenance: p, Named: &model.NamedObs{Kind: "table", Key: "x.y"}},
 	}
 	return obs, model.Consolidate(obs)
@@ -52,13 +53,18 @@ func TestSaveAndReadBack(t *testing.T) {
 		t.Errorf("model round trip differs\n%s\n%s", a, b)
 	}
 	back, err := s.Observations(snap.ID)
-	if err != nil || len(back) != len(obs) || back[1].Attr.PhysicalType != "double" {
+	if err != nil || len(back) != len(obs) || back[1].Attr.Values["datatype"].Definition != "DOUBLE" {
 		t.Errorf("observations = %+v, %v", back, err)
 	}
-	// The normalised columns are queryable.
-	var typ string
+	// The normalised columns are queryable: the core type, and the
+	// perspective value beside it.
+	var typ, def string
 	if err := s.db.QueryRow(`SELECT type FROM attribute WHERE noun_id = 'billing.aws_billing' AND name = 'cost'`).Scan(&typ); err != nil || typ != "float" {
 		t.Errorf("attribute row = %q, %v", typ, err)
+	}
+	if err := s.db.QueryRow(`SELECT definition FROM perspective_value WHERE perspective = 'trino' AND binding = 'final'
+		AND attribute = 'cost' AND key = 'datatype'`).Scan(&def); err != nil || def != "DOUBLE" {
+		t.Errorf("perspective_value row = %q, %v", def, err)
 	}
 }
 

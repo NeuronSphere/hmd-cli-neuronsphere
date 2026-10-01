@@ -30,7 +30,7 @@ import (
 
 // schemaVersion is PRAGMA user_version. Bump it with any table change; an
 // older database is dropped and rebuilt.
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Keep is how many snapshots per scope survive a save.
 const Keep = 20
@@ -95,17 +95,24 @@ CREATE TABLE attribute (
   noun_id TEXT NOT NULL,
   name TEXT NOT NULL,
   type TEXT NOT NULL,
-  physical_type TEXT NOT NULL,
-  required INTEGER,
-  partition_key INTEGER NOT NULL
+  required INTEGER
 );
-CREATE TABLE manifestation (
+CREATE TABLE binding (
   snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
   noun_id TEXT NOT NULL,
+  perspective TEXT NOT NULL,
+  name TEXT NOT NULL,
+  location TEXT NOT NULL
+);
+CREATE TABLE perspective_value (
+  snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+  noun_id TEXT NOT NULL,
+  perspective TEXT NOT NULL,
+  binding TEXT NOT NULL,
+  attribute TEXT NOT NULL,
   key TEXT NOT NULL,
-  tech TEXT NOT NULL,
-  location TEXT NOT NULL,
-  layer TEXT NOT NULL
+  value TEXT NOT NULL,
+  definition TEXT NOT NULL
 );
 CREATE TABLE lineage (
   snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
@@ -123,7 +130,8 @@ CREATE TABLE disagreement (
 );
 `
 
-var tables = []string{"disagreement", "lineage", "manifestation", "attribute", "noun", "observation", "snapshot"}
+// tables lists every table any schema version had, so a rebuild removes them all.
+var tables = []string{"disagreement", "lineage", "perspective_value", "binding", "manifestation", "attribute", "noun", "observation", "snapshot"}
 
 // Open opens or creates the database at path.
 func Open(path string) (*Store, error) {
@@ -220,19 +228,25 @@ func insertAll(tx *sql.Tx, id int64, obs []model.Observation, m *model.Model) er
 		return err
 	}
 	defer nn.Close()
-	at, err := stmt(`INSERT INTO attribute VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	at, err := stmt(`INSERT INTO attribute VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer at.Close()
-	mf, err := stmt(`INSERT INTO manifestation VALUES (?, ?, ?, ?, ?, ?)`)
+	bd, err := stmt(`INSERT INTO binding VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer mf.Close()
+	defer bd.Close()
+	pv, err := stmt(`INSERT INTO perspective_value VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer pv.Close()
 	for _, n := range m.Nouns {
 		body, _ := json.Marshal(n)
-		if _, err := nn.Exec(id, n.ID.String(), string(n.Metatype), n.Authoritative, string(body)); err != nil {
+		nid := n.ID.String()
+		if _, err := nn.Exec(id, nid, string(n.Metatype), n.Authoritative, string(body)); err != nil {
 			return err
 		}
 		for _, a := range n.Attributes {
@@ -240,13 +254,32 @@ func insertAll(tx *sql.Tx, id int64, obs []model.Observation, m *model.Model) er
 			if a.Required != nil {
 				req = *a.Required
 			}
-			if _, err := at.Exec(id, n.ID.String(), a.Name, string(a.Type), a.PhysicalType, req, a.Partition); err != nil {
+			if _, err := at.Exec(id, nid, a.Name, string(a.Type), req); err != nil {
 				return err
 			}
 		}
-		for _, x := range n.Manifestations {
-			if _, err := mf.Exec(id, n.ID.String(), x.Key, x.Tech, x.Location.String(), x.Layer); err != nil {
+		for _, b := range n.Bindings {
+			if _, err := bd.Exec(id, nid, b.Perspective, b.Name, b.Location.String()); err != nil {
 				return err
+			}
+			// One row per perspective value, entity-level (attribute "") and
+			// attribute-level, so `where key = 'datatype' and value = 'date'`
+			// answers "which columns are DATE" directly.
+			put := func(attr string, values map[string]model.Value) error {
+				for k, v := range values {
+					if _, err := pv.Exec(id, nid, b.Perspective, b.Name, attr, k, v.String(), v.Definition); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if err := put("", b.Values); err != nil {
+				return err
+			}
+			for _, c := range b.Columns {
+				if err := put(c.Name, c.Values); err != nil {
+					return err
+				}
 			}
 		}
 	}

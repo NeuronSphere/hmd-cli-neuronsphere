@@ -216,21 +216,23 @@ func cloneRaw(m map[string]json.RawMessage) map[string]json.RawMessage {
 	return out
 }
 
-// ExportError lists attributes .hms cannot express.
+// ExportError lists attributes whose type no inspected artifact states.
 type ExportError struct {
 	Noun       ID
 	Attributes []string
 }
 
 func (e *ExportError) Error() string {
-	return fmt.Sprintf("%s: attributes with types .hms cannot express: %s (export with lossy to downgrade them to string)",
+	return fmt.Sprintf("%s: no inspected artifact states a type for: %s (export with lossy to write them as string)",
 		e.Noun, strings.Join(e.Attributes, ", "))
 }
 
 // ExportHMS writes a noun as an .hms document. A noun learned from .hms
-// exports to a document equal to its source. An attribute whose logical type
-// is an extension makes the export fail with an *ExportError, unless lossy is
-// set, in which case it is written as string.
+// exports to a document equal to its source; any other noun's attribute
+// types are already the nearest .hms types, with exact physical types left to
+// its perspective sidecars. An attribute of unknown type (a dbt column nothing
+// documents) makes the export fail with an *ExportError, unless lossy is set,
+// in which case it is written as string.
 func ExportHMS(n *Noun, lossy bool) ([]byte, error) {
 	var bad []string
 	for _, a := range n.Attributes {

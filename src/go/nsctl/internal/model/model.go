@@ -1,12 +1,14 @@
 // Package model is the canonical data model that nsctl inspect builds
 // (NERD032): nouns, their attributes, and the relationships between them,
-// shaped like an HMD language pack schema (.hms), plus the few things .hms
-// cannot say -- where each fact came from, the physical tables and views that
-// carry a noun, lineage between nouns, and two logical types.
+// exactly as an HMD language pack schema (.hms) states them, plus perspective
+// bindings -- the technology-specific metadata kept beside the core schema in
+// <name>.<perspective>.hms sidecars (SPEC007) -- and two things that describe
+// the inspection rather than any noun: provenance and lineage.
 //
-// The package knows .hms concepts and nothing else about NeuronSphere. Layer
-// naming, transform YAML and Jinja belong to inspectors, which reach this
-// package only as Observations.
+// The package knows .hms and the perspective value shape, nothing else about
+// NeuronSphere. What a perspective's keys mean belongs to its definition
+// (internal/perspective); layer naming, transform YAML and Jinja belong to
+// inspectors, which reach this package only as Observations.
 package model
 
 import (
@@ -50,8 +52,10 @@ const (
 	MetaRelationship Metatype = "relationship"
 )
 
-// LogicalType is an attribute's type in the model. Every .hms runtime type is
-// one; Date and Decimal are the extensions the corpus needed (NERD032 SPEC003).
+// LogicalType is an attribute's core type: always an .hms runtime type, or
+// Unknown when nothing stated one. A physical type with no exact .hms
+// equivalent (DATE, DECIMAL) has its nearest .hms type here and its exact
+// type as a perspective value.
 type LogicalType string
 
 const (
@@ -65,22 +69,12 @@ const (
 	Collection LogicalType = "collection"
 	Mapping    LogicalType = "mapping"
 	Blob       LogicalType = "blob"
-	// Date has no .hms equivalent; a Trino DATE column is the usual source.
-	Date LogicalType = "date"
-	// Decimal has no .hms equivalent; float would lose its exactness.
-	Decimal LogicalType = "decimal"
-	// Unknown is a column whose type no inspector could state.
+	// Unknown is an attribute whose type no inspected artifact states.
 	Unknown LogicalType = "unknown"
 )
 
 // IsHMS reports whether .hms can express the type.
-func (t LogicalType) IsHMS() bool {
-	switch t {
-	case String, Integer, Float, Bool, Enum, Timestamp, Epoch, Collection, Mapping, Blob:
-		return true
-	}
-	return false
-}
+func (t LogicalType) IsHMS() bool { return t != Unknown && t != "" }
 
 // HMSType maps an .hms attribute type, including the aliases found in real
 // language packs, to its logical type. ok is false for a type the HMD runtime
@@ -111,47 +105,45 @@ func HMSType(s string) (t LogicalType, ok bool) {
 	return Unknown, false
 }
 
-// SQLType maps a SQL column type to its logical type. The physical spelling
-// is always kept beside it; this mapping is what lets a varchar column and an
-// .hms string attribute be compared.
-func SQLType(physical string) LogicalType {
-	t := strings.ToLower(strings.TrimSpace(physical))
-	if i := strings.IndexByte(t, '('); i >= 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	switch {
-	case t == "varchar", t == "char", t == "text", t == "string", t == "uuid",
-		strings.HasPrefix(t, "character"):
-		return String
-	case t == "bigint", t == "int", t == "integer", t == "smallint", t == "tinyint":
-		return Integer
-	case t == "double", t == "real", t == "float", t == "double precision":
-		return Float
-	case t == "decimal", t == "numeric":
-		return Decimal
-	case t == "boolean", t == "bool":
-		return Bool
-	case t == "date":
-		return Date
-	case strings.HasPrefix(t, "timestamp"):
-		return Timestamp
-	case strings.HasPrefix(t, "map"), t == "json", t == "jsonb", strings.HasPrefix(t, "row"):
-		return Mapping
-	case strings.HasPrefix(t, "array"):
-		return Collection
-	case t == "varbinary", t == "bytea", t == "blob":
-		return Blob
-	}
-	return Unknown
+// Value is one perspective value, in the Modeler's shape: the value itself
+// (an enum id, text, or a bool), and for an enum value its definition and
+// parameters.
+type Value struct {
+	Value      any            `json:"value"`
+	Definition string         `json:"definition,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
-// Location is where a manifestation lives physically. Catalog is optional
-// and ignored when two locations are compared, because the same table is
-// reached through different catalogs by different tools.
+// V is a plain value.
+func V(x any) Value { return Value{Value: x} }
+
+func (v Value) String() string {
+	switch x := v.Value.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	default:
+		return fmt.Sprint(x)
+	}
+}
+
+// Equal compares two values by content.
+func (v Value) Equal(w Value) bool {
+	a, _ := json.Marshal(v)
+	b, _ := json.Marshal(w)
+	return string(a) == string(b)
+}
+
+// Location is where a binding lives physically. It is how consolidation
+// recognises two inspectors describing the same table, and is read from a
+// binding's catalog/database, schema_name and table_name values. Catalog is
+// ignored when locations are compared, because different tools reach the
+// same table through different catalogs.
 type Location struct {
 	Catalog string `json:"catalog,omitempty"`
 	Schema  string `json:"schema,omitempty"`
-	Table   string `json:"table"`
+	Table   string `json:"table,omitempty"`
 }
 
 // Key is the comparison key: lower-case schema.table. Empty when the schema
@@ -173,6 +165,18 @@ func (l Location) String() string {
 	return strings.Join(parts, ".")
 }
 
+// LocationOf reads a location from perspective values by the conventional
+// keys every location-bearing perspective uses.
+func LocationOf(values map[string]Value) Location {
+	l := Location{Schema: values["schema_name"].String(), Table: values["table_name"].String()}
+	if c := values["catalog"].String(); c != "" {
+		l.Catalog = c
+	} else {
+		l.Catalog = values["database"].String()
+	}
+	return l
+}
+
 // Model is the consolidated result of one inspection.
 type Model struct {
 	Nouns         []*Noun        `json:"nouns"`
@@ -190,7 +194,8 @@ func (m *Model) Noun(id ID) *Noun {
 	return nil
 }
 
-// Noun is a noun or relationship, in .hms terms.
+// Noun is a noun or relationship, in .hms terms, with its perspective
+// bindings.
 type Noun struct {
 	ID          ID       `json:"id"`
 	Metatype    Metatype `json:"metatype"`
@@ -199,10 +204,12 @@ type Noun struct {
 	RefFrom string `json:"ref_from,omitempty"`
 	RefTo   string `json:"ref_to,omitempty"`
 	// Authoritative is true when an .hms schema defines the noun; its
-	// attributes are then the schema's, not any manifestation's.
-	Authoritative  bool             `json:"authoritative"`
-	Attributes     []*Attribute     `json:"attributes,omitempty"`
-	Manifestations []*Manifestation `json:"manifestations,omitempty"`
+	// attributes are then the schema's, not any binding's.
+	Authoritative bool         `json:"authoritative"`
+	Attributes    []*Attribute `json:"attributes,omitempty"`
+	// Bindings are the noun's perspective values, one per perspective and
+	// binding name.
+	Bindings []*Binding `json:"bindings,omitempty"`
 	// Aliases are the other identities consolidation folded into this one,
 	// each with why.
 	Aliases []Alias        `json:"aliases,omitempty"`
@@ -220,59 +227,111 @@ func (n *Noun) Attribute(name string) *Attribute {
 	return nil
 }
 
+// Binding returns the noun's binding of a perspective by name, or nil.
+func (n *Noun) Binding(perspective, name string) *Binding {
+	for _, b := range n.Bindings {
+		if b.Perspective == perspective && b.Name == name {
+			return b
+		}
+	}
+	return nil
+}
+
+// Primary is the binding whose columns are the noun's attributes when no
+// .hms schema defines it: the one an inspector marked primary, else the one
+// stated with the highest authority, else the first.
+func (n *Noun) Primary() *Binding {
+	var best *Binding
+	bestAuth := Authority(-1)
+	for _, b := range n.Bindings {
+		if len(b.Columns) == 0 {
+			continue
+		}
+		if b.Primary {
+			return b
+		}
+		a := Authority(0)
+		for _, s := range b.Sources {
+			if s.Authority > a {
+				a = s.Authority
+			}
+		}
+		if a > bestAuth {
+			best, bestAuth = b, a
+		}
+	}
+	return best
+}
+
 // Alias records that an identity was merged into a noun.
 type Alias struct {
 	ID     ID     `json:"id"`
 	Reason string `json:"reason"`
 }
 
-// Attribute is an .hms attribute.
+// Attribute is an .hms attribute, and nothing else.
 type Attribute struct {
 	Name string      `json:"name"`
 	Type LogicalType `json:"type"`
 	// HMSType is the type exactly as an .hms file spelled it, so that an
 	// alias such as "int" survives a round trip.
 	HMSType string `json:"hms_type,omitempty"`
-	// PhysicalType is the type as the winning manifestation spelled it.
-	PhysicalType string `json:"physical_type,omitempty"`
 	// Required is a tri-state: nil is unknown (NERD032 SPEC003).
 	Required    *bool          `json:"required,omitempty"`
 	EnumDef     []string       `json:"enum_def,omitempty"`
 	Description *string        `json:"description,omitempty"`
-	Partition   bool           `json:"partition,omitempty"`
 	Extra       map[string]any `json:"extra,omitempty"`
 	Sources     []Provenance   `json:"sources,omitempty"`
 }
 
-// Manifestation is one physical binding of a noun.
-type Manifestation struct {
-	// Key is the inspector-chosen identity of this binding, stable across runs.
-	Key  string `json:"key"`
-	Tech string `json:"tech"`
-	// Scope groups manifestations whose schema is decided elsewhere, e.g. the
-	// models of one dbt project; a Binding observation fills the schema in.
-	Scope      string   `json:"scope,omitempty"`
-	Location   Location `json:"location"`
-	Layer      string   `json:"layer,omitempty"`
-	Format     string   `json:"format,omitempty"`
-	Partitions []string `json:"partitions,omitempty"`
-	// Template is the physical name before run-time values were known, with
-	// each such value written {name}. Empty for a fully static name.
-	Template string `json:"template,omitempty"`
-	Primary  bool   `json:"primary,omitempty"`
-	// Reference is true when every source only refers to this binding.
-	Reference bool         `json:"reference,omitempty"`
-	Columns   []Column     `json:"columns,omitempty"`
-	Sources   []Provenance `json:"sources,omitempty"`
+// Binding is one realisation of a noun within a perspective: the values a
+// <name>.<perspective>.hms sidecar holds for it. Name is the value of the
+// definition's binding_key ("final", "model"), empty for a perspective that
+// allows one binding per noun.
+type Binding struct {
+	Perspective string `json:"perspective"`
+	Name        string `json:"name,omitempty"`
+	// Scope groups bindings whose schema is decided elsewhere, e.g. the
+	// models of one dbt project; a scope observation fills the schema in.
+	Scope    string   `json:"scope,omitempty"`
+	Location Location `json:"location"`
+	// Primary marks the binding whose columns are the noun's attributes.
+	Primary bool `json:"primary,omitempty"`
+	// Reference is true when every source only refers to this binding (a dbt
+	// source, an INSERT target): it links, it does not provide.
+	Reference bool             `json:"reference,omitempty"`
+	Values    map[string]Value `json:"values,omitempty"`
+	Columns   []Column         `json:"columns,omitempty"`
+	Sources   []Provenance     `json:"sources,omitempty"`
 }
 
-// Column is a manifestation's column.
+// Label is perspective, or perspective:name.
+func (b *Binding) Label() string {
+	if b.Name == "" {
+		return b.Perspective
+	}
+	return b.Perspective + ":" + b.Name
+}
+
+// Column returns a column by name, or nil.
+func (b *Binding) Column(name string) *Column {
+	for i := range b.Columns {
+		if strings.EqualFold(b.Columns[i].Name, name) {
+			return &b.Columns[i]
+		}
+	}
+	return nil
+}
+
+// Column is an attribute as one binding has it: its core type (from the
+// perspective's datatype, when one is stated) and its attribute-level
+// perspective values.
 type Column struct {
-	Name         string       `json:"name"`
-	PhysicalType string       `json:"physical_type,omitempty"`
-	Type         LogicalType  `json:"type"`
-	Required     *bool        `json:"required,omitempty"`
-	Sources      []Provenance `json:"sources,omitempty"`
+	Name     string           `json:"name"`
+	Type     LogicalType      `json:"type"`
+	Required *bool            `json:"required,omitempty"`
+	Values   map[string]Value `json:"values,omitempty"`
+	Sources  []Provenance     `json:"sources,omitempty"`
 }
 
 // Edge is lineage: To is derived from From. An endpoint that no inspected

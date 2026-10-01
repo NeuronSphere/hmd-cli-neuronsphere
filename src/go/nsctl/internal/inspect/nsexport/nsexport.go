@@ -26,6 +26,9 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
 )
 
+// Perspective is the perspective an export binds to.
+const Perspective = "librarian-content"
+
 // Namespace is where content item types live in the model.
 const Namespace = "librarian"
 
@@ -53,6 +56,7 @@ var (
 	hasLabelRE    = regexp.MustCompile(`hasLabel\(\s*["']([\w.]+)["']\s*\)`)
 	projectRE     = regexp.MustCompile(`\.project\(([^)]*)\)`)
 	quotedRE      = regexp.MustCompile(`["']([^"']+)["']`)
+	contentPathRE = regexp.MustCompile(`content_item_path\s*=\s*f?"([^"]+)"`)
 )
 
 func (Inspector) Inspect(_ context.Context, src inspect.Source) ([]model.Observation, error) {
@@ -127,12 +131,18 @@ func inspectProducer(file, text string) []model.Observation {
 		seen[name] = true
 		line := strings.Count(text[:m[0]], "\n") + 1
 		id := ContentTypeID(name)
-		key := "librarian:" + name
 		p := model.Provenance{File: file, Line: line, Authority: model.AuthInferred, Confidence: model.Evidence,
 			Why: "a producer uploads Librarian content of this type"}
+		values := map[string]model.Value{
+			"content_item_type": model.V(name),
+			"format":            {Value: "parquet", Definition: "parquet"},
+		}
+		if pm := contentPathRE.FindStringSubmatch(text); pm != nil {
+			values["path_template"] = model.V(pm[1])
+		}
+		bo := &model.BindingObs{Perspective: Perspective, Primary: true, Values: values}
 		obs = append(obs,
-			model.Observation{Kind: model.KindManifestation, Subject: id, Provenance: p,
-				Manifest: &model.ManifestObs{Key: key, Tech: "librarian-content", Format: "parquet", Primary: true}},
+			model.Observation{Kind: model.KindBinding, Subject: id, Provenance: p, Binding: bo},
 			model.Observation{Kind: model.KindReference, Provenance: p,
 				Named: &model.NamedObs{Kind: "content-type", Key: name, Via: "uploaded as"}},
 		)
@@ -147,7 +157,7 @@ func inspectProducer(file, text string) []model.Observation {
 			Lineage: &model.LineageObs{From: model.Endpoint{ID: from}, To: model.Endpoint{ID: id}, Via: "graph-export"}})
 		for i, c := range columns {
 			obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: id, Provenance: lp,
-				Attr: &model.AttrObs{Name: c, Manifestation: key, Position: i + 1, Type: model.Unknown}})
+				Attr: &model.AttrObs{Name: c, Binding: bo.Key(), Position: i + 1, Type: model.Unknown}})
 		}
 	}
 	return obs
