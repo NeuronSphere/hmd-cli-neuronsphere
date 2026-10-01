@@ -2,6 +2,15 @@
 
 ## 2026-10-01
 
+- feat: `nsctl inspect [path|noun]...` prints the data model a set of
+  repositories describes (NERD032 SPEC006). It shows nouns, attributes,
+  manifestations, lineage and disagreements. A parent directory stands for the
+  repositories inside it, and a non-directory argument selects nouns.
+  - `--sources` adds provenance, link reasons and informational notes.
+  - `--json` prints the model as JSON.
+  - `--refresh` takes a new snapshot; otherwise the latest snapshot is shown.
+  - `--hms [--lossy]` exports nouns as `.hms`.
+  - It never writes to the inspected repositories.
 - fix: `nsctl inspect` fixes from its first run over the reporting corpus.
   - The `hms` inspector decides whether a generated view's column is an
     attribute by its expression (`content -> 'x'`), not its name. It reports a

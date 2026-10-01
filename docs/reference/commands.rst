@@ -1577,6 +1577,59 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl inspect
+-------------
+
+Reads .hms language pack schemas, NeuronSphere transform SQL and dbt projects
+in the named directories (default: the current one) and prints the logical
+model they describe: nouns and their attributes, the tables, views and dbt
+models that carry each one, lineage between them, and every place the artifacts
+disagree. A directory that is not itself a repository stands for the
+repositories directly inside it.
+
+An argument that is not a directory names a noun to show in full: its fully
+qualified name (hmd_lang_transform.transform_instance) or just its name.
+
+Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
+directories inspected. Without --refresh the latest snapshot is shown; with it,
+the directories are inspected again and a new snapshot is stored, which
+`nsctl inspect diff` compares with the one before. Without HMD_HOME
+nothing is stored.
+
+nsctl inspect never writes to the inspected repositories. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect [path|noun]... [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl inspect
+     nsctl inspect ../hmd-config-transform-reporting ../hmd-lang-transform
+     nsctl inspect ~/src --refresh
+     nsctl inspect ~/src ntc_instances_export --sources
+     nsctl inspect ~/src hmd_lang_nsreporting.environment --hms
+
+Local flags
+~~~~~~~~~~~
+
+* ``--hms`` — Print the selected nouns as .hms documents
+* ``--json`` — Print the model as JSON
+* ``--lossy`` — With --hms, write types .hms lacks (date, decimal) as string instead of refusing
+* ``--refresh`` — Inspect again and store a new snapshot
+* ``--sources`` — Show where every noun, attribute and link came from, and informational notes
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl lock
 ----------
 
