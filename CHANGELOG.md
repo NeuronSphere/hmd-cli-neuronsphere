@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-01
+
+- feat: `internal/model`, the canonical data model behind `nsctl inspect`
+  (NERD032). It has nouns, attributes and relationships shaped like `.hms`,
+  plus provenance, physical manifestations, lineage, and the `date` and
+  `decimal` types. Consolidation turns inspector observations into the model
+  deterministically: layers that share a physical table become one noun, and
+  disagreements are recorded instead of resolved. A noun learned from `.hms`
+  exports back to an equal document.
+
 ## 2026-09-30
 
 - fix: `env delete` retires the environment's Floci account, and a new
