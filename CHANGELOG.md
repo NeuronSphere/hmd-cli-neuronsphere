@@ -2,6 +2,14 @@
 
 ## 2026-10-01
 
+- feat: `internal/modelstore` keeps `nsctl inspect` snapshots in SQLite at
+  `$HMD_HOME/.cache/neuronsphere/inspect/model.db` (NERD032 SPEC005).
+  - Each snapshot stores the observations and the consolidated model, keyed by
+    the set of inspected roots.
+  - Each scope keeps its newest 20 snapshots.
+  - The store is derived state: a database with an unknown schema version is
+    rebuilt. The driver is the pure-Go `modernc.org/sqlite`, so the binary
+    still builds with `CGO_ENABLED=0`.
 - feat: the `dbt` inspector reads any dbt project. It covers sources, models,
   each model's final select list, `ref()`/`source()` lineage, materialization,
   and `not_null`/`unique` tests (a `not_null` test makes the attribute
