@@ -635,7 +635,16 @@ catalog the model, through an export no consumer is baked into.
       defines it, with the edge path from the change. Wherever the reach
       widened is listed as unknown reach, never omitted. Examples are a
       ``select *``, unknown column lineage, or a binding whose inspector
-      still names its own identities.
+      still names its own identities;
+    * **frontier**: every reached binding with a physical location. Things
+      outside the workspace (dashboards, ad hoc queries, other teams'
+      pipelines) may read any of them, and ``nsctl`` cannot see what does.
+      Each entry gives its dialect and its location as separate parts
+      (catalog, schema, table) instead of one dotted string. It also gives
+      the external identifiers known for it (SPEC016). Leaves come first:
+      bindings nothing in the workspace reads. The frontier is where a tool
+      that sees deployed systems, such as a data catalog, picks up the
+      traversal. ``nsctl`` hands it over and never calls such a tool itself.
 
     For example:
 
@@ -653,6 +662,9 @@ catalog the model, through an export no consumer is baked into.
            ntc.ntc_instances_export  lineage from ntc.instance@trino:final
        unknown reach
          billing.invoice_view@postgres-view  select * from ntc_final.instances
+       frontier
+         leaf  trino  <catalog> ntc_final ntc_instances_export   <system>: <id>
+               trino  <catalog> ntc_final instances
 
     That example needs one disagreement consolidation does not report yet.
     ``attribute-type`` (``warning``, like ``column-type``) is a binding
@@ -743,6 +755,34 @@ catalog the model, through an export no consumer is baked into.
     ``nsctl``) adds them at their own authority. A deployed table that
     differs from the repository's DDL is then one more disagreement. This
     NERD reserves the shape; the inspector is later work.
+
+    Such a file is named under ``[model] ingest`` in ``nsctl.toml``. It is
+    read again on a refresh whenever its digest changes.
+
+    A file of outside observations can also carry **external identifiers**
+    for physical locations. Each entry has these fields:
+
+    * ``dialect`` and the location parts (catalog, schema, table), which
+      locate the binding;
+    * ``system``, a label the generator chooses;
+    * ``id``, an opaque string;
+    * optionally ``environment``, since a catalog can hold the same table
+      once per environment.
+
+    ``nsctl`` interprets neither ``system`` nor ``id``. It attaches each
+    entry to the binding with that location as an ``alias`` edge, and
+    carries it in ``show``, ``where``, ``impact`` (its frontier) and the
+    export. ``find`` accepts an external identifier and answers its binding.
+
+    External identifiers never take part in identity or consolidation, so a
+    wrong mapping cannot merge or split nouns. An entry whose location
+    matches no binding is an ``info`` finding (``external-id-unmatched``).
+
+    The knowledge of how one catalog forms its identifiers (a platform, a
+    service name, an environment) stays in the generator that writes the
+    file. Results then carry the catalog's own identifiers for an agent to
+    pass to that catalog's tools, while ``nsctl`` knows no catalog's format.
+    (Amended 2026-10-01.)
 
 Open questions
 --------------
