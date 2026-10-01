@@ -33,6 +33,11 @@ NERD032 Data Model Inspection
     command (find, where, related, impact), and export it as a documented
     interchange document that tools outside ``nsctl`` consume.
 
+    Given a change rather than an element, ``nsctl model impact`` shall say
+    what the change did to the model, what that reaches in other repositories,
+    and which disagreements it introduced, so the checks a change needs can be
+    named before it merges.
+
     This NERD is the proposal behind an exploratory spike. Its status stays
     ``proposed`` until the spike report (``spikes/2026-10-01-nsctl-inspect.md``)
     has been reviewed.
@@ -530,6 +535,10 @@ catalog the model, through an export no consumer is baked into.
     alone; ``--full`` re-inspects everything. Adding or removing a root
     refreshes the repositories it adds or drops.
 
+    A refresh that changes anything keeps the model it replaced, one
+    generation, as the baseline of ``impact --changed`` (SPEC017). (Amended
+    2026-10-01.)
+
 .. spec:: Query commands
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC012
     :links: HMD_CLI_NEURONSPHERE_NERD032
@@ -557,6 +566,7 @@ catalog the model, through an export no consumer is baked into.
       attribute: every binding, column and downstream noun a change to it
       reaches. Where column-level lineage is unknown (a ``select *``, an
       untyped dbt column), the reach widens to the whole binding and says so.
+      ``impact`` also takes a change instead of an element (SPEC017).
 
     Every result carries provenance (repository, file, line, revision) and,
     where a disagreement concerns it, the disagreement. A query never writes
@@ -577,6 +587,94 @@ catalog the model, through an export no consumer is baked into.
     Protocol on stdio, one tool per command, with the same JSON schema as
     results. An agent asking "what breaks if I change this column" calls
     ``impact``, rather than reading repositories.
+
+.. spec:: The impact of a change
+    :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC017
+    :links: HMD_CLI_NEURONSPHERE_NERD032
+    :status: proposed
+
+    ``nsctl model impact`` takes a change as well as an element:
+
+    * ``--since <ref>`` compares each workspace repository at ``<ref>`` with
+      its working tree. A repository where ``<ref>`` does not resolve counts
+      as unchanged. The model at ``<ref>`` is inspected from the revision's
+      files, read from git without checking anything out, and is cached by
+      revision.
+    * ``--changed`` compares the workspace with the baseline its last
+      refresh kept (SPEC011). It is the default when no element is given,
+      and is the form a watcher calls after each refresh.
+    * A file path given as the element stands for every element observed in
+      that file.
+
+    Both sides are derived and consolidated as whole workspaces. They are
+    then compared with ``nsctl model diff``'s change kinds, so a change is
+    described semantically, as a diff is (SPEC006).
+
+    How far each change reaches depends on its kind:
+
+    * **Changes that reach downstream** are walked as ``impact <element>``
+      walks: removals, type, requiredness and enumeration changes, metatype
+      and relationship endpoint changes, removed bindings, and changed or
+      removed perspective values. A lineage change reaches downstream of the
+      binding whose inputs changed.
+    * **Additions** reach only the noun's other bindings, which may need to
+      carry what was added, and not downstream lineage.
+
+    A change the model does not see (a comment, a description, a file no
+    inspector reads) reaches nothing, so an edit that leaves the model
+    unchanged produces an empty result.
+
+    The result has three parts:
+
+    * **changes**, each with provenance on the side where it occurred;
+    * **findings**: the disagreements the change introduced and the ones it
+      resolved. These need nothing run to find, for example an ``.hms``
+      attribute whose type changed while the Trino column carrying it did
+      not;
+    * **reach**: each reached element grouped by the repository that
+      defines it, with the edge path from the change. Wherever the reach
+      widened is listed as unknown reach, never omitted. Examples are a
+      ``select *``, unknown column lineage, or a binding whose inspector
+      still names its own identities.
+
+    For example:
+
+    .. code-block:: text
+
+       changed   ntc.instance#status  PropertyTypeChanged string -> integer
+                 (hmd-lang-ntc  src/schemas/ntc/instance.hms:14)
+       findings
+         warning attribute-type  ntc.instance#status@trino:final is varchar (string)
+                 (hmd-config-transform-reporting  src/transforms/load.yaml:42)
+       reach
+         hmd-config-transform-reporting
+           ntc.instance@trino:final  column status
+         hmd-tf-ntc-export
+           ntc.ntc_instances_export  lineage from ntc.instance@trino:final
+       unknown reach
+         billing.invoice_view@postgres-view  select * from ntc_final.instances
+
+    That example needs one disagreement consolidation does not report yet.
+    ``attribute-type`` (``warning``, like ``column-type``) is a binding
+    column whose physical type maps (by its perspective's ``hms_type``,
+    NERD033) to a core type other than the attribute's. Today, consolidation
+    compares column types only between two sources of the same binding.
+
+    An edit that changes both sides of a seam consistently, for example the
+    ``.hms`` and the DDL together, introduces no disagreement. Its reach
+    still names the downstream consumers.
+
+    ``impact`` exits 1 when the change introduced an ``error`` finding, as
+    ``nsctl inspect`` does. Reach alone never fails it. ``--json`` follows
+    SPEC013.
+
+    This NERD stops at naming repositories and reasons. Which commands check
+    a change in a reached repository is that repository's manifest's
+    business: a separate proposal declares named commands in the BACON
+    manifest. Running those commands, and a watch mode, belong to that
+    proposal as well. A watcher is a refresh on file events followed by
+    ``impact --changed``, with the reach handed to the command runner or to
+    an agent.
 
 .. spec:: Export as a documented interchange document
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC014
@@ -659,3 +757,8 @@ Open questions
    reads the same store?
 #. Should ``nsctl model inspect <path>`` offer to add what it inspected to the
    workspace, so the first inspection is also the setup?
+#. Should an additive change reach downstream after all where a consumer is
+   known to break on new columns, for example an ``INSERT`` with no column
+   list that a new column shifts?
+#. Should ``impact --since`` take a ref per repository, for a change that
+   spans branches named differently in each repository?
