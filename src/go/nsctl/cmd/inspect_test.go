@@ -83,6 +83,50 @@ func TestInspectStoresSnapshotsUnderHome(t *testing.T) {
 	}
 }
 
+// The NERD032 change-detection loop: snapshot, edit, snapshot, diff.
+func TestInspectDiffAfterAnEdit(t *testing.T) {
+	t.Parallel()
+	dir, home := inspectRepo(t), t.TempDir()
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir); err == nil ||
+		!strings.Contains(err.Error(), "nsctl inspect --refresh") {
+		t.Fatalf("diff with no snapshots: %v", err)
+	}
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", dir, "--refresh"); err != nil {
+		t.Fatal(err)
+	}
+	hmsPath := filepath.Join(dir, "lang/src/schemas/hmd_lang_demo/environment.hms")
+	if err := os.WriteFile(hmsPath, []byte(`{"name": "environment", "namespace": "hmd_lang_demo", "metatype": "noun",
+		"attributes": {"type": {"type": "string", "description": ""}, "region": {"type": "string", "required": false}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ddl := filepath.Join(dir, "tf/src/transforms/ddl.yaml")
+	data, _ := os.ReadFile(ddl)
+	if err := os.WriteFile(ddl, []byte(strings.Replace(string(data), "id VARCHAR", "id BIGINT", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir, "--live")
+	if err != nil || !strings.Contains(out, "snapshot #1 -> working tree") {
+		t.Fatalf("live diff: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", dir, "--refresh"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "diff", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"2 model changes (snapshot #1 -> #2)",
+		"demo.thing.id\n  type: string -> integer",
+		"hmd_lang_demo.environment.region\n  added: string, not required",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("diff lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 	t.Parallel()
 	dir := inspectRepo(t)

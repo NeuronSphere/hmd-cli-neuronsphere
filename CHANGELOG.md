@@ -2,6 +2,15 @@
 
 ## 2026-10-01
 
+- feat: `nsctl inspect diff [path...]` compares the latest two snapshots of the
+  same directories, or with `--live` the latest snapshot against the working
+  tree. It prints semantic changes: nouns, attributes, type, requiredness,
+  enum values, partitions, and columns of non-primary layers. It also shows
+  lineage edges and disagreements that appeared or were resolved. Without
+  `HMD_HOME` it is a usage error.
+- test: `nsctl_cli.robot` contract tests for `inspect`. They check that it
+  reports a model, leaves the repositories untouched, and that `inspect diff`
+  refuses without `HMD_HOME`.
 - feat: `nsctl inspect [path|noun]...` prints the data model a set of
   repositories describes (NERD032 SPEC006). It shows nouns, attributes,
   manifestations, lineage and disagreements. A parent directory stands for the

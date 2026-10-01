@@ -1630,6 +1630,46 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl inspect diff
+------------------
+
+Compares the latest two snapshots of the same directories, or with --live the
+latest snapshot against the directories as they are now (without storing the
+result), and prints the semantic difference: nouns and attributes added or
+removed, an attribute's type, requiredness or enum values changed, a column
+added to one layer, lineage edges and disagreements that appeared or went away.
+
+Snapshots are taken by `nsctl inspect --refresh` and stored under HMD_HOME. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect diff [path...] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl inspect ~/src --refresh   # baseline
+     # ...edit a transform or an .hms schema...
+     nsctl inspect ~/src --refresh
+     nsctl inspect diff ~/src
+     nsctl inspect diff ~/src --live
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the changes as JSON
+* ``--live`` — Compare the latest snapshot with the directories as they are now
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl lock
 ----------
 

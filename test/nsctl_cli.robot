@@ -588,6 +588,38 @@ Detect Classifies A Repository And Writes Nothing
     Should Contain    ${d.stdout}    Makefile:1
     Should Not Exist    ${dir}${/}meta-data${/}manifest.json
 
+Inspect Reports A Model And Writes Nothing
+    [Documentation]    NERD032: inspect reads an .hms schema and a transform's
+    ...                Trino DDL, folds the layered table into one noun, and
+    ...                never writes into the inspected repositories. Without
+    ...                HMD_HOME nothing is stored, and it says so.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}lang${/}meta-data${/}manifest.json    {"name": "hmd-lang-demo"}
+    Create File    ${dir}${/}lang${/}src${/}schemas${/}hmd_lang_demo${/}environment.hms
+    ...    {"name": "environment", "namespace": "hmd_lang_demo", "metatype": "noun", "attributes": {"type": {"type": "string"}}}
+    Create File    ${dir}${/}tf${/}meta-data${/}manifest.json    {"name": "hmd-config-demo"}
+    Create File    ${dir}${/}tf${/}src${/}transforms${/}ddl.yaml
+    ...    type: provider\nconfig: {provider_class: TrinoOperator, params: {sql: "CREATE TABLE demo_final.thing (id VARCHAR, at DATE)"}}\n
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    hmd_lang_demo.environment
+    Should Contain    ${r.stdout}    demo.thing
+    Should Contain    ${r.stdout}    trino-table demo_final.thing
+    Should Contain    ${r.stderr}    HMD_HOME is not set
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
+
+Inspect Diff Needs A Home
+    [Documentation]    NERD032 SPEC005: snapshots live under HMD_HOME, so a diff
+    ...                without one is a usage error, not an empty diff.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Scratch Repo
+    ${r}=         Run nsctl    inspect    diff    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    HMD_HOME
+
 Detect Refuses To Infer Dependencies Or Resources
     [Documentation]    NERD009 SPEC010, and the assertions that matter most: a
     ...                wrong required role fails the entire ChangeSet naming only

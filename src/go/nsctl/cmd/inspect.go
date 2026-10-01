@@ -101,6 +101,7 @@ nsctl inspect never writes to the inspected repositories. NERD032.`,
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "Inspect again and store a new snapshot")
 	cmd.Flags().BoolVar(&asHMS, "hms", false, "Print the selected nouns as .hms documents")
 	cmd.Flags().BoolVar(&lossy, "lossy", false, "With --hms, write types .hms lacks (date, decimal) as string instead of refusing")
+	cmd.AddCommand(newInspectDiffCommand(opts))
 	return cmd
 }
 
