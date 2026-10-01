@@ -16,6 +16,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/dbt"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/hms"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nsexport"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nstransform"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/modelstore"
@@ -25,7 +26,7 @@ import (
 // inspectors is every inspector nsctl inspect runs. Adding one is a new
 // package and a line here (NERD032 SPEC001).
 func inspectors() []inspect.Inspector {
-	return []inspect.Inspector{hms.Inspector{}, nstransform.Inspector{}, dbt.Inspector{}}
+	return []inspect.Inspector{hms.Inspector{}, nstransform.Inspector{}, dbt.Inspector{}, nsexport.Inspector{}}
 }
 
 // attributeLimit caps the attributes printed per noun when no noun is named.

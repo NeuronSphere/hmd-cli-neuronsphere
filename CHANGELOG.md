@@ -2,6 +2,17 @@
 
 ## 2026-10-01
 
+- feat: the `nsexport` inspector links graph nouns to Librarian exports and on
+  to their consumers. The Librarian content item type is the join key. A
+  producer's Gremlin `hasLabel(...).project(...)` together with the content type
+  it uploads becomes the noun `librarian.<type>`, derived from the graph noun.
+  A transform that queries that `item_type` and creates an external table
+  reads it. Content type entities declare the type. The NTC chain now resolves
+  end to end: `transform_instance` to export, to the Trino layers, to dbt. A
+  content type nobody declares is reported, such as `cur_export_parquet`.
+- fix: `nsctl inspect` provenance names a repository by its directory. A BACON
+  manifest whose `name` differs is reported: `hmd-tf-ntc-export`'s is still
+  the template's `repo_name`.
 - fix: `nsctl inspect diff` ignores line numbers when matching disagreements.
   A finding that an edit only moved down a line is no longer reported as
   resolved and reintroduced.

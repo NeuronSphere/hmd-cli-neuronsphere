@@ -23,6 +23,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nsexport"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/sqlddl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
 )
@@ -151,8 +152,22 @@ func inspectFile(file string, data []byte) []model.Observation {
 	}
 	sqlLine := sqlStartLine(&root)
 	rendered := r.render(sql)
+	itemType, _ := tf.QueryConfig.QueryValue["item_type"].(string)
+	if itemType != "" {
+		obs = append(obs, named(model.KindReference, file, inspect.LineOf(text, "item_type:"), "content-type", itemType, "query item_type"))
+	}
 	for _, st := range sqlddl.Parse(rendered) {
-		obs = append(obs, statementObservations(file, sqlLine+st.Line-1, st)...)
+		line := sqlLine + st.Line - 1
+		obs = append(obs, statementObservations(file, line, st)...)
+		// A transform triggered by Librarian content of one type that creates
+		// an external table over it: the table reads that content.
+		if itemType != "" && st.Kind == sqlddl.CreateTable && st.With["external_location"] != "" {
+			to, _ := tableID(st.Name)
+			p := prov(file, line, model.AuthInferred, "external table created for each content item of the queried type")
+			p.Confidence = model.Evidence
+			obs = append(obs, model.Observation{Kind: model.KindLineage, Provenance: p, Lineage: &model.LineageObs{
+				From: model.Endpoint{ID: nsexport.ContentTypeID(itemType)}, To: model.Endpoint{ID: to}, Via: "librarian-content-type"}})
+		}
 	}
 	return obs
 }
