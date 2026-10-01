@@ -2,6 +2,20 @@
 
 ## 2026-10-01
 
+- feat: the `nstransform` inspector reads NeuronSphere transform YAML.
+  - It renders the Trino SQL's Jinja from the transform's own `run_params`.
+    A value known only at run time becomes a stable `{placeholder}`, keeping
+    any `.replace()` applied to it.
+  - It folds `<ns>_source|staging|final|ux` tables into one noun with one
+    manifestation per layer.
+  - It reads `CREATE TABLE` columns and partitions, the columns and lineage of
+    `INSERT ... SELECT`, and the `dep_tf_name` chain. A dbt transform's target
+    schema becomes a binding.
+  - It reports the following:
+    - drops of tables nothing creates;
+    - a `tf_name` that differs from the file name;
+    - unused `run_params`;
+    - select items aliased to a type name.
 - feat: the `hms` inspector reads a language pack's `src/schemas/**/*.hms` at
   the highest authority. It also reads the Postgres views generated from those
   schemas as manifestations. It reports four problems:

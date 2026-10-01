@@ -1,0 +1,16 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: 03-billing-staging-to-final-aws_billing
+    tf_name: 04-billing-drop-source-aws_billing
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      drop table if exists billing_source.aws_billing_{{(macros.dateutil.parser.parse(ns_context['time']) - macros.timedelta(days=4)).year}}_{{(macros.dateutil.parser.parse(ns_context['time']) - macros.timedelta(days=4)).month}}
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    time: entity.execution_time
