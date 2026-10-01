@@ -8,12 +8,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/derive"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 // The fixtures are verbatim copies of src/transforms from
-// hmd-config-billing-transforms and hmd-config-transform-reporting.
+// hmd-config-billing-transforms and hmd-config-transform-reporting. Neither
+// declares a perspective: the trino perspective, its layers and which layer
+// is primary are derived from the files (NERD033).
 
 func run(t *testing.T, fixture string) *model.Model {
 	t.Helper()
@@ -23,7 +27,7 @@ func run(t *testing.T, fixture string) *model.Model {
 	if len(reports) != 1 || reports[0].Error != "" {
 		t.Fatalf("reports = %+v", reports)
 	}
-	return model.Consolidate(obs)
+	return model.Consolidate(derive.Run(obs, perspective.New(), nil).Observations)
 }
 
 func disagreements(m *model.Model, code string) []model.Disagreement {

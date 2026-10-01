@@ -96,7 +96,11 @@ func diffModels(ctx context.Context, opts *Options, srcs []inspect.Source, live 
 		if before, err = store.Model(snaps[0].ID); err != nil {
 			return nil, nil, "", nserr.Wrap(nserr.Fail, err)
 		}
-		_, _, now := inspectNow(ctx, srcs, perspectives(srcs, io.Discard))
+		edits, err := store.Edits(modelstore.ScopeKey(roots(srcs)))
+		if err != nil {
+			return nil, nil, "", nserr.Wrap(nserr.Fail, err)
+		}
+		_, _, now, _, _ := inspectNow(ctx, srcs, declared(srcs, io.Discard), edits)
 		return before, now, fmt.Sprintf("snapshot #%d -> working tree", snaps[0].ID), nil
 	}
 	if before, err = store.Model(snaps[1].ID); err != nil {

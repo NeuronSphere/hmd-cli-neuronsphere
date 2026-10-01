@@ -4,9 +4,10 @@
 // materialises its project into.
 //
 // The NeuronSphere conventions this relies on live here and nowhere else:
-// Jinja rendered from a transform's own run_params, run-time values left as
-// {placeholders}, and layer schemas named <namespace>_<layer> (source,
-// staging, final, ux) that make one logical noun out of a table per layer.
+// Jinja rendered from a transform's own run_params, and run-time values left
+// as {placeholders}. Tables are reported as neutral objects; which noun a
+// table is, and which perspective binding, is derived from the whole corpus
+// (NERD033), so no layer naming convention is assumed here.
 package nstransform
 
 import (
@@ -26,31 +27,12 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nsexport"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/sqlddl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 const transformsDir = "src/transforms"
 
-// Layers are the schema suffixes the reporting and billing transforms use,
-// in pipeline order. Bindings of the final layer are primary.
-var Layers = []string{"source", "staging", "final", "ux"}
-
-const primaryLayer = "final"
-
 // Inspector is the NeuronSphere transform inspector.
-type Inspector struct {
-	// Perspectives supplies the trino definition that maps SQL types to
-	// datatype values and core .hms types; nil means the embedded defaults.
-	Perspectives *perspective.Registry
-}
-
-func (ins Inspector) trino() *perspective.Definition {
-	r := ins.Perspectives
-	if r == nil {
-		r = perspective.Default()
-	}
-	return r.Get(Perspective)
-}
+type Inspector struct{}
 
 func (Inspector) Name() string { return "nstransform" }
 
@@ -175,11 +157,10 @@ func (ins Inspector) inspectFile(file string, data []byte) []model.Observation {
 		// A transform triggered by Librarian content of one type that creates
 		// an external table over it: the table reads that content.
 		if itemType != "" && st.Kind == sqlddl.CreateTable && st.With["external_location"] != "" {
-			to, _ := tableID(st.Name)
 			p := prov(file, line, model.AuthInferred, "external table created for each content item of the queried type")
 			p.Confidence = model.Evidence
 			obs = append(obs, model.Observation{Kind: model.KindLineage, Provenance: p, Lineage: &model.LineageObs{
-				From: model.Endpoint{ID: nsexport.ContentTypeID(itemType)}, To: model.Endpoint{ID: to}, Via: "librarian-content-type"}})
+				From: model.Endpoint{ID: nsexport.ContentTypeID(itemType)}, To: endpoint(st.Name), Via: "librarian-content-type"}})
 		}
 	}
 	return obs
@@ -209,65 +190,48 @@ func sqlStartLine(root *yaml.Node) int {
 	return n.Line
 }
 
-// tableID is the logical identity of a physical table: its schema with the
-// layer suffix removed is the namespace, and its name with run-time
-// placeholder segments removed is the name.
-func tableID(name sqlddl.Name) (id model.ID, layer string) {
-	schema := name.Schema()
-	ns := schema
-	for _, l := range Layers {
-		if strings.HasSuffix(schema, "_"+l) {
-			ns, layer = strings.TrimSuffix(schema, "_"+l), l
-			break
-		}
-	}
-	return model.ID{Namespace: ns, Name: stem(name.Table())}, layer
-}
-
-var placeholderSegment = regexp.MustCompile(`_?\{[^}]*\}`)
-
-// stem removes {placeholder} segments from a table name.
-func stem(table string) string {
-	s := placeholderSegment.ReplaceAllString(table, "")
-	return strings.Trim(s, "_")
-}
+// Dialect is the SQL dialect TrinoOperator runs. Objects are observed in it;
+// the perspective they bind to is derived (NERD033), and named after it
+// unless a definition says otherwise.
+const Dialect = "trino"
 
 func location(name sqlddl.Name) model.Location {
 	return model.Location{Catalog: name.Catalog(), Schema: name.Schema(), Table: name.Table()}
 }
 
-// binding is the trino perspective binding a statement describes. The layer
-// is the binding name; the physical name, format, partitioning and location
-// are perspective values.
-func binding(file string, line int, st sqlddl.Statement, tableType string, auth model.Authority, why string) model.Observation {
-	id, layer := tableID(st.Name)
-	values := map[string]model.Value{
-		"schema_name": model.V(st.Name.Schema()),
-		"table_name":  model.V(st.Name.Table()),
-		"table_type":  {Value: tableType, Definition: strings.ToUpper(tableType)},
-	}
-	if c := st.Name.Catalog(); c != "" {
-		values["catalog"] = model.V(c)
-	}
-	if strings.Contains(st.Name.Table(), "{") || strings.Contains(st.Name.Schema(), "{") {
-		values["template"] = model.V(st.Name.String())
-	}
-	if f, ok := st.With["format"]; ok && f != "" {
-		values["format"] = model.Value{Value: strings.ToLower(f), Definition: strings.ToUpper(f)}
-	}
-	if len(st.Partitions) > 0 {
-		values["partitioned_by"] = model.V(strings.Join(st.Partitions, ","))
-	}
-	if loc, ok := st.With["external_location"]; ok && loc != "" {
-		values["external_location"] = model.V(loc)
-	}
-	b := &model.BindingObs{Perspective: Perspective, Name: layer, Location: location(st.Name),
-		Primary: layer == primaryLayer, Values: values}
-	return model.Observation{Kind: model.KindBinding, Subject: id, Binding: b, Provenance: prov(file, line, auth, why)}
+func endpoint(name sqlddl.Name) model.Endpoint {
+	return model.Endpoint{Location: location(name), Dialect: Dialect}
 }
 
-// Perspective is the perspective Trino tables bind to.
-const Perspective = "trino"
+func ident(s string) model.Prop { return model.Prop{Value: s, Class: model.ClassIdent} }
+
+// object is the object a statement declares or names, with its properties
+// keyed by the grammar's names: the name parts, the kind of object, and each
+// WITH property under its own name.
+func object(file string, line int, st sqlddl.Statement, kind string, auth model.Authority, why string) model.Observation {
+	props := map[string]model.Prop{
+		"schema_name": ident(st.Name.Schema()),
+		"table_name":  ident(st.Name.Table()),
+	}
+	if kind != "" {
+		props["table_type"] = model.Prop{Value: kind, Class: model.ClassKeyword}
+	}
+	if c := st.Name.Catalog(); c != "" {
+		props["catalog"] = ident(c)
+	}
+	for k, v := range st.With {
+		if v == "" {
+			continue
+		}
+		class := model.ClassText
+		if st.WithArrays[k] {
+			class = model.ClassList
+		}
+		props[k] = model.Prop{Value: v, Class: class}
+	}
+	o := &model.ObjectObs{Dialect: Dialect, Location: location(st.Name), Props: props}
+	return model.Observation{Kind: model.KindObject, Object: o, Provenance: prov(file, line, auth, why)}
+}
 
 func (ins Inspector) statementObservations(file string, line int, st sqlddl.Statement) []model.Observation {
 	var obs []model.Observation
@@ -278,28 +242,23 @@ func (ins Inspector) statementObservations(file string, line int, st sqlddl.Stat
 		if st.Name.Schema() == "" {
 			return nil
 		}
-		m := binding(file, line, st, "table", model.AuthDDL, "CREATE TABLE")
+		m := object(file, line, st, "table", model.AuthDDL, "CREATE TABLE")
 		obs = append(obs, m, schemaRef(file, line, st.Name))
 		parts := map[string]bool{}
 		for _, p := range st.Partitions {
 			parts[strings.ToLower(p)] = true
 		}
 		for i, c := range st.Columns {
-			dt, core := perspective.SQLDatatype(ins.trino(), c.Type)
-			a := &model.AttrObs{
-				Name: c.Name, Binding: m.Binding.Key(), Position: i + 1, Type: core,
-				Values: map[string]model.Value{"datatype": dt},
-			}
+			t := sqlddl.ParseType(c.Type)
+			props := map[string]model.Prop{"datatype": {Value: c.Type, Class: model.ClassType, Type: &t}}
 			if parts[strings.ToLower(c.Name)] {
-				a.Values["is_partition"] = model.V(true)
+				props["is_partition"] = model.Prop{Value: "true", Class: model.ClassBool}
 			}
 			if c.NotNull {
-				a.Required = model.BoolPtr(true)
-				a.Values["is_nullable"] = model.V(false)
+				props["is_nullable"] = model.Prop{Value: "false", Class: model.ClassBool}
 			}
-			p := m.Provenance
-			p.Line = line + c.Line - st.Line
-			obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: m.Subject, Attr: a, Provenance: p})
+			m.Object.Columns = append(m.Object.Columns, model.ObjectColumn{
+				Name: c.Name, Position: i + 1, Line: line + c.Line - st.Line, NotNull: c.NotNull, Props: props})
 		}
 		if len(st.Select) > 0 {
 			obs = append(obs, selectObservations(file, line, st, m)...)
@@ -308,7 +267,7 @@ func (ins Inspector) statementObservations(file string, line int, st sqlddl.Stat
 		if st.Name.Schema() == "" {
 			return nil
 		}
-		m := binding(file, line, st, "view", model.AuthDDL, "CREATE VIEW")
+		m := object(file, line, st, "view", model.AuthDDL, "CREATE VIEW")
 		obs = append(obs, m, schemaRef(file, line, st.Name))
 		obs = append(obs, selectObservations(file, line, st, m)...)
 	case sqlddl.Insert:
@@ -316,10 +275,8 @@ func (ins Inspector) statementObservations(file string, line int, st sqlddl.Stat
 			return nil
 		}
 		// An INSERT names its target; it does not say what kind of table it is.
-		m := binding(file, line, st, "table", model.AuthInsertSelect, "INSERT target")
-		delete(m.Binding.Values, "table_type")
-		m.Binding.Primary = false
-		m.Binding.Reference = true
+		m := object(file, line, st, "", model.AuthInsertSelect, "INSERT target")
+		m.Object.Reference = true
 		obs = append(obs, m)
 		obs = append(obs, named(model.KindReference, file, line, "table", strings.ToLower(st.Name.Schema()+"."+st.Name.Table()), "insert into"))
 		obs = append(obs, selectObservations(file, line, st, m)...)
@@ -339,9 +296,10 @@ func schemaRef(file string, line int, name sqlddl.Name) model.Observation {
 	return named(model.KindReference, file, line, "schema", strings.ToLower(name.Schema()), "table in schema")
 }
 
-// selectObservations records the select list as columns of the target (for
-// an INSERT or a view with an explicit list), and lineage from each table
-// read.
+// selectObservations records the select list as the target object's
+// selected columns (for an INSERT or a view with an explicit list), and
+// lineage from each table read. The object is shared, so it is filled in
+// place.
 func selectObservations(file string, line int, st sqlddl.Statement, target model.Observation) []model.Observation {
 	var obs []model.Observation
 	via := "insert-select"
@@ -352,14 +310,9 @@ func selectObservations(file string, line int, st sqlddl.Statement, target model
 		if from.Schema() == "" {
 			continue
 		}
-		fromID, _ := tableID(from)
 		obs = append(obs, model.Observation{
-			Kind: model.KindLineage,
-			Lineage: &model.LineageObs{
-				From: model.Endpoint{ID: fromID, Location: location(from)},
-				To:   model.Endpoint{ID: target.Subject},
-				Via:  via,
-			},
+			Kind:       model.KindLineage,
+			Lineage:    &model.LineageObs{From: endpoint(from), To: endpoint(st.Name), Via: via},
 			Provenance: prov(file, line, target.Provenance.Authority, via),
 		})
 		obs = append(obs, named(model.KindReference, file, line, "table", strings.ToLower(from.Schema()+"."+from.Table()), "select from"))
@@ -381,17 +334,17 @@ func selectObservations(file string, line int, st sqlddl.Statement, target model
 			names = append(names, name)
 		}
 	}
-	auth := model.AuthInsertSelect
+	o := target.Object
+	o.SelectAuthority = model.AuthInsertSelect
 	if st.Kind == sqlddl.CreateView {
-		auth = model.AuthDDL
+		o.SelectAuthority = model.AuthDDL
 	}
 	for i, n := range names {
-		p := prov(file, line, auth, "select list")
+		c := model.ObjectColumn{Name: n, Position: i + 1, Line: line}
 		if i < len(st.Select) {
-			p.Line = line + st.Select[i].Line - st.Line
+			c.Line = line + st.Select[i].Line - st.Line
 		}
-		obs = append(obs, model.Observation{Kind: model.KindAttribute, Subject: target.Subject, Provenance: p,
-			Attr: &model.AttrObs{Name: n, Binding: target.Binding.Key(), Position: i + 1, Type: model.Unknown}})
+		o.Selected = append(o.Selected, c)
 	}
 	if typeWords > 0 {
 		obs = append(obs, finding(file, line, model.SevInfo, "type-word-alias",

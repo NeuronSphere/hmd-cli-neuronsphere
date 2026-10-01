@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/derive"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/dbt"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/hms"
@@ -27,19 +29,19 @@ import (
 
 // inspectors is every inspector nsctl inspect runs. Adding one is a new
 // package and a line here (NERD032 SPEC001).
-func inspectors(r *perspective.Registry) []inspect.Inspector {
+func inspectors() []inspect.Inspector {
 	return []inspect.Inspector{
-		hms.Inspector{Perspectives: r},
-		nstransform.Inspector{Perspectives: r},
+		hms.Inspector{},
+		nstransform.Inspector{},
 		dbt.Inspector{},
 		nsexport.Inspector{},
 	}
 }
 
-// perspectives is the embedded definitions, overridden by any a source
-// repository declares under src/perspectives (NERD032 SPEC007).
-func perspectives(srcs []inspect.Source, warn io.Writer) *perspective.Registry {
-	r := perspective.Default()
+// declared is the perspective definitions the source repositories declare
+// under src/perspectives. nsctl embeds none (NERD033 SPEC001).
+func declared(srcs []inspect.Source, warn io.Writer) *perspective.Registry {
+	r := perspective.New()
 	for _, s := range srcs {
 		if s.FS == nil {
 			continue
@@ -51,21 +53,37 @@ func perspectives(srcs []inspect.Source, warn io.Writer) *perspective.Registry {
 	return r
 }
 
-// inspectNow runs every inspector over the sources and consolidates what
-// they saw, validating perspective values against their definitions.
-func inspectNow(ctx context.Context, srcs []inspect.Source, r *perspective.Registry) ([]model.Observation, []inspect.Report, *model.Model) {
-	obs, reports := inspect.Run(ctx, srcs, inspectors(r))
-	m := model.Consolidate(obs)
-	m.Disagreements = append(m.Disagreements, perspective.Validate(m, r)...)
+// effective is the declared definitions plus the derived ones nothing
+// declares.
+func effective(decl *perspective.Registry, derived []*perspective.Derivation) *perspective.Registry {
+	r := perspective.New()
+	for _, dv := range derived {
+		r.Add(dv.Definition)
+	}
+	for _, n := range decl.Names() {
+		r.Add(decl.Get(n))
+	}
+	return r
+}
+
+// inspectNow runs every inspector over the sources, derives the
+// perspectives nothing declares (replaying edits), consolidates, and
+// validates perspective values against their definitions.
+func inspectNow(ctx context.Context, srcs []inspect.Source, decl *perspective.Registry, edits []perspective.Edit) ([]model.Observation, []inspect.Report, *model.Model, derive.Result, *perspective.Registry) {
+	obs, reports := inspect.Run(ctx, srcs, inspectors())
+	res := derive.Run(obs, decl, edits)
+	reg := effective(decl, res.Derivations)
+	m := model.Consolidate(res.Observations)
+	m.Disagreements = append(m.Disagreements, perspective.Validate(m, reg)...)
 	model.SortDisagreements(m.Disagreements)
-	return obs, reports, m
+	return obs, reports, m, res, reg
 }
 
 // attributeLimit caps the attributes printed per noun when no noun is named.
 const attributeLimit = 25
 
 func newInspectCommand(opts *Options) *cobra.Command {
-	var asJSON, sources, refresh, asHMS, lossy bool
+	var asJSON, sources, refresh, asHMS, lossy, asContext bool
 	var outDir string
 	cmd := &cobra.Command{
 		Use:   "inspect [path|noun]...",
@@ -81,9 +99,16 @@ stands for the repositories directly inside it.
 An argument that is not a directory names a noun to show in full: its fully
 qualified name (hmd_lang_transform.transform_instance) or just its name.
 
+Perspectives are not built in: a repository declares one under
+src/perspectives/<name>.perspective.json, or it is derived from the files
+(` + "`nsctl inspect perspective`" + `). NERD033.
+
 With --hms the selected nouns are printed as an .hms document plus one
-<name>.<perspective>.hms sidecar per perspective; with --out <dir> those files
-are written under <dir>, laid out as src/schemas/<namespace>/.
+<name>.<perspective>.hms sidecar per perspective, and each perspective's
+definition; with --out <dir> those files are written under <dir>, laid out as
+src/schemas/<namespace>/ and src/perspectives/. With --context each noun is
+printed as the one document a code generator reads: the .hms schema with each
+perspective's values under extensions.<perspective>.
 
 Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
 directories inspected. Without --refresh the latest snapshot is shown; with it,
@@ -115,6 +140,8 @@ nsctl inspect never writes to the inspected repositories. NERD032.`,
 			}
 			out := cmd.OutOrStdout()
 			switch {
+			case asContext:
+				return exportContexts(out, outDir, nouns, res.registry, lossy)
 			case asHMS || outDir != "":
 				return exportHMS(out, outDir, nouns, res.registry, lossy)
 			case asJSON:
@@ -131,6 +158,9 @@ nsctl inspect never writes to the inspected repositories. NERD032.`,
 				}
 			default:
 				renderInspection(out, res, nouns, len(filters) > 0, sources)
+				for _, e := range res.Stale {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: perspective edit no longer applies: %s %s %s %s %s\n", e.Perspective, e.Op, e.Key, e.Value, e.To)
+				}
 			}
 			return nil
 		},
@@ -139,9 +169,10 @@ nsctl inspect never writes to the inspected repositories. NERD032.`,
 	cmd.Flags().BoolVar(&sources, "sources", false, "Show where every noun, attribute and link came from, and informational notes")
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "Inspect again and store a new snapshot")
 	cmd.Flags().BoolVar(&asHMS, "hms", false, "Print the selected nouns as .hms documents and perspective sidecars")
-	cmd.Flags().StringVar(&outDir, "out", "", "With --hms, write the documents under this directory instead of printing them")
+	cmd.Flags().StringVar(&outDir, "out", "", "With --hms or --context, write the documents under this directory instead of printing them")
+	cmd.Flags().BoolVar(&asContext, "context", false, "Print each selected noun as a generator context: .hms plus extensions.<perspective>")
 	cmd.Flags().BoolVar(&lossy, "lossy", false, "With --hms, write attributes of unknown type as string instead of refusing")
-	cmd.AddCommand(newInspectDiffCommand(opts), newInspectPerspectivesCommand())
+	cmd.AddCommand(newInspectDiffCommand(opts), newInspectPerspectiveCommand(opts))
 	return cmd
 }
 
@@ -155,7 +186,11 @@ type inspection struct {
 	Reports      []inspect.Report `json:"reports,omitempty"`
 	Observations int              `json:"observations"`
 	Model        *model.Model     `json:"model"`
-	registry     *perspective.Registry
+	// Perspectives are the ones derived for this inspection (NERD033).
+	Perspectives []*perspective.Derivation `json:"perspectives,omitempty"`
+	// Stale are edits that no longer apply to what was derived.
+	Stale    []perspective.Edit `json:"stale_edits,omitempty"`
+	registry *perspective.Registry
 }
 
 // splitInspectArgs separates directories from noun names.
@@ -196,6 +231,12 @@ func roots(srcs []inspect.Source) []string {
 // (and stores the result when there is a store) when there is none or
 // refresh is set.
 func runInspection(ctx context.Context, opts *Options, paths []string, refresh bool, warn io.Writer) (*inspection, error) {
+	return inspectWith(ctx, opts, paths, refresh, nil, warn)
+}
+
+// inspectWith is runInspection with an edit not yet stored replayed after
+// the stored ones; with one, the result is never stored.
+func inspectWith(ctx context.Context, opts *Options, paths []string, refresh bool, extra *perspective.Edit, warn io.Writer) (*inspection, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -203,16 +244,20 @@ func runInspection(ctx context.Context, opts *Options, paths []string, refresh b
 	if err != nil {
 		return nil, nserr.Wrap(nserr.Usage, err)
 	}
-	reg := perspectives(srcs, warn)
+	decl := declared(srcs, warn)
 	store, err := openStore(opts)
 	if err != nil {
 		return nil, err
 	}
+	var edits []perspective.Edit
 	if store == nil {
 		fmt.Fprintln(warn, "note: HMD_HOME is not set, so this inspection is not stored and cannot be diffed")
 	} else {
 		defer store.Close()
-		if !refresh {
+		if edits, err = store.Edits(modelstore.ScopeKey(roots(srcs))); err != nil {
+			return nil, nserr.Wrap(nserr.Fail, err)
+		}
+		if !refresh && extra == nil {
 			snaps, err := store.Snapshots(modelstore.ScopeKey(roots(srcs)), 1)
 			if err != nil {
 				return nil, nserr.Wrap(nserr.Fail, err)
@@ -226,20 +271,29 @@ func runInspection(ctx context.Context, opts *Options, paths []string, refresh b
 				if err != nil {
 					return nil, nserr.Wrap(nserr.Fail, err)
 				}
-				return &inspection{Snapshot: &snaps[0], Sources: srcs, Observations: len(obs), Model: m, registry: reg}, nil
+				dvs, err := store.Derivations(snaps[0].ID)
+				if err != nil {
+					return nil, nserr.Wrap(nserr.Fail, err)
+				}
+				return &inspection{Snapshot: &snaps[0], Sources: srcs, Observations: len(obs), Model: m,
+					Perspectives: dvs, registry: effective(decl, dvs)}, nil
 			}
 		}
 	}
-	obs, reports, m := inspectNow(ctx, srcs, reg)
-	res := &inspection{Fresh: true, Sources: srcs, Reports: reports, Observations: len(obs), Model: m, registry: reg}
-	if store != nil {
+	if extra != nil {
+		edits = append(edits, *extra)
+	}
+	obs, reports, m, dres, reg := inspectNow(ctx, srcs, decl, edits)
+	res := &inspection{Fresh: true, Sources: srcs, Reports: reports, Observations: len(obs), Model: m,
+		Perspectives: dres.Derivations, Stale: dres.Stale, registry: reg}
+	if store != nil && extra == nil {
 		revs := map[string]string{}
 		for _, s := range srcs {
 			if s.Revision != "" {
 				revs[s.Repo] = s.Revision
 			}
 		}
-		snap, err := store.Save(roots(srcs), revs, obs, res.Model, time.Now())
+		snap, err := store.Save(roots(srcs), revs, obs, res.Model, dres.Derivations, time.Now())
 		if err != nil {
 			return nil, nserr.Wrap(nserr.Fail, err)
 		}
@@ -280,6 +334,11 @@ type hmsFile struct {
 	data []byte
 }
 
+// sidecarDir is where a noun's .hms document and its sidecars live.
+func sidecarDir(id model.ID) string {
+	return filepath.Join(append([]string{"src", "schemas"}, strings.Split(id.Namespace, ".")...)...)
+}
+
 // hmsFiles is a noun's core .hms document and one sidecar per perspective
 // it has bindings of, laid out as hmd-schema-loader expects them.
 func hmsFiles(n *model.Noun, r *perspective.Registry, lossy bool) ([]hmsFile, error) {
@@ -287,7 +346,7 @@ func hmsFiles(n *model.Noun, r *perspective.Registry, lossy bool) ([]hmsFile, er
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(append([]string{"src", "schemas"}, strings.Split(n.ID.Namespace, ".")...)...)
+	dir := sidecarDir(n.ID)
 	files := []hmsFile{{filepath.Join(dir, n.ID.Name+".hms"), core}}
 	seen := map[string]bool{}
 	for _, b := range n.Bindings {
@@ -306,11 +365,29 @@ func hmsFiles(n *model.Noun, r *perspective.Registry, lossy bool) ([]hmsFile, er
 	return files, nil
 }
 
+// definitionFiles is the definition of each perspective the nouns have
+// bindings of, so that an export reads back without the repositories it
+// came from.
+func definitionFiles(nouns []*model.Noun, r *perspective.Registry) []hmsFile {
+	var out []hmsFile
+	seen := map[string]bool{}
+	for _, n := range nouns {
+		for _, b := range n.Bindings {
+			if d := r.Get(b.Perspective); d != nil && !seen[d.Name] {
+				seen[d.Name] = true
+				out = append(out, hmsFile{filepath.Join(perspective.Dir, d.Name+perspective.Suffix), d.Marshal()})
+			}
+		}
+	}
+	return out
+}
+
 // exportHMS prints the selected nouns' documents, or writes them under dir.
 func exportHMS(out io.Writer, dir string, nouns []*model.Noun, r *perspective.Registry, lossy bool) error {
 	var errs []string
+	var files []hmsFile
 	for _, n := range nouns {
-		files, err := hmsFiles(n, r, lossy)
+		nf, err := hmsFiles(n, r, lossy)
 		var ee *model.ExportError
 		if errors.As(err, &ee) {
 			errs = append(errs, ee.Error())
@@ -319,24 +396,34 @@ func exportHMS(out io.Writer, dir string, nouns []*model.Noun, r *perspective.Re
 		if err != nil {
 			return nserr.Wrap(nserr.Fail, err)
 		}
-		for _, f := range files {
-			if dir == "" {
-				fmt.Fprintf(out, "# %s\n", f.path)
-				out.Write(f.data)
-				continue
-			}
-			p := filepath.Join(dir, f.path)
-			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
-			}
-			if err := os.WriteFile(p, f.data, 0o644); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
-			}
-			fmt.Fprintf(out, "wrote %s\n", p)
-		}
+		files = append(files, nf...)
+	}
+	files = append(files, definitionFiles(nouns, r)...)
+	if err := writeFiles(out, dir, files); err != nil {
+		return err
 	}
 	if len(errs) > 0 {
 		return nserr.New(nserr.Usage, "%s", strings.Join(errs, "\n"))
+	}
+	return nil
+}
+
+// writeFiles prints files, or writes them under dir.
+func writeFiles(out io.Writer, dir string, files []hmsFile) error {
+	for _, f := range files {
+		if dir == "" {
+			fmt.Fprintf(out, "# %s\n", f.path)
+			out.Write(f.data)
+			continue
+		}
+		p := filepath.Join(dir, f.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return nserr.Wrap(nserr.Fail, err)
+		}
+		if err := os.WriteFile(p, f.data, 0o644); err != nil {
+			return nserr.Wrap(nserr.Fail, err)
+		}
+		fmt.Fprintf(out, "wrote %s\n", p)
 	}
 	return nil
 }
@@ -357,7 +444,7 @@ func renderInspection(out io.Writer, res *inspection, nouns []*model.Noun, full,
 
 	fmt.Fprintln(out, "Detected model:")
 	for _, n := range nouns {
-		renderNoun(out, n, full, sources)
+		renderNoun(out, n, res.registry, full, sources)
 	}
 
 	shown := map[string]bool{}
@@ -385,21 +472,57 @@ func renderInspection(out io.Writer, res *inspection, nouns []*model.Noun, full,
 	renderDisagreements(out, res.Model, shown, full, sources)
 }
 
-// physical renders a column's physical type from its perspective values.
-func physical(c *model.Column) string {
+// physical renders a column's physical type: the value of the attribute key
+// its perspective maps to core .hms types.
+func physical(c *model.Column, d *perspective.Definition) string {
 	if c == nil {
 		return ""
 	}
-	if v, ok := c.Values["datatype"]; ok {
-		return perspective.RenderSQL(v)
-	}
-	if v, ok := c.Values["data_type"]; ok {
-		return v.String()
+	key := d.TypeKey()
+	if v, ok := c.Values[key]; ok && key != "" {
+		return d.Physical(key, v)
 	}
 	return ""
 }
 
-func renderNoun(out io.Writer, n *model.Noun, full, sources bool) {
+// flags are a column's true bool values, named without an is_ prefix.
+func flags(c *model.Column, d *perspective.Definition) []string {
+	if c == nil || d == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range d.Keys(perspective.Attribute) {
+		if ext, _ := d.Extension(perspective.Attribute, k); ext.ExtensionType == "bool" && c.Values[k].Value == true {
+			out = append(out, strings.TrimPrefix(k, "is_"))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// tags are a binding's enumerated entity values other than its name, by
+// key.
+func tags(b *model.Binding, d *perspective.Definition) []string {
+	if d == nil {
+		return nil
+	}
+	var keys []string
+	for _, k := range d.Keys(perspective.Entity) {
+		if ext, _ := d.Extension(perspective.Entity, k); ext.ExtensionType == "enum" && k != d.BindingKey {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		if v := b.Values[k].String(); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func renderNoun(out io.Writer, n *model.Noun, r *perspective.Registry, full, sources bool) {
 	kind := string(n.Metatype)
 	if n.Authoritative {
 		kind += ", .hms"
@@ -412,12 +535,7 @@ func renderNoun(out io.Writer, n *model.Noun, full, sources bool) {
 		fmt.Fprintf(out, "  %s\n", *n.Description)
 	}
 	for _, b := range n.Bindings {
-		var tags []string
-		for _, k := range []string{"table_type", "format", "materialized"} {
-			if v := b.Values[k].String(); v != "" {
-				tags = append(tags, v)
-			}
-		}
+		tags := tags(b, r.Get(b.Perspective))
 		if b.Primary {
 			tags = append(tags, "primary")
 		}
@@ -446,6 +564,10 @@ func renderNoun(out io.Writer, n *model.Noun, full, sources bool) {
 		}
 	}
 	primary := n.Primary()
+	var pdef *perspective.Definition
+	if primary != nil {
+		pdef = r.Get(primary.Perspective)
+	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for i, a := range n.Attributes {
 		if !full && i == attributeLimit {
@@ -464,9 +586,7 @@ func renderNoun(out io.Writer, n *model.Noun, full, sources bool) {
 		if primary != nil {
 			col = primary.Column(a.Name)
 		}
-		if col != nil && col.Values["is_partition"].Value == true {
-			notes = append(notes, "partition")
-		}
+		notes = append(notes, flags(col, pdef)...)
 		if len(a.EnumDef) > 0 {
 			notes = append(notes, fmt.Sprintf("%d values", len(a.EnumDef)))
 		}
@@ -474,7 +594,7 @@ func renderNoun(out io.Writer, n *model.Noun, full, sources bool) {
 		if sources && len(a.Sources) > 0 {
 			where = a.Sources[0].Where()
 		}
-		phys := physical(col)
+		phys := physical(col, pdef)
 		if phys != "" && primary != nil {
 			phys = "@" + primary.Label() + " " + phys
 		}
@@ -520,56 +640,4 @@ func relevant(subject string, shown map[string]bool) bool {
 		}
 	}
 	return false
-}
-
-func newInspectPerspectivesCommand() *cobra.Command {
-	var asJSON bool
-	var paths []string
-	cmd := &cobra.Command{
-		Use:   "perspectives",
-		Short: "List the perspective definitions inspect validates against",
-		Long: `Lists the perspective definitions in effect: those embedded in nsctl, and any
-that a repository under --path overrides with src/perspectives/<name>.perspective.json.
-A definition has the Modeler's shape (hmd-ms-mickey); --json prints them whole.
-NERD032 SPEC007.`,
-		Args:          noArgs,
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			var srcs []inspect.Source
-			if len(paths) > 0 {
-				var err error
-				if srcs, err = inspect.Discover(paths); err != nil {
-					return nserr.Wrap(nserr.Usage, err)
-				}
-			}
-			r := perspectives(srcs, cmd.ErrOrStderr())
-			out := cmd.OutOrStdout()
-			if asJSON {
-				var defs []*perspective.Definition
-				for _, n := range r.Names() {
-					defs = append(defs, r.Get(n))
-				}
-				enc := json.NewEncoder(out)
-				enc.SetIndent("", "  ")
-				return enc.Encode(defs)
-			}
-			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "PERSPECTIVE\tBINDING KEY\tATTRIBUTE KEYS\tFROM")
-			for _, n := range r.Names() {
-				d := r.Get(n)
-				var keys []string
-				for _, m := range d.AttributeExtensions {
-					for k := range m {
-						keys = append(keys, k)
-					}
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.Name, orDash(d.BindingKey), orDash(strings.Join(keys, ",")), d.Origin)
-			}
-			return w.Flush()
-		},
-	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the definitions as JSON")
-	cmd.Flags().StringSliceVar(&paths, "path", nil, "Repositories whose src/perspectives override the embedded definitions")
-	return cmd
 }

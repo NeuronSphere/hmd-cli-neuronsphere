@@ -7,8 +7,10 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/derive"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 func run(t *testing.T, fixture string) (*model.Model, []model.Observation) {
@@ -23,7 +25,15 @@ func run(t *testing.T, fixture string) (*model.Model, []model.Observation) {
 	if reports[0].Error != "" {
 		t.Fatal(reports[0].Error)
 	}
-	return model.Consolidate(obs), obs
+	return consolidate(src, obs), obs
+}
+
+// consolidate resolves sidecars against the definitions the repository
+// declares, as nsctl inspect does.
+func consolidate(src inspect.Source, obs []model.Observation) *model.Model {
+	reg := perspective.New()
+	reg.LoadDir(src.FS, perspective.Dir, src.Repo)
+	return model.Consolidate(derive.Run(obs, reg, nil).Observations)
 }
 
 func codes(m *model.Model) map[string][]string {
@@ -142,7 +152,7 @@ func TestPathMismatchAndRuntimeTypes(t *testing.T) {
 	write("src/schemas/ns/broken.hms", `{"name":`)
 	src := inspect.Source{Root: dir, Repo: "r", FS: os.DirFS(dir)}
 	obs, _ := inspect.Run(context.Background(), []inspect.Source{src}, []inspect.Inspector{Inspector{}})
-	got := codes(model.Consolidate(obs))
+	got := codes(consolidate(src, obs))
 	if len(got["schema-path-mismatch"]) != 1 || len(got["runtime-type"]) != 2 || len(got["unparseable-schema"]) != 1 {
 		t.Errorf("codes = %v", got)
 	}

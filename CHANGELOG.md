@@ -2,6 +2,38 @@
 
 ## 2026-10-01
 
+- feat: `nsctl inspect` derives perspectives instead of embedding them
+  (NERD033).
+  - `nsctl` ships no perspective definition. A repository declares one under
+    `src/perspectives/`. Otherwise it is derived from the files, with evidence
+    for every piece. That covers:
+    - the layer binding key and its data-flow order;
+    - the name pattern and the primary binding;
+    - each key's kind;
+    - each SQL type's `hms_type`, from `.hms` pairing or else its SQL
+      category.
+  - Only the Trino transform inspector reports neutral objects so far; the
+    others still name their own bindings, and only their definitions are
+    derived.
+  - The derived model is identical to the spike's hand-written one on the
+    billing and reporting corpora.
+  - `nsctl inspect perspective list|derive|show|edit|materialise`:
+    - edits are kept per scope under `HMD_HOME` and replayed on every
+      derivation;
+    - `materialise --to <repo>` writes the definition and sidecars into that
+      repository only.
+  - `nsctl inspect --context` prints the merged generator context (`.hms` plus
+    `extensions.<perspective>`). `--hms`/`--out` also write the definitions.
+  - Definitions gain generator-agnostic keys: `name_pattern`, parameter
+    `position`, and enum-value and key `aliases`.
+  - The snapshot store moves to schema version 3, adding a `perspective`
+    table and a `perspective_edit` table kept across rebuilds.
+- refactor: the four definitions `nsctl` embedded (`trino`, `dbt`,
+  `postgres-view`, `librarian-content`) are now test fixtures. SQL type
+  synonyms and argument names move into `sqlddl` as grammar facts.
+- test: golden dumps of the spike's model guard derivation against
+  regressions.
+
 - refactor: `nsctl inspect` keeps `.hms` unextended. Physical types, physical
   bindings and nullability are now **perspective** values (NERD032 SPEC007),
   as in the Modeler (`hmd-ms-mickey`).

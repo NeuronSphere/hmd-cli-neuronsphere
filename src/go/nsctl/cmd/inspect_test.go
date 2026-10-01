@@ -8,8 +8,10 @@ import (
 	"testing"
 )
 
-// inspectRepo writes a two-file repository: an .hms noun and a transform that
-// builds a layered table.
+// inspectRepo writes two repositories: one with an .hms noun, one with
+// transforms that build a table in a staging and a final schema and load one
+// from the other. Nothing declares a perspective: trino, its layers and which
+// one is primary are derived (NERD033).
 func inspectRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -25,6 +27,15 @@ config:
     sql: |
       CREATE TABLE IF NOT EXISTS demo_final.thing (id VARCHAR, at DATE)
       WITH (partitioned_by = ARRAY['at'])
+  run_params: {}
+`,
+		"tf/src/transforms/load.yaml": `type: provider
+config:
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      CREATE TABLE IF NOT EXISTS demo_staging.thing (id VARCHAR, at DATE);
+      INSERT INTO demo_final.thing SELECT id, at FROM demo_staging.thing
   run_params: {}
 `,
 	}
@@ -117,7 +128,8 @@ func TestInspectDiffAfterAnEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"3 model changes (snapshot #1 -> #2)",
+		"4 model changes (snapshot #1 -> #2)",
+		"info demo.thing#id [layer-type-change] integer in trino:final; string in trino:staging",
 		"demo.thing#id\n  PropertyTypeChanged: string -> integer",
 		"demo.thing#id@trino:final\n  PerspectiveValueChanged datatype: VARCHAR -> BIGINT",
 		"hmd_lang_demo.environment#region\n  PropertyAdded: string, not required",
@@ -148,16 +160,118 @@ func TestInspectExportRoundTripsThroughSidecars(t *testing.T) {
 	}
 }
 
-func TestInspectPerspectivesListsDefinitions(t *testing.T) {
+func TestInspectPerspectiveListShowsDerivedOnes(t *testing.T) {
 	t.Parallel()
-	out, _, err := run(t, fakeEnv(nil), "inspect", "perspectives")
+	out, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "list", inspectRepo(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"trino", "layer", "datatype", "embedded", "postgres-view"} {
+	for _, want := range []string{"trino", "derived", "layer", "datatype,is_partition"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("perspectives lacks %q:\n%s", want, out)
+			t.Errorf("list lacks %q:\n%s", want, out)
 		}
+	}
+	// Nothing is built in: with nothing to inspect there is nothing in effect.
+	out, _, err = run(t, fakeEnv(nil), "inspect", "perspectives", "list", t.TempDir())
+	if err != nil || strings.Contains(out, "trino") {
+		t.Errorf("empty directory lists %q (%v)", out, err)
+	}
+}
+
+func TestInspectPerspectiveDeriveExplainsItself(t *testing.T) {
+	t.Parallel()
+	out, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "derive", inspectRepo(t), "--evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"trino  (derived)",
+		"binding key  layer: staging -> final",
+		"name pattern <namespace>_<layer>.<name>",
+		"date→timestamp",
+		"the same table name in schemas that differ only in their last _-separated segment",
+		"primary: the most downstream binding whose columns are declared",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("derive lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// Derive, edit, materialise, re-inspect: the materialised perspective is
+// declared from then on, carries the edit, and gives back the same model.
+func TestInspectPerspectiveEditAndMaterialise(t *testing.T) {
+	t.Parallel()
+	dir, home, lang := inspectRepo(t), t.TempDir(), t.TempDir()
+	if _, _, err := run(t, fakeEnv(nil), "inspect", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
+		"--path", dir); err == nil || !strings.Contains(err.Error(), "HMD_HOME") {
+		t.Fatalf("edit without a home: %v", err)
+	}
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "edit", "trino", "drop-key", "colour",
+		"--path", dir); err == nil || !strings.Contains(err.Error(), "does not apply") {
+		t.Fatalf("an edit that does not apply: %v", err)
+	}
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "edit", "trino", "rename-key", "is_partition", "partition_key",
+		"--path", dir)
+	if err != nil || !strings.Contains(out, "recorded") {
+		t.Fatalf("edit: %v\n%s", err, out)
+	}
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "derive", dir)
+	if err != nil || !strings.Contains(out, "trino  (edited)") || !strings.Contains(out, "partition_key") {
+		t.Fatalf("derive after the edit: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "materialise", "trino", dir); err == nil {
+		t.Error("materialise without --to")
+	}
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "inspect", "perspective", "materialise", "trino", dir, "--to", lang)
+	if err != nil || !strings.Contains(out, "materialised trino: a definition and 1 sidecars") {
+		t.Fatalf("materialise: %v\n%s", err, out)
+	}
+	for _, f := range []string{"src/perspectives/trino.perspective.json", "src/schemas/demo/thing.trino.hms"} {
+		if _, err := os.Stat(filepath.Join(lang, f)); err != nil {
+			t.Errorf("materialised: %v", err)
+		}
+	}
+	// The materialised repository now declares trino: nothing is derived for
+	// it, and its sidecar agrees with the DDL.
+	out, _, err = run(t, fakeEnv(nil), "inspect", "perspective", "list", dir, lang)
+	if err != nil || !strings.Contains(out, "src/perspectives/trino.perspective.json") {
+		t.Fatalf("list after materialise: %v\n%s", err, out)
+	}
+	out, _, err = run(t, fakeEnv(nil), "inspect", dir, lang, "demo.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"@trino:final demo_final.thing (table, primary)", "@trino:final DATE     partition"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("re-inspection lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "perspective-") {
+		t.Errorf("materialised values disagree with their definition:\n%s", out)
+	}
+}
+
+// A generator's context is the .hms document with the perspective values
+// merged under extensions, as hmd-schema-loader merges a sidecar.
+func TestInspectContextMergesExtensions(t *testing.T) {
+	t.Parallel()
+	out, _, err := run(t, fakeEnv(nil), "inspect", inspectRepo(t), "demo.thing", "--context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Name       string `json:"name"`
+		Extensions map[string]struct {
+			Bindings []map[string]json.RawMessage `json:"bindings"`
+		} `json:"extensions"`
+	}
+	body := out[strings.Index(out, "{"):]
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if doc.Name != "thing" || len(doc.Extensions["trino"].Bindings) != 2 {
+		t.Errorf("context = %s", out)
 	}
 }
 
@@ -192,6 +306,7 @@ func TestInspectNounFilterJSONAndHMS(t *testing.T) {
 	for _, want := range []string{
 		"# src/schemas/demo/thing.hms", `"at": {"type":"timestamp"}`,
 		"# src/schemas/demo/thing.trino.hms", `"definition": "DATE"`, `"value": "final"`,
+		"# src/perspectives/trino.perspective.json", `"binding_key": "layer"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("export lacks %q:\n%s", want, out)

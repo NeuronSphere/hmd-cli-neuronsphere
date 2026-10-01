@@ -93,6 +93,8 @@ type Observation struct {
 	Scope      *ScopeObs      `json:"scope,omitempty"`
 	SameAs     *SameAsObs     `json:"same_as,omitempty"`
 	Finding    *FindingObs    `json:"finding,omitempty"`
+	Object     *ObjectObs     `json:"object,omitempty"`
+	Sidecar    *SidecarObs    `json:"sidecar,omitempty"`
 	Provenance Provenance     `json:"provenance"`
 }
 
@@ -162,6 +164,9 @@ func BindingKey(perspective, name string) string {
 type Endpoint struct {
 	ID       ID       `json:"id,omitempty"`
 	Location Location `json:"location,omitempty"`
+	// Dialect, with Location and no ID, asks derivation to name the noun at
+	// Location by that dialect's name pattern.
+	Dialect string `json:"dialect,omitempty"`
 }
 
 func (e Endpoint) String() string {

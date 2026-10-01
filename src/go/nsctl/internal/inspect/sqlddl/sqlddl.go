@@ -81,12 +81,14 @@ type SelectItem struct {
 type Statement struct {
 	Kind Kind
 	// Object is TABLE, VIEW or SCHEMA for a DROP.
-	Object      string
-	Name        Name
-	Line        int
-	IfExists    bool
-	Columns     []Column
-	With        map[string]string
+	Object   string
+	Name     Name
+	Line     int
+	IfExists bool
+	Columns  []Column
+	With     map[string]string
+	// WithArrays names the With properties written as ARRAY[...].
+	WithArrays  map[string]bool
 	Partitions  []string
 	InsertCols  []string
 	Select      []SelectItem
@@ -307,7 +309,7 @@ func parseStatement(toks []token) Statement {
 			st.Kind = CreateSchema
 			st.IfExists = p.accept("if", "not", "exists")
 			st.Name = p.name()
-			st.With = p.with()
+			st.With, st.WithArrays = p.with()
 		case p.accept("table"):
 			st.Kind = CreateTable
 			st.IfExists = p.accept("if", "not", "exists")
@@ -315,7 +317,7 @@ func parseStatement(toks []token) Statement {
 			if p.peek(0).punct("(") {
 				st.Columns = p.columns()
 			}
-			st.With = p.with()
+			st.With, st.WithArrays = p.with()
 			if p.accept("as") {
 				p.selectStatement(&st)
 			}
@@ -323,7 +325,7 @@ func parseStatement(toks []token) Statement {
 			st.Kind = CreateView
 			st.IfExists = p.accept("if", "not", "exists")
 			st.Name = p.name()
-			p.with()
+			_, _ = p.with()
 			if p.accept("as") {
 				p.selectStatement(&st)
 			}
@@ -439,13 +441,13 @@ func (p *parser) skipItem() {
 }
 
 // with reads WITH ( key = value, ... ). An ARRAY[...] value becomes its
-// elements joined by commas.
-func (p *parser) with() map[string]string {
+// elements joined by commas, and its key is in arrays.
+func (p *parser) with() (props map[string]string, arrays map[string]bool) {
 	if !(p.peek(0).is("with") && p.peek(1).punct("(")) {
-		return nil
+		return nil, nil
 	}
 	p.pos += 2
-	props := map[string]string{}
+	props, arrays = map[string]string{}, map[string]bool{}
 	for !p.done() {
 		if p.peek(0).punct(")") {
 			p.next()
@@ -463,6 +465,7 @@ func (p *parser) with() map[string]string {
 		p.next()
 		var vals []string
 		if p.peek(0).is("array") {
+			arrays[key] = true
 			p.next()
 			p.next() // [
 			for !p.done() && !p.peek(0).punct("]") {
@@ -489,7 +492,7 @@ func (p *parser) with() map[string]string {
 		}
 		props[key] = strings.Join(vals, ",")
 	}
-	return props
+	return props, arrays
 }
 
 var typeWords = map[string]bool{

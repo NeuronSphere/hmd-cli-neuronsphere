@@ -1591,9 +1591,16 @@ stands for the repositories directly inside it.
 An argument that is not a directory names a noun to show in full: its fully
 qualified name (hmd_lang_transform.transform_instance) or just its name.
 
+Perspectives are not built in: a repository declares one under
+src/perspectives/<name>.perspective.json, or it is derived from the files
+(`nsctl inspect perspective`). NERD033.
+
 With --hms the selected nouns are printed as an .hms document plus one
-<name>.<perspective>.hms sidecar per perspective; with --out <dir> those files
-are written under <dir>, laid out as src/schemas/<namespace>/.
+<name>.<perspective>.hms sidecar per perspective, and each perspective's
+definition; with --out <dir> those files are written under <dir>, laid out as
+src/schemas/<namespace>/ and src/perspectives/. With --context each noun is
+printed as the one document a code generator reads: the .hms schema with each
+perspective's values under extensions.<perspective>.
 
 Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
 directories inspected. Without --refresh the latest snapshot is shown; with it,
@@ -1624,10 +1631,11 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
+* ``--context`` — Print each selected noun as a generator context: .hms plus extensions.<perspective>
 * ``--hms`` — Print the selected nouns as .hms documents and perspective sidecars
 * ``--json`` — Print the model as JSON
 * ``--lossy`` — With --hms, write attributes of unknown type as string instead of refusing
-* ``--out`` — With --hms, write the documents under this directory instead of printing them
+* ``--out`` — With --hms or --context, write the documents under this directory instead of printing them
 * ``--refresh`` — Inspect again and store a new snapshot
 * ``--sources`` — Show where every noun, attribute and link came from, and informational notes
 
@@ -1676,26 +1684,162 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl inspect perspectives
---------------------------
+nsctl inspect perspective
+-------------------------
 
-Lists the perspective definitions in effect: those embedded in nsctl, and any
-that a repository under --path overrides with src/perspectives/<name>.perspective.json.
-A definition has the Modeler's shape (hmd-ms-mickey); --json prints them whole.
-NERD032 SPEC007.
+A perspective is the data a generator needs beside the core .hms schema to
+produce one technology's manifestation of a noun: a table's storage format, a
+column's physical type. nsctl embeds none. A repository declares one under
+src/perspectives/<name>.perspective.json; otherwise nsctl derives it from the
+files that realise the model (Trino DDL in transforms, dbt projects), with the
+evidence for each piece, and keeps it with the inspection under HMD_HOME until
+it is edited and materialised into a repository. NERD033.
 
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl inspect perspectives [flags]
+   nsctl inspect perspective
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl inspect perspective list ~/src
+     nsctl inspect perspective derive ~/src --evidence
+     nsctl inspect perspective show trino ~/src
+     nsctl inspect perspective edit trino rename-key format storage_format --path ~/src
+     nsctl inspect perspective materialise trino ~/src --to ~/src/hmd-lang-reporting
+
+Aliases: ``perspectives``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspective derive
+--------------------------------
+
+Inspects the directories again and derives a definition for every perspective
+no inspected repository declares: its keys, each key's kind, enum values, the
+core .hms type of each physical type, the binding key and name pattern. Each
+piece carries the rule that produced it and the objects that support it; a
+piece marked for review is one the files could not decide. Edits recorded with
+`nsctl inspect perspective edit` are replayed. NERD033 SPEC003.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspective derive [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--evidence`` — Show the rule and support behind every piece
+* ``--json`` — Print the derivations as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspective edit
+------------------------------
+
+Records an edit to a derived perspective, replayed every time it is derived
+again, so it survives changes to the files:
+
+  rename <new-name>             rename the perspective
+  rename-key <key> <new-key>    rename a key (its values follow)
+  drop-key <key>                drop a key (its values go)
+  hms-type <enum-value> <type>  set the core .hms type of a data type value
+
+Edits are kept under HMD_HOME for the inspected directories. An edit that
+does not apply to the current derivation is refused. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspective edit <perspective> <op> <arg>... [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--path`` — The inspected directories the edit belongs to (default: the current one) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspective list
+------------------------------
+
+List the perspectives in effect, declared or derived
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspective list [path...] [flags]
 
 Local flags
 ~~~~~~~~~~~
 
 * ``--json`` — Print the definitions as JSON
-* ``--path`` — Repositories whose src/perspectives override the embedded definitions (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspective materialise
+-------------------------------------
+
+Writes src/perspectives/<perspective>.perspective.json and one
+<noun>.<perspective>.hms sidecar per noun (under src/schemas/<namespace>/) into
+the repository named by --to, and nowhere else. From then on that repository
+declares the perspective: inspecting it reads the sidecars as declared values,
+and a file that later disagrees with them is reported. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspective materialise <perspective> [path...] --to <repository> [flags]
+
+Aliases: ``materialize``.
+
+Local flags
+~~~~~~~~~~~
+
+* ``--to`` — The repository to write into
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect perspective show
+------------------------------
+
+Print a perspective's definition
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect perspective show <perspective> [path...]
 
 Inherited flags
 ~~~~~~~~~~~~~~~

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 func sample() ([]model.Observation, *model.Model) {
@@ -25,6 +26,13 @@ func sample() ([]model.Observation, *model.Model) {
 	return obs, model.Consolidate(obs)
 }
 
+func derived() []*perspective.Derivation {
+	d := &perspective.Definition{Name: "trino", BindingKey: "layer", Origin: perspective.OriginDerived}
+	d.Declare(perspective.Entity, "layer", perspective.Extension{ExtensionType: "enum"})
+	return []*perspective.Derivation{{Definition: d, Status: perspective.StatusDerived,
+		Evidence: []perspective.Evidence{{Item: "binding_key", Rule: "r", Support: 2}}}}
+}
+
 func TestSaveAndReadBack(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "sub", "model.db")
@@ -35,7 +43,7 @@ func TestSaveAndReadBack(t *testing.T) {
 	defer s.Close()
 	obs, m := sample()
 	roots := []string{"/b", "/a"}
-	snap, err := s.Save(roots, map[string]string{"r": "abc"}, obs, m, time.Unix(100, 0))
+	snap, err := s.Save(roots, map[string]string{"r": "abc"}, obs, m, derived(), time.Unix(100, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +59,11 @@ func TestSaveAndReadBack(t *testing.T) {
 	b, _ := json.Marshal(got)
 	if string(a) != string(b) {
 		t.Errorf("model round trip differs\n%s\n%s", a, b)
+	}
+	dvs, err := s.Derivations(snap.ID)
+	if err != nil || len(dvs) != 1 || dvs[0].Definition.BindingKey != "layer" || dvs[0].Evidence[0].Support != 2 ||
+		dvs[0].Definition.Origin != perspective.OriginDerived {
+		t.Errorf("derivations = %+v, %v", dvs, err)
 	}
 	back, err := s.Observations(snap.ID)
 	if err != nil || len(back) != len(obs) || back[1].Attr.Values["datatype"].Definition != "DOUBLE" {
@@ -77,7 +90,7 @@ func TestSavePrunesToKeep(t *testing.T) {
 	defer s.Close()
 	obs, m := sample()
 	for i := 0; i < Keep+3; i++ {
-		if _, err := s.Save([]string{"/a"}, nil, obs, m, time.Unix(int64(i), 0)); err != nil {
+		if _, err := s.Save([]string{"/a"}, nil, obs, m, nil, time.Unix(int64(i), 0)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,7 +122,37 @@ func TestUnknownSchemaVersionIsRebuilt(t *testing.T) {
 	}
 	defer s.Close()
 	obs, m := sample()
-	if _, err := s.Save([]string{"/a"}, nil, obs, m, time.Now()); err != nil {
+	if _, err := s.Save([]string{"/a"}, nil, obs, m, nil, time.Now()); err != nil {
 		t.Errorf("save after rebuild: %v", err)
+	}
+}
+
+// Edits are a person's work: they survive the rebuild an unknown schema
+// version causes, which drops every snapshot.
+func TestEditsSurviveARebuild(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "model.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := perspective.Edit{Perspective: "trino", Op: "rename-key", Key: "format", To: "storage_format"}
+	if err := s.AddEdit("scope", e, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddEdit("other", perspective.Edit{Perspective: "x", Op: "rename", To: "y"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("PRAGMA user_version = 1"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got, err := s.Edits("scope")
+	if err != nil || len(got) != 1 || got[0] != e {
+		t.Errorf("edits = %+v, %v", got, err)
 	}
 }

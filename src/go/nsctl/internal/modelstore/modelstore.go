@@ -1,11 +1,14 @@
 // Package modelstore keeps nsctl inspect's snapshots in a local SQLite
-// database (NERD032 SPEC005): each snapshot's observations and the model
-// consolidated from them, keyed by the set of inspected roots.
+// database (NERD032 SPEC005): each snapshot's observations, the model
+// consolidated from them and the perspectives derived for it (the
+// perspective IR, NERD033 SPEC005), keyed by the set of inspected roots.
 //
-// The store is derived state, like everything else under
-// $HMD_HOME/.cache: deleting it loses only history, and a schema version it
-// does not recognise is dropped and rebuilt rather than migrated. Its format
-// is not a compatibility contract. Whole nouns are kept as JSON beside a few
+// Snapshots are derived state, like everything else under
+// $HMD_HOME/.cache: deleting them loses only history, and a schema version
+// the store does not recognise drops and rebuilds them rather than migrating.
+// Their format is not a compatibility contract. Perspective edits are the
+// exception: they are a person's work, kept across rebuilds in a table of
+// their own whose shape does not change with the snapshot schema. Whole nouns are kept as JSON beside a few
 // normalised columns, which is enough to query it with sqlite3 and to read a
 // model back without a mapping layer.
 package modelstore
@@ -26,11 +29,12 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 // schemaVersion is PRAGMA user_version. Bump it with any table change; an
 // older database is dropped and rebuilt.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Keep is how many snapshots per scope survive a save.
 const Keep = 20
@@ -128,10 +132,27 @@ CREATE TABLE disagreement (
   subject TEXT NOT NULL,
   body TEXT NOT NULL
 );
+CREATE TABLE perspective (
+  snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  evidence TEXT NOT NULL
+);
+`
+
+// editsDDL is the one table kept across schema versions.
+const editsDDL = `
+CREATE TABLE IF NOT EXISTS perspective_edit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  body TEXT NOT NULL
+);
 `
 
 // tables lists every table any schema version had, so a rebuild removes them all.
-var tables = []string{"disagreement", "lineage", "perspective_value", "binding", "manifestation", "attribute", "noun", "observation", "snapshot"}
+var tables = []string{"perspective", "disagreement", "lineage", "perspective_value", "binding", "manifestation", "attribute", "noun", "observation", "snapshot"}
 
 // Open opens or creates the database at path.
 func Open(path string) (*Store, error) {
@@ -160,7 +181,8 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if v == schemaVersion {
-		return nil
+		_, err := s.db.Exec(editsDDL)
+		return err
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -172,7 +194,7 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(ddl); err != nil {
+	if _, err := tx.Exec(ddl + editsDDL); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
@@ -181,8 +203,10 @@ func (s *Store) migrate() error {
 	return tx.Commit()
 }
 
-// Save stores one inspection and prunes the scope to the newest Keep.
-func (s *Store) Save(roots []string, revisions map[string]string, obs []model.Observation, m *model.Model, now time.Time) (Snapshot, error) {
+// Save stores one inspection, with the perspectives derived for it, and
+// prunes the scope to the newest Keep.
+func (s *Store) Save(roots []string, revisions map[string]string, obs []model.Observation, m *model.Model,
+	derived []*perspective.Derivation, now time.Time) (Snapshot, error) {
 	snap := Snapshot{ScopeKey: ScopeKey(roots), Roots: roots, CreatedAt: now.UTC(), Revisions: revisions}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -201,6 +225,13 @@ func (s *Store) Save(roots []string, revisions map[string]string, obs []model.Ob
 	}
 	if err := insertAll(tx, snap.ID, obs, m); err != nil {
 		return snap, err
+	}
+	for _, dv := range derived {
+		ev, _ := json.Marshal(dv.Evidence)
+		if _, err := tx.Exec(`INSERT INTO perspective VALUES (?, ?, ?, ?, ?)`, snap.ID, dv.Definition.Name, dv.Status,
+			string(dv.Definition.Marshal()), string(ev)); err != nil {
+			return snap, err
+		}
 	}
 	if _, err := tx.Exec(`DELETE FROM snapshot WHERE scope_key = ? AND id NOT IN
 		(SELECT id FROM snapshot WHERE scope_key = ? ORDER BY id DESC LIMIT ?)`, snap.ScopeKey, snap.ScopeKey, Keep); err != nil {
@@ -353,6 +384,61 @@ func (s *Store) Model(id int64) (*model.Model, error) {
 		return nil
 	})
 	return m, err
+}
+
+// Derivations reads back the perspectives derived for a snapshot.
+func (s *Store) Derivations(id int64) ([]*perspective.Derivation, error) {
+	rows, err := s.db.Query(`SELECT status, definition, evidence FROM perspective WHERE snapshot_id = ? ORDER BY name`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*perspective.Derivation
+	for rows.Next() {
+		var status, def, ev string
+		if err := rows.Scan(&status, &def, &ev); err != nil {
+			return nil, err
+		}
+		d, err := perspective.Parse([]byte(def))
+		if err != nil {
+			return nil, err
+		}
+		d.Origin = perspective.OriginDerived
+		dv := &perspective.Derivation{Definition: d, Status: status}
+		_ = json.Unmarshal([]byte(ev), &dv.Evidence)
+		out = append(out, dv)
+	}
+	return out, rows.Err()
+}
+
+// AddEdit records an edit to a scope's perspectives.
+func (s *Store) AddEdit(scopeKey string, e perspective.Edit, now time.Time) error {
+	body, _ := json.Marshal(e)
+	_, err := s.db.Exec(`INSERT INTO perspective_edit(scope_key, created_at, body) VALUES (?, ?, ?)`,
+		scopeKey, now.UTC().Format(time.RFC3339Nano), string(body))
+	return err
+}
+
+// Edits returns a scope's edits in the order they were made.
+func (s *Store) Edits(scopeKey string) ([]perspective.Edit, error) {
+	rows, err := s.db.Query(`SELECT body FROM perspective_edit WHERE scope_key = ? ORDER BY id`, scopeKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []perspective.Edit
+	for rows.Next() {
+		var b string
+		if err := rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		var e perspective.Edit
+		if err := json.Unmarshal([]byte(b), &e); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // Observations reads a snapshot's observations back, in stored order.

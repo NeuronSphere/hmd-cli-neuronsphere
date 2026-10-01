@@ -20,24 +20,12 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/sqlddl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/perspective"
 )
 
 const schemasDir = "src/schemas"
 
 // Inspector is the language pack inspector.
-type Inspector struct {
-	// Perspectives names the sidecars (<name>.<perspective>.hms) read as
-	// perspective values; nil means the embedded defaults.
-	Perspectives *perspective.Registry
-}
-
-func (ins Inspector) registry() *perspective.Registry {
-	if ins.Perspectives == nil {
-		return perspective.Default()
-	}
-	return ins.Perspectives
-}
+type Inspector struct{}
 
 // PostgresView is the perspective generated Postgres views bind to.
 const PostgresView = "postgres-view"
@@ -61,25 +49,19 @@ func (ins Inspector) Inspect(_ context.Context, src inspect.Source) ([]model.Obs
 	if err != nil {
 		return nil, err
 	}
-	reg := ins.registry()
 	var obs []model.Observation
 	docs := map[model.ID]*model.HMSDoc{}
 	var ui []string
 	for _, f := range files {
 		if isExtension(f) {
-			switch ext := extensionName(f); {
-			case ext == "ui":
+			if ext := extensionName(f); ext == "ui" {
 				ui = append(ui, f)
-			case reg.Known(ext):
-				side, err := readSidecar(src, f, reg.Get(ext))
+			} else {
+				side, err := readSidecar(src, f, ext)
 				if err != nil {
-					obs = append(obs, finding(f, model.SevError, "unparseable-sidecar", err.Error()))
-					continue
+					return nil, err
 				}
-				obs = append(obs, side...)
-			default:
-				obs = append(obs, finding(f, model.SevInfo, "unknown-extension",
-					fmt.Sprintf("extension file for %q, which is neither ui nor a known perspective", ext)))
+				obs = append(obs, side)
 			}
 			continue
 		}
@@ -123,26 +105,18 @@ func extensionName(p string) string {
 	return strings.ToLower(base[strings.LastIndex(base, ".")+1:])
 }
 
-// readSidecar reads a perspective sidecar at .hms authority: a declared
-// perspective value outranks one an inspector inferred. Each attribute's
-// core type comes from its values, by the definition's hms_type.
-func readSidecar(src inspect.Source, file string, def *perspective.Definition) ([]model.Observation, error) {
+// readSidecar reads a perspective sidecar, to be resolved at .hms authority
+// once its perspective's definition is known: a declared perspective value
+// outranks one an inspector inferred. A sidecar whose extension names no
+// perspective at all is reported then.
+func readSidecar(src inspect.Source, file, perspective string) (model.Observation, error) {
 	data, err := fs.ReadFile(src.FS, file)
 	if err != nil {
-		return nil, err
+		return model.Observation{}, err
 	}
-	p := model.Provenance{File: file, Line: 1, Authority: model.AuthHMS, Confidence: model.Decided,
-		Why: "perspective sidecar"}
-	obs, err := model.SidecarObservations(data, def.Name, def.BindingKey, p)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range obs {
-		if o.Attr != nil {
-			o.Attr.Type = perspective.CoreType(def, o.Attr.Values)
-		}
-	}
-	return obs, nil
+	return model.Observation{Kind: model.KindSidecar, Sidecar: &model.SidecarObs{Perspective: perspective, Data: data},
+		Provenance: model.Provenance{File: file, Line: 1, Authority: model.AuthHMS, Confidence: model.Decided,
+			Why: "perspective sidecar"}}, nil
 }
 
 func finding(file string, sev model.Severity, code, msg string) model.Observation {
