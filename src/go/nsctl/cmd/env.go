@@ -550,22 +550,29 @@ expectation to violate. --no-pull suppresses it.`,
 				plan = p
 			}
 
-			reg, home, err := loadRegistry(opts)
+			home, err := opts.RequireHome()
 			if err != nil {
 				return err
 			}
-			if err := refuseOrphanedManifest(reg, home, args[0], adopt); err != nil {
+			// Under the registry lock, so the slot and account are allocated
+			// against what is on disk now, not against a copy another `env add`
+			// is about to overwrite.
+			var env *registry.Environment
+			if _, err := registry.Update(home, opts.Lookup, "env add "+args[0], func(reg *registry.Registry) error {
+				if err := refuseOrphanedManifest(reg, home, args[0], adopt); err != nil {
+					return err
+				}
+				e, err := reg.NewEnvironment(home, args[0], opts.Lookup)
+				if err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				if makeDefault {
+					reg.DefaultEnv = e.Slug
+				}
+				env = e
+				return nil
+			}); err != nil {
 				return err
-			}
-			env, err := reg.NewEnvironment(home, args[0], opts.Lookup)
-			if err != nil {
-				return nserr.Wrap(nserr.Usage, err)
-			}
-			if makeDefault {
-				reg.DefaultEnv = env.Slug
-			}
-			if err := reg.Save(home); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
 			}
 
 			renderNewEnvironment(cmd, env, opts.Lookup)
@@ -683,14 +690,16 @@ either state alone, because nothing left knows how to address them.`,
 					env.Slug, env.AccountID, env.PortSlot)
 			}
 
-			if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
-				return nserr.Wrap(nserr.Usage, err)
-			}
-			// Delete is a registry edit: the account's Floci resources stay,
-			// so the account must never be handed to another environment.
-			reg.RetireAccount(env.AccountID)
-			if err := reg.Save(home); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
+			if _, err := registry.Update(home, opts.Lookup, "env delete "+env.Slug, func(reg *registry.Registry) error {
+				if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				// Delete is a registry edit: the account's Floci resources stay,
+				// so the account must never be handed to another environment.
+				reg.RetireAccount(env.AccountID)
+				return nil
+			}); err != nil {
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Unregistered %s\n", env.Slug)
 			// The manifest goes with the registration (NERD010 SPEC009, D3):

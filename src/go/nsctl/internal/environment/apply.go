@@ -15,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/credentials"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/envactivity"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
@@ -101,6 +102,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
 	}
+	done, err := envactivity.Begin(opts.Home, env.Slug)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	defer done()
 
 	d := container.New()
 	client, err := connectMSDeployment(ctx, opts)

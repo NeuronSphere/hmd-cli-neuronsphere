@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-02
+
+- fix: concurrent nsctl processes no longer corrupt shared state. Registry
+  writes (`env add`, `env delete`, `env purge`, first-env registration, the
+  control plane's port and bootstrap records) go through `registry.Update`,
+  which re-reads and saves under a host lock, so a concurrent writer is no
+  longer silently dropped and two environments can no longer be given the same
+  port slot or account. The registry is saved through `atomicfile`.
+- fix: control-plane start, stop and remove are serialised by a host lock, so
+  two first starts no longer both run the bootstrap; the second waits and says
+  what it is waiting for.
+- fix: `env start` no longer stops another environment that a second session
+  is starting or applying at the same time. Its sweep of containers Floci
+  woke now skips any environment marked active (`internal/envactivity`).
+
 ## 2026-09-30
 
 - fix: `env delete` retires the environment's Floci account, and a new
