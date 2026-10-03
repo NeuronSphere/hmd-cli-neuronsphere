@@ -1387,6 +1387,148 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl env lease
+---------------
+
+A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
+an environment until it releases it. While an environment is leased, env apply,
+stop and purge from anyone else are refused, so concurrent sessions cannot deploy
+over each other.
+
+Leases are run-scoped, not session-scoped: take one for the run, release it
+when the run ends. A small pool of environments ([pool] in nsctl.toml; by
+default local plus one cc-N created on demand) then serves many sessions, and a
+run that finds them all busy can queue with --wait.
+
+A lease ends when it is released, when its TTL passes without a renew, or when
+the process it watches (--pid, by default the caller's parent) exits.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease acquire
+-----------------------
+
+Leases the named environment (default: the one HMD_LOCAL_ENV or the registry
+names), or with --pool the free pool environment that needs the least redeploying
+for --for, an environment manifest of what the run will deploy. Ties go to the
+environment released most recently.
+
+When the pool has room and nothing is free, the next cc-N is registered for the
+run; the output says so ("created"), and it must be started before deploying.
+
+Prints the lease, including the token that renew, release and leased commands
+(NSCTL_LEASE_TOKEN) present.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease acquire [name] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl env lease acquire --pool --wait --holder my-session --json
+     nsctl env lease acquire dev --holder ci-123 --ttl 30m
+     nsctl env lease acquire --pool --for run-manifest.yaml --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
+* ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
+* ``--json`` — print the lease as JSON
+* ``--pid`` — the process whose exit ends the lease; 0 relies on --ttl alone (default: ``13386``)
+* ``--pool`` — lease the closest free environment from the pool
+* ``--run-id`` — an id for this run, recorded in the lease
+* ``--steal`` — take the environment even if someone else holds it
+* ``--ttl`` — how long the lease lives without a renew (default: ``10m0s``)
+* ``--wait`` — queue until an environment is free instead of failing
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease list
+--------------------
+
+Show who holds which environment, and who is waiting
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease release
+-----------------------
+
+Give a leased environment back
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease release <name> --token <token> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease renew
+---------------------
+
+Push a lease's expiry out by its TTL
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease renew <name> --token <token> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl env list
 --------------
 

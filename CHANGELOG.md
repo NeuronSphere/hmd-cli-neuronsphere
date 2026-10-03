@@ -2,6 +2,12 @@
 
 ## 2026-10-02
 
+- feat: `nsctl env lease acquire|renew|release|list` gives one run exclusive
+  use of an environment. `--pool` leases the free pool environment closest to
+  the run's manifest (`--for`), registering `cc-N` on demand up to `[pool] size`
+  in nsctl.toml; `--wait` queues in arrival order. A lease ends on release, TTL
+  expiry, or the death of the process it watches (`--pid`). State is in
+  `$HMD_HOME/leases`; `list` never prints tokens.
 - fix: concurrent nsctl processes no longer corrupt shared state. Registry
   writes (`env add`, `env delete`, `env purge`, first-env registration, the
   control plane's port and bootstrap records) go through `registry.Update`,

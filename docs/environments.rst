@@ -558,6 +558,43 @@ script runs with, it is the environment component of every
 seeds the admin DB secret and tags core Resources, so producer and consumer
 agree on the name in every environment, not just the default one.
 
+Run leases and the pool
+-----------------------
+
+Several sessions deploying into one environment at once undo each other's work.
+A **run lease** gives one run (a deploy, a test suite, a verify) exclusive use
+of an environment until it releases it.
+
+- ``nsctl env lease acquire [name]`` leases the named environment (default:
+  ``HMD_LOCAL_ENV``, then the registry default). With ``--pool`` it leases the
+  free pool environment that needs the least redeploying for ``--for``, an
+  environment manifest of what the run will deploy. Ties go to the environment
+  released most recently, whose deployed state is warmest.
+- With every pool environment leased, ``--wait`` queues the run, and runs are
+  served in arrival order. Without ``--wait`` the command fails and says who
+  holds what.
+- ``renew`` and ``release`` take the lease's token (``--token``, or
+  ``NSCTL_LEASE_TOKEN``). ``list`` shows holders and the queue, never tokens.
+- A lease ends on release, when its TTL (``--ttl``, default 10m) passes without
+  a renew, or when the process it watches (``--pid``, default the caller's
+  parent) exits. A session killed mid-run therefore never wedges the pool.
+
+Leases are run-scoped, not session-scoped, so a small warm pool serves many
+sessions. The pool is configured in ``nsctl.toml``:
+
+.. code-block:: toml
+
+   [pool]
+   size = 3                 # default 2
+   members = ["local"]      # default ["local"]
+
+Environments beyond ``members`` are registered on demand as ``cc-1``,
+``cc-2``, … until the pool reaches ``size``. A lease on a newly registered one
+reports ``created``, and it must be started before anything is deployed into it.
+
+Lease state lives in ``$HMD_HOME/leases``. Older nsctl binaries reject an
+``nsctl.toml`` that contains ``[pool]``.
+
 Registry and state
 ------------------
 

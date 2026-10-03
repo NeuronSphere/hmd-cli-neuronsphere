@@ -97,6 +97,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		newEnvAddCommand(opts),
 		newEnvDeleteCommand(opts),
 		newEnvPurgeCommand(opts),
+		newEnvLeaseCommand(opts),
 	)
 	return env
 }
