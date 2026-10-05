@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-05
+
+- fix: an edited `default_configuration` in a RepoClass's manifest now reaches
+  the catalog without a version bump. `add_repo_class_version` refuses a
+  version it already has, and that refusal was treated as success, so every
+  deploy merged the first default ever registered. nsctl now compares the
+  stored default (and discovery block) with the tree's and updates the
+  RepoClassVersion through the CRUD endpoint when they differ (NERD034
+  SPEC001). An instance's own configuration, registered as a default only when
+  no tree is found, never overwrites a stored one.
+
 ## 2026-10-02
 
 - feat: `nsctl env lease acquire|renew|release|list` gives one run exclusive
