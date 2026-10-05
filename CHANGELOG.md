@@ -2,6 +2,11 @@
 
 ## 2026-10-05
 
+- fix: an environment manifest the Python CLI wrote keeps account ids such as
+  `000000000008` as strings. PyYAML (YAML 1.1) leaves them unquoted because 8
+  and 9 are not octal digits, and yaml.v3 (YAML 1.2) read them as the number 8.
+  `manifest.Parse` now retags a plain scalar as a string when PyYAML's own int
+  and float resolvers would not have read it as a number.
 - feat: `nsctl env apply` redeploys an instance whose own checkout changed,
   with no `--force-full-redeploy` and no version bump. The applied snapshot
   records a `tree_digest` of what a deploy reads from a developer's tree:

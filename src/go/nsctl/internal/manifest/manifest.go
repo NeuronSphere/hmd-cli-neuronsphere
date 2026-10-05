@@ -409,10 +409,50 @@ func Parse(data []byte, ext string) (*Manifest, error) {
 		}
 		data = reencoded
 	}
-	if err := yaml.Unmarshal(data, m); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	keepPyYAMLStrings(&doc)
+	if doc.Kind == 0 {
+		return m, nil // empty document
+	}
+	if err := doc.Decode(m); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+// PyYAML's YAML 1.1 int and float resolvers, verbatim from
+// yaml/resolver.py. A plain scalar either matches one of these or PyYAML
+// meant it as a string.
+var (
+	pyyamlInt   = regexp.MustCompile(`^(?:[-+]?0b[0-1_]+|[-+]?0[0-7_]+|[-+]?(?:0|[1-9][0-9_]*)|[-+]?0x[0-9a-fA-F_]+|[-+]?[1-9][0-9_]*(?::[0-5]?[0-9])+)$`)
+	pyyamlFloat = regexp.MustCompile(`^(?:[-+]?(?:[0-9][0-9_]*)\.[0-9_]*(?:[eE][-+][0-9]+)?|\.[0-9_]+(?:[eE][-+][0-9]+)?|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$`)
+)
+
+// keepPyYAMLStrings retags as strings the plain scalars yaml.v3 resolves to a
+// number but PyYAML would not have.
+//
+// Environment manifests are mostly written by the Python CLI, and PyYAML
+// quotes a string only when YAML 1.1 would read it as something else. An
+// account id like 000000000008 is not 1.1 octal (8 is not an octal digit), so
+// it is written bare; yaml.v3 reads YAML 1.2, where it is the integer 8. The
+// account selector then reached the ext-secrets chart as 8, and Floci routed
+// the operator's requests to the wrong account. What yaml.v3 itself writes is
+// unaffected: it quotes any string that would read back as a number.
+func keepPyYAMLStrings(n *yaml.Node) {
+	if n.Kind == yaml.ScalarNode && n.Style == 0 {
+		switch n.ShortTag() {
+		case "!!int", "!!float":
+			if !pyyamlInt.MatchString(n.Value) && !pyyamlFloat.MatchString(n.Value) {
+				n.Tag = "!!str"
+			}
+		}
+	}
+	for _, child := range n.Content {
+		keepPyYAMLStrings(child)
+	}
 }
 
 // Save writes the manifest to path, creating the directory as needed.
