@@ -2,6 +2,10 @@
 
 ## 2026-10-05
 
+- fix: the default projectbuilder is 0.5.395, up from 0.5.392. It carries
+  hmd-cli-helm 0.2.94, so an environment on a Floci account with an 8 or 9 in
+  it (e.g. `000000000008`) no longer has its ext-secrets account id read as a
+  number by Helm. Verified live on such an account.
 - fix: an environment manifest the Python CLI wrote keeps account ids such as
   `000000000008` as strings. PyYAML (YAML 1.1) leaves them unquoted because 8
   and 9 are not octal digits, and yaml.v3 (YAML 1.2) read them as the number 8.

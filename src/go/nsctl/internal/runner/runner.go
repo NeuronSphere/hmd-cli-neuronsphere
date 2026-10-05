@@ -761,9 +761,14 @@ func (r *Runner) SetNodeStatus(ctx context.Context, node msdeploy.DeploymentNode
 // the first, so every hmd-database-account node in such an environment died
 // with `IndexError: list index out of range`. 0.5.392 also carries
 // hmd-cli-cdktf 0.1.305, hmd-cli-deploy 0.2.70 and hmd-cli-helm 0.2.93.
+//
+// 0.5.395 carries hmd-cli-helm 0.2.94, which quotes number-like strings in
+// the values it writes for Helm. Before it, an environment whose Floci account
+// had an 8 or 9 in it (000000000008) reached the ext-secrets chart as the
+// number 8, and its ClusterSecretStore signed for the wrong account.
 const (
 	ProjectBuilderDefaultRegistry = "ghcr.io/hmdlabs"
-	ProjectBuilderDefaultVersion  = "0.5.392"
+	ProjectBuilderDefaultVersion  = "0.5.395"
 )
 
 // ProjectBuilderRef resolves the projectbuilder image from the environment.
