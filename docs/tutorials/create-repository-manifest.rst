@@ -191,11 +191,12 @@ The repository-adoption path uses ``acme-local-demo`` as the default instance
 name. Also inspect ``nsctl repo list --env local`` or
 ``nsctl repo list --env onboarding``, as appropriate.
 
-After editing a deploy script, a definition-based plan may remain unchanged.
-To deliberately rerun deployment, use
-``nsctl env apply <name> --force-full-redeploy``. This redeploys all declared
-entries, not only this script. A dedicated scratch environment keeps that
-iteration isolated.
+After you edit the deploy script, run ``nsctl env plan <name>``. The plan
+lists the instance as changed, marked ``(local tree)``, and
+``nsctl env apply <name>`` deploys it again. The snapshot records a digest of
+the checkout an ``exec`` RepoClass deploys from (see
+:doc:`../explanation/reconciliation`). ``--force-full-redeploy`` remains
+available, but it redeploys every declared entry, not only this one.
 
 Commit the manifest, version file, and deploy script with your repository.
 Commit ``neuronsphere.lock`` too if you use repository adoption. Add generated

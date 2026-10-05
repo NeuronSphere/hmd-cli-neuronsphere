@@ -108,6 +108,11 @@ of scope here.
       ``deploy.commands``, or all of ``src/`` when the manifest names none
       that nsctl can read.
 
+    An ``exec`` RepoClass (``NERD009``) runs its own command, which can read
+    anything in its checkout. The tutorial's script lives in ``scripts/``.
+    For an ``exec`` RepoClass the digest therefore covers the whole tree,
+    except top-level ``test/``, ``tests/`` and ``docs/``.
+
     It skips build and cache output: dot-directories, ``__pycache__``,
     ``node_modules``, ``imports``, ``cdktf.out``, ``.terraform``,
     ``build``, ``dist``, ``target``, ``*.egg-info``, ``*.pyc`` and

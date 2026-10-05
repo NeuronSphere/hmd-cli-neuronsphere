@@ -2,6 +2,14 @@
 
 ## 2026-10-05
 
+- feat: `nsctl env apply` redeploys an instance whose own checkout changed,
+  with no `--force-full-redeploy` and no version bump. The applied snapshot
+  records a `tree_digest` of what a deploy reads from a developer's tree:
+  `meta-data/`, `src/local/` and `src/<tool>` per deploy command, or the whole
+  checkout for an `exec` RepoClass. A mismatch moves the instance from
+  unchanged to changed, and `nsctl env plan` marks it `(local tree)`. Bundled
+  and artifact trees carry no digest, and an entry with none recorded is left
+  alone, so upgrading redeploys nothing (NERD034 SPEC002).
 - fix: an edited `default_configuration` in a RepoClass's manifest now reaches
   the catalog without a version bump. `add_repo_class_version` refuses a
   version it already has, and that refusal was treated as success, so every

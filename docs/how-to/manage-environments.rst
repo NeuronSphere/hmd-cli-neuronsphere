@@ -86,7 +86,9 @@ declarations the same way -- several instances at a time, from a published
 stack (:doc:`use-stacks`) -- and are followed by the same plan and apply.
 ``env start review --no-deploy`` starts infrastructure without reconciling
 workloads. ``env apply review --force-full-redeploy`` forces declared entries
-through deployment even when reconciliation considers them current.
+through deployment even when reconciliation considers them current. It is
+not needed to ship an edit to a chart, a deploy script or a manifest default
+in your own checkout: apply notices those edits by itself.
 
 See :doc:`../explanation/reconciliation` before using force to diagnose an
 unexpectedly empty plan.

@@ -264,6 +264,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
+	// The developer's trees, digested now, before anything deploys: an edit
+	// made while this runs is then drift for the next apply rather than
+	// something recorded as applied without having been (NERD034 SPEC002).
+	trees := workingTreeDigests(opts, repoPaths, entries)
+
 	// What is already deployed and current does not need deploying again. The
 	// graph answers the first half; the snapshot of the last apply answers the
 	// second, since the graph records that an instance is DEPLOYED but not
@@ -297,6 +302,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			}
 		}
 		plan = reconcile.Compute(entries, status, snapshot, opts.redeployInstances)
+		// The entry hash covers what the environment manifest declares, not
+		// the tree it deploys from, so a chart or manifest-default edit in a
+		// working tree reads as current until the tree's own digest says not.
+		if moved := plan.MarkTreesChanged(reconcile.LoadSnapshotTrees(env.StateDir), trees); len(moved) > 0 {
+			opts.step("Working tree changed since the last apply: %s", strings.Join(moved, ", "))
+		}
 		opts.step("Plan: %s", plan.Summary())
 		for _, name := range plan.Remove {
 			// Reported, never acted on. Removing a line from a manifest is not
@@ -307,7 +318,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			// Record the digests anyway: an environment deployed before
 			// snapshots existed has none, and without one drift is invisible
 			// forever.
-			if err := reconcile.WriteSnapshot(env.StateDir, entries, nil); err != nil {
+			if err := reconcile.WriteSnapshot(env.StateDir, entries, nil, trees); err != nil {
 				opts.warn("%v", err)
 			}
 			opts.step("  everything declared is already deployed and current")
@@ -326,6 +337,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Client: client, Versions: resolver,
 		Region: names.Region,
 		Warn:   opts.warn,
+		Step:   opts.step,
 	}
 
 	// Two phases, not one changeset.
@@ -501,7 +513,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// plan already found deployed and current. A digest recorded for an entry
 	// that failed would make the next run read it as up to date.
 	succeeded := run.Succeeded
-	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil); writeErr != nil {
+	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil, trees); writeErr != nil {
 		opts.warn("%v", writeErr)
 	}
 	// Again, for what Phase B itself spawned, and on failure as well as
