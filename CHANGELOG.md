@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-05
+
+- feat: `nsctl env start --host-workspace` mounts the projects root read-write
+  into the environment's k3s node at `/hmd/workspace`, for workloads such as
+  JupyterLab that edit checkouts in place. Recorded in the environment manifest
+  (`host_workspace`) and passed to `hmd-inf-eks-cluster` as `host_volumes`,
+  which become Floci's `floci:host-volume` creation tags. Floci only accepts
+  the projects root (`FLOCI_SERVICES_EKS_HOST_VOLUME_ROOTS`), and only a build
+  with EKS host volumes reads any of it: `HMD_LOCAL_FLOCI_IMAGE` now swaps in a
+  whole Floci image reference, e.g. `ghcr.io/hmdlabs/floci:main-7d9e38c-ns.1`.
+
 ## 2026-09-30
 
 - fix: `env delete` retires the environment's Floci account, and a new

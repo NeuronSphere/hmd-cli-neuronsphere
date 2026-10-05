@@ -108,6 +108,41 @@ func TestSubstrateOrdersTheVPCFirst(t *testing.T) {
 // The database's host is the DNS alias, not Floci's published endpoint: that
 // endpoint is a port from the 7001-7099 proxy range which Floci does not
 // restore on restart.
+// Host volumes reach the cluster's local overlay as instance configuration,
+// which turns them into Floci's floci:host-volume creation tags.
+func TestInjectEndpointsPassesHostVolumesToTheCluster(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv()
+	env.HostVolumes = []string{"/Users/dev/projects:/hmd/workspace"}
+	entries := Substrate(env, true)
+	InjectEndpoints(entries, env)
+
+	for _, e := range entries {
+		if e.RepoInstanceName != EKSClusterInstance {
+			continue
+		}
+		got, ok := e.InstanceConfiguration["host_volumes"].([]string)
+		if !ok || len(got) != 1 || got[0] != "/Users/dev/projects:/hmd/workspace" {
+			t.Errorf("host_volumes = %#v", e.InstanceConfiguration["host_volumes"])
+		}
+		return
+	}
+	t.Fatal("no eks-cluster entry")
+}
+
+func TestInjectEndpointsOmitsHostVolumesWhenThereAreNone(t *testing.T) {
+	t.Parallel()
+
+	entries := Substrate(testEnv(), true)
+	InjectEndpoints(entries, testEnv())
+	for _, e := range entries {
+		if _, ok := e.InstanceConfiguration["host_volumes"]; ok {
+			t.Errorf("%s carries host_volumes without an opt-in", e.RepoInstanceName)
+		}
+	}
+}
+
 func TestInjectEndpointsUsesTheAliasAndTheQualifiedContainer(t *testing.T) {
 	t.Parallel()
 

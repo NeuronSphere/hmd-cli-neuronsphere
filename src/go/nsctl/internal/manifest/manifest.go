@@ -149,6 +149,13 @@ type Manifest struct {
 	// a rule nobody re-read.
 	Substrate string `yaml:"substrate,omitempty" json:"substrate,omitempty"`
 
+	// HostWorkspace mounts the developer's projects root into this
+	// environment's k3s node, read-write, where workloads such as JupyterLab
+	// reach individual repos by hostPath. Recorded for Substrate's reason, and
+	// fixed at cluster creation: Floci reads host volumes only on CreateCluster,
+	// so changing it on an existing environment takes a new cluster.
+	HostWorkspace bool `yaml:"host_workspace,omitempty" json:"host_workspace,omitempty"`
+
 	// Bindings maps a repository's declared want -- a dependency role, a
 	// companion's declared instance_name, or the repository's own repo class --
 	// to the instance name it was given in this environment.

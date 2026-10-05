@@ -207,6 +207,23 @@ func TestComposeEnvSuppliesTheRegistrysNetwork(t *testing.T) {
 	}
 }
 
+// Floci's EKS host-volume allowlist is the projects root nsctl mounts, and is
+// left unset rather than empty-rooted when there is no absolute one.
+func TestComposeEnvAllowsTheProjectsRootForHostVolumes(t *testing.T) {
+	t.Parallel()
+
+	reg := &registry.Registry{ControlPlane: registry.ControlPlane{Network: "n"}}
+	opts := testOptions(t.TempDir(), map[string]string{"HMD_REPO_HOME": "/Users/dev/projects"})
+	if got := ComposeEnv(opts, reg, "")("HMD_LOCAL_HOST_VOLUME_ROOTS"); got != "/Users/dev/projects" {
+		t.Errorf("HMD_LOCAL_HOST_VOLUME_ROOTS = %q, want the projects root", got)
+	}
+
+	opts = testOptions(t.TempDir(), nil)
+	if got := ComposeEnv(opts, reg, "")("HMD_LOCAL_HOST_VOLUME_ROOTS"); got != "" {
+		t.Errorf("HMD_LOCAL_HOST_VOLUME_ROOTS = %q, want unset without HMD_REPO_HOME", got)
+	}
+}
+
 // The process environment wins, so a developer override still applies.
 func TestComposeEnvLetsTheProcessEnvironmentWin(t *testing.T) {
 	t.Parallel()

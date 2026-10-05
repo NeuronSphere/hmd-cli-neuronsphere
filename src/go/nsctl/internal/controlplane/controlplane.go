@@ -34,6 +34,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/workspace"
 )
 
 // HostsEntries are the names a host-side consumer of a presigned URL has to
@@ -1020,6 +1021,11 @@ func ComposeEnv(opts *Options, reg *registry.Registry, guiImage string) compose.
 		repoHome = opts.Home
 	}
 	overlay["HMD_REPO_HOME"] = repoHome
+	// Floci's EKS host-volume allowlist: the one root a cluster's node may
+	// mount. Left unset, never empty-rooted, when there is no absolute one.
+	if projects := workspace.ProjectsPath(opts.Home, opts.lookup); projects != "" {
+		overlay["HMD_LOCAL_HOST_VOLUME_ROOTS"] = projects
+	}
 	return func(key string) string {
 		// A value the user set wins over the overlay -- except HMD_HOME, which
 		// is the home this control plane is *for*: --home (or the HMD_HOME the

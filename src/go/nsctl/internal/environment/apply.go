@@ -26,6 +26,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/router"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/workspace"
 )
 
 // DefaultMSDeploymentURL is the control-plane route to hmd-ms-deployment, from
@@ -116,6 +117,9 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
 	}
+	// The cluster's host volumes come from the manifest, and in plan and
+	// apply alike, so a plan predicts the cluster apply would create.
+	bomEnv.HostVolumes = workspace.HostVolumes(declared, opts.Home, opts.Lookup)
 	mode := declared.SubstrateMode()
 	if env.LegacyLayout {
 		mode = manifest.SubstrateFull

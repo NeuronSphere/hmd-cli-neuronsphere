@@ -12,6 +12,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/reconcile"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/workspace"
 )
 
 // PlanResult is `nsctl env plan`'s answer: what `env apply` would add or
@@ -60,6 +61,9 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 	if err != nil {
 		return nil, nserr.Wrap(nserr.Usage, err)
 	}
+	// The cluster's host volumes come from the manifest, and in plan and
+	// apply alike, so a plan predicts the cluster apply would create.
+	bomEnv.HostVolumes = workspace.HostVolumes(declared, opts.Home, opts.Lookup)
 	mode := declared.SubstrateMode()
 	if env.LegacyLayout {
 		mode = manifest.SubstrateFull

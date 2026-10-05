@@ -1514,6 +1514,13 @@ records the choice in its manifest for every later start, apply and status:
   none   nothing beyond the control plane -- for repo classes that deploy with
          their own toolset against infrastructure they already have
 
+--host-workspace mounts your projects root (HMD_REPO_HOME, or
+$HMD_HOME/studio/projects when it exists) read-write into the environment's
+k3s node at /hmd/workspace, for workloads such as JupyterLab that edit your
+checkouts in place; each one mounts only the repos it lists. Floci fixes a
+cluster's mounts when it creates it, so the choice is recorded now and applies
+to the next cluster this environment creates.
+
 On an HMD_HOME with no environments registered this also registers the first
 one, so a new install needs this command and nothing before it. Once any
 environment exists a name that matches none of them is refused, because then it
@@ -1530,6 +1537,7 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
+* ``--host-workspace`` — Mount the projects root read-write into the cluster node at /hmd/workspace (recorded; applies when the cluster is created)
 * ``--no-deploy`` — Bring up the infrastructure without reconciling the BOM
 * ``--substrate`` — How much substrate to run: none, core or full (default: what the environment recorded, else full)
 * ``-V, --verbose`` — Show the underlying command output

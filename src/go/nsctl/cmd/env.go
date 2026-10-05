@@ -102,7 +102,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 }
 
 func newEnvStartCommand(opts *Options) *cobra.Command {
-	var noDeploy, verbose, force bool
+	var noDeploy, verbose, force, hostWorkspace bool
 	var substrate string
 	cmd := &cobra.Command{
 		Use:   "start [name]",
@@ -125,6 +125,13 @@ records the choice in its manifest for every later start, apply and status:
   core   the database and the graph; no cluster
   none   nothing beyond the control plane -- for repo classes that deploy with
          their own toolset against infrastructure they already have
+
+--host-workspace mounts your projects root (HMD_REPO_HOME, or
+$HMD_HOME/studio/projects when it exists) read-write into the environment's
+k3s node at /hmd/workspace, for workloads such as JupyterLab that edit your
+checkouts in place; each one mounts only the repos it lists. Floci fixes a
+cluster's mounts when it creates it, so the choice is recorded now and applies
+to the next cluster this environment creates.
 
 On an HMD_HOME with no environments registered this also registers the first
 one, so a new install needs this command and nothing before it. Once any
@@ -162,6 +169,13 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Recorded substrate %s for %s\n", mode, slug)
 			}
+			if cmd.Flags().Changed("host-workspace") {
+				if err := recordHostWorkspace(opts, home, slug, hostWorkspace); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Recorded host workspace %t for %s. A cluster keeps the mounts it was created with: "+
+					"an existing one changes only when it is recreated (nsctl env purge %s, then start).\n", hostWorkspace, slug, slug)
+			}
 			// `env start` starts the control plane implicitly if it is down,
 			// and then leaves it running.
 			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
@@ -187,7 +201,23 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
 	cmd.Flags().StringVar(&substrate, "substrate", "",
 		"How much substrate to run: none, core or full (default: what the environment recorded, else full)")
+	cmd.Flags().BoolVar(&hostWorkspace, "host-workspace", false,
+		"Mount the projects root read-write into the cluster node at /hmd/workspace (recorded; applies when the cluster is created)")
 	return cmd
+}
+
+// recordHostWorkspace writes the opt-in into the environment manifest, as
+// absence when off, creating the file with no instances when there is none.
+func recordHostWorkspace(opts *Options, home, slug string, on bool) error {
+	m, err := openManifest(opts, home, slug)
+	if err != nil {
+		return err
+	}
+	m.HostWorkspace = on
+	if err := m.Save(m.Path); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	return nil
 }
 
 // recordSubstrate writes the mode into the environment manifest (NERD014

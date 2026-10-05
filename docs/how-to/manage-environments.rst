@@ -71,6 +71,32 @@ A workload bound to ``local-neuronsphere`` cannot use ``none``, because that
 substrate instance is absent. Choose at least ``core``. A workload needing
 ``eks-cluster`` requires the Kubernetes substrate or an appropriate alternative.
 
+Mount your projects into the cluster
+------------------------------------
+
+Workloads such as JupyterLab edit your checkouts in place. To let them,
+record the host workspace when the environment starts::
+
+   nsctl env start --host-workspace
+
+The k3s node then sees your projects root, read-write, at
+``/hmd/workspace``. The projects root is ``$HMD_HOME/studio/projects`` when
+that directory exists, otherwise ``HMD_REPO_HOME``. Each workload mounts only
+the repos its instance lists, beneath that path, so a notebook server does not
+see every checkout on the machine.
+
+The mount is fixed when the cluster is created: Floci reads host volumes only
+on cluster creation and refuses to change them afterwards. Turning the
+workspace on for an environment that already has a cluster records the choice
+and takes effect the next time that cluster is created, for example after
+``nsctl env purge``. Floci also accepts only paths under the projects root,
+which nsctl passes to it as ``FLOCI_SERVICES_EKS_HOST_VOLUME_ROOTS``.
+
+Host volumes need a Floci build that supports them. Until upstream Floci
+ships the feature, select the NeuronSphere build::
+
+   export HMD_LOCAL_FLOCI_IMAGE=ghcr.io/hmdlabs/floci:main-7d9e38c-ns.1
+
 Change a running environment
 ----------------------------
 

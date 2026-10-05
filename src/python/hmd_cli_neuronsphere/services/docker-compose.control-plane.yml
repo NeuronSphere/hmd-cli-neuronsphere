@@ -68,7 +68,10 @@ services:
   # `neuronsphere-workload` network alias is retained so in-network consumers
   # that still address `neuronsphere-workload:4566` resolve to this instance.
   floci:
-    image: floci/floci:${HMD_LOCAL_FLOCI_VERSION:-2.0.1}
+    # HMD_LOCAL_FLOCI_IMAGE swaps in a whole image reference, e.g. the patched
+    # build from the NeuronSphere/floci fork (ghcr.io/hmdlabs/floci) that carries
+    # EKS host volumes until upstream ships them; see that fork's PATCHES.md.
+    image: ${HMD_LOCAL_FLOCI_IMAGE:-floci/floci:${HMD_LOCAL_FLOCI_VERSION:-2.0.1}}
     container_name: floci
     # No host port: reached from the host via hmd_proxy's :4566 stream, so that
     # every published port on this machine belongs to exactly one container.
@@ -149,6 +152,11 @@ services:
       FLOCI_SERVICES_NEPTUNE_DEFAULT_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-img-gremlin-server:${HMD_IMG_GREMLIN_SERVER_VERSION:-0.3.6}
       FLOCI_SERVICES_NEPTUNE_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       FLOCI_SERVICES_EKS_MOCK: "false"
+      # The one host directory a cluster's node may bind-mount: the projects
+      # root nsctl computes (workspace.ProjectsPath). Floci rejects every
+      # floci:host-volume creation tag outside it, and all of them when unset.
+      # Only a Floci build that knows the setting reads it.
+      FLOCI_SERVICES_EKS_HOST_VOLUME_ROOTS: ${HMD_LOCAL_HOST_VOLUME_ROOTS:-}
       # Spawn k3s from the hmd-img-k3s-floci wrapper, whose entrypoint drops the
       # two broken kube-apiserver overrides Floci injects
       # (--kube-apiserver-arg=storage-backend=sqlite3 and etcd-servers=unix:///tmp/kine.sock)

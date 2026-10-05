@@ -120,6 +120,9 @@ type Environment struct {
 	// spawned for it.
 	K3sCluster   string
 	K3sContainer string
+	// HostVolumes are the Floci host-volume specs the cluster is created with
+	// (workspace.HostVolumes); empty unless the environment opts in.
+	HostVolumes []string
 }
 
 // Substrate is the BOM nsctl ships: the core instance, the environment's
@@ -210,6 +213,9 @@ func InjectEndpoints(entries []Entry, env Environment) {
 			config["cluster_name"] = env.K3sCluster
 			if env.K3sContainer != "" {
 				config["cluster_endpoint"] = "https://" + env.K3sContainer + ":6443"
+			}
+			if len(env.HostVolumes) > 0 {
+				config["host_volumes"] = env.HostVolumes
 			}
 			entries[i].InstanceConfiguration = config
 		}
