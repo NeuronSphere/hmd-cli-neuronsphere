@@ -87,9 +87,7 @@ class StopEnvironmentTests(unittest.TestCase):
             },
         ), mock.patch.object(envs, "nginx_router"), mock.patch.object(
             envs, "env_registry"
-        ) as reg, mock.patch.object(
-            envs.shutil, "rmtree"
-        ):
+        ) as reg, mock.patch.object(envs.shutil, "rmtree"):
             envs.stop_environment(_Env(), purge=purge)
         return fd, cli, reg
 
@@ -152,20 +150,14 @@ class StopNeuronsphereExtendTests(unittest.TestCase):
             cli, "print_header"
         ), mock.patch.object(cli, "print_step"), mock.patch.object(
             cli, "print_shutdown_summary"
-        ), mock.patch.object(
-            cli, "LocalPluginLoader"
-        ), mock.patch.object(
+        ), mock.patch.object(cli, "LocalPluginLoader"), mock.patch.object(
             cli, "_get_base_command", return_value=["docker", "compose"]
-        ), mock.patch.object(
-            cli, "_exec"
-        ) as exec_mock, mock.patch.object(
+        ), mock.patch.object(cli, "_exec") as exec_mock, mock.patch.object(
             cli, "_purge_control_plane_state"
         ), mock.patch(
             "hmd_cli_neuronsphere.environments.control_plane_compose_files",
             return_value=[],
-        ), mock.patch(
-            "hmd_cli_neuronsphere.environments.stop_environment"
-        ), mock.patch(
+        ), mock.patch("hmd_cli_neuronsphere.environments.stop_environment"), mock.patch(
             "hmd_cli_neuronsphere.env_registry.load", return_value=reg
         ), mock.patch(
             "hmd_cli_neuronsphere.env_registry.list_envs", return_value=[]
@@ -175,9 +167,7 @@ class StopNeuronsphereExtendTests(unittest.TestCase):
         ), mock.patch(
             "hmd_cli_neuronsphere.env_registry.registry_path",
             return_value=mock.MagicMock(),
-        ), mock.patch.object(
-            cli.shutil, "rmtree"
-        ), mock.patch(
+        ), mock.patch.object(cli.shutil, "rmtree"), mock.patch(
             "hmd_cli_neuronsphere.floci_deployer.control_plane_target",
             return_value="target",
         ), mock.patch(
@@ -246,9 +236,7 @@ class ClusterRecreatedTests(unittest.TestCase):
         ) as full, mock.patch(
             "hmd_cli_neuronsphere.env_reconcile.load_release_map",
             return_value=releases,
-        ), mock.patch(
-            "hmd_cli_neuronsphere.bom_seeder.ensure_environment"
-        ), mock.patch(
+        ), mock.patch("hmd_cli_neuronsphere.bom_seeder.ensure_environment"), mock.patch(
             "hmd_cli_neuronsphere.bom_seeder.resync_local_resources", return_value=0
         ), mock.patch(
             "hmd_cli_neuronsphere.bom_seeder.seed_base_resource_definitions",
@@ -261,9 +249,7 @@ class ClusterRecreatedTests(unittest.TestCase):
         ), mock.patch(
             "hmd_cli_neuronsphere.change_set_builder.declared_repo_paths",
             return_value={},
-        ), mock.patch(
-            "hmd_cli_neuronsphere.floci_deployer.env_target"
-        ), mock.patch(
+        ), mock.patch("hmd_cli_neuronsphere.floci_deployer.env_target"), mock.patch(
             "hmd_cli_neuronsphere.floci_deployer.reconcile_k3s_container"
         ), mock.patch(
             "hmd_cli_neuronsphere.floci_deployer.wait_for_k3s_ready"
@@ -697,9 +683,7 @@ class McpApiKeyTests(unittest.TestCase):
             envs, "_gui_health", return_value=health
         ) as health_mock, mock.patch.object(
             envs, "_docker_exec", return_value=result
-        ) as exec_mock, contextlib.redirect_stdout(
-            out
-        ):
+        ) as exec_mock, contextlib.redirect_stdout(out):
             envs.ensure_mcp_api_key()
         return out.getvalue(), exec_mock, health_mock
 

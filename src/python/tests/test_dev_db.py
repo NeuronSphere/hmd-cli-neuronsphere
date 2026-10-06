@@ -119,9 +119,7 @@ class ProvisionAndRegisterTests(unittest.TestCase):
             dev_db._rest, "post_apiop_idempotent", return_value={}
         ), mock.patch.object(
             dev_db, "_get_repo_version", return_value="0.1.0"
-        ), mock.patch.object(
-            dev_db, "_local_db_secret_base", return_value="base"
-        ):
+        ), mock.patch.object(dev_db, "_local_db_secret_base", return_value="base"):
             dev_db.provision_and_register_db(
                 "deployment_gui", "deployment_gui", env=env, **kwargs
             )

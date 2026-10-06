@@ -1728,9 +1728,9 @@ def _inject_docker_credentials(bom: List[Dict]) -> None:
         )
         return
     for entry in targets:
-        entry.setdefault("instance_configuration", {})[
-            "docker_config_json"
-        ] = docker_config_json
+        entry.setdefault("instance_configuration", {})["docker_config_json"] = (
+            docker_config_json
+        )
 
 
 def _inject_floci_account(bom: List[Dict], env=None) -> None:

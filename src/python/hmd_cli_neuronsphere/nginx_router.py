@@ -376,7 +376,7 @@ def _api_location(
 def _passthrough_location(path: str, upstream: str) -> str:
     """A location proxying ``/<path>/`` straight at a URL (no API Gateway)."""
     return f"""location /{path}/ {{
-    proxy_pass {upstream.rstrip('/')}/;
+    proxy_pass {upstream.rstrip("/")}/;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;

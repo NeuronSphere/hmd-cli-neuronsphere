@@ -703,7 +703,7 @@ class LocalController(Controller):
             service_key = plugin_name.replace("-", "_")
             compose_template = f"""services:
   {service_key}:
-    image: ${{HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}}/hmd-ms-{plugin_name}:${{HMD_IMG_{plugin_name.upper().replace('-', '_')}_VERSION:-stable}}
+    image: ${{HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/neuronsphere}}/hmd-ms-{plugin_name}:${{HMD_IMG_{plugin_name.upper().replace("-", "_")}_VERSION:-stable}}
     container_name: {plugin_name}
     networks:
       - neuronsphere_default

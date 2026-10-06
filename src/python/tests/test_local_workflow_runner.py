@@ -517,9 +517,7 @@ class EnsureK3sImageTests(unittest.TestCase):
                 lwr, "container_cli", return_value="docker"
             ), mock.patch.object(
                 lwr, "_image_cached", side_effect=lambda ref, cli: ref == chart_ref
-            ), mock.patch.object(
-                lwr, "_tag"
-            ) as tag, mock.patch.object(
+            ), mock.patch.object(lwr, "_tag") as tag, mock.patch.object(
                 lwr, "_import_image_into_k3s", return_value=True
             ) as imp:
                 self.assertTrue(runner._ensure_k3s_image(self._node()))
@@ -553,9 +551,7 @@ class EnsureK3sImageTests(unittest.TestCase):
                 lwr, "container_cli", return_value="docker"
             ), mock.patch.object(
                 lwr, "_image_cached", return_value=False
-            ), mock.patch.object(
-                lwr, "_import_image_into_k3s"
-            ) as imp:
+            ), mock.patch.object(lwr, "_import_image_into_k3s") as imp:
                 self.assertTrue(runner._ensure_k3s_image(self._node()))
             imp.assert_not_called()
 
@@ -567,9 +563,7 @@ class EnsureK3sImageTests(unittest.TestCase):
                 lwr, "container_cli", return_value="docker"
             ), mock.patch.object(
                 lwr, "_image_cached", return_value=True
-            ), mock.patch.object(
-                lwr, "_tag", return_value=True
-            ), mock.patch.object(
+            ), mock.patch.object(lwr, "_tag", return_value=True), mock.patch.object(
                 lwr, "_import_image_into_k3s", return_value=False
             ):
                 self.assertTrue(runner._ensure_k3s_image(self._node()))
