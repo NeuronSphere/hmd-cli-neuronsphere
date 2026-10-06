@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -91,6 +93,24 @@ func TestDNSInstallScopesTheResolverFileToTheSuffixItself(t *testing.T) {
 	}
 }
 
+// stoppedResolverRegistry is movedResolverRegistry with the resolver on a UDP
+// port nothing listens on, found by binding one and letting it go. A fixed port
+// is not "nothing listens": on a workstation whose control plane is up, Docker
+// publishes the real resolver on 19154 and the test then reports a healthy one.
+func stoppedResolverRegistry(t *testing.T) (body, port string) {
+	t.Helper()
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := conn.LocalAddr().(*net.UDPAddr).Port
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return strings.Replace(movedResolverRegistry, `"dns": 19154`, fmt.Sprintf(`"dns": %d`, p), 1),
+		fmt.Sprint(p)
+}
+
 // The two failures need opposite fixes: the resolver is not running, or the
 // machine is not pointed at it. Collapsing them into one message that says
 // `dns install` either way sends a user whose control plane is down to edit a
@@ -101,7 +121,8 @@ func TestDNSInstallScopesTheResolverFileToTheSuffixItself(t *testing.T) {
 func TestDNSStatusNamesTheResolverWhenItIsNotRunning(t *testing.T) {
 	t.Parallel()
 
-	home := registryHome(t, movedResolverRegistry)
+	body, port := stoppedResolverRegistry(t)
+	home := registryHome(t, body)
 	out, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}), "dns", "status")
 	if err != nil {
 		t.Fatalf("dns status: %v", err)
@@ -110,7 +131,7 @@ func TestDNSStatusNamesTheResolverWhenItIsNotRunning(t *testing.T) {
 	if !strings.Contains(out, "control-plane start") {
 		t.Errorf("a resolver that is not running should name the command that starts it:\n%s", out)
 	}
-	if !strings.Contains(out, "19154") {
+	if !strings.Contains(out, port) {
 		t.Errorf("the report should name the port it looked at:\n%s", out)
 	}
 }
@@ -121,7 +142,8 @@ func TestDNSStatusNamesTheResolverWhenItIsNotRunning(t *testing.T) {
 func TestDNSStatusReportsTheProbeNameItUsed(t *testing.T) {
 	t.Parallel()
 
-	home := registryHome(t, movedResolverRegistry)
+	body, _ := stoppedResolverRegistry(t)
+	home := registryHome(t, body)
 	out, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}), "dns", "status")
 	if err != nil {
 		t.Fatalf("dns status: %v", err)

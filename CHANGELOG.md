@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-06
+
+- test: `dns status` tests for a stopped resolver take a UDP port that is free
+  when they run, rather than 19154. On a workstation whose control plane is up,
+  Docker publishes the real resolver there and both tests saw a healthy one.
+
 ## 2026-10-05
 
 - fix: the default projectbuilder is 0.5.395, up from 0.5.392. It carries
