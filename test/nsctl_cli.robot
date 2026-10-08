@@ -1012,3 +1012,20 @@ A Purge Selector Never Purges Everything
     Directory Should Exist    ${home}${/}.config
     ${dry}=       Run nsctl In Home Without An Engine    ${home}    env    purge    --dry-run
     Should Be Equal As Integers    ${dry.rc}    2
+
+Max Running Refuses A Session That Would Start One More
+    [Documentation]    NERD035 SPEC008: with max_running 1 and a session
+    ...                holding local, a session acquire that would start
+    ...                another environment exits 3 and names the budget.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Create File    ${home}${/}.config${/}nsctl.toml    [pool]\nsize = 3\nmembers = ["local"]\nmax_running = 1\n
+    ${src}=       Set Variable    ${home}${/}lite.yaml
+    Create File    ${src}    {version: 1, name: lite, substrate: none, repos: []}
+    Run nsctl In Home Without An Engine    ${home}    template    add    lite    ${src}
+    Run nsctl In Home Without An Engine    ${home}    env    add    local
+    ${a}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    local    --session    --pid    0
+    Should Be Equal As Integers    ${a.rc}    0    msg=${a.stderr}
+    ${b}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    --session    --pool    --pid    0    --template    lite    --no-pull
+    Should Be Equal As Integers    ${b.rc}    3    msg=${b.stderr}
+    Should Contain    ${b.stderr}    max_running

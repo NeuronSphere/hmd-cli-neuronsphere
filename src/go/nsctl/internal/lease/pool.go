@@ -28,6 +28,20 @@ type Pool struct {
 	// Score is how much a run would have to redeploy in env; lower is better.
 	// Nil scores everything equally.
 	Score func(env string) int
+
+	// MaxRunning caps how many of the pool's environments may be running
+	// once this grant starts its environment (NERD035 SPEC008); 0 is no cap.
+	// At the cap only an environment already running can be granted, and
+	// the pool waits rather than evicts.
+	MaxRunning int
+	// Running reports the environments whose containers are up. It is
+	// called before each attempt, outside the lock, because it asks the
+	// container engine. A session lease counts as running whatever it says.
+	Running func() map[string]bool
+	// Counted are environments whose running counts against MaxRunning
+	// besides the candidates: the whole pool, when a named environment is
+	// placed as a pool of one.
+	Counted []string
 }
 
 // Candidates are every environment this pool may use, created or not, in
@@ -64,6 +78,10 @@ func (s *Store) AcquireFromPool(ctx context.Context, p *Pool, r Request, wait bo
 		var got *Lease
 		var busy *PoolBusyError
 		ahead := 0
+		var up map[string]bool
+		if p.MaxRunning > 0 && p.Running != nil {
+			up = p.Running()
+		}
 		err := s.locked("pool lease for "+r.Holder, func() error {
 			waiters, err := s.queue()
 			if err != nil {
@@ -85,7 +103,7 @@ func (s *Store) AcquireFromPool(ctx context.Context, p *Pool, r Request, wait bo
 				ahead++
 			}
 
-			got, busy, err = s.pick(p, candidates, blocked, r)
+			got, busy, err = s.pick(p, candidates, blocked, r, up)
 			if err != nil || got != nil {
 				return err
 			}
@@ -138,8 +156,8 @@ func (s *Store) AcquireFromPool(ctx context.Context, p *Pool, r Request, wait bo
 }
 
 // pick grants the best free candidate not blocked by an earlier waiter, or
-// creates one. Caller holds the lock.
-func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Request) (*Lease, *PoolBusyError, error) {
+// creates one, within the running budget. Caller holds the lock.
+func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Request, up map[string]bool) (*Lease, *PoolBusyError, error) {
 	registered := map[string]bool{}
 	if p.Registered != nil {
 		names, err := p.Registered()
@@ -156,6 +174,31 @@ func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Re
 		score    int
 		released time.Time
 	}
+	current := map[string]*Lease{}
+	running := map[string]bool{}
+	counted := append(append([]string(nil), candidates...), p.Counted...)
+	for _, c := range counted {
+		if !registered[c] {
+			continue
+		}
+		if _, seen := current[c]; seen {
+			continue
+		}
+		cur, err := s.current(c)
+		if err != nil {
+			return nil, nil, err
+		}
+		current[c] = cur
+		if up[c] || (cur != nil && cur.IsSession()) {
+			running[c] = true
+		}
+	}
+	// admit is the budget: an environment already running costs nothing,
+	// any other may start only while the pool is under its cap.
+	admit := func(env string) bool {
+		return p.MaxRunning <= 0 || running[env] || len(running) < p.MaxRunning
+	}
+
 	var free []option
 	busy := &PoolBusyError{}
 	var unregistered []string
@@ -164,15 +207,12 @@ func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Re
 			unregistered = append(unregistered, c)
 			continue
 		}
-		cur, err := s.current(c)
-		if err != nil {
-			return nil, nil, err
-		}
+		cur := current[c]
 		if cur != nil {
 			busy.Held = append(busy.Held, *cur)
 			continue
 		}
-		if blocked[c] {
+		if blocked[c] || !admit(c) {
 			continue
 		}
 		o := option{env: c, released: releasedAt(s.releasedPath(c))}
@@ -197,7 +237,7 @@ func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Re
 	}
 
 	for _, name := range unregistered {
-		if blocked[name] || p.Create == nil {
+		if blocked[name] || p.Create == nil || !admit(name) {
 			continue
 		}
 		if err := p.Create(name); err != nil {
@@ -208,6 +248,13 @@ func (s *Store) pick(p *Pool, candidates []string, blocked map[string]bool, r Re
 			l.Created = true
 		}
 		return l, nil, err
+	}
+	if p.MaxRunning > 0 && len(running) >= p.MaxRunning {
+		busy.MaxRunning = p.MaxRunning
+		for env := range running {
+			busy.Running = append(busy.Running, env)
+		}
+		sort.Strings(busy.Running)
 	}
 	return nil, busy, nil
 }

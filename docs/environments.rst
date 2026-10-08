@@ -595,6 +595,7 @@ configured in ``nsctl.toml``:
    size = 3                 # default 2
    members = ["local"]      # default ["local"]
    session_ttl = "8h"       # default 8h; a session lease's TTL
+   max_running = 2          # default 0, no cap; running pool environments
 
 Environments beyond ``members`` are registered on demand as ``cc-1``,
 ``cc-2``, … until the pool reaches ``size``. A lease on a newly registered one
@@ -662,6 +663,15 @@ environment:
 
 Instances the previous holder declared that this session does not are left
 deployed and reported, never torn down; ``env purge`` resets an environment.
+
+``[pool] max_running`` caps how many pool environments run at once. A
+workstation holds two or three full environments. A session acquire that
+would start one more is refused, or queued with ``--wait``, and the error names
+the environments using the budget. Nothing is stopped to make room.
+"Running" means held by a session lease, or with any container up -- one left
+with ``--keep-running`` counts. Taking an environment that is already running,
+and an acquire that starts nothing (``--no-start``, a run lease), are never
+refused by the budget.
 
 Cleaning up the pool
 ~~~~~~~~~~~~~~~~~~~~

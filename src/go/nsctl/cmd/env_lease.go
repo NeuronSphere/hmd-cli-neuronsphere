@@ -195,6 +195,12 @@ Prints the lease, including the token that renew, release and leased commands
 				return render(mine)
 			}
 
+			// The running budget (NERD035 SPEC008) is about environments a
+			// session acquire starts, so it applies only when this one will.
+			budget := 0
+			if session && composed != nil && !noStart {
+				budget = maxRunning(home, opts)
+			}
 			var p *lease.Pool
 			if fromPool {
 				p, err = envPool(home, opts, forPath)
@@ -203,6 +209,9 @@ Prints the lease, including the token that renew, release and leased commands
 				}
 				if composed != nil {
 					p.Score = sessionScore(home, opts, composed.Manifest)
+				}
+				if budget > 0 {
+					p.MaxRunning, p.Running = budget, poolRunning(cmd, opts, home)
 				}
 			} else {
 				reg, err := registry.Load(home, opts.Lookup)
@@ -221,7 +230,7 @@ Prints the lease, including the token that renew, release and leased commands
 					mine.Nested = true
 					return render(mine)
 				}
-				if steal || !wait {
+				if steal || (!wait && budget == 0) {
 					l, err := store.Acquire(env.Slug, r)
 					if err != nil {
 						return leaseError(err)
@@ -233,8 +242,16 @@ Prints the lease, including the token that renew, release and leased commands
 					return render(l)
 				}
 				// Waiting for one named environment is a pool of one, so it
-				// queues in turn with everyone else.
+				// queues in turn with everyone else. Under a budget it is placed
+				// the same way, counting the whole pool's running against it.
 				p = &lease.Pool{Members: []string{env.Slug}, Size: 1, Registered: registeredNames(home, opts)}
+				if budget > 0 {
+					whole, err := envPool(home, opts, "")
+					if err != nil {
+						return err
+					}
+					p.MaxRunning, p.Running, p.Counted = budget, poolRunning(cmd, opts, home), whole.Candidates()
+				}
 			}
 
 			lastAhead := -1
@@ -624,6 +641,39 @@ func staleTrees(want, have *manifest.Manifest) int {
 		}
 	}
 	return n
+}
+
+// maxRunning is [pool] max_running, or 0 -- no cap -- when nsctl.toml is
+// absent or unreadable.
+func maxRunning(home string, opts *Options) int {
+	cfg, err := nsconfig.Load(home, opts.Lookup)
+	if err != nil {
+		cfg = nil
+	}
+	return cfg.EnvPool().MaxRunning
+}
+
+// poolRunning reports which registered environments have a container up, for
+// the running budget. It asks the container engine, so the pool calls it
+// outside the lease lock.
+func poolRunning(cmd *cobra.Command, opts *Options, home string) func() map[string]bool {
+	return func() map[string]bool {
+		out := map[string]bool{}
+		reg, err := registry.Load(home, opts.Lookup)
+		if err != nil {
+			return out
+		}
+		for _, name := range reg.Names() {
+			env, err := reg.Environment(name, opts.Lookup)
+			if err != nil {
+				continue
+			}
+			if len(runningContainers(cmd.Context(), env)) > 0 {
+				out[name] = true
+			}
+		}
+		return out
+	}
 }
 
 // sessionTTL is [pool] session_ttl, or its default when nsctl.toml is absent

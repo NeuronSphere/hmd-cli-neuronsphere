@@ -5,7 +5,7 @@ NERD035 Session Environments And Templates
 
 .. req:: A working session gets its own environment, shaped from a template, for as long as it works
     :id: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     A session is one engineer or one coding agent. It shall be able to lease
     one environment for as long as it works, with one command that names a
@@ -391,7 +391,7 @@ Scope and terminology
 .. spec:: The pool has a running budget, and it waits rather than evicts
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     ``[pool]`` in ``nsctl.toml`` gains:
 
@@ -407,6 +407,23 @@ Scope and terminology
     pool environments are already running behaves like a busy pool. It
     queues with ``--wait`` and fails without it. It shall never stop or
     purge another session's environment to make room.
+
+    - A pool environment is **running** if a session lease holds it -- its
+      end will stop it (SPEC006) -- or any of its containers is up: one left
+      with ``--keep-running``, or started by hand. The container check runs
+      once per placement attempt, before the host lock is taken, never under
+      it.
+    - The budget applies only to a session acquire that will start its
+      environment (``--template`` or ``--repo``, without ``--no-start``).
+      Taking an environment that is already running adds nothing and is
+      always allowed. The pool's own candidates, members and ``cc-N``, are
+      what is counted. A named environment is placed as a pool of one, so
+      the budget applies to it as well.
+    - A refused acquire says how many are running, against which limit, and
+      which environments they are.
+    - ``max_running`` absent or 0 means no budget beyond ``size``, which
+      already bounds how many the pool registers. A workstation holds two or
+      three full environments, and the documentation says so.
 
     ``size`` counts registered environments, stopped or running. When every
     one is registered, acquire reuses the closest free one, whatever its

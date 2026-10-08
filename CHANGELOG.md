@@ -2,6 +2,11 @@
 
 ## 2026-10-08
 
+- feat: `[pool] max_running` (NERD035 SPEC008). A session acquire that would
+  start a pool environment beyond the cap is refused, or queued with `--wait`,
+  naming what uses the budget. It never stops anything to make room. Running
+  means held by a session lease or with a container up; the engine is asked
+  outside the lease lock. Default 0, no cap.
 - feat: `env purge --idle <duration>` and `--keep <n>` (NERD035 SPEC007).
   They select pool-created environments that hold no lease, never configured
   members or the control plane, and never fall through to purge-everything.

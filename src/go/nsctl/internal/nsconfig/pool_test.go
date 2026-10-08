@@ -75,3 +75,23 @@ func TestABadSessionTTLIsRefusedAtLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestMaxRunningIsReadAndANegativeOneRefused(t *testing.T) {
+	t.Parallel()
+
+	home := write(t, "[pool]\nmax_running = 2\n")
+	cfg, err := Load(home, noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EnvPool().MaxRunning; got != 2 {
+		t.Errorf("MaxRunning = %d, want 2", got)
+	}
+	if _, err := Load(write(t, "[pool]\nmax_running = -1\n"), noEnv); err == nil || !strings.Contains(err.Error(), "max_running") {
+		t.Errorf("Load(max_running=-1) = %v, want a max_running error", err)
+	}
+	var none *Config
+	if got := none.EnvPool().MaxRunning; got != 0 {
+		t.Errorf("default MaxRunning = %d, want 0 (no cap)", got)
+	}
+}

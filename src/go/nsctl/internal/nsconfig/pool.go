@@ -28,6 +28,9 @@ type Pool struct {
 	// SessionTTL is a Go duration ("8h", "90m") a session lease lives
 	// without a heartbeat.
 	SessionTTL string `toml:"session_ttl,omitempty"`
+	// MaxRunning caps how many pool environments a session acquire may
+	// leave running (NERD035 SPEC008). 0 is no cap beyond Size.
+	MaxRunning int `toml:"max_running,omitempty"`
 }
 
 // SessionTTLOrDefault is SessionTTL parsed, or DefaultSessionTTL. A value
@@ -45,6 +48,9 @@ func (p *Pool) validate() error {
 	}
 	if p.Size > 0 && len(p.Members) > p.Size {
 		return fmt.Errorf("[pool] size %d is smaller than its %d members", p.Size, len(p.Members))
+	}
+	if p.MaxRunning < 0 {
+		return fmt.Errorf("[pool] max_running must be zero or more, not %d", p.MaxRunning)
 	}
 	if p.SessionTTL != "" {
 		d, err := time.ParseDuration(p.SessionTTL)
@@ -72,5 +78,6 @@ func (c *Config) EnvPool() Pool {
 		out.Size = len(out.Members)
 	}
 	out.SessionTTL = c.Pool.SessionTTL
+	out.MaxRunning = c.Pool.MaxRunning
 	return out
 }

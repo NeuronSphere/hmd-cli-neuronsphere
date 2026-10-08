@@ -147,6 +147,10 @@ func (l *Lease) Where() string {
 type PoolBusyError struct {
 	Held    []Lease
 	Waiting int
+	// MaxRunning and Running are set when the running budget (NERD035
+	// SPEC008) is what refused: the cap, and the environments using it.
+	MaxRunning int
+	Running    []string
 }
 
 func (e *PoolBusyError) Error() string {
@@ -155,6 +159,10 @@ func (e *PoolBusyError) Error() string {
 		parts = append(parts, fmt.Sprintf("%s by %s", l.Env, l.Holder))
 	}
 	msg := "every pool environment is leased: " + strings.Join(parts, ", ")
+	if e.MaxRunning > 0 {
+		msg = fmt.Sprintf("%d pool environment(s) are already running, the [pool] max_running of %d: %s;"+
+			" stop or release one, or raise max_running", len(e.Running), e.MaxRunning, strings.Join(e.Running, ", "))
+	}
 	if e.Waiting > 0 {
 		msg += fmt.Sprintf("; %d run(s) already waiting", e.Waiting)
 	}
