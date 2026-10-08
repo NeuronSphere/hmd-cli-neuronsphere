@@ -659,6 +659,33 @@ and validation; nsctl ships none.
   was editing them. It names what it left out.
 - Adding over an existing template needs ``--force``.
 
+Composing an environment
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``env add`` composes an environment from a template and the repositories you are
+editing:
+
+.. code-block:: bash
+
+   nsctl env add work --template telemetry \
+       --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector
+
+Each ``--repo`` is planned as ``--from-repo`` plans one -- deployed from its
+working tree, with its lock's companions at their pinned versions -- on top of
+what is already composed:
+
+- What the composition already provides is **shared**, not declared twice: a
+  companion of the same name and class, or a producer of a role's resource type.
+- A repository you are editing **replaces** the one instance of its class the
+  template or another repository declares, keeping its name, so whatever
+  depended on it now depends on your working tree.
+- An instance name already used by a different class is an **error** naming
+  both; rename one with ``--name``. ``--profile`` and ``--name`` apply to every
+  ``--repo``.
+
+The manifest records ``template: <name>``. ``--from-repo`` and ``--repo`` do not
+mix: ``--from-repo`` is the one-repository form.
+
 Registry and state
 ------------------
 

@@ -188,32 +188,47 @@ Scope and terminology
 .. spec:: The session manifest is the template plus the repositories being edited
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
-    ``acquire --session --template <t> --repo <path> [--repo <path> ...]``
-    composes one manifest:
+    A **composition** is one manifest built from a template and the
+    repositories being edited -- ``--template <t> --repo <path> [--repo
+    <path> ...]``:
 
     1. Start from the template. With no ``--template``, start from an empty
-       manifest.
-    2. For each ``--repo``, run the planner ``env add --from-repo`` uses
-       (``planFromRepo``, ``cmd/fromrepo.go``), with its ``--profile`` and
-       ``--name`` handling. The repository is declared ``source: local``.
-       Its lock companions are declared ``source: artifact`` at their pinned
+       manifest. The template's top-level ``bindings`` and ``profiles`` are
+       dropped: they record one repository's plan, and each repository
+       below would read them as its own.
+    2. For each ``--repo``, in order, run the planner ``env add --from-repo``
+       uses (``planFromRepo``) against the manifest composed so far, with no
+       recorded bindings. ``--profile``, ``--all-profiles``, ``--lean`` and
+       ``--name`` apply to every repository; a ``--name`` must be used by at
+       least one. The repository is declared ``source: {type: local, path:
+       <its path>}``; its lock companions ``source: artifact`` at their pinned
        versions.
-    3. Merge by instance name. An instance declared by more than one input
-       with the same class and version is declared once. A repository being
-       edited always wins over a template or companion declaration of the
-       same class: that is the point of editing it. Any other disagreement
-       about class or version is an error that names both sources. It is not
-       resolved silently.
+    3. **Reuse.** What the composition already fills is bound, not declared
+       again, by ``NERD017`` SPEC010's rules: a role's resource type is
+       already produced, or an instance of the same name and class already
+       exists. Two repositories needing Postgres get one Postgres. The
+       version already declared is kept. A role nothing fills follows
+       ``--from-repo``'s own rules for external and resource-only roles; it
+       is not an error the way it is for a stack.
+    4. **The repository being edited wins.** When the composition declares
+       exactly one other instance of a ``--repo``'s class -- from the template
+       or as another repository's companion, in either order -- the working
+       tree takes its place and its name, and every dependency and stack
+       binding on it follows. Two or more are left as they are and reported:
+       which one to replace is not guessed.
+    5. **Conflicts are errors.** An instance name the composition already
+       gives a different class is refused, naming both, never replaced.
+       Two ``--repo`` of the same class are refused.
 
-    The manifest records ``template: <t>``, and every ``source: local``
-    entry records which repository path it came from. That is what SPEC005
-    scores and what SPEC006 marks stale.
+    The manifest records ``template: <t>``; every working tree is its
+    ``source.path``. A composed manifest records no ``bindings`` or
+    ``profiles``: it is recomposed, never re-planned.
 
-    This generalizes ``env add --from-repo`` from one repository to *n*.
-    ``env add`` gains the same repeatable ``--repo`` and ``--template``
-    flags, for someone who wants a named environment without a lease.
+    ``env add <name> --template <t> --repo <path>...`` composes a named
+    environment without a lease. ``acquire --session`` composes the same way
+    and writes the result as part of bring-up (SPEC005).
 
 .. spec:: Acquire places the session, then brings the environment up
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC005

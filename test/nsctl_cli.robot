@@ -954,3 +954,20 @@ A Template Is Stored, Listed, Shown And Removed By Name
     ${rm}=        Run nsctl In Home Without An Engine    ${home}    template    remove    analytics
     Should Be Equal As Integers    ${rm.rc}    0
     File Should Not Exist    ${home}${/}templates${/}analytics.yaml
+
+An Environment Composed From A Template Records It
+    [Documentation]    NERD035 SPEC004: env add --template declares the
+    ...                template's instances and records which template it was.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    ${add}=       Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${add.rc}    0    msg=${add.stderr}
+    ${env}=       Run nsctl In Home Without An Engine    ${home}    env    add    work    --template    analytics    --no-pull
+    Should Be Equal As Integers    ${env.rc}    0    msg=${env.stderr}
+    ${m}=         Get File    ${home}${/}environments${/}work.yaml
+    Should Contain    ${m}    template: analytics
+    Should Contain    ${m}    hmd-inf-trino
+    ${mix}=       Run nsctl In Home Without An Engine    ${home}    env    add    other    --template    analytics    --from-repo    ${home}
+    Should Be Equal As Integers    ${mix.rc}    2

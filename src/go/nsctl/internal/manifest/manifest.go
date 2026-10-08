@@ -169,6 +169,11 @@ type Manifest struct {
 	// version is unchanged.
 	Stacks []StackRecord `yaml:"stacks,omitempty" json:"stacks,omitempty"`
 
+	// Template names the template this environment was composed from
+	// (NERD035 SPEC004), for placing a session in the closest environment.
+	// Recorded only; nothing re-reads the template from it.
+	Template string `yaml:"template,omitempty" json:"template,omitempty"`
+
 	// Extra carries every top-level key nsctl does not model, so writing a
 	// manifest back never drops what the Python front end put there.
 	Extra map[string]any `yaml:",inline" json:"-"`

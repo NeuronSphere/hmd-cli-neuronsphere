@@ -2,6 +2,11 @@
 
 ## 2026-10-08
 
+- feat: compose an environment from a template and the repositories being
+  edited (NERD035 SPEC004): `env add <name> --template <t> --repo <path>...`.
+  What the composition already provides is shared, a repository being edited
+  replaces the one instance of its class, and a name used by a different class
+  is refused. The manifest records `template`.
 - feat: environment templates (NERD035 SPEC003). `nsctl template
   add|list|show|remove` keeps named environment manifests under
   `$HMD_HOME/templates`. `template add --stack` runs `stack add`'s planner into

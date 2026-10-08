@@ -524,6 +524,7 @@ func newEnvAddCommand(opts *Options) *cobra.Command {
 	var makeDefault, noPull, adopt bool
 	var repo fromRepo
 	var libs librarians
+	shape := sessionShape{shared: &repo}
 
 	cmd := &cobra.Command{
 		Use:   "add <name>",
@@ -541,13 +542,21 @@ checked-in neuronsphere.lock say what to stand up alongside it, every activated
 entry is declared at its pinned version, and the repository itself is declared
 from its working tree -- which is what makes it the thing under test.
 
+With --template and --repo it is composed (NERD035 SPEC004): the template's
+instances, then each repository being edited from its working tree with what
+its lock pins. What the composition already provides is shared rather than
+declared twice, and a repository being edited replaces the one instance of its
+class the template or another repository declares. --profile and --name apply
+to every --repo.
+
 This is the one command that fetches an artifact without being asked, because
 this is first start: there is no environment yet, so there is no offline
 expectation to violate. --no-pull suppresses it.`,
 		Example: `  nsctl env add dev
   nsctl env add dev --from-repo .
   nsctl env add dev --from-repo . --profile transforms
-  nsctl env add dev --from-repo . --lean --name neptune-db=my-graph`,
+  nsctl env add dev --from-repo . --lean --name neptune-db=my-graph
+  nsctl env add work --template telemetry --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -555,6 +564,25 @@ expectation to violate. --no-pull suppresses it.`,
 			// Read before the registry is written, so a broken declaration or a
 			// missing lock costs nothing: an environment registered against a
 			// repository that cannot be read is a slot allocated for nothing.
+			if shape.requested() && repo.requested() {
+				return nserr.New(nserr.Usage, "--from-repo builds from one repository; with --template or --repo, name it as --repo instead")
+			}
+			var composed *composition
+			if shape.requested() {
+				home, err := opts.RequireHome()
+				if err != nil {
+					return err
+				}
+				slug, err := registry.ValidateSlug(args[0])
+				if err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				c, err := composeSession(opts, home, slug, &shape)
+				if err != nil {
+					return err
+				}
+				composed = c
+			}
 			var plan *repoPlan
 			if repo.requested() {
 				p, err := planFromRepo(&repo, nil)
@@ -593,6 +621,9 @@ expectation to violate. --no-pull suppresses it.`,
 			}
 
 			renderNewEnvironment(cmd, env, opts.Lookup)
+			if composed != nil {
+				return saveComposition(cmd, opts, &libs, home, env.Slug, composed, noPull)
+			}
 			if plan == nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
 				return nil
@@ -636,8 +667,44 @@ expectation to violate. --no-pull suppresses it.`,
 	cmd.Flags().BoolVar(&adopt, "adopt", false,
 		"Take over an environment manifest left under this name by a delete or purge")
 	repo.bind(cmd)
+	shape.bind(cmd)
 	libs.bind(cmd)
 	return cmd
+}
+
+// saveComposition fetches what a composition needs and writes it as the
+// environment's manifest.
+func saveComposition(cmd *cobra.Command, opts *Options, libs *librarians, home, slug string,
+	c *composition, noPull bool) error {
+
+	missing := c.missingArtifacts(home)
+	switch {
+	case noPull && len(missing) > 0:
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: %d artifact(s) are not cached and --no-pull was given;"+
+				" `nsctl env start %s` will refuse until they are\n", len(missing), slug)
+	case !noPull:
+		if err := pullMissing(cmd, opts, libs, home, missing); err != nil {
+			return err
+		}
+	}
+	if err := c.Manifest.Save(manifest.DefaultPath(home, slug)); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	for _, p := range c.Plans {
+		fmt.Fprintln(cmd.OutOrStdout())
+		p.render(cmd, slug)
+	}
+	for _, note := range c.Notes {
+		fmt.Fprintf(cmd.ErrOrStderr(), "note: %s\n", note)
+	}
+	if c.Manifest.Template != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nComposed from template %s and %d repositor%s\n",
+			c.Manifest.Template, len(c.Plans), plural(len(c.Plans), "y", "ies"))
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nDeclared in %s\n", c.Manifest.Path)
+	fmt.Fprintf(cmd.OutOrStdout(), "Start it with `nsctl env start %s`.\n", slug)
+	return nil
 }
 
 // refuseOrphanedManifest stops `env add` silently adopting a manifest no

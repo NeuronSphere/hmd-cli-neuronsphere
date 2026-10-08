@@ -1212,6 +1212,13 @@ checked-in neuronsphere.lock say what to stand up alongside it, every activated
 entry is declared at its pinned version, and the repository itself is declared
 from its working tree -- which is what makes it the thing under test.
 
+With --template and --repo it is composed (NERD035 SPEC004): the template's
+instances, then each repository being edited from its working tree with what
+its lock pins. What the composition already provides is shared rather than
+declared twice, and a repository being edited replaces the one instance of its
+class the template or another repository declares. --profile and --name apply
+to every --repo.
+
 This is the one command that fetches an artifact without being asked, because
 this is first start: there is no environment yet, so there is no offline
 expectation to violate. --no-pull suppresses it.
@@ -1232,6 +1239,7 @@ Examples
      nsctl env add dev --from-repo .
      nsctl env add dev --from-repo . --profile transforms
      nsctl env add dev --from-repo . --lean --name neptune-db=my-graph
+     nsctl env add work --template telemetry --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector
 
 Local flags
 ~~~~~~~~~~~
@@ -1245,6 +1253,8 @@ Local flags
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--no-pull`` — Do not fetch the artifacts the declaration names
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
+* ``--template`` — Start from this template (see `nsctl template list`)
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
