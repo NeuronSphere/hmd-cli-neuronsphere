@@ -558,6 +558,201 @@ script runs with, it is the environment component of every
 seeds the admin DB secret and tags core Resources, so producer and consumer
 agree on the name in every environment, not just the default one.
 
+Run leases and the pool
+-----------------------
+
+Several sessions deploying into one environment at once undo each other's work.
+A **run lease** gives one run (a deploy, a test suite, a verify) exclusive use
+of an environment until it releases it.
+
+- ``nsctl env lease acquire [name]`` leases the named environment (default:
+  ``HMD_LOCAL_ENV``, then the registry default). With ``--pool`` it leases the
+  free pool environment that needs the least redeploying for ``--for``, an
+  environment manifest of what the run will deploy. Ties go to the environment
+  released most recently, whose deployed state is warmest.
+- With every pool environment leased, ``--wait`` queues the run, and runs are
+  served in arrival order. Without ``--wait`` the command fails and says who
+  holds what.
+- ``renew`` and ``release`` take the lease's token (``--token``, or
+  ``NSCTL_LEASE_TOKEN``). ``list`` shows holders and the queue, never tokens.
+- A lease ends on release, when its TTL (``--ttl``, default 10m) passes without
+  a renew, or when the process it watches (``--pid``, default the caller's
+  parent) exits. A session killed mid-run therefore never wedges the pool.
+- While an environment is leased, every command that changes it refuses anyone
+  but the holder: ``env start``, ``apply``, ``stop``, ``purge`` (a bare
+  ``purge`` refuses if *any* environment is leased), ``delete``, ``instance add``,
+  ``remove`` and ``import``, ``stack add`` and ``remove``, and ``bom import``.
+  The holder passes its token with ``--lease-token`` or ``NSCTL_LEASE_TOKEN``.
+  ``--ignore-lease`` proceeds anyway and says whose lease it ignored. Read-only
+  commands and ``--dry-run`` are never refused.
+
+Run leases cover one run, so a small warm pool serves many runs. The pool is
+configured in ``nsctl.toml``:
+
+.. code-block:: toml
+
+   [pool]
+   size = 3                 # default 2
+   members = ["local"]      # default ["local"]
+   session_ttl = "8h"       # default 8h; a session lease's TTL
+   max_running = 2          # default 0, no cap; running pool environments
+
+Environments beyond ``members`` are registered on demand as ``cc-1``,
+``cc-2``, … until the pool reaches ``size``. A lease on a newly registered one
+reports ``created``, and it must be started before anything is deployed into it.
+
+Lease state lives in ``$HMD_HOME/leases``. Older nsctl binaries reject an
+``nsctl.toml`` that contains ``[pool]``.
+
+Session leases
+~~~~~~~~~~~~~~
+
+A **session lease** holds an environment for a whole working session -- one
+person, or one coding agent, iterating on one environment for hours -- instead
+of for one run:
+
+.. code-block:: bash
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+
+- ``--shell`` prints ``export HMD_LOCAL_ENV=<env>`` and
+  ``export NSCTL_LEASE_TOKEN=<token>`` and nothing else, so every later
+  ``nsctl``, ``hmd deploy --local`` and ``hmd bender`` in the shell targets the
+  leased environment and gets past its lease without flags.
+- Its TTL is ``[pool] session_ttl`` (default ``8h``), renewed with
+  ``nsctl env lease heartbeat``, which needs only the token.
+- ``--pid`` defaults to the session's process: the nearest ancestor named
+  ``claude`` (a Claude Code session runs each command in a shell that exits
+  with it), else the caller's parent -- a person's interactive shell.
+- Inside a session, a run lease -- ``acquire`` bare, naming the session's
+  environment, or with ``--pool`` -- is answered with the session's own lease,
+  marked ``nested``, so scripts written for run leases work unchanged. A run
+  that names a *different* environment contends for it as usual.
+- ``release`` leaves a session lease in place, says so and exits zero, because
+  a nested run holds the same token. ``release --session`` ends it.
+- **A session's end stops its environment**, keeping its state for the next
+  session to reuse warm. That covers ``release --session``, an expired TTL, and
+  the death of the session's process. Whichever nsctl command notices first
+  runs the stop, and reports it on stderr. Meanwhile the environment shows as
+  held by the stop. ``--keep-running`` on ``acquire --session`` or
+  ``release --session`` skips the stop. Nothing is ever purged on a session's
+  end: ``env purge`` is the only teardown.
+- ``nsctl env lease whoami`` shows the lease the token holds: environment,
+  scope, holder, expiry and where its routes are served.
+
+With ``--template`` and ``--repo`` a session acquire also shapes and starts its
+environment:
+
+.. code-block:: bash
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell \
+       --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+
+1. The template and repositories are composed as ``env add --template --repo``
+   composes them (see `Composing an environment`_), before any lease is taken.
+2. With ``--pool`` the session goes to the free environment of the same template
+   that needs the least redeploying, avoiding one where another session's
+   working trees are still declared.
+3. The lease is printed. Then, with progress on stderr, missing artifacts are
+   fetched (``--no-pull`` skips it), the composition is written as the
+   environment's manifest (keeping its recorded substrate) and ``env start``
+   brings it up (``--no-start`` stops before this).
+4. If bring-up fails the command exits non-zero but the lease is kept: fix the
+   cause and run ``nsctl env start``, which starts what is down and ends
+   with an apply.
+
+Instances the previous holder declared that this session does not are left
+deployed and reported, never torn down; ``env purge`` resets an environment.
+
+``[pool] max_running`` caps how many pool environments run at once. A
+workstation holds two or three full environments. A session acquire that
+would start one more is refused, or queued with ``--wait``, and the error names
+the environments using the budget. Nothing is stopped to make room.
+"Running" means held by a session lease, or with any container up -- one left
+with ``--keep-running`` counts. Taking an environment that is already running,
+and an acquire that starts nothing (``--no-start``, a run lease), are never
+refused by the budget.
+
+Cleaning up the pool
+~~~~~~~~~~~~~~~~~~~~
+
+Stopped pool environments keep their state, so a later session reuses them warm.
+Nothing removes them for you. ``env lease list`` shows each free pool-created
+environment with how long it has been idle, its template and any working trees
+it still declares. ``env purge`` selects stale ones when you decide to reclaim
+the space:
+
+.. code-block:: bash
+
+   nsctl env purge --idle 72h --dry-run   # what would go
+   nsctl env purge --idle 72h --yes
+   nsctl env purge --keep 2 --yes         # all but the two most recently used
+
+- Only pool-created environments (``cc-N``) that hold no lease are candidates.
+  Configured ``[pool] members``, any other environment and the control plane
+  never are. A selector never falls through to bare ``purge``'s
+  purge-everything.
+- An environment that has never been released has no idle age and is not
+  selected. ``--idle`` and ``--keep`` together select what both select.
+- Without ``--yes`` the selection is printed and nothing is purged. There is no
+  prompt.
+- Each environment is held under a lease while it is torn down, so no session
+  is handed it halfway through.
+
+Templates
+---------
+
+A **template** is an environment manifest kept under a name in
+``$HMD_HOME/templates/<name>.yaml``: the shape an environment for some kind of
+work starts from -- ``analytics`` for Trino and Airflow, ``telemetry`` for the
+OpenTelemetry collector and ClickHouse. It has the environment manifest's schema
+and validation; nsctl ships none.
+
+.. code-block:: bash
+
+   nsctl template add telemetry --stack observability --profile full
+   nsctl template add analytics --from-env dev
+   nsctl template add warehouse ./warehouse.yaml
+   nsctl template list
+   nsctl template show telemetry
+   nsctl template remove warehouse
+
+- ``--stack <ref>`` plans the stack exactly as ``nsctl stack add`` does, but
+  into an empty manifest, and stores the result: its instances at their pinned
+  versions, from their artifacts, and its stack record. The stack is fetched
+  then, so starting from the template later needs no network.
+- ``--from-env <env>`` copies an environment's manifest, minus the instances it
+  declares ``source: {type: local}`` -- working trees, which belong to whoever
+  was editing them. It names what it left out.
+- Adding over an existing template needs ``--force``.
+
+Composing an environment
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+``env add`` composes an environment from a template and the repositories you are
+editing:
+
+.. code-block:: bash
+
+   nsctl env add work --template telemetry \
+       --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector
+
+Each ``--repo`` is planned as ``--from-repo`` plans one -- deployed from its
+working tree, with its lock's companions at their pinned versions -- on top of
+what is already composed:
+
+- What the composition already provides is **shared**, not declared twice: a
+  companion of the same name and class, or a producer of a role's resource type.
+- A repository you are editing **replaces** the one instance of its class the
+  template or another repository declares, keeping its name, so whatever
+  depended on it now depends on your working tree.
+- An instance name already used by a different class is an **error** naming
+  both; rename one with ``--name``. ``--profile`` and ``--name`` apply to every
+  ``--repo``.
+
+The manifest records ``template: <name>``. ``--from-repo`` and ``--repo`` do not
+mix: ``--from-repo`` is the one-repository form.
+
 Registry and state
 ------------------
 

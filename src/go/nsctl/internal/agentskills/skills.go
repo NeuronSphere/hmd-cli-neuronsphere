@@ -77,6 +77,7 @@ var skills = []Skill{
 	{"nsctl-onboard", "Orient a newcomer to the local NeuronSphere and identify the next safe command."},
 	{"nsctl-repoclass-adopt", "Adopt an existing repository that has no NeuronSphere metadata, from detect's evidence."},
 	{"nsctl-repoclass-author", "Author and validate a RepoClass through nsctl's supported verbs."},
+	{"nsctl-session-environment", "Give a coding session its own environment from a template and its repositories, and keep its work there."},
 }
 
 // Source is where skills are copied from: the set embedded in this binary,

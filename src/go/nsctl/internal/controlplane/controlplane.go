@@ -27,6 +27,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/cpext"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dnsd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/doctor"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/envactivity"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/loopback"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
@@ -347,6 +348,15 @@ func CheckNoLegacyEnvFlociState(reg *registry.Registry) error {
 // start recovers the gateway ids by listing them instead, and only pays for
 // what actually needs doing.
 func Start(ctx context.Context, opts *Options) error {
+	// Held for the whole start, bootstrap included. Two starts racing here
+	// both ran the bootstrap, and either could recreate a container the other
+	// had just started; the second now waits and finds the work done.
+	lock, err := acquireSubstrate(ctx, opts, "control-plane start")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	reg, err := registry.Load(opts.Home, opts.Lookup)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -397,9 +407,11 @@ func Start(ctx context.Context, opts *Options) error {
 	// -- false on a genuinely new home, true on a real legacy install -- and
 	// leaves "no registry but Floci data" meaning only what it used to.
 	if reg.Synthesized {
-		if err := reg.Save(opts.Home); err != nil {
+		fresh, err := registry.Update(opts.Home, opts.Lookup, "control-plane start", func(*registry.Registry) error { return nil })
+		if err != nil {
 			return nserr.Wrap(nserr.Fail, err)
 		}
+		reg = fresh
 	}
 
 	r := router.New(opts.Home, opts.Lookup)
@@ -459,7 +471,15 @@ func Start(ctx context.Context, opts *Options) error {
 		// Recorded before anything is created. A port chosen and not persisted
 		// would be chosen again differently on the next start, and every URL
 		// derived from it would move with it.
-		if err := reg.Save(opts.Home); err != nil {
+		if _, err := registry.Update(opts.Home, opts.Lookup, "control-plane start", func(r *registry.Registry) error {
+			if r.ControlPlane.Ports == nil {
+				r.ControlPlane.Ports = map[string]int{}
+			}
+			for _, m := range moved {
+				r.ControlPlane.Ports[m.Name] = m.To
+			}
+			return nil
+		}); err != nil {
 			return nserr.Wrap(nserr.Fail, fmt.Errorf("recording the chosen host ports: %w", err))
 		}
 	}
@@ -586,6 +606,7 @@ func Start(ctx context.Context, opts *Options) error {
 	// Which environment containers were up before Floci is, so the
 	// reconciliation after it can tell what Floci woke from what the user had
 	// running. Taken here because the next call starts Floci.
+	sweepSince := time.Now()
 	runningBefore := runningEnvContainers(ctx, docker, reg)
 
 	opts.step("Starting control-plane containers...")
@@ -692,7 +713,7 @@ func Start(ctx context.Context, opts *Options) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
-	restoreEnvironmentState(ctx, opts, docker, reg, runningBefore)
+	restoreEnvironmentState(ctx, opts, docker, reg, runningBefore, sweepSince)
 
 	// Pulled once here rather than discovered missing midway through a deploy.
 	//
@@ -816,8 +837,11 @@ func runningEnvContainers(ctx context.Context, d dockerClient, reg *registry.Reg
 // restoreEnvironmentState puts back down the environments Floci woke on its way
 // up, so that starting the control plane does not start anything else. See
 // floci.StopWoken for why Floci does that and why it is right of it to.
-func restoreEnvironmentState(ctx context.Context, opts *Options, d dockerClient, reg *registry.Registry, before map[string]bool) {
-	stopped, failures := floci.StopWoken(ctx, d, envAccounts(reg), reg.ControlPlane.Network, before, opts.StartingEnv)
+func restoreEnvironmentState(ctx context.Context, opts *Options, d dockerClient, reg *registry.Registry, before map[string]bool, since time.Time) {
+	exempt := func(slug string) bool {
+		return slug == opts.StartingEnv || envactivity.Active(opts.Home, slug, since)
+	}
+	stopped, failures := floci.StopWoken(ctx, d, envAccounts(reg), reg.ControlPlane.Network, before, exempt)
 	for _, f := range failures {
 		opts.warn("leaving %s running: Floci started it for the %s environment and stopping it failed: %v",
 			f.Container, f.Slug, f.Err)
@@ -852,6 +876,12 @@ func stopFlociSpawned(ctx context.Context, opts *Options, d dockerClient) {
 // running is the environments the caller found up; the refusal is the caller's
 // to make, so this stays a pure stop.
 func Stop(ctx context.Context, opts *Options) error {
+	lock, err := acquireSubstrate(ctx, opts, "control-plane stop")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	reg, err := registry.Load(opts.Home, opts.Lookup)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)
@@ -902,6 +932,12 @@ func Stop(ctx context.Context, opts *Options) error {
 // nothing called it. PurgeAll went through Stop, so a full purge left hmd_proxy,
 // floci, hmd_deployment_gui and hmd_nsrunner behind as Exited.
 func Remove(ctx context.Context, opts *Options) error {
+	lock, err := acquireSubstrate(ctx, opts, "control-plane remove")
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	reg, err := registry.Load(opts.Home, opts.Lookup)
 	if err != nil {
 		return nserr.Wrap(nserr.Fail, err)

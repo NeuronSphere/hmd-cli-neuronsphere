@@ -205,7 +205,10 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 	}
 
 	reg.ControlPlane.Bootstrapped = true
-	if err := reg.Save(opts.Home); err != nil {
+	if _, err := registry.Update(opts.Home, opts.Lookup, "control-plane bootstrap", func(r *registry.Registry) error {
+		r.ControlPlane.Bootstrapped = true
+		return nil
+	}); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	opts.step("  bootstrapped")

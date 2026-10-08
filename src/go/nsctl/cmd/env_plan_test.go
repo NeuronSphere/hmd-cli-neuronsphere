@@ -235,3 +235,45 @@ func TestEnvPlanRejectsAnUnknownOutputFormat(t *testing.T) {
 		t.Errorf("the error does not name the valid values: %v", err)
 	}
 }
+
+// NERD034 SPEC002: a change that came from a developer's tree, not from the
+// manifest, says so -- otherwise a plan names an instance nobody edited the
+// declaration of.
+func TestRenderPlanSaysWhichChangesCameFromALocalTree(t *testing.T) {
+	t.Parallel()
+
+	result := samplePlanResult()
+	result.Reconcile.Change = append(result.Reconcile.Change, bom.Entry{RepoInstanceName: "otel", RepoClassName: "hmd-inf-otel-collector"})
+	result.Reconcile.TreeChanged = []string{"otel"}
+
+	var text, md, js bytes.Buffer
+	renderPlanText(&text, result)
+	renderPlanMD(&md, result)
+	if err := renderPlanJSON(&js, result); err != nil {
+		t.Fatal(err)
+	}
+	for name, out := range map[string]string{"text": text.String(), "md": md.String()} {
+		var otelLine, dbLine string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.Contains(line, "hmd-inf-otel-collector") {
+				otelLine = line
+			}
+			if strings.Contains(line, "environment-db") {
+				dbLine = line
+			}
+		}
+		if !strings.Contains(otelLine, "local tree") {
+			t.Errorf("%s: otel's line %q does not say its tree changed", name, otelLine)
+		}
+		if strings.Contains(dbLine, "local tree") {
+			t.Errorf("%s: environment-db's line %q claims a tree change", name, dbLine)
+		}
+	}
+	var doc planJSON
+	if err := json.Unmarshal(js.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.TreeChanged) != 1 || doc.TreeChanged[0] != "otel" {
+		t.Errorf("tree_changed = %v, want [otel]", doc.TreeChanged)
+	}
+}

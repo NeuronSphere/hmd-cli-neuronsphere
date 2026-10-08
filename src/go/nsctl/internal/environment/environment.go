@@ -21,6 +21,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/envactivity"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -98,6 +99,14 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	}
 	opts.step("Environment: %s", env.Slug)
 
+	// Marked active for the whole start, so another session's start sweeping
+	// "woken" containers leaves this environment's alone.
+	done, err := envactivity.Begin(opts.Home, env.Slug)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	defer done()
+
 	// How much substrate this environment runs (NERD014). Settled before the
 	// first step so a binding the mode cannot satisfy is refused here, not by
 	// the changeset ten minutes on.
@@ -127,8 +136,11 @@ func Start(ctx context.Context, opts *Options, name string) error {
 	// service brings back every cluster it knows about the moment it is asked
 	// a question -- which starting this environment does. Swept at the end so
 	// starting one environment does not start the others; see floci.StopWoken.
+	sweepSince := time.Now()
 	runningBefore := floci.RunningEnvContainers(ctx, d, envAccounts(reg), reg.ControlPlane.Network)
-	defer sweepWokenEnvironments(ctx, opts, d, reg, env.Slug, runningBefore)
+	defer sweepWokenEnvironments(ctx, opts, d, reg, func(slug string) bool {
+		return slug == env.Slug || envactivity.Active(opts.Home, slug, sweepSince)
+	}, runningBefore)
 
 	target := floci.ForAccount(opts.Lookup, env.AccountID, env.LegacyLayout)
 	r := router.New(opts.Home, opts.Lookup)
@@ -357,7 +369,7 @@ func envAccounts(reg *registry.Registry) []floci.EnvAccount {
 
 // sweepWokenEnvironments puts back down the other environments Floci restarted
 // while this one was starting.
-func sweepWokenEnvironments(ctx context.Context, opts *Options, d floci.WakeDocker, reg *registry.Registry, exempt string, before map[string]bool) {
+func sweepWokenEnvironments(ctx context.Context, opts *Options, d floci.WakeDocker, reg *registry.Registry, exempt func(string) bool, before map[string]bool) {
 	stopped, failures := floci.StopWoken(ctx, d, envAccounts(reg), reg.ControlPlane.Network, before, exempt)
 	for _, f := range failures {
 		opts.warn("leaving %s running: Floci started it for the %s environment and stopping it failed: %v",

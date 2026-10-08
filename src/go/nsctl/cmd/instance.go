@@ -76,6 +76,7 @@ func openManifest(opts *Options, home, slug string) (*manifest.Manifest, error) 
 func newInstanceAddCommand(opts *Options) *cobra.Command {
 	var envName, instanceName, path string
 	var depends, config []string
+	var guard leaseGuard
 
 	cmd := &cobra.Command{
 		Use:   "add <repo-class>[@<version>]",
@@ -101,6 +102,9 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` to deploy the result
 			}
 			_, home, slug, err := resolveEnvSlug(opts, envName)
 			if err != nil {
+				return err
+			}
+			if err := guard.check(cmd, opts, home, slug); err != nil {
 				return err
 			}
 			m, err := openManifest(opts, home, slug)
@@ -174,11 +178,13 @@ Declaring is not deploying. Run ` + "`nsctl env apply`" + ` to deploy the result
 	cmd.Flags().StringVar(&path, "path", "", "Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)")
 	cmd.Flags().StringArrayVar(&depends, "depends", nil, "A dependency as role=instance; repeatable")
 	cmd.Flags().StringArrayVar(&config, "config", nil, "An instance configuration value as key=value; repeatable")
+	guard.bind(cmd)
 	return cmd
 }
 
 func newInstanceRemoveCommand(opts *Options) *cobra.Command {
 	var envName string
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:     "remove <instance>",
 		Aliases: []string{"rm"},
@@ -194,6 +200,9 @@ does not tear an instance down on your behalf.`,
 			name := args[0]
 			_, home, slug, err := resolveEnvSlug(opts, envName)
 			if err != nil {
+				return err
+			}
+			if err := guard.check(cmd, opts, home, slug); err != nil {
 				return err
 			}
 			m, err := manifest.Load(home, slug, opts.Lookup)
@@ -226,6 +235,7 @@ does not tear an instance down on your behalf.`,
 		},
 	}
 	cmd.Flags().StringVar(&envName, "env", "", "Environment to edit (default: the default environment)")
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -472,6 +482,7 @@ func parseConfig(pairs []string) (map[string]any, error) {
 func newInstanceImportCommand(opts *Options) *cobra.Command {
 	var envName string
 	var dryRun, all bool
+	var guard leaseGuard
 
 	cmd := &cobra.Command{
 		Use:   "import",
@@ -499,6 +510,11 @@ declaration is never overwritten.`,
 			}
 			if _, err := reg.Environment(slug, opts.Lookup); err != nil {
 				return nserr.Wrap(nserr.Usage, err)
+			}
+			if !dryRun {
+				if err := guard.check(cmd, opts, home, slug); err != nil {
+					return err
+				}
 			}
 
 			url := environment.MSDeploymentURL(opts.Lookup)
@@ -580,6 +596,7 @@ declaration is never overwritten.`,
 	cmd.Flags().StringVar(&envName, "env", "", "Environment to import from (default: the default environment)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be declared without writing")
 	cmd.Flags().BoolVar(&all, "all", false, "Import instances that are not currently deployed too")
+	guard.bind(cmd)
 	return cmd
 }
 

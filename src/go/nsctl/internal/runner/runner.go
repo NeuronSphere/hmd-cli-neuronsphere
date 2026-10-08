@@ -605,32 +605,40 @@ func sortedKeys(m map[string]string) []string {
 // host: a tree that exists only inside this binary is not mountable, which is
 // why a bundled one is materialised under $HMD_HOME first.
 func (r *Runner) repoPath(repoClass string) (path string, shared bool) {
+	return r.Config.SourceTree(repoClass)
+}
+
+// SourceTree is the directory a deploy of repoClass mounts, and whether it is
+// a cache this HMD_HOME shares rather than a tree a developer owns. Exported
+// so the plan can digest exactly the tree the deploy will read (NERD034
+// SPEC002); see repoPath for the precedence.
+func (c Config) SourceTree(repoClass string) (path string, shared bool) {
 	if repoClass == "" {
 		return "", false
 	}
-	if override := r.Config.RepoPaths[repoClass]; override != "" {
+	if override := c.RepoPaths[repoClass]; override != "" {
 		if info, err := os.Stat(override); err == nil && info.IsDir() {
 			// An override is usually a checkout, and then it is the developer's
 			// to write into. An unpacked artifact arrives the same way and is
 			// not: it is keyed by version, shared by every environment here, and
 			// a deploy writing meta-data/resources_output/ into it would hand
 			// the next environment this one's resources.
-			return override, sharedTree(r.Config.Home, override)
+			return override, sharedTree(c.Home, override)
 		}
 		return "", false
 	}
 
 	tree := ""
-	if r.Config.RepoHome != "" {
-		candidate := filepath.Join(r.Config.RepoHome, repoClass)
+	if c.RepoHome != "" {
+		candidate := filepath.Join(c.RepoHome, repoClass)
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			tree = candidate
 		}
 	}
-	if tree != "" && r.preferLocal(repoClass) {
+	if tree != "" && c.preferLocal(repoClass) {
 		return tree, false
 	}
-	if dir := repotree.Dir(r.Config.Home, repoClass); dir != "" {
+	if dir := repotree.Dir(c.Home, repoClass); dir != "" {
 		return dir, true
 	}
 	return tree, false
@@ -656,16 +664,16 @@ func sharedTree(home, path string) bool {
 
 // preferLocal mirrors repoclass's: the developer asking for their own checkout,
 // per repo class or across the board.
-func (r *Runner) preferLocal(repoClass string) bool {
-	if r.Config.Lookup == nil {
+func (c Config) preferLocal(repoClass string) bool {
+	if c.Lookup == nil {
 		return false
 	}
-	pin := strings.TrimSpace(r.Config.Lookup("HMD_LOCAL_VERSION_" +
+	pin := strings.TrimSpace(c.Lookup("HMD_LOCAL_VERSION_" +
 		strings.ToUpper(strings.ReplaceAll(repoClass, "-", "_"))))
 	if strings.EqualFold(pin, "local") {
 		return true
 	}
-	switch strings.ToLower(strings.TrimSpace(r.Config.Lookup("HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS"))) {
+	switch strings.ToLower(strings.TrimSpace(c.Lookup("HMD_LOCAL_NEURONSPHERE_PREFER_LOCAL_VERSIONS"))) {
 	case "1", "true", "yes", "on":
 		return true
 	}
@@ -753,9 +761,14 @@ func (r *Runner) SetNodeStatus(ctx context.Context, node msdeploy.DeploymentNode
 // the first, so every hmd-database-account node in such an environment died
 // with `IndexError: list index out of range`. 0.5.392 also carries
 // hmd-cli-cdktf 0.1.305, hmd-cli-deploy 0.2.70 and hmd-cli-helm 0.2.93.
+//
+// 0.5.395 carries hmd-cli-helm 0.2.94, which quotes number-like strings in
+// the values it writes for Helm. Before it, an environment whose Floci account
+// had an 8 or 9 in it (000000000008) reached the ext-secrets chart as the
+// number 8, and its ClusterSecretStore signed for the wrong account.
 const (
 	ProjectBuilderDefaultRegistry = "ghcr.io/hmdlabs"
-	ProjectBuilderDefaultVersion  = "0.5.392"
+	ProjectBuilderDefaultVersion  = "0.5.395"
 )
 
 // ProjectBuilderRef resolves the projectbuilder image from the environment.

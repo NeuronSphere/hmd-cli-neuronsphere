@@ -97,6 +97,10 @@ type SnapshotEntry struct {
 	// observed one. Absent means "installs none, or none was seen" -- never
 	// "its release is gone".
 	K8sRelease string `json:"k8s_release,omitempty"`
+	// TreeDigest is TreeDigest of the developer's working tree the entry
+	// deployed from. Absent for a bundled or artifact tree, and for anything
+	// recorded before NERD034 -- "no information", never "changed".
+	TreeDigest string `json:"tree_digest,omitempty"`
 }
 
 // Snapshot is the applied-changeset record.
@@ -140,12 +144,39 @@ func LoadSnapshot(stateDir string) map[string]string {
 	return digests
 }
 
+// LoadSnapshotTrees maps instance name to the working-tree digest recorded at
+// the last apply, for the entries that recorded one.
+func LoadSnapshotTrees(stateDir string) map[string]string {
+	trees := map[string]string{}
+	path := SnapshotPath(stateDir)
+	if path == "" {
+		return trees
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return trees
+	}
+	var doc Snapshot
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return trees
+	}
+	for _, e := range doc.Entries {
+		if e.RepoInstanceName != "" && e.TreeDigest != "" {
+			trees[e.RepoInstanceName] = e.TreeDigest
+		}
+	}
+	return trees
+}
+
 // WriteSnapshot records what was applied, replacing any prior snapshot.
 //
 // Written to a temporary file and renamed, so an interrupted write leaves the
 // previous snapshot intact rather than a truncated one that reads as "nothing
 // was ever applied".
-func WriteSnapshot(stateDir string, entries []bom.Entry, releases map[string]string) error {
+//
+// trees holds the working-tree digest of each entry deployed from one; an
+// entry it does not name records none.
+func WriteSnapshot(stateDir string, entries []bom.Entry, releases, trees map[string]string) error {
 	path := SnapshotPath(stateDir)
 	if path == "" {
 		return nil
@@ -161,6 +192,7 @@ func WriteSnapshot(stateDir string, entries []bom.Entry, releases map[string]str
 			RepoClassVersion: e.RepoClassVersion,
 			Hash:             EntryHash(e),
 			K8sRelease:       releases[e.RepoInstanceName],
+			TreeDigest:       trees[e.RepoInstanceName],
 		})
 	}
 	data, err := json.MarshalIndent(doc, "", "  ")
@@ -190,6 +222,9 @@ type Plan struct {
 	// Remove is deployed but declared by nothing. Reported, never acted on:
 	// nsctl does not destroy on a user's behalf.
 	Remove []string
+	// TreeChanged names the members of Change that moved there because their
+	// working tree did, not their declaration. See MarkTreesChanged.
+	TreeChanged []string
 	// Degraded means the deployment graph could not be read, so Add and
 	// Change are empty because nothing is known rather than because there is
 	// nothing to do.
@@ -223,8 +258,49 @@ func (p *Plan) Summary() string {
 	if p.Degraded {
 		return "the deployment graph could not be read, so nothing is assumed about what is deployed"
 	}
-	return fmt.Sprintf("%d to deploy, %d changed, %d unchanged, %d deployed but undeclared",
-		len(p.Add), len(p.Change), len(p.Unchanged), len(p.Remove))
+	changed := fmt.Sprintf("%d changed", len(p.Change))
+	if len(p.TreeChanged) > 0 {
+		changed = fmt.Sprintf("%d changed (%d from a local tree)", len(p.Change), len(p.TreeChanged))
+	}
+	return fmt.Sprintf("%d to deploy, %s, %d unchanged, %d deployed but undeclared",
+		len(p.Add), changed, len(p.Unchanged), len(p.Remove))
+}
+
+// MarkTreesChanged moves to Change every Unchanged entry whose working tree
+// has moved on since its digest was recorded, and returns their names
+// (NERD034 SPEC002).
+//
+// Both digests have to be there. An entry with none recorded is the first
+// apply since this existed, and redeploying it would turn an upgrade into a
+// full redeploy; an entry with none now no longer deploys from a working tree,
+// and whatever replaced it shows in its version.
+func (p *Plan) MarkTreesChanged(recorded, current map[string]string) []string {
+	if p.Degraded {
+		return nil
+	}
+	moved := map[string]bool{}
+	kept := p.Unchanged[:0:0]
+	for _, name := range p.Unchanged {
+		was, now := recorded[name], current[name]
+		if was != "" && now != "" && was != now {
+			moved[name] = true
+			continue
+		}
+		kept = append(kept, name)
+	}
+	if len(moved) == 0 {
+		return nil
+	}
+	p.Unchanged = kept
+	var names []string
+	for _, e := range p.Desired {
+		if moved[e.RepoInstanceName] {
+			p.Change = append(p.Change, e)
+			names = append(names, e.RepoInstanceName)
+		}
+	}
+	p.TreeChanged = append(p.TreeChanged, names...)
+	return names
 }
 
 // Compute diffs the desired definition against the graph.

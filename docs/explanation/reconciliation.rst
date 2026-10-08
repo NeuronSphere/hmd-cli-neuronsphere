@@ -15,10 +15,29 @@ For each instance, it considers the deployment record and a snapshot at
 used by a successful deployment.
 
 This is a comparison of deployment definitions and recorded state. It is not
-a general detector of every change inside a running database, container, or
-checkout. Editing source code without changing the recorded definition does
-not necessarily result in a changed plan. Use the workload's development
-workflow or an explicit redeploy when that is the intended operation.
+a general detector of every change inside a running database or container.
+
+A RepoClass deployed from your own checkout (under ``$HMD_REPO_HOME``, or a
+declared source path) is the exception. The snapshot also records a digest of
+the files a deploy reads from that tree:
+
+* ``meta-data/``;
+* ``src/local/``;
+* ``src/<tool>/`` for each tool in ``deploy.commands``;
+* for an ``exec`` RepoClass, the whole checkout except ``test/``, ``tests/``
+  and ``docs/``.
+
+Build and cache output is ignored. So an edited chart, CDKTF stack, local
+overlay, deploy script or ``default_configuration`` shows up as a change on
+the next plan, with no version bump and no forced redeploy. An edit to
+application source, such as ``src/python`` of a chart-and-CDKTF RepoClass,
+does not rebuild an image. That remains ``hmd build``. Bundled and artifact
+trees are versioned and carry no digest. See ``NERD034``.
+
+When a version is already in the catalog, apply also updates its stored
+``default_configuration`` (and discovery metadata) from the tree. The
+deployment service merges that stored default into every deploy, so without
+the update an edited default would never take effect.
 
 .. list-table::
    :header-rows: 1
@@ -29,10 +48,13 @@ workflow or an explicit redeploy when that is the intended operation.
      - Add it.
    * - Deployed definition differs from its snapshot
      - Deploy the changed definition.
+   * - Deployed from a checkout whose tree digest differs from its snapshot
+     - Deploy it again; the plan marks it as a local-tree change.
    * - Deployed instance matches its snapshot
      - Leave it alone.
-   * - Deployed instance has no snapshot
-     - Ordinarily leave it alone; absence alone is not proof of a change.
+   * - Deployed instance has no snapshot, or no recorded tree digest
+     - Ordinarily leave it alone and record one; absence alone is not proof of
+       a change.
    * - Instance is deployed but no longer declared
      - Report it as undeclared and leave it running.
    * - Deployment graph cannot be read

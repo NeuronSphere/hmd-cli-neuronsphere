@@ -109,12 +109,14 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 		}
 	}
 	result.Reconcile = reconcile.Compute(entries, status, snapshot, redeploy)
+	result.Reconcile.MarkTreesChanged(reconcile.LoadSnapshotTrees(env.StateDir),
+		workingTreeDigests(opts, deployRepoPaths(opts, declaredRepos), entries))
 	if result.Reconcile.Empty() {
 		return result, nil
 	}
 
 	toDeploy := result.Reconcile.Deploy()
-	seeder := &bom.Seeder{Client: client, Versions: resolver, Warn: opts.warn}
+	seeder := &bom.Seeder{Client: client, Versions: resolver, Warn: opts.warn, Step: opts.step}
 	if err := seeder.RegisterCatalog(ctx, bomEnv, toDeploy); err != nil {
 		return nil, nserr.Wrap(nserr.Fail, fmt.Errorf("registering the catalog: %w", err))
 	}
