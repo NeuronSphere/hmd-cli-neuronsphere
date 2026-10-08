@@ -1,0 +1,30 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: nsreporting_02_ntc_export_source_to_staging
+    tf_name: nsreporting_03_ntc_export_staging_to_final
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      insert into {{ ns_context['schema_name' ]}}_final.ntc_instances_export
+      select identifier,
+             transform_name,
+             transform_version,
+             created_at,
+             scheduled_at,
+             started_at,
+             completed_at,
+             status,
+             export_date, 
+             _created,
+             _updated,
+             p_iso_date,
+             p_environment
+      from {{ ns_context['schema_name' ]}}_staging.ntc_instances_export
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_name: ntc

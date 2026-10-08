@@ -77,9 +77,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "configured_k3s_wrapper_image", return_value=_EXPECTED
         ), mock.patch.object(fd, "_get_client", return_value=eks), mock.patch.object(
             fd, "delete_k3s_cluster"
-        ) as delete, mock.patch.object(
-            fd, "start_k3s_container"
-        ) as start:
+        ) as delete, mock.patch.object(fd, "start_k3s_container") as start:
             fd.reconcile_k3s_container(name="neuronsphere")
         delete.assert_not_called()
         start.assert_not_called()
@@ -93,9 +91,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_k3s_container_image", return_value=_EXPECTED
         ), mock.patch.object(
             fd, "_k3s_container_running", return_value=True
-        ), mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete, mock.patch.object(
+        ), mock.patch.object(fd, "delete_k3s_cluster") as delete, mock.patch.object(
             fd, "start_k3s_container"
         ) as start:
             fd.reconcile_k3s_container(name="neuronsphere")
@@ -113,9 +109,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_k3s_container_running", return_value=True
         ), mock.patch.object(
             fd, "_wait_for_cluster_gone"
-        ) as wait_gone, mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete:
+        ) as wait_gone, mock.patch.object(fd, "delete_k3s_cluster") as delete:
             fd.reconcile_k3s_container(name="neuronsphere")
         self._assert_recreated(delete, wait_gone)
 
@@ -135,9 +129,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_k3s_container_running", return_value=False
         ), mock.patch.object(
             fd, "start_k3s_container", return_value=True
-        ) as start, mock.patch.object(
-            fd, "_wait_for_cluster_gone"
-        ), mock.patch.object(
+        ) as start, mock.patch.object(fd, "_wait_for_cluster_gone"), mock.patch.object(
             fd, "delete_k3s_cluster"
         ) as delete:
             fd.reconcile_k3s_container(name="neuronsphere")
@@ -162,9 +154,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "start_k3s_container", return_value=False
         ) as start, mock.patch.object(
             fd, "_wait_for_cluster_gone"
-        ) as wait_gone, mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete:
+        ) as wait_gone, mock.patch.object(fd, "delete_k3s_cluster") as delete:
             fd.reconcile_k3s_container(name="neuronsphere")
         start.assert_called_once_with("neuronsphere", target=fd.control_plane_target())
         self._assert_recreated(delete, wait_gone)
@@ -180,13 +170,9 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_existing_container_names", return_value=set()
         ), mock.patch.object(
             fd, "_k3s_container_running", return_value=False
-        ), mock.patch.object(
-            fd, "start_k3s_container"
-        ) as start, mock.patch.object(
+        ), mock.patch.object(fd, "start_k3s_container") as start, mock.patch.object(
             fd, "_wait_for_cluster_gone"
-        ) as wait_gone, mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete:
+        ) as wait_gone, mock.patch.object(fd, "delete_k3s_cluster") as delete:
             fd.reconcile_k3s_container(name="neuronsphere")
         # Nothing to start -- there is no container.
         start.assert_not_called()
@@ -216,9 +202,7 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_k3s_container_running", return_value=True
         ), mock.patch.object(
             fd, "_wait_for_cluster_gone"
-        ) as wait_gone, mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete:
+        ) as wait_gone, mock.patch.object(fd, "delete_k3s_cluster") as delete:
             fd.reconcile_k3s_container(name="ns-dev2-abc", target=target)
         self._assert_recreated(delete, wait_gone, name="ns-dev2-abc", target=target)
 
@@ -239,13 +223,9 @@ class ReconcileK3sContainerSelfHeal(unittest.TestCase):
             fd, "_existing_container_names", return_value={"floci-eks-neuronsphere"}
         ), mock.patch.object(
             fd, "_k3s_container_running", return_value=False
-        ), mock.patch.object(
-            fd, "start_k3s_container"
-        ) as start, mock.patch.object(
+        ), mock.patch.object(fd, "start_k3s_container") as start, mock.patch.object(
             fd, "_wait_for_cluster_gone"
-        ), mock.patch.object(
-            fd, "delete_k3s_cluster"
-        ) as delete:
+        ), mock.patch.object(fd, "delete_k3s_cluster") as delete:
             fd.reconcile_k3s_container(name="neuronsphere")
         start.assert_not_called()
         delete.assert_not_called()

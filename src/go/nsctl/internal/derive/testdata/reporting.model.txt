@@ -1,0 +1,63 @@
+A ntc.ntc_instances_export _created type=timestamp req=?
+A ntc.ntc_instances_export _updated type=timestamp req=?
+A ntc.ntc_instances_export completed_at type=timestamp req=?
+A ntc.ntc_instances_export created_at type=timestamp req=?
+A ntc.ntc_instances_export export_date type=timestamp req=?
+A ntc.ntc_instances_export identifier type=string req=?
+A ntc.ntc_instances_export p_environment type=string req=?
+A ntc.ntc_instances_export p_iso_date type=timestamp req=?
+A ntc.ntc_instances_export scheduled_at type=timestamp req=?
+A ntc.ntc_instances_export started_at type=timestamp req=?
+A ntc.ntc_instances_export status type=string req=?
+A ntc.ntc_instances_export transform_name type=string req=?
+A ntc.ntc_instances_export transform_version type=string req=?
+B ntc.ntc_instances_export @trino:final primary=true ref=false loc=ntc_final.ntc_instances_export format=parquet(PARQUET)null partitioned_by=p_iso_date,p_environment()null schema_name=ntc_final()null table_name=ntc_instances_export()null table_type=table(TABLE)null
+B ntc.ntc_instances_export @trino:source primary=false ref=false loc=ntc_source.ntc_instances_export_{iso_date|replace(-,_)}_{environment} external_location={bucket_name}/ntc/date={iso_date}/env={environment}/()null format=parquet(PARQUET)null schema_name=ntc_source()null table_name=ntc_instances_export_{iso_date|replace(-,_)}_{environment}()null table_type=table(TABLE)null template=ntc_source.ntc_instances_export_{iso_date|replace(-,_)}_{environment}()null
+B ntc.ntc_instances_export @trino:staging primary=false ref=false loc=ntc_staging.ntc_instances_export format=parquet(PARQUET)null partitioned_by=p_iso_date,p_environment()null schema_name=ntc_staging()null table_name=ntc_instances_export()null table_type=table(TABLE)null
+C ntc.ntc_instances_export @trino:final _created type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final _updated type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final completed_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final created_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final export_date type=timestamp datatype=date(DATE)null
+C ntc.ntc_instances_export @trino:final identifier type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:final p_environment type=string datatype=varchar(VARCHAR)null is_partition=true()null
+C ntc.ntc_instances_export @trino:final p_iso_date type=timestamp datatype=date(DATE)null is_partition=true()null
+C ntc.ntc_instances_export @trino:final scheduled_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final started_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:final status type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:final transform_name type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:final transform_version type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source _created type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source _updated type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source completed_at type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source created_at type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source nid type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source scheduled_at type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source started_at type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source status type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source transform_name type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:source transform_version type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:staging _created type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging _updated type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging completed_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging created_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging export_date type=timestamp datatype=date(DATE)null
+C ntc.ntc_instances_export @trino:staging identifier type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:staging p_environment type=string datatype=varchar(VARCHAR)null is_partition=true()null
+C ntc.ntc_instances_export @trino:staging p_iso_date type=timestamp datatype=date(DATE)null is_partition=true()null
+C ntc.ntc_instances_export @trino:staging scheduled_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging started_at type=timestamp datatype=timestamp(TIMESTAMP)null
+C ntc.ntc_instances_export @trino:staging status type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:staging transform_name type=string datatype=varchar(VARCHAR)null
+C ntc.ntc_instances_export @trino:staging transform_version type=string datatype=varchar(VARCHAR)null
+D info layer-type-change ntc.ntc_instances_export#_created
+D info layer-type-change ntc.ntc_instances_export#_updated
+D info layer-type-change ntc.ntc_instances_export#completed_at
+D info layer-type-change ntc.ntc_instances_export#created_at
+D info layer-type-change ntc.ntc_instances_export#scheduled_at
+D info layer-type-change ntc.ntc_instances_export#started_at
+D info unused-run-param reporting/src/transforms/nsreporting_05_ntc_drop_source.yaml:17
+D warning tf-name-mismatch reporting/src/transforms/nsreporting_05_ntc_drop_source.yaml:5
+D warning unresolved-reference ntc_export_parquet
+D warning unresolved-reference ntc_source.ntc_instances_export_{iso_date}_{environment}
+L librarian.ntc_export_parquet -> ntc.ntc_instances_export librarian-content-type

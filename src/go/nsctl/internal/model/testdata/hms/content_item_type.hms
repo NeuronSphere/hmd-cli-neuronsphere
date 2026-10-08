@@ -1,0 +1,25 @@
+{
+  "name": "content_item_type",
+  "namespace": "hmd_lang_librarian",
+  "metatype": "noun",
+  "attributes": {
+    "description": {
+      "type": "string",
+      "description": "A description of the content item type.",
+      "required": true
+    },
+    "short_name": {
+      "type": "string",
+      "description": "A short name by which the content item type is referred.",
+      "required": true
+    },
+    "match_regex": {
+      "type": "string",
+      "description": "An regex string that can be used to match content items."
+    },
+    "mime_type": {
+      "type": "string",
+      "description": "The mime-type expected for files and streams."
+    }
+  }
+}

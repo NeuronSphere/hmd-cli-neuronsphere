@@ -1,0 +1,48 @@
+{
+  "name": "entity_query_run",
+  "namespace": "hmd_lang_transform",
+  "metatype": "noun",
+  "attributes": {
+    "gremlin_query": {
+      "type": "string",
+      "description": "The Gremlin query string to run",
+      "required": true
+    },
+    "is_adhoc": {
+      "type": "string",
+      "description": "Whether the query is an ad-hoc query"
+    },
+    "queued_at": {
+      "type": "timestamp",
+      "description": "The time the query was queued"
+    },
+    "started_at": {
+      "type": "timestamp",
+      "description": "The time the query started running"
+    },
+    "finished_at": {
+      "type": "timestamp",
+      "description": "The time the query finished running"
+    },
+    "status": {
+      "type": "string",
+      "description": "The status of the query run",
+      "required": true,
+      "enum": [
+        "queued",
+        "running",
+        "finished",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "error_message": {
+      "type": "string",
+      "description": "The error message if the query failed"
+    },
+    "result_count": {
+      "type": "integer",
+      "description": "The number of results returned by the query"
+    }
+  }
+}

@@ -1309,9 +1309,9 @@ def start_neuronsphere_platform(
             else hmd_repo_home
         )
 
-    assert (
-        os.environ.get("HMD_PROJECTS_PATH") is not None
-    ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
+    assert os.environ.get("HMD_PROJECTS_PATH") is not None, (
+        "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
+    )
 
     os.environ["UID"] = getpass.getuser()
 
@@ -2090,7 +2090,7 @@ def run_local_service(
             {
                 "type": "bind",
                 "source": str(Path.resolve(Path(pkg_path).parent)),
-                "target": f"/usr/local/lib/python3.9/site-packages/{mnt.replace('-','_')}",
+                "target": f"/usr/local/lib/python3.9/site-packages/{mnt.replace('-', '_')}",
             }
         )
 
@@ -2408,7 +2408,7 @@ def print_status(json_mode: bool = False, env_name: str = None) -> None:
     if services:
         print("HMDMS services:")
         for svc in services:
-            print(f"  - {svc['repo_class_name']}  " f"[{svc['status']}]  {svc['url']}")
+            print(f"  - {svc['repo_class_name']}  [{svc['status']}]  {svc['url']}")
             print(
                 f"      lambda={svc['lambda_name']}  "
                 f"image={svc['image']}  "
@@ -2445,9 +2445,9 @@ def update_images(compose_files: Optional[List[str]] = None):
             if os.path.exists(home_projects_path)
             else hmd_repo_home
         )
-    assert (
-        os.environ.get("HMD_PROJECTS_PATH") is not None
-    ), "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
+    assert os.environ.get("HMD_PROJECTS_PATH") is not None, (
+        "Cannot find path to NeuronSphere Projects. Please set the HMD_REPO_HOME environment variable to location of Neuronsphere Projects with hmd configure set-env."
+    )
 
     if compose_files is None:
         compose_files = _get_cached_compose_files()

@@ -87,7 +87,7 @@ tutorial: ``lock`` and ``--from-repo`` currently read that format.
 What the fields do
 ------------------
 
-* ``name`` is the class name used by ``nsctl repo add``. The directory name
+* ``name`` is the class name used by ``nsctl instance add``. The directory name
   does not have to match when you supply an explicit checkout path.
 * ``description`` explains the repository's purpose.
 * ``build`` is required metadata. ``mechanism: external`` says this repository
@@ -153,8 +153,8 @@ Choose one way to add it
 **Add to an existing environment.** If ``local`` is already running, execute
 these commands from your repository root::
 
-   nsctl repo add acme-local-demo --env local --name local-demo --path "$PWD"
-   nsctl repo list --env local
+   nsctl instance add acme-local-demo --env local --name local-demo --path "$PWD"
+   nsctl instance list --env local
    nsctl env plan local
    nsctl env apply local -V
 
@@ -188,8 +188,8 @@ path, it should contain::
    Deployed instance local-demo from acme-local-demo@0.1
 
 The repository-adoption path uses ``acme-local-demo`` as the default instance
-name. Also inspect ``nsctl repo list --env local`` or
-``nsctl repo list --env onboarding``, as appropriate.
+name. Also inspect ``nsctl instance list --env local`` or
+``nsctl instance list --env onboarding``, as appropriate.
 
 After you edit the deploy script, run ``nsctl env plan <name>``. The plan
 lists the instance as changed, marked ``(local tree)``, and
@@ -208,7 +208,7 @@ Add real requirements next
 This sample intentionally has no dependency roles. For a real workload:
 
 * Define required providers under ``deploy.dependencies`` and bind their roles
-  to instances using ``repo add --depends role=instance``.
+  to instances using ``instance add --depends role=instance``.
 * For repository adoption, use ``local.dependencies.<role>.bind`` when the
   substrate already supplies that role, and ``local.repos`` for extra testing
   companions. A bound substrate role does not need a published-artifact pin.

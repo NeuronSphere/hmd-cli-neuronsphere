@@ -339,7 +339,7 @@ Scope and terminology
 
     Because the declaration belongs to the workload's own RepoClass, it applies
     however that instance arrived -- ``stack add``, ``env add --from-repo``, or
-    ``repo add`` -- and a stack authored later inherits it without restating it.
+    ``instance add`` -- and a stack authored later inherits it without restating it.
     NERD017 is amended to say so rather than to define anything new.
 
     .. note::

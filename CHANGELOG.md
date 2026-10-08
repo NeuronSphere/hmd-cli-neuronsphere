@@ -60,6 +60,177 @@
 - fix: `env start` no longer stops another environment that a second session
   is starting or applying at the same time. Its sweep of containers Floci
   woke now skips any environment marked active (`internal/envactivity`).
+## 2026-10-01
+
+- feat: `nsctl inspect` runs every noun's `inspect` over the same
+  repositories and reports one list of findings in one shape (NERD032 SPEC008).
+  It exits 1 on any error. The sections are:
+  - `repoclass` (new `nsctl repoclass inspect`): each repository's manifest
+    summary and validation, or detection's view of one without a manifest;
+  - `instance` (new `nsctl instance inspect`): where those repo classes are
+    declared in environment and control-plane manifests, and dependency wiring
+    to undeclared, non-substrate instances;
+  - `model`: the data model.
+
+  `--only`, `--skip`, `--json` and `--info` select and shape the output.
+- refactor: the data model's verbs move under the `model` noun: `nsctl model
+  inspect`, `nsctl model diff` and `nsctl model perspective`.
+
+- refactor: the `nsctl repo` noun is now `nsctl instance`, and
+  `nsctl control-plane repo` is `nsctl control-plane instance`.
+  - What these verbs edit is a repo class's instances in an environment (or
+    in the control plane), not a repository.
+  - The command sits beside `nsctl repoclass` as instance beside type.
+  - No alias is kept.
+
+- feat: `nsctl inspect` derives perspectives instead of embedding them
+  (NERD033).
+  - `nsctl` ships no perspective definition. A repository declares one under
+    `src/perspectives/`. Otherwise it is derived from the files, with evidence
+    for every piece. That covers:
+    - the layer binding key and its data-flow order;
+    - the name pattern and the primary binding;
+    - each key's kind;
+    - each SQL type's `hms_type`, from `.hms` pairing or else its SQL
+      category.
+  - Only the Trino transform inspector reports neutral objects so far; the
+    others still name their own bindings, and only their definitions are
+    derived.
+  - The derived model is identical to the spike's hand-written one on the
+    billing and reporting corpora.
+  - `nsctl inspect perspective list|derive|show|edit|materialise`:
+    - edits are kept per scope under `HMD_HOME` and replayed on every
+      derivation;
+    - `materialise --to <repo>` writes the definition and sidecars into that
+      repository only.
+  - `nsctl inspect --context` prints the merged generator context (`.hms` plus
+    `extensions.<perspective>`). `--hms`/`--out` also write the definitions.
+  - Definitions gain generator-agnostic keys: `name_pattern`, parameter
+    `position`, and enum-value and key `aliases`.
+  - The snapshot store moves to schema version 3, adding a `perspective`
+    table and a `perspective_edit` table kept across rebuilds.
+- refactor: the four definitions `nsctl` embedded (`trino`, `dbt`,
+  `postgres-view`, `librarian-content`) are now test fixtures. SQL type
+  synonyms and argument names move into `sqlddl` as grammar facts.
+- test: golden dumps of the spike's model guard derivation against
+  regressions.
+
+- refactor: `nsctl inspect` keeps `.hms` unextended. Physical types, physical
+  bindings and nullability are now **perspective** values (NERD032 SPEC007),
+  as in the Modeler (`hmd-ms-mickey`).
+  - The core types are `.hms` types only. `DATE` becomes `timestamp` and
+    `DECIMAL` becomes `float`, each chosen by the definition's `hms_type`. The
+    exact type is the perspective value `datatype`.
+  - Tables, views, dbt models and exports are bindings of the `trino`, `dbt`,
+    `postgres-view` and `librarian-content` perspectives. Their definitions
+    are embedded, in the Modeler's shape, and a repository's
+    `src/perspectives/*.perspective.json` overrides them.
+  - The `hms` inspector reads `<name>.<perspective>.hms` sidecars at `.hms`
+    authority. A declared value outranks one inferred from DDL, and a
+    contradiction is reported.
+  - Every value is validated against its definition.
+  - `--hms` and `--out <dir>` export the core document plus one sidecar per
+    perspective.
+  - `nsctl inspect perspectives` lists the definitions.
+  - `nsctl inspect diff` reports `hmd-lib-ns-model` semantic ids
+    (`ns.name#attr@trino:final`) and change kinds (`PropertyTypeChanged`,
+    `PerspectiveValueChanged`).
+  - The snapshot store moves to schema version 2, with a queryable
+    `perspective_value` table.
+- feat: the `nsexport` inspector links graph nouns to Librarian exports and on
+  to their consumers. The Librarian content item type is the join key. A
+  producer's Gremlin `hasLabel(...).project(...)` together with the content type
+  it uploads becomes the noun `librarian.<type>`, derived from the graph noun.
+  A transform that queries that `item_type` and creates an external table
+  reads it. Content type entities declare the type. The NTC chain now resolves
+  end to end: `transform_instance` to export, to the Trino layers, to dbt. A
+  content type nobody declares is reported, such as `cur_export_parquet`.
+- fix: `nsctl inspect` provenance names a repository by its directory. A BACON
+  manifest whose `name` differs is reported: `hmd-tf-ntc-export`'s is still
+  the template's `repo_name`.
+- fix: `nsctl inspect diff` ignores line numbers when matching disagreements.
+  A finding that an edit only moved down a line is no longer reported as
+  resolved and reintroduced.
+- feat: `nsctl inspect diff [path...]` compares the latest two snapshots of the
+  same directories, or with `--live` the latest snapshot against the working
+  tree. It prints semantic changes: nouns, attributes, type, requiredness,
+  enum values, partitions, and columns of non-primary layers. It also shows
+  lineage edges and disagreements that appeared or were resolved. Without
+  `HMD_HOME` it is a usage error.
+- test: `nsctl_cli.robot` contract tests for `inspect`. They check that it
+  reports a model, leaves the repositories untouched, and that `inspect diff`
+  refuses without `HMD_HOME`.
+- feat: `nsctl inspect [path|noun]...` prints the data model a set of
+  repositories describes (NERD032 SPEC006). It shows nouns, attributes,
+  manifestations, lineage and disagreements. A parent directory stands for the
+  repositories inside it, and a non-directory argument selects nouns.
+  - `--sources` adds provenance, link reasons and informational notes.
+  - `--json` prints the model as JSON.
+  - `--refresh` takes a new snapshot; otherwise the latest snapshot is shown.
+  - `--hms [--lossy]` exports nouns as `.hms`.
+  - It never writes to the inspected repositories.
+- fix: `nsctl inspect` fixes from its first run over the reporting corpus.
+  - The `hms` inspector decides whether a generated view's column is an
+    attribute by its expression (`content -> 'x'`), not its name. It reports a
+    view that selects one column twice. The real `transform_instance` view
+    selects `created_at` both as the attribute and as the entity table's own
+    column, so Postgres cannot create it.
+  - An `.hms` relationship with no attributes no longer takes its view's system
+    columns as attributes.
+  - dbt models without `config()` take their materialization from
+    `dbt_project.yml`'s folder settings.
+- feat: `internal/modelstore` keeps `nsctl inspect` snapshots in SQLite at
+  `$HMD_HOME/.cache/neuronsphere/inspect/model.db` (NERD032 SPEC005).
+  - Each snapshot stores the observations and the consolidated model, keyed by
+    the set of inspected roots.
+  - Each scope keeps its newest 20 snapshots.
+  - The store is derived state: a database with an unknown schema version is
+    rebuilt. The driver is the pure-Go `modernc.org/sqlite`, so the binary
+    still builds with `CGO_ENABLED=0`.
+- feat: the `dbt` inspector reads any dbt project. It covers sources, models,
+  each model's final select list, `ref()`/`source()` lineage, materialization,
+  and `not_null`/`unique` tests (a `not_null` test makes the attribute
+  required). Models are `<project>.<model>`, scoped `dbt:<project>` so that a
+  transform's target schema can bind them. This lets another project's
+  sources resolve to them. It reports:
+  - undocumented models;
+  - documented columns a model does not select;
+  - sources nothing produces.
+- feat: the `nstransform` inspector reads NeuronSphere transform YAML.
+  - It renders the Trino SQL's Jinja from the transform's own `run_params`.
+    A value known only at run time becomes a stable `{placeholder}`, keeping
+    any `.replace()` applied to it.
+  - It folds `<ns>_source|staging|final|ux` tables into one noun with one
+    manifestation per layer.
+  - It reads `CREATE TABLE` columns and partitions, the columns and lineage of
+    `INSERT ... SELECT`, and the `dep_tf_name` chain. A dbt transform's target
+    schema becomes a binding.
+  - It reports the following:
+    - drops of tables nothing creates;
+    - a `tf_name` that differs from the file name;
+    - unused `run_params`;
+    - select items aliased to a type name.
+- feat: the `hms` inspector reads a language pack's `src/schemas/**/*.hms` at
+  the highest authority. It also reads the Postgres views generated from those
+  schemas as manifestations. It reports four problems:
+  - a noun with no view, or a view whose columns differ from its schema;
+  - packaged `src/python/*/schemas` copies that are missing or stale;
+  - a namespace or name that does not match its path;
+  - an attribute type that `hmd-meta-types` rejects.
+- feat: `internal/inspect`, the inspector boundary for `nsctl inspect`
+  (NERD032 SPEC001). An `Inspector` reports observations about a `Source`,
+  meaning one repository with its name and git revision (read from `.git`
+  without running git). `Discover` treats a non-repository directory as the
+  repositories inside it. An inspector that fails becomes a finding; the rest
+  of the inspection carries on. `inspect/sqlddl` parses the structural SQL
+  subset: CREATE SCHEMA/TABLE/VIEW, INSERT ... SELECT, and DROP.
+- feat: `internal/model`, the canonical data model behind `nsctl inspect`
+  (NERD032). It has nouns, attributes and relationships shaped like `.hms`,
+  plus provenance, physical manifestations, lineage, and the `date` and
+  `decimal` types. Consolidation turns inspector observations into the model
+  deterministically: layers that share a physical table become one noun, and
+  disagreements are recorded instead of resolved. A noun learned from `.hms`
+  exports back to an equal document.
 
 ## 2026-09-30
 

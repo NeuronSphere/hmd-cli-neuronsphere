@@ -78,7 +78,7 @@ After editing its manifest or adding a repository::
 
    nsctl env plan review
    nsctl env apply review
-   nsctl repo list --env review
+   nsctl instance list --env review
 
 There is no need to restart the environment for each declaration change.
 ``nsctl stack add <name> --env review`` and ``stack remove`` change the

@@ -873,7 +873,7 @@ in it::
     :links: HMD_CLI_NEURONSPHERE_NERD004
     :status: proposed
 
-    ``nsctl control-plane repo add|remove|list``, mirroring ``nsctl repo``
+    ``nsctl control-plane instance add|remove|list``, mirroring ``nsctl instance``
     against the control-plane manifest, and ``nsctl control-plane apply``,
     mirroring ``nsctl env apply``.
 

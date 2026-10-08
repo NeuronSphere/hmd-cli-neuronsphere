@@ -15,7 +15,7 @@ NERD014 Selectable Environment Substrate
     remains the default.
 
     The choice shall be recorded with the environment and honoured by every
-    later ``env start``, ``env apply``, ``env status`` and ``repo list`` until
+    later ``env start``, ``env apply``, ``env status`` and ``instance list`` until
     it is changed. Raising the mode shall add what is missing without
     redeploying what exists; lowering it shall never destroy anything.
 
@@ -101,7 +101,7 @@ Scope
 
 In scope: the flag, the three modes, their gating in ``Start`` and ``Apply``,
 the recorded mode and every reader of it, the closing summary, ``env status``,
-``env list`` and ``repo list``, the refusals, unit coverage, and the docs.
+``env list`` and ``instance list``, the refusals, unit coverage, and the docs.
 
 Out of scope: a per-instance or per-role substrate (``core`` with a cluster but
 no database); making ``k3sEnabled`` and ``extSecretsEnabled`` modes of their
@@ -198,7 +198,7 @@ Reference: what already exists
     ``environments/<slug>.yaml``, next to ``profiles``; absent means ``full``.
     ``nsctl env start --substrate <mode>`` shall write it before the control
     plane starts, creating a manifest with an empty ``repos`` list if none
-    exists -- the way ``repo add`` already does through ``openManifest``.
+    exists -- the way ``instance add`` already does through ``openManifest``.
 
     Not in the registry, for the reason under *The evidence*: the Python front
     end would drop it. Not recomputed from the environment's contents, for the
@@ -210,7 +210,7 @@ Reference: what already exists
     a cluster it never needed.
 
     Every reader -- ``Start``, ``Apply``, ``env status``, ``env list``,
-    ``repo list`` -- shall read the recorded mode through one helper and shall
+    ``instance list`` -- shall read the recorded mode through one helper and shall
     treat an unreadable manifest as ``full`` with a warning, never as ``none``.
 
 .. spec:: An unknown mode is refused before anything starts
@@ -268,7 +268,7 @@ Reference: what already exists
     ``env status`` shall print a ``substrate`` line naming the mode; the
     ``db`` and ``graph`` rows only under ``core`` and ``full``; the ``k3s``
     row, and the ``k3s`` and ``trino`` routes, only under ``full``. ``env
-    list`` shall gain a ``SUBSTRATE`` column. ``repo list`` shall print as
+    list`` shall gain a ``SUBSTRATE`` column. ``instance list`` shall print as
     substrate rows only the instances the mode deploys. The closing summary of
     ``env start`` shall print ``Ready.`` and the services line under every
     mode, the database and dbaccount lines under ``core``, and today's lines
@@ -348,7 +348,7 @@ machine; ``hmdtr1`` is stopped and a second control plane must not be started
 1. ``make reset-a`` with ``nsctl env start local --substrate none``: record
    the wall time against the ~7 minutes of the 2026-09-16 run. ``nsctl env
    status`` prints ``substrate none`` and no ``db``, ``graph`` or ``k3s`` row;
-   ``nsctl repo list`` prints no substrate rows.
+   ``nsctl instance list`` prints no substrate rows.
 2. ``nsctl env apply`` twice (the Demo 0 tapes): seven instances ``DEPLOYED``
    through ChangeSets with an empty Phase A.
 3. ``nsctl env start local --substrate core`` on the same environment: the
@@ -387,7 +387,7 @@ Acceptance criteria
 Unit coverage: flag validation; ``SubstrateFor`` per mode; manifest
 round-trip of the key in YAML and JSON and its validation; the pure start
 plan per mode; the closing summary per mode; status rows and routes per mode;
-``repo list`` substrate rows per mode.
+``instance list`` substrate rows per mode.
 
 Open questions
 --------------

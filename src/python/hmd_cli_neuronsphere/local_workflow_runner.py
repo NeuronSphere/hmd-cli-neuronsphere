@@ -117,7 +117,7 @@ def _localize_deploy_script(script: str) -> str:
         if not done:
             m = _DEPLOY_CMD_RE.match(line)
             if m and "--local" not in line:
-                line = f"{m.group(1)} --local{m.group(2)}{line[m.end():]}"
+                line = f"{m.group(1)} --local{m.group(2)}{line[m.end() :]}"
                 done = True
             elif m:
                 done = True  # already localized
