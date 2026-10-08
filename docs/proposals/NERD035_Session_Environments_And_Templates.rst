@@ -235,9 +235,15 @@ Scope and terminology
     :links: HMD_CLI_NEURONSPHERE_NERD035
     :status: implemented
 
-    .. note:: Implemented 2026-10-08 and covered by unit and contract tests
-       with the start step stubbed. Not yet verified end to end against a
-       live local platform (two sessions, a release, a warm reuse).
+    .. note:: Verified live 2026-10-08 on Colima, with two exec RepoClasses
+       from working trees and a substrate-``none`` template. Two sessions took
+       ``local`` and a pool-created ``cc-1`` and each deployed its own tree.
+       Each lease refused the other's token (exit 3). A released session's
+       successor reused ``local`` warm ("0 to deploy", 3.5 s). With ``cc-1``
+       released last, a session for the first tree still chose ``local``,
+       because ``cc-1`` held the other session's tree. The run found two
+       defects, both fixed: bring-up skipped the control-plane start (see
+       step 4), and the service image's builder was older than ``go.mod``.
 
     ``acquire --session`` takes ``--template``, a repeatable ``--repo`` and
     the planner flags ``--profile``, ``--all-profiles``, ``--lean`` and
@@ -270,13 +276,15 @@ Scope and terminology
        ``--no-pull``;
     3. writes the session manifest as the environment's manifest, keeping the
        environment's recorded ``substrate`` when the composition names none;
-    4. runs ``env start``, which starts what is stopped and ends by applying
-       the manifest. ``NERD034`` makes working-tree changes reach the
+    4. runs what ``env start`` runs -- the control plane if it is down, then
+       the environment, ending by applying the manifest. The same function,
+       not a copy: the live acceptance found a bring-up that called only the
+       environment half waiting five minutes on a Floci nothing had started. ``NERD034`` makes working-tree changes reach the
        environment.
 
     Progress goes to stderr, keeping stdout to step 1. If bring-up fails, the
     command exits non-zero and the lease is still held, so the session can
-    fix and re-run ``nsctl env apply`` rather than lose its place.
+    fix and re-run ``nsctl env start`` rather than lose its place.
     ``--no-start`` stops after step 3.
 
     Instances the previous holder declared and this session does not are

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lease"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 )
@@ -20,7 +19,7 @@ import (
 // stubStart replaces startEnvironment for one test. Tests that call it must
 // not be parallel: Go resumes parallel tests only after every sequential one
 // has finished, so nothing else reads the hook while it is replaced.
-func stubStart(t *testing.T, fn func(ctx context.Context, opts *environment.Options, name string) error) {
+func stubStart(t *testing.T, fn func(ctx context.Context, opts *Options, home, slug string, s startOptions) error) {
 	t.Helper()
 	prev := startEnvironment
 	startEnvironment = fn
@@ -162,9 +161,9 @@ func TestBringUpStartsTheLeasedEnvironmentAfterWritingItsManifest(t *testing.T) 
 	home, env := fromRepoEnv(t)
 	saveTemplate(t, home, "base", artifactInstance("trino", "hmd-inf-trino", "0.1.4"))
 	var started string
-	stubStart(t, func(_ context.Context, opts *environment.Options, name string) error {
+	stubStart(t, func(_ context.Context, opts *Options, home, name string, _ startOptions) error {
 		started = name
-		m, err := manifest.Load(opts.Home, name, opts.Lookup)
+		m, err := manifest.Load(home, name, opts.Lookup)
 		if err != nil || m == nil || m.Template != "base" {
 			t.Errorf("at start the manifest was %+v, %v; want the composition", m, err)
 		}
@@ -190,7 +189,7 @@ func TestBringUpStartsTheLeasedEnvironmentAfterWritingItsManifest(t *testing.T) 
 func TestAFailedBringUpKeepsTheLease(t *testing.T) {
 	home, env := fromRepoEnv(t)
 	saveTemplate(t, home, "base", artifactInstance("trino", "hmd-inf-trino", "0.1.4"))
-	stubStart(t, func(context.Context, *environment.Options, string) error {
+	stubStart(t, func(context.Context, *Options, string, string, startOptions) error {
 		return errors.New("k3s would not start")
 	})
 
@@ -202,7 +201,7 @@ func TestAFailedBringUpKeepsTheLease(t *testing.T) {
 	if !strings.Contains(out, "export NSCTL_LEASE_TOKEN=") {
 		t.Errorf("the exports were not printed before bring-up: %q", out)
 	}
-	if !strings.Contains(stderr+err.Error(), "nsctl env apply dev") {
+	if !strings.Contains(stderr+err.Error(), "nsctl env start dev") {
 		t.Errorf("the failure does not say how to retry: %v\n%s", err, stderr)
 	}
 	list, _, _ := run(t, fakeEnv(env), "env", "lease", "list")

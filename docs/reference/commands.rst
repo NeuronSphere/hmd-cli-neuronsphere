@@ -1464,7 +1464,7 @@ free environment of the same template that needs the least redeploying,
 avoiding one holding another session's working trees. After printing the lease
 it fetches what the composition needs (unless --no-pull), writes it as the
 environment's manifest and runs env start (unless --no-start), with progress on
-stderr. If that fails the lease is kept: fix it and run env apply.
+stderr. If that fails the lease is kept: fix it and run env start.
 
 Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
 bare, naming the session's environment, or with --pool -- is answered with the

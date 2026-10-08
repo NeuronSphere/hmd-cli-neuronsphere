@@ -2,6 +2,9 @@
 
 ## 2026-10-08
 
+- fix: a session acquire's bring-up starts the control plane first, as
+  `env start` does; it called only the environment half and waited five minutes
+  on a Floci nothing had started. Both now run one function.
 - fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
   since 2026-10-01, so every control-plane start that had to build the image,
   released binaries included, failed in `go mod download`. A test now ties the

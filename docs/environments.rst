@@ -650,7 +650,8 @@ environment:
    environment's manifest (keeping its recorded substrate) and ``env start``
    brings it up (``--no-start`` stops before this).
 4. If bring-up fails the command exits non-zero but the lease is kept: fix the
-   cause and run ``nsctl env apply``.
+   cause and run ``nsctl env start``, which starts what is down and ends
+   with an apply.
 
 Instances the previous holder declared that this session does not are left
 deployed and reported, never torn down; ``env purge`` resets an environment.

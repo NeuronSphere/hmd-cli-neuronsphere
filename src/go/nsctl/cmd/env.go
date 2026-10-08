@@ -167,23 +167,10 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Recorded substrate %s for %s\n", mode, slug)
 			}
-			// `env start` starts the control plane implicitly if it is down,
-			// and then leaves it running.
-			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
-				Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: verbose,
-				// This environment is about to be started, so the control
-				// plane must not stop the containers Floci woke for it only
-				// for the next call to start them again.
-				StartingEnv: slug,
-				Out:         cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
-			}); err != nil {
-				return err
-			}
-			return environment.Start(cmd.Context(), &environment.Options{
-				Home: home, Lookup: opts.Lookup, NoDeploy: noDeploy, Verbose: verbose,
-				ForceRedeploy: force,
-				Out:           cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
-			}, name)
+			return startWithControlPlane(cmd.Context(), opts, home, slug, startOptions{
+				NoDeploy: noDeploy, Verbose: verbose, Force: force,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&noDeploy, "no-deploy", false, "Bring up the infrastructure without reconciling the BOM")
@@ -194,6 +181,34 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 	cmd.Flags().StringVar(&substrate, "substrate", "",
 		"How much substrate to run: none, core or full (default: what the environment recorded, else full)")
 	return cmd
+}
+
+// startOptions are env start's flags and streams.
+type startOptions struct {
+	NoDeploy, Verbose, Force bool
+	Out, Err                 io.Writer
+}
+
+// startWithControlPlane is everything `env start` does once it knows which
+// environment: start the control plane if it is down -- and leave it running
+// -- then the environment. A session acquire's bring-up runs exactly this,
+// so the two cannot drift: calling environment.Start alone waits on a Floci
+// nothing started.
+func startWithControlPlane(ctx context.Context, opts *Options, home, slug string, s startOptions) error {
+	if err := controlplane.Start(ctx, &controlplane.Options{
+		Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: s.Verbose,
+		// This environment is about to be started, so the control plane
+		// must not stop the containers Floci woke for it only for the next
+		// call to start them again.
+		StartingEnv: slug,
+		Out:         s.Out, Err: s.Err,
+	}); err != nil {
+		return err
+	}
+	return environment.Start(ctx, &environment.Options{
+		Home: home, Lookup: opts.Lookup, NoDeploy: s.NoDeploy, Verbose: s.Verbose,
+		ForceRedeploy: s.Force, Out: s.Out, Err: s.Err,
+	}, slug)
 }
 
 // recordSubstrate writes the mode into the environment manifest (NERD014

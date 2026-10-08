@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lease"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -93,7 +92,7 @@ free environment of the same template that needs the least redeploying,
 avoiding one holding another session's working trees. After printing the lease
 it fetches what the composition needs (unless --no-pull), writes it as the
 environment's manifest and runs env start (unless --no-start), with progress on
-stderr. If that fails the lease is kept: fix it and run env apply.
+stderr. If that fails the lease is kept: fix it and run env start.
 
 Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
 bare, naming the session's environment, or with --pool -- is answered with the
@@ -472,8 +471,8 @@ func tokenOrEnv(token string, opts *Options) string {
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
 }
 
-// startEnvironment is environment.Start, replaceable in tests.
-var startEnvironment = environment.Start
+// startEnvironment is what `env start` runs, replaceable in tests.
+var startEnvironment = startWithControlPlane
 
 // bringUp is a session acquire's second half (NERD035 SPEC005): fetch what the
 // composition needs, write it as slug's manifest, and start the environment.
@@ -523,9 +522,7 @@ func bringUp(cmd *cobra.Command, opts *Options, home, slug string, c *compositio
 		fmt.Fprintf(out, "Start it with `nsctl env start %s`.\n", slug)
 		return nil
 	}
-	if err := startEnvironment(cmd.Context(), &environment.Options{
-		Home: home, Lookup: opts.Lookup, Out: out, Err: out,
-	}, slug); err != nil {
+	if err := startEnvironment(cmd.Context(), opts, home, slug, startOptions{Out: out, Err: out}); err != nil {
 		return retryable(slug, err)
 	}
 	return nil
@@ -538,7 +535,7 @@ func retryable(slug string, err error) error {
 	if code == nserr.OK {
 		code = nserr.Fail
 	}
-	return nserr.New(code, "bringing up %s: %v\nThe lease is still yours. Fix the cause and run `nsctl env apply %s`.",
+	return nserr.New(code, "bringing up %s: %v\nThe lease is still yours. Fix the cause and run `nsctl env start %s`.",
 		slug, err, slug)
 }
 
