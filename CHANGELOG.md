@@ -7,6 +7,12 @@
   released binaries included, failed in `go mod download`. A test now ties the
   Dockerfile's builder to go.mod.
 
+- fix: the substrate's database-account service is `hmd-ms-dbaccount` 0.1.48, which
+  names its secrets after `HMD_ENVIRONMENT_NAME`. nsctl has set that variable since
+  d1b7831, but the bundled 0.1.47 ignores it and looks the admin secret up under
+  `local`, so every `hmd-database-account` deploy in an environment not named
+  `local` failed with a 500 from `create_db_account`.
+
 ## 2026-10-01
 
 - feat: `nsctl inspect` runs every noun's `inspect` over the same
