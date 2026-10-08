@@ -2,6 +2,13 @@
 
 ## 2026-10-08
 
+- fix: `env plan` and `env apply` resync an already-registered class version's
+  dependency edges from the class manifest they just read
+  (`resync_repo_class_version_dependencies`), so an edited manifest takes
+  effect without a version bump. Re-registering a version was refused as
+  "already has version", which left the control plane with the dependencies of
+  the first registration. A failed resync is a warning, not an error.
+
 - feat: `env plan` and `env apply` bind a required, resource-typed dependency
   role the manifest leaves unbound when exactly one instance can satisfy it,
   from the control plane's `suggest_resource_dependencies` candidates, the

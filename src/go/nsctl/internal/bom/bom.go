@@ -350,6 +350,7 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 		if version == "" {
 			return fmt.Errorf("no version for %s, and the BOM entry declares none", entries[i].RepoClassName)
 		}
+		manifestDeps := deps
 		if deps == nil {
 			deps = entries[i].Dependencies
 		}
@@ -376,6 +377,22 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 		}
 		if err := s.Client.APIOpTolerateExists(ctx, "add_repo_class_version", payload); err != nil {
 			return err
+		}
+		// A version already registered is never re-registered, so an edit to
+		// the class manifest since then would not reach the control plane.
+		// Resync rewires the existing version's dependency edges from the
+		// manifest just read, which is what makes an edited manifest take
+		// effect without a version bump. Only a manifest's own dependencies
+		// are sent: an entry's instance bindings are a different shape.
+		if manifestDeps != nil {
+			resync := map[string]any{
+				"repo_class_name": entries[i].RepoClassName,
+				"version":         version,
+				"dependencies":    manifestDeps,
+			}
+			if _, err := s.Client.APIOp(ctx, "resync_repo_class_version_dependencies", resync); err != nil {
+				s.warn("refreshing %s %s's dependencies from its manifest: %v", entries[i].RepoClassName, version, err)
+			}
 		}
 		entries[i].RepoClassVersion = version
 	}
