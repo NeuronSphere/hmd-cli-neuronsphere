@@ -256,7 +256,7 @@ func TestRenderPlanTextReportsBindingsAndAmbiguities(t *testing.T) {
 	renderPlanText(&buf, bindingPlanResult())
 	out := buf.String()
 	for _, want := range []string{
-		"Bound from the control plane's suggestions",
+		"Bound automatically",
 		"ms-deployment role workers -> local-neuronsphere",
 		"Needs a choice", "--depends role=<instance>",
 		"ms-deployment role base-vpc (network.neuronsphere.io/vpc): base-vpc, other-vpc",
@@ -272,7 +272,7 @@ func TestRenderPlanMDAndJSONCarryBindingsAndAmbiguities(t *testing.T) {
 
 	var md bytes.Buffer
 	renderPlanMD(&md, bindingPlanResult())
-	for _, want := range []string{"Bound from the control plane's suggestions", "`workers` → `local-neuronsphere`", "Needs a choice", "`base-vpc`, `other-vpc`"} {
+	for _, want := range []string{"Bound automatically", "`workers` → `local-neuronsphere`", "Needs a choice", "`base-vpc`, `other-vpc`"} {
 		if !strings.Contains(md.String(), want) {
 			t.Errorf("markdown plan missing %q:\n%s", want, md.String())
 		}

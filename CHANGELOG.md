@@ -2,6 +2,12 @@
 
 ## 2026-10-08
 
+- feat: `env plan` and `env apply` also bind a required role that names only a
+  `repo_class_name` (no resource type) when exactly one instance of that class
+  is in the environment, reading the class manifest rather than the control
+  plane. A role with no instance of its class prints the `nsctl instance add`
+  command that declares one.
+
 - fix: `env plan` and `env apply` resync an already-registered class version's
   dependency edges from the class manifest they just read
   (`resync_repo_class_version_dependencies`), so an edited manifest takes

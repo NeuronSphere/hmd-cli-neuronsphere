@@ -235,7 +235,7 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 // it filled, and the ones it left because more than one instance fits.
 func renderBindingsText(out io.Writer, r *environment.PlanResult) {
 	if len(r.Bindings) > 0 {
-		fmt.Fprintln(out, "\nBound from the control plane's suggestions (the only instance that fits):")
+		fmt.Fprintln(out, "\nBound automatically (the only instance that fits):")
 		for _, b := range r.Bindings {
 			fmt.Fprintf(out, "  %s role %s -> %s\n", b.Instance, b.Role, b.Target)
 		}
@@ -251,7 +251,7 @@ func renderBindingsText(out io.Writer, r *environment.PlanResult) {
 
 func renderBindingsMD(out io.Writer, r *environment.PlanResult) {
 	if len(r.Bindings) > 0 {
-		fmt.Fprintln(out, "**Bound from the control plane's suggestions** (the only instance that fits):")
+		fmt.Fprintln(out, "**Bound automatically** (the only instance that fits):")
 		for _, b := range r.Bindings {
 			fmt.Fprintf(out, "- `%s` role `%s` → `%s`\n", b.Instance, b.Role, b.Target)
 		}

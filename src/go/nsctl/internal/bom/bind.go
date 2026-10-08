@@ -123,8 +123,72 @@ func (s *Seeder) BindSuggested(ctx context.Context, envSlug string, toBind, know
 				})
 			}
 		}
+		s.bindByClass(e, suggestions, known, &bound, &ambiguous)
 	}
 	return bound, ambiguous, nil
+}
+
+// bindByClass fills the required roles the control plane never suggests for:
+// plain dependencies that name a repo_class_name and no resource type. The
+// class manifest says which class each needs, so an unbound role takes the one
+// declared or substrate instance of that class; several are left to the
+// operator; none is reported with the command that adds one, which is more
+// use than the validator's "role is not supplied".
+//
+// A role with a resource block belongs to the suggestion path above, and an
+// optional or already-bound role is left alone.
+func (s *Seeder) bindByClass(e *Entry, suggested map[string]msdeploy.RoleSuggestion, known []Entry, bound *[]Binding, ambiguous *[]Ambiguity) {
+	if s.Versions == nil || e.RepoClassName == "" {
+		return
+	}
+	_, deps, _, err := s.Versions.Resolve(e.RepoClassName, e.RepoClassVersion)
+	if err != nil || len(deps) == 0 {
+		return
+	}
+	roles := make([]string, 0, len(deps))
+	for role := range deps {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+
+	for _, role := range roles {
+		dep, ok := deps[role].(map[string]any)
+		if !ok || dep["resource"] != nil || roleBound(e.Dependencies, role) {
+			continue
+		}
+		if _, viaSuggestion := suggested[role]; viaSuggestion {
+			continue
+		}
+		class, _ := dep["repo_class_name"].(string)
+		if class == "" {
+			continue
+		}
+		if r, set := dep["required"]; set && !suggestionRequired(r) {
+			continue
+		}
+
+		var candidates []string
+		for _, k := range known {
+			if k.RepoClassName == class && k.RepoInstanceName != e.RepoInstanceName {
+				candidates = append(candidates, k.RepoInstanceName)
+			}
+		}
+		sort.Strings(candidates)
+
+		switch len(candidates) {
+		case 0:
+			s.warn("%s needs an instance of %s for role %s; add one with `nsctl instance add %s`",
+				e.RepoInstanceName, class, role, class)
+		case 1:
+			if e.Dependencies == nil {
+				e.Dependencies = map[string]any{}
+			}
+			e.Dependencies[role] = candidates[0]
+			*bound = append(*bound, Binding{Instance: e.RepoInstanceName, Role: role, Target: candidates[0]})
+		default:
+			*ambiguous = append(*ambiguous, Ambiguity{Instance: e.RepoInstanceName, Role: role, Candidates: candidates})
+		}
+	}
 }
 
 // suggestionsFor asks the service for one repo class's resource-typed roles.

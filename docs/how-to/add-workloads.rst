@@ -48,8 +48,9 @@ lists what it bound. If more than one instance fits, the role is left unbound
 and the plan names the choices; pass ``--depends role=instance`` to pick one.
 Optional roles, roles a ``--depends`` already names, and roles that carry a tag
 selector (only the control plane's own candidates count) are never bound for
-you. A role declared only by repo class name, with no ``resource`` block, is not
-resource-typed, so it still needs ``--depends``.
+you. A role declared only by repo class name is bound the same way, from the class
+manifest: the one instance of that class in the environment. When there is
+none, the plan prints the ``nsctl instance add`` command that declares one.
 
 ``--path`` selects the checkout explicitly. Otherwise, a local source looks
 under ``$HMD_REPO_HOME/<repo-class>``. Without ``--name``, the instance name
