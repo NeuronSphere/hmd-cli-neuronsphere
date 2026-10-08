@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"testing"
 
@@ -21,6 +23,13 @@ import (
 func TestMain(m *testing.M) {
 	os.Setenv("DOCKER_HOST", "unix:///nonexistent/nsctl-cmd-test/docker.sock")
 	os.Unsetenv("DOCKER_CONTEXT")
+	// A session's bring-up and its end start and stop environments. No test
+	// reaches the real ones unless it says so with stubStart/stubStop; a
+	// session lease that merely expires in a test must not run env stop.
+	startEnvironment = func(context.Context, *Options, string, string, startOptions) error {
+		return errors.New("starting an environment is stubbed out in cmd tests")
+	}
+	stopEnvironment = func(context.Context, *Options, string, string, io.Writer) error { return nil }
 	os.Exit(m.Run())
 }
 

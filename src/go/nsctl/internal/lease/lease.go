@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/atomicfile"
@@ -50,6 +51,11 @@ const DefaultTTL = 10 * time.Minute
 // DefaultSessionTTL is DefaultTTL for a session lease (NERD035 SPEC002): a
 // session works for hours and heartbeats rather than renewing per run.
 const DefaultSessionTTL = 8 * time.Hour
+
+// stopTTL bounds a stopping placeholder: long enough for `env stop`, short
+// enough that a stop whose process vanished without its PID being checkable
+// does not hold the environment for long.
+const stopTTL = 15 * time.Minute
 
 // ScopeSession marks a lease held for a whole working session rather than one
 // run. A run lease stores no scope, so files written before scopes existed
@@ -82,6 +88,9 @@ type Lease struct {
 	// the template it started from and the working trees it deploys.
 	Template string   `json:"template,omitempty"`
 	Repos    []string `json:"repos,omitempty"`
+	// KeepRunning says the session's end must not stop its environment
+	// (NERD035 SPEC006).
+	KeepRunning bool `json:"keep_running,omitempty"`
 
 	// Nested says this acquire was answered with the caller's own session
 	// lease rather than a lease of its own. Reported, not stored.
@@ -110,10 +119,12 @@ type Request struct {
 	PID   int
 	TTL   time.Duration
 	Steal bool
-	// Scope, Template and Repos are recorded on the lease; see Lease.
-	Scope    string
-	Template string
-	Repos    []string
+	// Scope, Template, Repos and KeepRunning are recorded on the lease; see
+	// Lease.
+	Scope       string
+	Template    string
+	Repos       []string
+	KeepRunning bool
 }
 
 // HeldError says the environment is leased by someone else.
@@ -168,12 +179,49 @@ type Store struct {
 	Poll  time.Duration
 	Now   func() time.Time
 	Alive func(pid int) bool
+
+	// OnSessionEnd stops env when a session lease on it ends (NERD035
+	// SPEC006). It runs after the host lock is released, while a placeholder
+	// lease held by PID keeps the environment from being handed out. Nil
+	// means nothing here can stop an environment, and an ended session
+	// simply frees it.
+	OnSessionEnd func(env string) error
+	// PID is this process: the holder of a stopping placeholder, so that a
+	// stop whose process died is itself reaped.
+	PID int
+
+	// stops is shared by copies of a Store, so it is behind a pointer.
+	stops *stopQueue
+}
+
+// stopQueue is the placeholders whose stops are due once the lock is free.
+type stopQueue struct {
+	mu      sync.Mutex
+	pending []Lease
+}
+
+func (q *stopQueue) push(l Lease) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.pending = append(q.pending, l)
+}
+
+func (q *stopQueue) drain() []Lease {
+	if q == nil {
+		return nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := q.pending
+	q.pending = nil
+	return out
 }
 
 // New returns the Store for home, wired to the real clock and process table.
 func New(home string) *Store {
 	host, _ := os.Hostname()
-	return &Store{Home: home, Host: host, Poll: 2 * time.Second, Now: time.Now, Alive: pidAlive}
+	return &Store{Home: home, Host: host, Poll: 2 * time.Second, Now: time.Now, Alive: pidAlive, PID: os.Getpid(),
+		stops: &stopQueue{}}
 }
 
 // Dir is where lease state lives.
@@ -183,13 +231,64 @@ func (s *Store) leasePath(env string) string    { return filepath.Join(Dir(s.Hom
 func (s *Store) releasedPath(env string) string { return filepath.Join(Dir(s.Home), env+".released") }
 func (s *Store) queueDir() string               { return filepath.Join(Dir(s.Home), "queue") }
 
+// locked runs fn under the host's leases lock, then -- with the lock
+// released, because a stop is a container operation and may take a minute --
+// any stops fn's reaping or releasing queued.
 func (s *Store) locked(holder string, fn func() error) error {
 	lock, err := hostlock.Acquire(context.Background(), s.Home, hostlock.Leases, holder, lockTimeout)
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
-	return fn()
+	err = fn()
+	lock.Release()
+	s.runStops()
+	return err
+}
+
+// endSession is what happens to a session lease l that just ended, under the
+// lock: with somewhere to send the stop, l is replaced by a placeholder held
+// by this process and the stop is queued; the placeholder is returned as the
+// environment's current holder. Otherwise the environment is simply free.
+func (s *Store) endSession(l *Lease) (*Lease, error) {
+	if !l.IsSession() || l.KeepRunning || s.OnSessionEnd == nil || s.stops == nil {
+		return nil, nil
+	}
+	token, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+	now := s.Now()
+	stop := &Lease{
+		Env: l.Env, Holder: "nsctl, stopping " + l.Env + " after " + l.Holder + "'s session", Token: token,
+		RunID: token[:12], PID: s.PID, Host: s.Host, Acquired: now, Heartbeat: now,
+		TTLSeconds: int(stopTTL / time.Second),
+	}
+	if err := s.write(stop); err != nil {
+		return nil, err
+	}
+	s.stops.push(*stop)
+	return stop, nil
+}
+
+// runStops stops every environment endSession queued, then gives each back.
+// A failed stop is reported by OnSessionEnd itself and still frees the
+// environment: holding it would only stop the next session using it.
+func (s *Store) runStops() {
+	for _, stop := range s.stops.drain() {
+		_ = s.OnSessionEnd(stop.Env)
+		_ = s.locked("stopped "+stop.Env, func() error {
+			data, err := os.ReadFile(s.leasePath(stop.Env))
+			if err != nil {
+				return nil
+			}
+			var cur Lease
+			if json.Unmarshal(data, &cur) == nil && cur.Token == stop.Token {
+				_ = os.Remove(s.leasePath(stop.Env))
+				touch(s.releasedPath(stop.Env), s.Now())
+			}
+			return nil
+		})
+	}
 }
 
 // live reports whether l still holds its environment.
@@ -219,7 +318,10 @@ func (s *Store) current(env string) (*Lease, error) {
 	}
 	if !s.live(&l) {
 		_ = os.Remove(s.leasePath(env))
-		return nil, nil
+		if l.IsSession() {
+			touch(s.releasedPath(env), s.Now())
+		}
+		return s.endSession(&l)
 	}
 	return &l, nil
 }
@@ -256,6 +358,7 @@ func (s *Store) grant(env string, r Request) (*Lease, error) {
 		Env: env, Holder: r.Holder, Token: token, RunID: runID, PID: r.PID, Host: s.Host,
 		Acquired: now, Heartbeat: now, TTLSeconds: int(ttl / time.Second),
 		Scope: scope, Template: r.Template, Repos: append([]string(nil), r.Repos...),
+		KeepRunning: r.KeepRunning && scope == ScopeSession,
 	}
 	if err := s.write(l); err != nil {
 		return nil, err
@@ -302,15 +405,17 @@ func (s *Store) Renew(env, token string) error {
 // Release gives a run lease back. A session lease is left in place with
 // ErrSessionLease; see ReleaseSession.
 func (s *Store) Release(env, token string) error {
-	return s.release(env, token, false)
+	return s.release(env, token, false, false)
 }
 
-// ReleaseSession gives back any lease the token holds, session or run.
-func (s *Store) ReleaseSession(env, token string) error {
-	return s.release(env, token, true)
+// ReleaseSession gives back any lease the token holds, session or run. A
+// session's end stops its environment (see OnSessionEnd) unless keepRunning
+// or the lease was taken with KeepRunning.
+func (s *Store) ReleaseSession(env, token string, keepRunning bool) error {
+	return s.release(env, token, true, keepRunning)
 }
 
-func (s *Store) release(env, token string, session bool) error {
+func (s *Store) release(env, token string, session, keepRunning bool) error {
 	return s.locked("release "+env, func() error {
 		cur, err := s.current(env)
 		if err != nil {
@@ -326,6 +431,10 @@ func (s *Store) release(env, token string, session bool) error {
 			return err
 		}
 		touch(s.releasedPath(env), s.Now())
+		if cur.IsSession() && !keepRunning {
+			_, err := s.endSession(cur)
+			return err
+		}
 		return nil
 	})
 }
@@ -440,7 +549,28 @@ func (s *Store) List() ([]Lease, []Waiter, error) {
 		waiters, err = s.queue()
 		return err
 	})
-	return leases, waiters, err
+	// A placeholder this call wrote while reading is gone by now -- locked ran
+	// its stop and released it before returning -- so it is not reported as a
+	// holder. One another call of this process still holds is.
+	live := leases[:0]
+	for _, l := range leases {
+		if l.PID == s.PID && l.Host == s.Host && !s.stillHolds(&l) {
+			continue
+		}
+		live = append(live, l)
+	}
+	return live, waiters, err
+}
+
+// stillHolds reports whether l's file still carries l's token. Unlocked: it
+// only decides what a listing shows.
+func (s *Store) stillHolds(l *Lease) bool {
+	data, err := os.ReadFile(s.leasePath(l.Env))
+	if err != nil {
+		return false
+	}
+	var cur Lease
+	return json.Unmarshal(data, &cur) == nil && cur.Token == l.Token
 }
 
 // queue reads the live waiters in order, pruning dead ones. Caller holds the

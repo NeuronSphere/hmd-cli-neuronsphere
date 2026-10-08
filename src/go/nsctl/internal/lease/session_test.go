@@ -112,7 +112,7 @@ func TestReleaseLeavesASessionLeaseUnlessToldItIsTheSession(t *testing.T) {
 	if cur, _ := s.ByToken(l.Token); cur == nil {
 		t.Fatal("a run-style release ended the session lease")
 	}
-	if err := s.ReleaseSession("dev", l.Token); err != nil {
+	if err := s.ReleaseSession("dev", l.Token, false); err != nil {
 		t.Fatalf("ReleaseSession() = %v", err)
 	}
 	if cur, _ := s.ByToken(l.Token); cur != nil {
@@ -127,7 +127,7 @@ func TestReleaseSessionStillNeedsTheToken(t *testing.T) {
 	if _, err := s.Acquire("dev", sessionReq("b", 200)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReleaseSession("dev", "nope"); !errors.Is(err, ErrNotHolder) {
+	if err := s.ReleaseSession("dev", "nope", false); !errors.Is(err, ErrNotHolder) {
 		t.Errorf("ReleaseSession(wrong token) = %v, want ErrNotHolder", err)
 	}
 }
@@ -140,7 +140,7 @@ func TestReleaseSessionAlsoEndsARunLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReleaseSession("dev", l.Token); err != nil {
+	if err := s.ReleaseSession("dev", l.Token, false); err != nil {
 		t.Errorf("ReleaseSession() of a run lease = %v", err)
 	}
 }

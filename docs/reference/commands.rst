@@ -1499,6 +1499,7 @@ Local flags
 * ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
 * ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
 * ``--json`` — print the lease as JSON
+* ``--keep-running`` — with --session, do not stop the environment when the session ends
 * ``--lean`` — with --repo, activate no profiles
 * ``--name`` — with --repo, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--no-pull`` — with --template/--repo, do not fetch the artifacts the composition names
@@ -1582,6 +1583,10 @@ the session's own token, so a script written for run leases releasing "its"
 lease would otherwise end the session; without --session such a release leaves
 the lease in place, says so, and exits zero.
 
+Ending a session stops its environment (NERD035 SPEC006), keeping its state for
+the next session to reuse warm; --keep-running leaves it running. Nothing is
+ever purged here: that is env purge.
+
 Usage
 ~~~~~
 
@@ -1592,6 +1597,7 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--keep-running`` — with --session, leave the environment running instead of stopping it
 * ``--session`` — end a session lease, not just a run's use of it
 * ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 

@@ -629,6 +629,13 @@ of for one run:
   that names a *different* environment contends for it as usual.
 - ``release`` leaves a session lease in place, says so and exits zero, because
   a nested run holds the same token. ``release --session`` ends it.
+- **A session's end stops its environment**, keeping its state for the next
+  session to reuse warm. That covers ``release --session``, an expired TTL, and
+  the death of the session's process. Whichever nsctl command notices first
+  runs the stop, and reports it on stderr. Meanwhile the environment shows as
+  held by the stop. ``--keep-running`` on ``acquire --session`` or
+  ``release --session`` skips the stop. Nothing is ever purged on a session's
+  end: ``env purge`` is the only teardown.
 - ``nsctl env lease whoami`` shows the lease the token holds: environment,
   scope, holder, expiry and where its routes are served.
 

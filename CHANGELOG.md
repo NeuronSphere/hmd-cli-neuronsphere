@@ -2,6 +2,13 @@
 
 ## 2026-10-08
 
+- feat: a session's end stops its environment (NERD035 SPEC006). A session
+  lease that is released with `--session`, expires or loses its process is
+  replaced, under the host lock, by a placeholder held by the nsctl process
+  that noticed. That process runs `env stop` outside the lock, then frees the
+  environment. `--keep-running` on `acquire --session` or
+  `release --session` skips the stop. Run leases are unchanged, and nothing is
+  purged.
 - fix: a session acquire's bring-up starts the control plane first, as
   `env start` does; it called only the environment half and waited five minutes
   on a Floci nothing had started. Both now run one function.

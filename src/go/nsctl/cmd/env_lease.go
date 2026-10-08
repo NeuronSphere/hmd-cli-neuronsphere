@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lease"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -61,7 +63,7 @@ the process it watches (--pid) exits.`,
 }
 
 func newEnvLeaseAcquireCommand(opts *Options) *cobra.Command {
-	var fromPool, wait, steal, asJSON, session, shell, noStart, noPull bool
+	var fromPool, wait, steal, asJSON, session, shell, noStart, noPull, keepRunning bool
 	var holder, forPath, runID string
 	var planner fromRepo
 	shape := sessionShape{shared: &planner}
@@ -119,6 +121,9 @@ Prints the lease, including the token that renew, release and leased commands
 			if shell && asJSON {
 				return nserr.New(nserr.Usage, "--shell and --json are two output formats; pass one")
 			}
+			if keepRunning && !session {
+				return nserr.New(nserr.Usage, "--keep-running is about a session's end; pass --session")
+			}
 			if shape.requested() && !session {
 				return nserr.New(nserr.Usage, "--template and --repo shape a session's environment; pass --session")
 			}
@@ -140,6 +145,7 @@ Prints the lease, including the token that renew, release and leased commands
 			r := lease.Request{Holder: holder, RunID: runID, PID: pid, TTL: ttl, Steal: steal}
 			if session {
 				r.Scope = lease.ScopeSession
+				r.KeepRunning = keepRunning
 				if !cmd.Flags().Changed("ttl") {
 					r.TTL = sessionTTL(home, opts)
 				}
@@ -161,7 +167,7 @@ Prints the lease, including the token that renew, release and leased commands
 					r.Repos = append(r.Repos, abs)
 				}
 			}
-			store := lease.New(home)
+			store := leaseStore(cmd, opts, home)
 			render := func(l *lease.Lease) error {
 				if err := renderLease(cmd.OutOrStdout(), l, asJSON, shell, composed != nil && !noStart); err != nil {
 					return err
@@ -256,6 +262,7 @@ Prints the lease, including the token that renew, release and leased commands
 	cmd.Flags().BoolVar(&session, "session", false, "hold the environment for a working session, not one run")
 	cmd.Flags().BoolVar(&shell, "shell", false, "print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval")
 	shape.bind(cmd)
+	cmd.Flags().BoolVar(&keepRunning, "keep-running", false, "with --session, do not stop the environment when the session ends")
 	cmd.Flags().BoolVar(&noStart, "no-start", false, "with --template/--repo, write the session's manifest but do not start the environment")
 	cmd.Flags().BoolVar(&noPull, "no-pull", false, "with --template/--repo, do not fetch the artifacts the composition names")
 	cmd.Flags().StringSliceVar(&planner.profiles, "profile", nil, "with --repo, local profiles to activate in every repository. Repeatable, or comma-separated")
@@ -278,7 +285,7 @@ func newEnvLeaseRenewCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return leaseError(lease.New(home).Renew(args[0], tokenOrEnv(token, opts)))
+			return leaseError(leaseStore(cmd, opts, home).Renew(args[0], tokenOrEnv(token, opts)))
 		},
 	}
 	cmd.Flags().StringVar(&token, "token", "", "the lease token (default: NSCTL_LEASE_TOKEN)")
@@ -287,7 +294,7 @@ func newEnvLeaseRenewCommand(opts *Options) *cobra.Command {
 
 func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 	var token string
-	var session bool
+	var session, keepRunning bool
 	cmd := &cobra.Command{
 		Use:   "release <name> --token <token>",
 		Short: "Give a leased environment back",
@@ -296,7 +303,11 @@ func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 A session lease is ended only with --session. A run inside a session is handed
 the session's own token, so a script written for run leases releasing "its"
 lease would otherwise end the session; without --session such a release leaves
-the lease in place, says so, and exits zero.`,
+the lease in place, says so, and exits zero.
+
+Ending a session stops its environment (NERD035 SPEC006), keeping its state for
+the next session to reuse warm; --keep-running leaves it running. Nothing is
+ever purged here: that is env purge.`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -305,12 +316,15 @@ the lease in place, says so, and exits zero.`,
 			if err != nil {
 				return err
 			}
-			store := lease.New(home)
-			release := store.Release
-			if session {
-				release = store.ReleaseSession
+			if keepRunning && !session {
+				return nserr.New(nserr.Usage, "--keep-running is about ending a session; pass --session")
 			}
-			err = release(args[0], tokenOrEnv(token, opts))
+			store := leaseStore(cmd, opts, home)
+			if session {
+				err = store.ReleaseSession(args[0], tokenOrEnv(token, opts), keepRunning)
+			} else {
+				err = store.Release(args[0], tokenOrEnv(token, opts))
+			}
 			if errors.Is(err, lease.ErrSessionLease) {
 				fmt.Fprintf(cmd.ErrOrStderr(),
 					"note: %s is held by a session lease, which a run does not end; the session keeps it. "+
@@ -326,6 +340,7 @@ the lease in place, says so, and exits zero.`,
 	}
 	cmd.Flags().StringVar(&token, "token", "", "the lease token (default: NSCTL_LEASE_TOKEN)")
 	cmd.Flags().BoolVar(&session, "session", false, "end a session lease, not just a run's use of it")
+	cmd.Flags().BoolVar(&keepRunning, "keep-running", false, "with --session, leave the environment running instead of stopping it")
 	return cmd
 }
 
@@ -342,7 +357,7 @@ func newEnvLeaseListCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leases, waiters, err := lease.New(home).List()
+			leases, waiters, err := leaseStore(cmd, opts, home).List()
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
@@ -469,6 +484,30 @@ func tokenOrEnv(token string, opts *Options) string {
 		return token
 	}
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
+}
+
+// stopEnvironment is what `env stop` runs, replaceable in tests.
+var stopEnvironment = func(ctx context.Context, opts *Options, home, slug string, out io.Writer) error {
+	return environment.Stop(ctx, &environment.Options{Home: home, Lookup: opts.Lookup, Out: out, Err: out}, slug)
+}
+
+// leaseStore is the lease store every command uses: one that stops an
+// environment when a session lease on it ends (NERD035 SPEC006), in whichever
+// nsctl process notices -- a release, or anything that reads the leases and
+// finds a session expired or its process gone. The stop's progress goes to
+// stderr, so it never mixes into output a script reads.
+func leaseStore(cmd *cobra.Command, opts *Options, home string) *lease.Store {
+	s := lease.New(home)
+	s.OnSessionEnd = func(env string) error {
+		out := cmd.ErrOrStderr()
+		fmt.Fprintf(out, "A session on %s ended; stopping it (its state is kept for the next session).\n", env)
+		err := stopEnvironment(cmd.Context(), opts, home, env, out)
+		if err != nil {
+			fmt.Fprintf(out, "warning: stopping %s after its session ended: %v\n", env, err)
+		}
+		return err
+	}
+	return s
 }
 
 // startEnvironment is what `env start` runs, replaceable in tests.
@@ -621,7 +660,7 @@ identifies the lease, so a hook or a background loop needs nothing else.`,
 			if err != nil {
 				return err
 			}
-			l, err := lease.New(home).Heartbeat(tokenOrEnv(token, opts))
+			l, err := leaseStore(cmd, opts, home).Heartbeat(tokenOrEnv(token, opts))
 			if err != nil {
 				return leaseError(err)
 			}
@@ -654,7 +693,7 @@ routes are served. Exits non-zero when the token holds no live lease.`,
 			if t == "" {
 				return nserr.New(nserr.Usage, "no lease token: set NSCTL_LEASE_TOKEN or pass --token")
 			}
-			l, err := lease.New(home).ByToken(t)
+			l, err := leaseStore(cmd, opts, home).ByToken(t)
 			if err != nil {
 				return leaseError(err)
 			}
@@ -712,7 +751,7 @@ func (g *leaseGuard) bind(cmd *cobra.Command) {
 // check refuses unless slug is unleased or the caller holds its lease. It runs
 // before the command changes anything, so a refusal costs nothing.
 func (g *leaseGuard) check(cmd *cobra.Command, opts *Options, home, slug string) error {
-	err := lease.New(home).Check(slug, tokenOrEnv(g.token, opts))
+	err := leaseStore(cmd, opts, home).Check(slug, tokenOrEnv(g.token, opts))
 	var held *lease.HeldError
 	if g.ignore && errors.As(err, &held) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: ignoring the lease %s holds on %s (%s, until %s)\n",

@@ -988,3 +988,13 @@ A Session Acquire Writes Its Composition Before Starting
     Should Not Contain    ${acq.stdout}    Wrote
     ${m}=         Get File    ${home}${/}environments${/}dev.yaml
     Should Contain    ${m}    template: analytics
+
+Keep Running Is About A Session's End
+    [Documentation]    NERD035 SPEC006: --keep-running only means something for
+    ...                a session lease, so without --session it is refused.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --pid    0    --keep-running
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    --session

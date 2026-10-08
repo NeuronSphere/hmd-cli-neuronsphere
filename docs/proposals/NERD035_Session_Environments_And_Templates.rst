@@ -295,26 +295,38 @@ Scope and terminology
 .. spec:: A session's end stops its environment and never purges it
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     A session lease that ends shall **stop** its environment, by the same
     path as ``nsctl env stop``. Stopping keeps the cluster datastore,
     volumes and manifest. The lease can end on release, on TTL expiry, or on
     the death of its process.
 
-    - The stop runs in whichever nsctl process ends the lease. ``Release``
-      runs it directly. An expired or orphaned lease is reaped by
-      ``Store.current`` under the host lock, and the reaper runs the stop
-      after it drops the lock. The reaper never holds the lock across a
-      container operation.
-    - The ``.released`` timestamp is written as today. Warmth ordering
-      depends on it.
+    - The stop runs in whichever nsctl process ends the lease:
+      ``release --session``, or any command that reads the leases and finds
+      a session expired or its process gone -- ``env lease list``, an
+      ``acquire``, a guarded ``env apply``. Its progress goes to stderr.
+    - The stop never runs under the host lock, because it is a container
+      operation. Under the lock, the ended lease is replaced by a
+      **placeholder** lease held by the stopping process (its PID, a 15
+      minute TTL, a holder naming the stop). The stop runs after the lock is
+      released. Then the placeholder is released and ``.released`` is
+      written. While the stop runs, the environment is held, so the pool
+      skips it or ``--wait`` queues for it. A named acquire or a guarded
+      command is refused, naming the stop: a session cannot be granted an
+      environment that is about to be stopped under it. A stop whose process
+      dies leaves a placeholder that is reaped like any run lease. A failed
+      stop is reported and still frees the environment.
+    - A reaped session lease writes ``.released`` too, as a released one
+      does. Warmth ordering depends on it.
     - The environment's ``source: local`` entries are kept in the manifest.
       The next session's composition replaces the manifest: an instance it
       declares again is redeployed from the new tree, and one it does not
       is left deployed and reported (SPEC005), not torn down.
-    - ``acquire --session --keep-running`` and ``release --keep-running``
-      skip the stop, for someone who expects to come back within minutes.
+    - ``acquire --session --keep-running`` and ``release --session
+      --keep-running`` skip the stop, for someone who expects to come back
+      within minutes. ``--keep-running`` without ``--session`` is a usage
+      error.
 
     **Nothing purges automatically.** Not acquire, not release, not expiry,
     and not a pool or capacity limit. Stopping is the only side effect nsctl
