@@ -139,7 +139,7 @@ Prints the lease, including the token that renew, release and leased commands
 			if !cmd.Flags().Changed("pid") {
 				pid = os.Getppid()
 				if session {
-					pid = lease.SessionPID(pid, lease.ProcParent)
+					pid = sessionProcess()
 				}
 			}
 			r := lease.Request{Holder: holder, RunID: runID, PID: pid, TTL: ttl, Steal: steal}
@@ -148,6 +148,25 @@ Prints the lease, including the token that renew, release and leased commands
 				r.KeepRunning = keepRunning
 				if !cmd.Flags().Changed("ttl") {
 					r.TTL = sessionTTL(home, opts)
+				}
+			}
+			// A session holds one environment. Asked again -- a SessionStart
+			// hook firing on /clear or a compaction -- it gets the lease it
+			// already has rather than a second environment.
+			if session && !steal && pid > 0 {
+				held, err := leaseStore(cmd, opts, home).BySessionPID(pid)
+				if err != nil {
+					return leaseError(err)
+				}
+				if held != nil {
+					if len(args) == 1 && args[0] != held.Env {
+						return nserr.New(nserr.InUse,
+							"this session already holds %s; end it with `nsctl env lease release --session` before taking %s",
+							held.Env, args[0])
+					}
+					held.Nested = true
+					fmt.Fprintf(cmd.ErrOrStderr(), "note: this session already holds %s\n", held.Env)
+					return renderLease(cmd.OutOrStdout(), held, asJSON, shell, false)
 				}
 			}
 			// Composed before any lease is taken: a composition that cannot be
@@ -313,7 +332,7 @@ func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 	var token string
 	var session, keepRunning bool
 	cmd := &cobra.Command{
-		Use:   "release <name> --token <token>",
+		Use:   "release [<name>] [--token <token>]",
 		Short: "Give a leased environment back",
 		Long: `Ends the lease the token holds on the environment.
 
@@ -322,10 +341,13 @@ the session's own token, so a script written for run leases releasing "its"
 lease would otherwise end the session; without --session such a release leaves
 the lease in place, says so, and exits zero.
 
+With --session the name and token may be left out: the session's own lease is
+found by its process, which is what lets a hook end it.
+
 Ending a session stops its environment (NERD035 SPEC006), keeping its state for
 the next session to reuse warm; --keep-running leaves it running. Nothing is
 ever purged here: that is env purge.`,
-		Args:          cobra.ExactArgs(1),
+		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -336,11 +358,25 @@ ever purged here: that is env purge.`,
 			if keepRunning && !session {
 				return nserr.New(nserr.Usage, "--keep-running is about ending a session; pass --session")
 			}
+			if len(args) == 0 && !session {
+				return nserr.New(nserr.Usage, "name the environment to release, or pass --session to end this session's")
+			}
 			store := leaseStore(cmd, opts, home)
+			t := tokenOrEnv(token, opts)
+			if session && (len(args) == 0 || t == "") {
+				mine, err := mySession(store, t)
+				if err != nil {
+					return leaseError(err)
+				}
+				if mine == nil || (len(args) == 1 && mine.Env != args[0]) {
+					return leaseError(lease.ErrNotHolder)
+				}
+				args, t = []string{mine.Env}, mine.Token
+			}
 			if session {
-				err = store.ReleaseSession(args[0], tokenOrEnv(token, opts), keepRunning)
+				err = store.ReleaseSession(args[0], t, keepRunning)
 			} else {
-				err = store.Release(args[0], tokenOrEnv(token, opts))
+				err = store.Release(args[0], t)
 			}
 			if errors.Is(err, lease.ErrSessionLease) {
 				fmt.Fprintf(cmd.ErrOrStderr(),
@@ -509,6 +545,19 @@ func tokenOrEnv(token string, opts *Options) string {
 		return token
 	}
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
+}
+
+// sessionProcess is the process a session lease taken from here watches:
+// the nearest claude ancestor, else the caller's parent. Replaceable in tests.
+var sessionProcess = func() int { return lease.SessionPID(os.Getppid(), lease.ProcParent) }
+
+// mySession is the lease token holds, or else the session lease this
+// session's process holds.
+func mySession(store *lease.Store, token string) (*lease.Lease, error) {
+	if token != "" {
+		return store.ByToken(token)
+	}
+	return store.BySessionPID(sessionProcess())
 }
 
 // stopEnvironment is what `env stop` runs, replaceable in tests.
@@ -718,7 +767,15 @@ identifies the lease, so a hook or a background loop needs nothing else.`,
 			if err != nil {
 				return err
 			}
-			l, err := leaseStore(cmd, opts, home).Heartbeat(tokenOrEnv(token, opts))
+			store := leaseStore(cmd, opts, home)
+			mine, err := mySession(store, tokenOrEnv(token, opts))
+			if err != nil {
+				return leaseError(err)
+			}
+			if mine == nil {
+				return leaseError(lease.ErrNotHolder)
+			}
+			l, err := store.Heartbeat(mine.Token)
 			if err != nil {
 				return leaseError(err)
 			}
@@ -748,12 +805,12 @@ routes are served. Exits non-zero when the token holds no live lease.`,
 				return err
 			}
 			t := tokenOrEnv(token, opts)
-			if t == "" {
-				return nserr.New(nserr.Usage, "no lease token: set NSCTL_LEASE_TOKEN or pass --token")
-			}
-			l, err := leaseStore(cmd, opts, home).ByToken(t)
+			l, err := mySession(leaseStore(cmd, opts, home), t)
 			if err != nil {
 				return leaseError(err)
+			}
+			if l == nil && t == "" {
+				return nserr.New(nserr.Usage, "no lease: this session holds none, and neither NSCTL_LEASE_TOKEN nor --token names one")
 			}
 			if l == nil {
 				return nserr.New(nserr.Usage, "this token holds no live lease: it expired, was released or was taken over")

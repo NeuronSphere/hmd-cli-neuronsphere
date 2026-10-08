@@ -34,6 +34,7 @@ resolved and why; see :doc:`how-to/choose-a-container-engine`.
    how-to/test-local-authorization
    how-to/find-credentials
    how-to/use-agent-skills
+   how-to/session-environments
    how-to/use-stacks
    how-to/install-cli-plugins
    how-to/fix-a-start-that-fails

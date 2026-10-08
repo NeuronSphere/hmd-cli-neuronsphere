@@ -1583,6 +1583,9 @@ the session's own token, so a script written for run leases releasing "its"
 lease would otherwise end the session; without --session such a release leaves
 the lease in place, says so, and exits zero.
 
+With --session the name and token may be left out: the session's own lease is
+found by its process, which is what lets a hook end it.
+
 Ending a session stops its environment (NERD035 SPEC006), keeping its state for
 the next session to reuse warm; --keep-running leaves it running. Nothing is
 ever purged here: that is env purge.
@@ -1592,7 +1595,7 @@ Usage
 
 .. code-block:: text
 
-   nsctl env lease release <name> --token <token> [flags]
+   nsctl env lease release [<name>] [--token <token>] [flags]
 
 Local flags
 ~~~~~~~~~~~

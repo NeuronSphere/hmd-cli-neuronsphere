@@ -31,6 +31,9 @@ func TestMain(m *testing.M) {
 		return errors.New("starting an environment is stubbed out in cmd tests")
 	}
 	stopEnvironment = func(context.Context, *Options, string, string, io.Writer) error { return nil }
+	// Tests run under whatever launched them -- often a Claude Code session,
+	// whose process every test would otherwise share as its session.
+	sessionProcess = func() int { return 0 }
 	purgeEnvironment = func(context.Context, *environment.Options, string) error {
 		return errors.New("purging an environment is stubbed out in cmd tests")
 	}

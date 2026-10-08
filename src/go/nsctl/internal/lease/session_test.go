@@ -217,3 +217,25 @@ func TestProcParentReadsThisProcess(t *testing.T) {
 		t.Errorf("ProcParent(self) = %d, %q; want %d and a name", ppid, name, os.Getppid())
 	}
 }
+
+func TestBySessionPIDFindsOnlyThatProcesssSessionLease(t *testing.T) {
+	t.Parallel()
+	s, _, _ := testStore(t)
+
+	if _, err := s.Acquire("local", req("run", 100)); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := s.Acquire("dev", sessionReq("me", 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.BySessionPID(200)
+	if err != nil || got == nil || got.Token != mine.Token {
+		t.Fatalf("BySessionPID(200) = %+v, %v; want the dev session", got, err)
+	}
+	for _, pid := range []int{100, 300, 0} {
+		if got, err := s.BySessionPID(pid); err != nil || got != nil {
+			t.Errorf("BySessionPID(%d) = %+v, %v; want none", pid, got, err)
+		}
+	}
+}

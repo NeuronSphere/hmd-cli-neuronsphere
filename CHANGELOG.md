@@ -2,6 +2,12 @@
 
 ## 2026-10-08
 
+- feat: a session is found by its process as well as its token.
+  `acquire --session` from a session that already holds a lease returns it, so
+  a SessionStart hook re-firing on `/clear` never takes a second environment.
+  `heartbeat`, `whoami` and `release --session` need no token. Adds the bundled
+  skill `nsctl-session-environment` and a how-to wiring Claude Code hooks to
+  give each session its own environment.
 - feat: `[pool] max_running` (NERD035 SPEC008). A session acquire that would
   start a pool environment beyond the cap is refused, or queued with `--wait`,
   naming what uses the budget. It never stops anything to make room. Running

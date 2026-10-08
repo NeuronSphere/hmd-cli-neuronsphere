@@ -147,6 +147,19 @@ Scope and terminology
       the base URL of the environment's routes (``/<env>/<service>/``). It
       exits non-zero when there is none.
 
+    - **A session is its process, too.** A session holds one environment:
+      ``acquire --session`` from a session whose process already holds a
+      session lease returns that lease (``nested``) instead of taking a
+      second one, and refuses a different named environment. ``heartbeat``,
+      ``whoami`` and ``release --session`` -- whose name and token are then
+      optional -- find the session's lease by its process when no token is
+      given. Claude Code hooks need this: a SessionStart hook fires again on
+      ``/clear`` and compaction, and whether exports it wrote through
+      ``$CLAUDE_ENV_FILE`` reach other hooks is not documented.
+      ``docs/how-to/session-environments.rst`` gives the hook configuration,
+      and the bundled skill ``nsctl-session-environment`` tells an agent how
+      to work inside its environment.
+
     Run leases never take an environment a session holds. The pool treats a
     session-held environment as busy, as it treats any held one today.
 

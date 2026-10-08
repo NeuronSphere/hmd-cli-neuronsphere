@@ -487,6 +487,40 @@ func (s *Store) byToken(token string) (*Lease, error) {
 	return nil, nil
 }
 
+// BySessionPID returns the live session lease watching pid on this host, or
+// nil. It is how a session finds its own lease without its token: a Claude
+// Code hook may not see the exports another hook wrote.
+func (s *Store) BySessionPID(pid int) (*Lease, error) {
+	if pid <= 0 {
+		return nil, nil
+	}
+	var out *Lease
+	err := s.locked("find session", func() error {
+		entries, err := os.ReadDir(Dir(s.Home))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			l, err := s.current(strings.TrimSuffix(e.Name(), ".json"))
+			if err != nil {
+				return err
+			}
+			if l != nil && l.IsSession() && l.PID == pid && l.Host == s.Host {
+				out = l
+				return nil
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // Heartbeat renews whichever lease token holds, and returns it.
 func (s *Store) Heartbeat(token string) (*Lease, error) {
 	var out *Lease
