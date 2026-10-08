@@ -971,3 +971,20 @@ An Environment Composed From A Template Records It
     Should Contain    ${m}    hmd-inf-trino
     ${mix}=       Run nsctl In Home Without An Engine    ${home}    env    add    other    --template    analytics    --from-repo    ${home}
     Should Be Equal As Integers    ${mix.rc}    2
+
+A Session Acquire Writes Its Composition Before Starting
+    [Documentation]    NERD035 SPEC005: a session acquire with --template
+    ...                writes the composed manifest into the leased environment,
+    ...                and with --no-start stops there.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${acq}=       Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --session    --pid    0    --template    analytics    --no-start    --no-pull    --shell
+    Should Be Equal As Integers    ${acq.rc}    0    msg=${acq.stderr}
+    Should Contain    ${acq.stdout}    export HMD_LOCAL_ENV=dev
+    Should Not Contain    ${acq.stdout}    Wrote
+    ${m}=         Get File    ${home}${/}environments${/}dev.yaml
+    Should Contain    ${m}    template: analytics

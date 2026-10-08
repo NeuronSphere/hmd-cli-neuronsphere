@@ -632,6 +632,29 @@ of for one run:
 - ``nsctl env lease whoami`` shows the lease the token holds: environment,
   scope, holder, expiry and where its routes are served.
 
+With ``--template`` and ``--repo`` a session acquire also shapes and starts its
+environment:
+
+.. code-block:: bash
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell \
+       --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+
+1. The template and repositories are composed as ``env add --template --repo``
+   composes them (see `Composing an environment`_), before any lease is taken.
+2. With ``--pool`` the session goes to the free environment of the same template
+   that needs the least redeploying, avoiding one where another session's
+   working trees are still declared.
+3. The lease is printed. Then, with progress on stderr, missing artifacts are
+   fetched (``--no-pull`` skips it), the composition is written as the
+   environment's manifest (keeping its recorded substrate) and ``env start``
+   brings it up (``--no-start`` stops before this).
+4. If bring-up fails the command exits non-zero but the lease is kept: fix the
+   cause and run ``nsctl env apply``.
+
+Instances the previous holder declared that this session does not are left
+deployed and reported, never torn down; ``env purge`` resets an environment.
+
 Templates
 ---------
 

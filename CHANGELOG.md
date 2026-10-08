@@ -2,6 +2,13 @@
 
 ## 2026-10-08
 
+- feat: a session acquire shapes and starts its environment (NERD035 SPEC005).
+  `env lease acquire --session --template <t> --repo <path>...` composes before
+  taking a lease, places the session (with `--pool`) in the free environment of
+  the same template needing the least redeploying and holding no other
+  session's working trees, prints the lease, then fetches, writes the manifest
+  and runs `env start` with progress on stderr (`--no-pull`, `--no-start`). A
+  failed bring-up keeps the lease.
 - feat: compose an environment from a template and the repositories being
   edited (NERD035 SPEC004): `env add <name> --template <t> --repo <path>...`.
   What the composition already provides is shared, a repository being edited

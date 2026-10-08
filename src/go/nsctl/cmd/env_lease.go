@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lease"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
@@ -60,8 +62,10 @@ the process it watches (--pid) exits.`,
 }
 
 func newEnvLeaseAcquireCommand(opts *Options) *cobra.Command {
-	var fromPool, wait, steal, asJSON, session, shell bool
+	var fromPool, wait, steal, asJSON, session, shell, noStart, noPull bool
 	var holder, forPath, runID string
+	var planner fromRepo
+	shape := sessionShape{shared: &planner}
 	var ttl time.Duration
 	var pid int
 	cmd := &cobra.Command{
@@ -81,13 +85,25 @@ defaults to the session's process -- the nearest ancestor named claude, else
 the caller's parent. --shell prints the two exports that point every later
 nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
 
+With --template and --repo a session acquire shapes and brings up its
+environment (NERD035 SPEC004, SPEC005): it composes the template and the
+repositories being edited -- before taking any lease, so a composition that
+cannot be built costs nothing -- then, with --pool, places the session in the
+free environment of the same template that needs the least redeploying,
+avoiding one holding another session's working trees. After printing the lease
+it fetches what the composition needs (unless --no-pull), writes it as the
+environment's manifest and runs env start (unless --no-start), with progress on
+stderr. If that fails the lease is kept: fix it and run env apply.
+
 Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
 bare, naming the session's environment, or with --pool -- is answered with the
 session's own lease, marked nested, instead of contending for it.
 
 Prints the lease, including the token that renew, release and leased commands
 (NSCTL_LEASE_TOKEN) present.`,
-		Example: `  eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+		Example: `  eval "$(nsctl env lease acquire --session --pool --wait --shell \
+      --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+  eval "$(nsctl env lease acquire --session --pool --wait --shell)"
   nsctl env lease acquire --pool --wait --holder my-session --json
   nsctl env lease acquire dev --holder ci-123 --ttl 30m
   nsctl env lease acquire --pool --for run-manifest.yaml --json`,
@@ -103,6 +119,9 @@ Prints the lease, including the token that renew, release and leased commands
 			}
 			if shell && asJSON {
 				return nserr.New(nserr.Usage, "--shell and --json are two output formats; pass one")
+			}
+			if shape.requested() && !session {
+				return nserr.New(nserr.Usage, "--template and --repo shape a session's environment; pass --session")
 			}
 			home, err := opts.RequireHome()
 			if err != nil {
@@ -126,9 +145,32 @@ Prints the lease, including the token that renew, release and leased commands
 					r.TTL = sessionTTL(home, opts)
 				}
 			}
+			// Composed before any lease is taken: a composition that cannot be
+			// built must cost no lease and start nothing.
+			var composed *composition
+			if session && shape.requested() {
+				composed, err = composeSession(opts, home, "session", &shape)
+				if err != nil {
+					return err
+				}
+				r.Template = shape.template
+				for _, path := range shape.repos {
+					abs, err := filepath.Abs(path)
+					if err != nil {
+						return nserr.Wrap(nserr.Usage, err)
+					}
+					r.Repos = append(r.Repos, abs)
+				}
+			}
 			store := lease.New(home)
 			render := func(l *lease.Lease) error {
-				return renderLease(cmd.OutOrStdout(), l, asJSON, shell)
+				if err := renderLease(cmd.OutOrStdout(), l, asJSON, shell, composed != nil && !noStart); err != nil {
+					return err
+				}
+				if composed == nil {
+					return nil
+				}
+				return bringUp(cmd, opts, home, l.Env, composed, noPull, noStart)
 			}
 
 			// A run inside a session is answered with the session: contending
@@ -153,6 +195,9 @@ Prints the lease, including the token that renew, release and leased commands
 				p, err = envPool(home, opts, forPath)
 				if err != nil {
 					return err
+				}
+				if composed != nil {
+					p.Score = sessionScore(home, opts, composed.Manifest)
 				}
 			} else {
 				reg, err := registry.Load(home, opts.Lookup)
@@ -211,6 +256,13 @@ Prints the lease, including the token that renew, release and leased commands
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the lease as JSON")
 	cmd.Flags().BoolVar(&session, "session", false, "hold the environment for a working session, not one run")
 	cmd.Flags().BoolVar(&shell, "shell", false, "print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval")
+	shape.bind(cmd)
+	cmd.Flags().BoolVar(&noStart, "no-start", false, "with --template/--repo, write the session's manifest but do not start the environment")
+	cmd.Flags().BoolVar(&noPull, "no-pull", false, "with --template/--repo, do not fetch the artifacts the composition names")
+	cmd.Flags().StringSliceVar(&planner.profiles, "profile", nil, "with --repo, local profiles to activate in every repository. Repeatable, or comma-separated")
+	cmd.Flags().BoolVar(&planner.allProfiles, "all-profiles", false, "with --repo, activate every profile each lock mentions")
+	cmd.Flags().BoolVar(&planner.lean, "lean", false, "with --repo, activate no profiles")
+	cmd.Flags().StringArrayVar(&planner.names, "name", nil, "with --repo, name one instance, as <role-or-declared-name>=<instance>. Repeatable")
 	return cmd
 }
 
@@ -420,6 +472,116 @@ func tokenOrEnv(token string, opts *Options) string {
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
 }
 
+// startEnvironment is environment.Start, replaceable in tests.
+var startEnvironment = environment.Start
+
+// bringUp is a session acquire's second half (NERD035 SPEC005): fetch what the
+// composition needs, write it as slug's manifest, and start the environment.
+// The lease is already printed and stays held whatever happens here, so a
+// failure says how to retry rather than giving the environment up.
+func bringUp(cmd *cobra.Command, opts *Options, home, slug string, c *composition, noPull, noStart bool) error {
+	// stdout carries the lease alone -- with --shell, eval runs it -- so
+	// everything from here, the planner's and the puller's output included,
+	// goes to stderr.
+	out := cmd.ErrOrStderr()
+	stdout := cmd.OutOrStdout()
+	cmd.SetOut(out)
+	defer cmd.SetOut(stdout)
+
+	m := c.Manifest
+	m.Name = slug
+	path := manifest.Find(home, slug, opts.Lookup)
+	if path == "" {
+		path = manifest.DefaultPath(home, slug)
+	}
+	if m.Substrate == "" {
+		// The environment's recorded mode (NERD014) is the environment's, not
+		// the template's to clear.
+		if existing, err := manifest.Load(home, slug, opts.Lookup); err == nil && existing != nil {
+			m.Substrate = existing.Substrate
+		}
+	}
+	if missing := c.missingArtifacts(home); len(missing) > 0 {
+		if noPull {
+			fmt.Fprintf(out, "warning: %d artifact(s) are not cached and --no-pull was given; starting %s will refuse until they are\n",
+				len(missing), slug)
+		} else {
+			var libs librarians
+			if err := pullMissing(cmd, opts, &libs, home, missing); err != nil {
+				return retryable(slug, err)
+			}
+		}
+	}
+	if err := m.Save(path); err != nil {
+		return retryable(slug, nserr.Wrap(nserr.Fail, err))
+	}
+	for _, note := range c.Notes {
+		fmt.Fprintf(out, "note: %s\n", note)
+	}
+	fmt.Fprintf(out, "Wrote %s's manifest to %s\n", slug, path)
+	if noStart {
+		fmt.Fprintf(out, "Start it with `nsctl env start %s`.\n", slug)
+		return nil
+	}
+	if err := startEnvironment(cmd.Context(), &environment.Options{
+		Home: home, Lookup: opts.Lookup, Out: out, Err: out,
+	}, slug); err != nil {
+		return retryable(slug, err)
+	}
+	return nil
+}
+
+// retryable is a bring-up failure that keeps the error's exit code and says
+// the lease is still held.
+func retryable(slug string, err error) error {
+	code := nserr.CodeOf(err)
+	if code == nserr.OK {
+		code = nserr.Fail
+	}
+	return nserr.New(code, "bringing up %s: %v\nThe lease is still yours. Fix the cause and run `nsctl env apply %s`.",
+		slug, err, slug)
+}
+
+// sessionScore is how far env is from a session's composition (NERD035
+// SPEC005), lowest first: another template costs 1000, so a same-template
+// environment always wins; then the instances to (re)deploy; then one for
+// each working tree another session left declared there.
+func sessionScore(home string, opts *Options, want *manifest.Manifest) func(string) int {
+	return func(env string) int {
+		have, err := manifest.Load(home, env, opts.Lookup)
+		if err != nil {
+			return 1000 + len(want.Repos) + 1
+		}
+		score := manifestDistance(want, have) + staleTrees(want, have)
+		template := ""
+		if have != nil {
+			template = have.Template
+		}
+		if template != want.Template {
+			score += 1000
+		}
+		return score
+	}
+}
+
+// staleTrees counts the instances have deploys from a working tree that want
+// does not declare: another session's, left deployed.
+func staleTrees(want, have *manifest.Manifest) int {
+	if have == nil {
+		return 0
+	}
+	n := 0
+	for _, r := range have.Repos {
+		if r.Source == nil || r.Source.Type != manifest.SourceLocal {
+			continue
+		}
+		if _, declared := want.Repo(r.InstanceName); !declared {
+			n++
+		}
+	}
+	return n
+}
+
 // sessionTTL is [pool] session_ttl, or its default when nsctl.toml is absent
 // or unreadable -- acquire must not fail over a file only this value comes from.
 func sessionTTL(home string, opts *Options) time.Duration {
@@ -606,7 +768,7 @@ func leaseError(err error) error {
 	return nserr.Wrap(nserr.Fail, err)
 }
 
-func renderLease(out io.Writer, l *lease.Lease, asJSON, shell bool) error {
+func renderLease(out io.Writer, l *lease.Lease, asJSON, shell, startsHere bool) error {
 	if shell {
 		// Nothing but the exports: this is read by eval.
 		fmt.Fprintf(out, "export HMD_LOCAL_ENV=%s\nexport NSCTL_LEASE_TOKEN=%s\n", l.Env, l.Token)
@@ -622,7 +784,7 @@ func renderLease(out io.Writer, l *lease.Lease, asJSON, shell bool) error {
 	} else {
 		fmt.Fprintf(out, "Leased %s to %s until %s\n", l.Env, l.Holder, l.Expires().Format(time.RFC3339))
 	}
-	if l.Created {
+	if l.Created && !startsHere {
 		fmt.Fprintf(out, "%s was added to the pool for this run; start it with `nsctl env start %s`.\n", l.Env, l.Env)
 	}
 	fmt.Fprintf(out, "Token: %s\n", l.Token)

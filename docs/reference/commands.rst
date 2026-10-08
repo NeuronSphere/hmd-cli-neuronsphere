@@ -1456,6 +1456,16 @@ defaults to the session's process -- the nearest ancestor named claude, else
 the caller's parent. --shell prints the two exports that point every later
 nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
 
+With --template and --repo a session acquire shapes and brings up its
+environment (NERD035 SPEC004, SPEC005): it composes the template and the
+repositories being edited -- before taking any lease, so a composition that
+cannot be built costs nothing -- then, with --pool, places the session in the
+free environment of the same template that needs the least redeploying,
+avoiding one holding another session's working trees. After printing the lease
+it fetches what the composition needs (unless --no-pull), writes it as the
+environment's manifest and runs env start (unless --no-start), with progress on
+stderr. If that fails the lease is kept: fix it and run env apply.
+
 Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
 bare, naming the session's environment, or with --pool -- is answered with the
 session's own lease, marked nested, instead of contending for it.
@@ -1475,7 +1485,9 @@ Examples
 
 .. code-block:: shell
 
-   eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+   eval "$(nsctl env lease acquire --session --pool --wait --shell \
+         --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+     eval "$(nsctl env lease acquire --session --pool --wait --shell)"
      nsctl env lease acquire --pool --wait --holder my-session --json
      nsctl env lease acquire dev --holder ci-123 --ttl 30m
      nsctl env lease acquire --pool --for run-manifest.yaml --json
@@ -1483,15 +1495,23 @@ Examples
 Local flags
 ~~~~~~~~~~~
 
+* ``--all-profiles`` — with --repo, activate every profile each lock mentions
 * ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
 * ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
 * ``--json`` — print the lease as JSON
+* ``--lean`` — with --repo, activate no profiles
+* ``--name`` — with --repo, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--no-pull`` — with --template/--repo, do not fetch the artifacts the composition names
+* ``--no-start`` — with --template/--repo, write the session's manifest but do not start the environment
 * ``--pid`` — the process whose exit ends the lease (default: the caller's parent; with --session, the session's process); 0 relies on --ttl alone (default: ``0``)
 * ``--pool`` — lease the closest free environment from the pool
+* ``--profile`` — with --repo, local profiles to activate in every repository. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
 * ``--run-id`` — an id for this run, recorded in the lease
 * ``--session`` — hold the environment for a working session, not one run
 * ``--shell`` — print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval
 * ``--steal`` — take the environment even if someone else holds it
+* ``--template`` — Start from this template (see `nsctl template list`)
 * ``--ttl`` — how long the lease lives without a renew (with --session: [pool] session_ttl) (default: ``10m0s``)
 * ``--wait`` — queue until an environment is free instead of failing
 

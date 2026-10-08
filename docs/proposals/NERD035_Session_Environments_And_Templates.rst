@@ -233,17 +233,29 @@ Scope and terminology
 .. spec:: Acquire places the session, then brings the environment up
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
-    **Placement** uses ``AcquireFromPool`` with the session manifest as
-    ``--for``. Scoring extends ``manifestDistance``, lowest first:
+    .. note:: Implemented 2026-10-08 and covered by unit and contract tests
+       with the start step stubbed. Not yet verified end to end against a
+       live local platform (two sessions, a release, a warm reuse).
 
-    1. Free environments whose manifest records the same ``template``, then
-       the rest.
+    ``acquire --session`` takes ``--template``, a repeatable ``--repo`` and
+    the planner flags ``--profile``, ``--all-profiles``, ``--lean`` and
+    ``--name``, and composes the session manifest by SPEC004 *before* it
+    takes a lease: a composition that cannot be built costs no lease and
+    starts nothing. The lease records the template and the repositories'
+    absolute paths.
+
+    **Placement.** A named environment is leased as it is. With ``--pool``,
+    ``AcquireFromPool`` scores each free environment against the session
+    manifest, lowest first:
+
+    1. An environment whose manifest records a different ``template``
+       scores 1000 more, so a same-template environment always wins.
     2. ``manifestDistance(want, have)``, as today.
     3. Plus one for each ``source: local`` instance in *have* that *want*
-       does not declare. That is another session's stale working tree,
-       which would have to be pruned.
+       does not declare: another session's working tree, which stays
+       deployed (below).
     4. Ties go to the most recently released environment, as today.
 
     With nothing free, a new ``cc-N`` is created if ``[pool] size`` allows
@@ -251,15 +263,26 @@ Scope and terminology
 
     **Bring-up.** After the grant, a session acquire:
 
-    1. writes the session manifest as the environment's manifest;
-    2. runs ``env start`` if the environment is stopped or newly created;
-    3. runs ``env apply --prune``, so the environment matches the session
-       manifest. That removes another session's stale instances. NERD034
-       makes working-tree changes reach the environment.
+    1. prints the lease -- the ``--shell`` exports, ``--json`` or text -- to
+       stdout, so a session that ``eval``\ s it holds its environment even if
+       what follows fails;
+    2. fetches artifacts the composition needs and the cache lacks, unless
+       ``--no-pull``;
+    3. writes the session manifest as the environment's manifest, keeping the
+       environment's recorded ``substrate`` when the composition names none;
+    4. runs ``env start``, which starts what is stopped and ends by applying
+       the manifest. ``NERD034`` makes working-tree changes reach the
+       environment.
 
-    Progress streams as ``env apply``'s does. If bring-up fails, the lease is
-    still held, so the session can fix and re-apply rather than lose its
-    place. ``--no-start`` grants the lease and stops after step 1.
+    Progress goes to stderr, keeping stdout to step 1. If bring-up fails, the
+    command exits non-zero and the lease is still held, so the session can
+    fix and re-run ``nsctl env apply`` rather than lose its place.
+    ``--no-start`` stops after step 3.
+
+    Instances the previous holder declared and this session does not are
+    **not torn down**: nsctl never destroys on a user's behalf, and
+    ``env apply`` reports them rather than removing them. That is why
+    placement penalises them, and why ``env purge`` (SPEC007) is the reset.
 
 .. spec:: A session's end stops its environment and never purges it
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
@@ -278,9 +301,10 @@ Scope and terminology
       container operation.
     - The ``.released`` timestamp is written as today. Warmth ordering
       depends on it.
-    - The environment's ``source: local`` entries are kept in the manifest
-      and marked ``stale: true``. The next session's apply either replaces
-      them (same repository, newer tree) or prunes them (SPEC005).
+    - The environment's ``source: local`` entries are kept in the manifest.
+      The next session's composition replaces the manifest: an instance it
+      declares again is redeployed from the new tree, and one it does not
+      is left deployed and reported (SPEC005), not torn down.
     - ``acquire --session --keep-running`` and ``release --keep-running``
       skip the stop, for someone who expects to come back within minutes.
 
@@ -349,7 +373,8 @@ Scope and terminology
 
     ``size`` counts registered environments, stopped or running. When every
     one is registered, acquire reuses the closest free one, whatever its
-    template, instead of failing. SPEC005's ``--prune`` reshapes it.
+    template, instead of failing. SPEC005's bring-up reshapes what it
+    declares; what it no longer declares stays until ``env purge``.
 
 What this is not
 ----------------
