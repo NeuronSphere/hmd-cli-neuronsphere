@@ -86,6 +86,11 @@ Prints the lease, including the token that renew, release and leased commands
 			if holder == "" {
 				holder = defaultHolder()
 			}
+			// Resolved here, not at registration, so the default never bakes
+			// whichever process built the command tree into help or the docs.
+			if !cmd.Flags().Changed("pid") {
+				pid = os.Getppid()
+			}
 			r := lease.Request{Holder: holder, RunID: runID, PID: pid, TTL: ttl, Steal: steal}
 			store := lease.New(home)
 
@@ -144,7 +149,7 @@ Prints the lease, including the token that renew, release and leased commands
 	cmd.Flags().StringVar(&runID, "run-id", "", "an id for this run, recorded in the lease")
 	cmd.Flags().StringVar(&forPath, "for", "", "an environment manifest of what the run will deploy, to pick the closest pool environment")
 	cmd.Flags().DurationVar(&ttl, "ttl", lease.DefaultTTL, "how long the lease lives without a renew")
-	cmd.Flags().IntVar(&pid, "pid", os.Getppid(), "the process whose exit ends the lease; 0 relies on --ttl alone")
+	cmd.Flags().IntVar(&pid, "pid", 0, "the process whose exit ends the lease (default: the caller's parent); 0 relies on --ttl alone")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the lease as JSON")
 	return cmd
 }

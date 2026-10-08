@@ -1451,7 +1451,7 @@ Local flags
 * ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
 * ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
 * ``--json`` — print the lease as JSON
-* ``--pid`` — the process whose exit ends the lease; 0 relies on --ttl alone (default: ``13386``)
+* ``--pid`` — the process whose exit ends the lease (default: the caller's parent); 0 relies on --ttl alone (default: ``0``)
 * ``--pool`` — lease the closest free environment from the pool
 * ``--run-id`` — an id for this run, recorded in the lease
 * ``--steal`` — take the environment even if someone else holds it

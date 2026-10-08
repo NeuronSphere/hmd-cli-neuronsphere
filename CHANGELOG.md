@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-08
+
+- fix: `env lease acquire --pid` defaults to the caller's parent at run time
+  instead of at flag registration, so the generated command reference no longer
+  embeds whichever PID built it and `docs-reference-check` passes in CI.
+
 ## 2026-10-06
 
 - test: `dns status` tests for a stopped resolver take a UDP port that is free

@@ -167,3 +167,16 @@ func TestLeaseAcquireRefusesAPoolAndAName(t *testing.T) {
 		t.Errorf("error = %v, want a usage error", err)
 	}
 }
+
+// The --pid default must not depend on the process that builds the command
+// tree, or the generated command reference changes on every run.
+func TestLeaseAcquirePidDefaultIsStatic(t *testing.T) {
+	t.Parallel()
+	f := newEnvLeaseAcquireCommand(&Options{}).Flags().Lookup("pid")
+	if f == nil {
+		t.Fatal("no --pid flag")
+	}
+	if f.DefValue != "0" {
+		t.Fatalf("--pid default = %q, want a static \"0\"", f.DefValue)
+	}
+}
