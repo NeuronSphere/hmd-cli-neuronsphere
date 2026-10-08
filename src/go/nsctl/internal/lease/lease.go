@@ -637,6 +637,21 @@ func touch(path string, at time.Time) {
 	}
 }
 
+// ReleasedAt is when env's last lease ended, or zero if none ever did here.
+func (s *Store) ReleasedAt(env string) time.Time { return releasedAt(s.releasedPath(env)) }
+
+// Forget drops what the store remembers about env once it no longer exists:
+// its release time. A live lease is left alone.
+func (s *Store) Forget(env string) error {
+	return s.locked("forget "+env, func() error {
+		err := os.Remove(s.releasedPath(env))
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	})
+}
+
 func releasedAt(path string) time.Time {
 	info, err := os.Stat(path)
 	if err != nil {

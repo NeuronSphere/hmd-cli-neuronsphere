@@ -663,6 +663,32 @@ environment:
 Instances the previous holder declared that this session does not are left
 deployed and reported, never torn down; ``env purge`` resets an environment.
 
+Cleaning up the pool
+~~~~~~~~~~~~~~~~~~~~
+
+Stopped pool environments keep their state, so a later session reuses them warm.
+Nothing removes them for you. ``env lease list`` shows each free pool-created
+environment with how long it has been idle, its template and any working trees
+it still declares. ``env purge`` selects stale ones when you decide to reclaim
+the space:
+
+.. code-block:: bash
+
+   nsctl env purge --idle 72h --dry-run   # what would go
+   nsctl env purge --idle 72h --yes
+   nsctl env purge --keep 2 --yes         # all but the two most recently used
+
+- Only pool-created environments (``cc-N``) that hold no lease are candidates.
+  Configured ``[pool] members``, any other environment and the control plane
+  never are. A selector never falls through to bare ``purge``'s
+  purge-everything.
+- An environment that has never been released has no idle age and is not
+  selected. ``--idle`` and ``--keep`` together select what both select.
+- Without ``--yes`` the selection is printed and nothing is purged. There is no
+  prompt.
+- Each environment is held under a lease while it is torn down, so no session
+  is handed it halfway through.
+
 Templates
 ---------
 

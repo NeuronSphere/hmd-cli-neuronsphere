@@ -2,6 +2,12 @@
 
 ## 2026-10-08
 
+- feat: `env purge --idle <duration>` and `--keep <n>` (NERD035 SPEC007).
+  They select pool-created environments that hold no lease, never configured
+  members or the control plane, and never fall through to purge-everything.
+  `--dry-run` lists; without `--yes` nothing is purged. Each environment is
+  held under a lease while it is torn down. `env lease list` shows free pool
+  environments with their idle age, template and working trees.
 - feat: a session's end stops its environment (NERD035 SPEC006). A session
   lease that is released with `--session`, expires or loses its process is
   replaced, under the host lock, by a placeholder held by the nsctl process

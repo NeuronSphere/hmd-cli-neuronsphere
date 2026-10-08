@@ -345,7 +345,7 @@ Scope and terminology
 .. spec:: env purge selects stale environments; a person runs it
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     ``nsctl env purge`` gains selectors instead of a separate garbage
     collection command:
@@ -357,27 +357,36 @@ Scope and terminology
        nsctl env purge --keep <n>        [--dry-run] [--yes]
        nsctl env purge                   # unchanged: everything, control plane included
 
-    - ``--idle`` selects pool environments released longer ago than
-      ``<duration>``.
-    - ``--keep`` selects all but the ``<n>`` most recently released pool
-      environments.
+    - Only **pool-created** environments are candidates: those the pool
+      registered as ``cc-N``. Configured ``[pool] members`` are the user's
+      own and are never candidates.
+    - ``--idle`` selects candidates released longer ago than
+      ``<duration>``. A candidate never released has no idle age and is not
+      selected.
+    - ``--keep`` selects all but the ``<n>`` most recently released
+      candidates. Given both, an environment is selected only if both
+      select it.
     - A selector is mutually exclusive with a name.
     - A selector **never** selects the control plane. It never selects a
-      configured ``[pool] members`` entry, an environment outside the pool,
-      or an environment with a live lease of either scope. In particular, a
-      selector shall not fall through to bare ``purge``'s purge-everything
-      meaning, even when it selects nothing. Selecting nothing prints
-      "nothing to purge" and exits zero.
-    - Each selected environment is purged by the same per-environment path
-      as ``purge <name>``, one at a time, and the command stops at the first
-      failure.
+      configured member, an environment outside the pool, or an environment
+      with a live lease of either scope -- including the placeholder of a
+      stop in progress (SPEC006). A selector shall not fall through to bare
+      ``purge``'s purge-everything meaning, even when it selects nothing.
+      Selecting nothing prints "nothing to purge" and exits zero.
+    - Each selected environment is first taken under a run lease held by
+      the purge, so no session is granted it mid-teardown. One that has
+      been leased since it was selected is skipped and reported. It is then
+      purged by the same per-environment path as ``purge <name>``, one at a
+      time. The command stops at the first failure.
     - ``--dry-run`` prints the selection with each environment's idle age,
-      template and stale repositories. Without ``--yes``, the command shows
-      the same list and asks for confirmation.
+      template and working trees, and purges nothing. Without ``--yes`` the
+      command prints the same list and refuses, as ``purge <name>`` does
+      without ``--yes``. There is no interactive prompt: an agent session
+      must never confirm its own teardown by answering one.
 
-    ``env status`` and ``env lease list`` show, for every stopped pool
-    environment, its idle age and template, so a person can see when a purge
-    is worth running.
+    ``env lease list`` shows, for every free pool-created environment, its
+    idle age and template, so a person can see when a purge is worth
+    running.
 
 .. spec:: The pool has a running budget, and it waits rather than evicts
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC008

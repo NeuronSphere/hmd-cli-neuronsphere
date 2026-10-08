@@ -1736,6 +1736,14 @@ nginx routes and the state directory all go, and none of it comes back.
 With no name it purges every environment and the control plane with them,
 leaving an HMD_HOME a fresh bootstrap can start from.
 
+--idle and --keep select instead (NERD035 SPEC007): pool-created environments
+(cc-N) that hold no lease, released longer ago than --idle, or all but the
+--keep most recently released; both together select what both select. They
+never select a configured [pool] member, a leased environment or the control
+plane, and never fall through to purging everything. --dry-run lists the
+selection; without --yes the list is printed and nothing is purged. Nothing
+runs this for you: a session's end only ever stops its environment.
+
 Resources Floci spawned are deleted through Floci before the control plane
 stops, because a delete asked of a stopped Floci is a delete that did not
 happen -- and its containers and volumes are then left behind with nothing
@@ -1751,7 +1759,10 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--dry-run`` — with --idle or --keep, list what would be purged and purge nothing
+* ``--idle`` — purge pool environments released longer ago than this, e.g. 72h (default: ``0s``)
 * ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--keep`` — purge all but this many of the most recently released pool environments (default: ``-1``)
 * ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Skip the confirmation
 

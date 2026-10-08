@@ -357,10 +357,15 @@ func newEnvLeaseListCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			leases, waiters, err := leaseStore(cmd, opts, home).List()
+			store := leaseStore(cmd, opts, home)
+			leases, waiters, err := store.List()
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
+			// Free pool environments and how long they have sat, so a person
+			// can see when `env purge --idle` is worth running (NERD035
+			// SPEC007). Best effort: a listing never fails over it.
+			idle, _ := idlePool(opts, home, store)
 			out := cmd.OutOrStdout()
 			if asJSON {
 				// Tokens are bearer credentials for the lease; a listing
@@ -371,16 +376,16 @@ func newEnvLeaseListCommand(opts *Options) *cobra.Command {
 				doc := struct {
 					Leases  []lease.Lease  `json:"leases"`
 					Waiting []lease.Waiter `json:"waiting"`
-				}{Leases: nonNil(leases), Waiting: nonNil(waiters)}
+					Idle    []idleEnv      `json:"idle"`
+				}{Leases: nonNil(leases), Waiting: nonNil(waiters), Idle: nonNil(idle)}
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
 				return enc.Encode(doc)
 			}
+			now := time.Now()
 			if len(leases) == 0 && len(waiters) == 0 {
 				fmt.Fprintln(out, "No environment is leased.")
-				return nil
 			}
-			now := time.Now()
 			for _, l := range leases {
 				scope := "run"
 				if l.IsSession() {
@@ -392,6 +397,9 @@ func newEnvLeaseListCommand(opts *Options) *cobra.Command {
 			for i, w := range waiters {
 				fmt.Fprintf(out, "waiting #%d  %s, for %s, queued %s ago\n", i+1, w.Holder,
 					strings.Join(w.Candidates, "|"), now.Sub(w.Enqueued).Round(time.Second))
+			}
+			for _, e := range idle {
+				fmt.Fprintf(out, "%-12s %-7s %s\n", e.Slug, "free", describeIdle(e, now))
 			}
 			return nil
 		},

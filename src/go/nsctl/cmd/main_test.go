@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/environment"
 )
 
 // TestMain points every test in this package at a Docker daemon that does not
@@ -30,6 +31,12 @@ func TestMain(m *testing.M) {
 		return errors.New("starting an environment is stubbed out in cmd tests")
 	}
 	stopEnvironment = func(context.Context, *Options, string, string, io.Writer) error { return nil }
+	purgeEnvironment = func(context.Context, *environment.Options, string) error {
+		return errors.New("purging an environment is stubbed out in cmd tests")
+	}
+	purgeAllEnvironments = func(context.Context, *environment.Options, environment.ControlPlaneTeardown) error {
+		return errors.New("purging everything is stubbed out in cmd tests")
+	}
 	os.Exit(m.Run())
 }
 

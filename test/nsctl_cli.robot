@@ -998,3 +998,17 @@ Keep Running Is About A Session's End
     ${r}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --pid    0    --keep-running
     Should Be Equal As Integers    ${r.rc}    2
     Should Contain    ${r.stderr}    --session
+
+A Purge Selector Never Purges Everything
+    [Documentation]    NERD035 SPEC007: a selector that selects nothing says so
+    ...                and exits zero; it never falls through to bare purge.
+    ...                --dry-run needs a selector.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home Without An Engine    ${home}    env    purge    --idle    1h    --yes
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    nothing to purge
+    Directory Should Exist    ${home}${/}.config
+    ${dry}=       Run nsctl In Home Without An Engine    ${home}    env    purge    --dry-run
+    Should Be Equal As Integers    ${dry.rc}    2

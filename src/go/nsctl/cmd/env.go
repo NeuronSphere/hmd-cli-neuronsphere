@@ -878,6 +878,7 @@ func runningContainers(ctx context.Context, env *registry.Environment) []string 
 func newEnvPurgeCommand(opts *Options) *cobra.Command {
 	var yes bool
 	var guard leaseGuard
+	var sel purgeSelectors
 	cmd := &cobra.Command{
 		Use:   "purge [name]",
 		Short: "Destroy an environment: its cluster, database, graph and state",
@@ -887,6 +888,14 @@ nginx routes and the state directory all go, and none of it comes back.
 
 With no name it purges every environment and the control plane with them,
 leaving an HMD_HOME a fresh bootstrap can start from.
+
+--idle and --keep select instead (NERD035 SPEC007): pool-created environments
+(cc-N) that hold no lease, released longer ago than --idle, or all but the
+--keep most recently released; both together select what both select. They
+never select a configured [pool] member, a leased environment or the control
+plane, and never fall through to purging everything. --dry-run lists the
+selection; without --yes the list is printed and nothing is purged. Nothing
+runs this for you: a session's end only ever stops its environment.
 
 Resources Floci spawned are deleted through Floci before the control plane
 stops, because a delete asked of a stopped Floci is a delete that did not
@@ -905,6 +914,15 @@ naming them.`,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}
 
+			if sel.requested(cmd) {
+				if len(args) == 1 {
+					return nserr.New(nserr.Usage, "name an environment or select with --idle/--keep, not both")
+				}
+				return sel.run(cmd, opts, home, envOpts, yes)
+			}
+			if sel.dryRun {
+				return nserr.New(nserr.Usage, "--dry-run lists what --idle or --keep would select; pass one of them")
+			}
 			if len(args) == 1 {
 				if err := guard.checkName(cmd, opts, home, args[0]); err != nil {
 					return err
@@ -913,7 +931,7 @@ naming them.`,
 					return nserr.New(nserr.Usage,
 						"this permanently destroys %q -- its cluster, database, graph and state. Pass --yes to confirm.", args[0])
 				}
-				return environment.Purge(cmd.Context(), envOpts, args[0])
+				return purgeEnvironment(cmd.Context(), envOpts, args[0])
 			}
 
 			// Purging everything destroys every leased environment with it.
@@ -928,7 +946,7 @@ naming them.`,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}
 			names := floci.NamesFrom(opts.Lookup, "", "local")
-			return environment.PurgeAll(cmd.Context(), envOpts, environment.ControlPlaneTeardown{
+			return purgeAllEnvironments(cmd.Context(), envOpts, environment.ControlPlaneTeardown{
 				// The control plane's graph, not an environment's: a different
 				// instance under a different deployment id, and asking the
 				// wrong helper finds nothing and reports no error.
@@ -941,6 +959,7 @@ naming them.`,
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation")
 	guard.bind(cmd)
+	sel.bind(cmd)
 	return cmd
 }
 
