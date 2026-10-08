@@ -907,3 +907,26 @@ A Leased Environment Refuses Everyone But The Holder
     Should Be Equal As Integers    ${refused.rc}    3
     ${held}=      Run nsctl In Home Without An Engine    ${home}    instance    add    hmd-ms-foo    --env    dev    --path    ${tree}    --lease-token    ${token}
     Should Be Equal As Integers    ${held.rc}    0    msg=${held.stderr}
+
+A Session Lease Outlives A Run's Release
+    [Documentation]    NERD035 SPEC002: a session lease is held for the session.
+    ...                --shell prints only the exports eval reads, a run-style
+    ...                release leaves the session's lease in place and exits
+    ...                zero, and only release --session ends it.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${sh}=        Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --session    --holder    robot-s    --pid    0    --shell
+    Should Be Equal As Integers    ${sh.rc}    0    msg=${sh.stderr}
+    Should Contain    ${sh.stdout}    export HMD_LOCAL_ENV=dev
+    ${token}=     Evaluate    re.search(r"NSCTL_LEASE_TOKEN=(\\S+)", $sh.stdout).group(1)    modules=re
+    ${run}=       Run nsctl In Home Without An Engine    ${home}    env    lease    release    dev    --token    ${token}
+    Should Be Equal As Integers    ${run.rc}    0
+    Should Contain    ${run.stderr}    --session
+    ${who}=       Run nsctl In Home Without An Engine    ${home}    env    lease    whoami    --token    ${token}
+    Should Be Equal As Integers    ${who.rc}    0
+    Should Contain    ${who.stdout}    session
+    ${end}=       Run nsctl In Home Without An Engine    ${home}    env    lease    release    dev    --token    ${token}    --session
+    Should Be Equal As Integers    ${end.rc}    0
+    ${gone}=      Run nsctl In Home Without An Engine    ${home}    env    lease    whoami    --token    ${token}
+    Should Not Be Equal As Integers    ${gone.rc}    0

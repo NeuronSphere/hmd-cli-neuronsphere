@@ -43,6 +43,15 @@ import (
 // DefaultTTL is how long a lease lives without a heartbeat.
 const DefaultTTL = 10 * time.Minute
 
+// DefaultSessionTTL is DefaultTTL for a session lease (NERD035 SPEC002): a
+// session works for hours and heartbeats rather than renewing per run.
+const DefaultSessionTTL = 8 * time.Hour
+
+// ScopeSession marks a lease held for a whole working session rather than one
+// run. A run lease stores no scope, so files written before scopes existed
+// read the same.
+const ScopeSession = "session"
+
 // lockTimeout bounds the wait for the leases lock. Holders only read and
 // write a few small files.
 const lockTimeout = 30 * time.Second
@@ -63,6 +72,16 @@ type Lease struct {
 	Heartbeat  time.Time `json:"heartbeat"`
 	TTLSeconds int       `json:"ttl_seconds"`
 
+	// Scope is ScopeSession for a session lease, empty for a run lease.
+	Scope string `json:"scope,omitempty"`
+	// Template and Repos say what a session environment was shaped from:
+	// the template it started from and the working trees it deploys.
+	Template string   `json:"template,omitempty"`
+	Repos    []string `json:"repos,omitempty"`
+
+	// Nested says this acquire was answered with the caller's own session
+	// lease rather than a lease of its own. Reported, not stored.
+	Nested bool `json:"nested,omitempty"`
 	// Stole is the lease this one replaced with Request.Steal. Reported, not
 	// stored.
 	Stole *Lease `json:"stole,omitempty"`
@@ -70,6 +89,9 @@ type Lease struct {
 	// caller must start it before deploying into it. Reported, not stored.
 	Created bool `json:"created,omitempty"`
 }
+
+// IsSession reports whether l is held for a session rather than a run.
+func (l *Lease) IsSession() bool { return l.Scope == ScopeSession }
 
 // Expires is when the lease lapses without a renewal.
 func (l *Lease) Expires() time.Time {
@@ -84,6 +106,10 @@ type Request struct {
 	PID   int
 	TTL   time.Duration
 	Steal bool
+	// Scope, Template and Repos are recorded on the lease; see Lease.
+	Scope    string
+	Template string
+	Repos    []string
 }
 
 // HeldError says the environment is leased by someone else.
@@ -124,6 +150,10 @@ var (
 	// ErrNotHolder is a renew or release with a token that is not the live
 	// lease's: it expired, was stolen, or was never this caller's.
 	ErrNotHolder = errors.New("this token does not hold the lease")
+	// ErrSessionLease is a run-style release of a session lease. A run nested
+	// in a session holds the session's own token, so the token cannot say
+	// which of the two is letting go; only ReleaseSession ends a session.
+	ErrSessionLease = errors.New("this is a session lease; it is ended by the session, not by a run")
 )
 
 // Store is the lease state of one HMD_HOME.
@@ -192,7 +222,7 @@ func (s *Store) current(env string) (*Lease, error) {
 
 func (s *Store) write(l *Lease) error {
 	stored := *l
-	stored.Stole, stored.Created = nil, false
+	stored.Stole, stored.Created, stored.Nested = nil, false, false
 	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
 		return err
@@ -214,9 +244,14 @@ func (s *Store) grant(env string, r Request) (*Lease, error) {
 		runID = token[:12]
 	}
 	now := s.Now()
+	scope := r.Scope
+	if scope != ScopeSession {
+		scope = ""
+	}
 	l := &Lease{
 		Env: env, Holder: r.Holder, Token: token, RunID: runID, PID: r.PID, Host: s.Host,
 		Acquired: now, Heartbeat: now, TTLSeconds: int(ttl / time.Second),
+		Scope: scope, Template: r.Template, Repos: append([]string(nil), r.Repos...),
 	}
 	if err := s.write(l); err != nil {
 		return nil, err
@@ -260,8 +295,18 @@ func (s *Store) Renew(env, token string) error {
 	})
 }
 
-// Release gives the environment back.
+// Release gives a run lease back. A session lease is left in place with
+// ErrSessionLease; see ReleaseSession.
 func (s *Store) Release(env, token string) error {
+	return s.release(env, token, false)
+}
+
+// ReleaseSession gives back any lease the token holds, session or run.
+func (s *Store) ReleaseSession(env, token string) error {
+	return s.release(env, token, true)
+}
+
+func (s *Store) release(env, token string, session bool) error {
 	return s.locked("release "+env, func() error {
 		cur, err := s.current(env)
 		if err != nil {
@@ -270,12 +315,73 @@ func (s *Store) Release(env, token string) error {
 		if cur == nil || cur.Token != token {
 			return ErrNotHolder
 		}
+		if cur.IsSession() && !session {
+			return ErrSessionLease
+		}
 		if err := os.Remove(s.leasePath(env)); err != nil {
 			return err
 		}
 		touch(s.releasedPath(env), s.Now())
 		return nil
 	})
+}
+
+// ByToken returns the live lease token holds, or nil. A token is a bearer
+// credential, so finding its lease needs nothing else -- which is what lets a
+// session heartbeat or ask who it is without naming its environment.
+func (s *Store) ByToken(token string) (*Lease, error) {
+	if token == "" {
+		return nil, nil
+	}
+	var out *Lease
+	err := s.locked("find lease", func() error {
+		l, err := s.byToken(token)
+		out = l
+		return err
+	})
+	return out, err
+}
+
+// byToken is ByToken under the lock.
+func (s *Store) byToken(token string) (*Lease, error) {
+	entries, err := os.ReadDir(Dir(s.Home))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		l, err := s.current(strings.TrimSuffix(e.Name(), ".json"))
+		if err != nil {
+			return nil, err
+		}
+		if l != nil && l.Token == token {
+			return l, nil
+		}
+	}
+	return nil, nil
+}
+
+// Heartbeat renews whichever lease token holds, and returns it.
+func (s *Store) Heartbeat(token string) (*Lease, error) {
+	var out *Lease
+	err := s.locked("heartbeat", func() error {
+		l, err := s.byToken(token)
+		if err != nil {
+			return err
+		}
+		if l == nil {
+			return ErrNotHolder
+		}
+		l.Heartbeat = s.Now()
+		out = l
+		return s.write(l)
+	})
+	return out, err
 }
 
 // Check is the enforcement question: may the bearer of token mutate env?

@@ -586,14 +586,15 @@ of an environment until it releases it.
   ``--ignore-lease`` proceeds anyway and says whose lease it ignored. Read-only
   commands and ``--dry-run`` are never refused.
 
-Leases are run-scoped, not session-scoped, so a small warm pool serves many
-sessions. The pool is configured in ``nsctl.toml``:
+Run leases cover one run, so a small warm pool serves many runs. The pool is
+configured in ``nsctl.toml``:
 
 .. code-block:: toml
 
    [pool]
    size = 3                 # default 2
    members = ["local"]      # default ["local"]
+   session_ttl = "8h"       # default 8h; a session lease's TTL
 
 Environments beyond ``members`` are registered on demand as ``cc-1``,
 ``cc-2``, … until the pool reaches ``size``. A lease on a newly registered one
@@ -601,6 +602,35 @@ reports ``created``, and it must be started before anything is deployed into it.
 
 Lease state lives in ``$HMD_HOME/leases``. Older nsctl binaries reject an
 ``nsctl.toml`` that contains ``[pool]``.
+
+Session leases
+~~~~~~~~~~~~~~
+
+A **session lease** holds an environment for a whole working session -- one
+person, or one coding agent, iterating on one environment for hours -- instead
+of for one run:
+
+.. code-block:: bash
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+
+- ``--shell`` prints ``export HMD_LOCAL_ENV=<env>`` and
+  ``export NSCTL_LEASE_TOKEN=<token>`` and nothing else, so every later
+  ``nsctl``, ``hmd deploy --local`` and ``hmd bender`` in the shell targets the
+  leased environment and gets past its lease without flags.
+- Its TTL is ``[pool] session_ttl`` (default ``8h``), renewed with
+  ``nsctl env lease heartbeat``, which needs only the token.
+- ``--pid`` defaults to the session's process: the nearest ancestor named
+  ``claude`` (a Claude Code session runs each command in a shell that exits
+  with it), else the caller's parent -- a person's interactive shell.
+- Inside a session, a run lease -- ``acquire`` bare, naming the session's
+  environment, or with ``--pool`` -- is answered with the session's own lease,
+  marked ``nested``, so scripts written for run leases work unchanged. A run
+  that names a *different* environment contends for it as usual.
+- ``release`` leaves a session lease in place, says so and exits zero, because
+  a nested run holds the same token. ``release --session`` ends it.
+- ``nsctl env lease whoami`` shows the lease the token holds: environment,
+  scope, holder, expiry and where its routes are served.
 
 Registry and state
 ------------------

@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPoolDefaultsWhenTheFileHasNone(t *testing.T) {
@@ -39,5 +40,38 @@ func TestPoolSizeCoversItsMembers(t *testing.T) {
 	_, err := Load(home, noEnv)
 	if err == nil || !strings.Contains(err.Error(), "pool") {
 		t.Fatalf("Load() error = %v, want a pool size error", err)
+	}
+}
+
+func TestSessionTTLDefaultsToEightHours(t *testing.T) {
+	t.Parallel()
+
+	var cfg *Config
+	if got := cfg.EnvPool().SessionTTLOrDefault(); got != 8*time.Hour {
+		t.Errorf("SessionTTLOrDefault() = %s, want 8h", got)
+	}
+}
+
+func TestSessionTTLIsReadFromTheFile(t *testing.T) {
+	t.Parallel()
+
+	home := write(t, "[pool]\nsession_ttl = \"2h30m\"\n")
+	cfg, err := Load(home, noEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.EnvPool().SessionTTLOrDefault(); got != 150*time.Minute {
+		t.Errorf("SessionTTLOrDefault() = %s, want 2h30m", got)
+	}
+}
+
+func TestABadSessionTTLIsRefusedAtLoad(t *testing.T) {
+	t.Parallel()
+
+	for _, v := range []string{"soon", "-1h", "0s"} {
+		home := write(t, "[pool]\nsession_ttl = \""+v+"\"\n")
+		if _, err := Load(home, noEnv); err == nil || !strings.Contains(err.Error(), "session_ttl") {
+			t.Errorf("Load(session_ttl=%q) error = %v, want a session_ttl error", v, err)
+		}
 	}
 }

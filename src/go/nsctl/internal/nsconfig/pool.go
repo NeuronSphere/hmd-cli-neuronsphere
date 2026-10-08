@@ -1,6 +1,9 @@
 package nsconfig
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // DefaultPoolSize is how many local environments run leases may spread over
 // when the file does not say. Each one is a k3s cluster and a Postgres, so the
@@ -10,6 +13,11 @@ const DefaultPoolSize = 2
 // DefaultPoolMember is the environment every pool starts from.
 const DefaultPoolMember = "local"
 
+// DefaultSessionTTL is how long a session lease lives without a heartbeat when
+// the file does not say (NERD035 SPEC002). It matches lease.DefaultSessionTTL;
+// this package does not import that one.
+const DefaultSessionTTL = 8 * time.Hour
+
 // Pool is the [pool] table.
 type Pool struct {
 	// Size caps the pool. Environments beyond Members are created on demand,
@@ -17,6 +25,18 @@ type Pool struct {
 	Size int `toml:"size,omitempty"`
 	// Members are existing environments that belong to the pool.
 	Members []string `toml:"members,omitempty"`
+	// SessionTTL is a Go duration ("8h", "90m") a session lease lives
+	// without a heartbeat.
+	SessionTTL string `toml:"session_ttl,omitempty"`
+}
+
+// SessionTTLOrDefault is SessionTTL parsed, or DefaultSessionTTL. A value
+// validate refused never reaches here.
+func (p Pool) SessionTTLOrDefault() time.Duration {
+	if d, err := time.ParseDuration(p.SessionTTL); err == nil && d > 0 {
+		return d
+	}
+	return DefaultSessionTTL
 }
 
 func (p *Pool) validate() error {
@@ -25,6 +45,12 @@ func (p *Pool) validate() error {
 	}
 	if p.Size > 0 && len(p.Members) > p.Size {
 		return fmt.Errorf("[pool] size %d is smaller than its %d members", p.Size, len(p.Members))
+	}
+	if p.SessionTTL != "" {
+		d, err := time.ParseDuration(p.SessionTTL)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("[pool] session_ttl must be a positive duration such as \"8h\", not %q", p.SessionTTL)
+		}
 	}
 	return nil
 }
@@ -45,5 +71,6 @@ func (c *Config) EnvPool() Pool {
 	if out.Size < len(out.Members) {
 		out.Size = len(out.Members)
 	}
+	out.SessionTTL = c.Pool.SessionTTL
 	return out
 }

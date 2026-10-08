@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hosturl"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/lease"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
@@ -30,13 +31,19 @@ add/remove/import, stack add/remove, bom import -- refuses anyone who does not
 present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
 sessions cannot deploy over each other. --ignore-lease overrides the refusal.
 
-Leases are run-scoped, not session-scoped: take one for the run, release it
-when the run ends. A small pool of environments ([pool] in nsctl.toml; by
-default local plus one cc-N created on demand) then serves many sessions, and a
-run that finds them all busy can queue with --wait.
+A run lease covers one run: take it for the run, release it when the run ends.
+A small pool of environments ([pool] in nsctl.toml; by default local plus one
+cc-N created on demand) then serves many runs, and a run that finds them all
+busy can queue with --wait.
+
+A session lease (acquire --session) covers a whole working session -- one
+person or one coding agent iterating on one environment for hours. It lives for
+[pool] session_ttl (default 8h) between heartbeats, watches the session's own
+process, and answers any run lease taken inside the session, so scripts that
+take run leases work unchanged. Only release --session ends it.
 
 A lease ends when it is released, when its TTL passes without a renew, or when
-the process it watches (--pid, by default the caller's parent) exits.`,
+the process it watches (--pid) exits.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
@@ -46,12 +53,14 @@ the process it watches (--pid, by default the caller's parent) exits.`,
 		newEnvLeaseRenewCommand(opts),
 		newEnvLeaseReleaseCommand(opts),
 		newEnvLeaseListCommand(opts),
+		newEnvLeaseHeartbeatCommand(opts),
+		newEnvLeaseWhoamiCommand(opts),
 	)
 	return cmd
 }
 
 func newEnvLeaseAcquireCommand(opts *Options) *cobra.Command {
-	var fromPool, wait, steal, asJSON bool
+	var fromPool, wait, steal, asJSON, session, shell bool
 	var holder, forPath, runID string
 	var ttl time.Duration
 	var pid int
@@ -66,9 +75,20 @@ environment released most recently.
 When the pool has room and nothing is free, the next cc-N is registered for the
 run; the output says so ("created"), and it must be started before deploying.
 
+With --session the lease is held for a working session rather than one run
+(NERD035 SPEC002): its TTL is [pool] session_ttl (default 8h), and --pid
+defaults to the session's process -- the nearest ancestor named claude, else
+the caller's parent. --shell prints the two exports that point every later
+nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
+
+Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
+bare, naming the session's environment, or with --pool -- is answered with the
+session's own lease, marked nested, instead of contending for it.
+
 Prints the lease, including the token that renew, release and leased commands
 (NSCTL_LEASE_TOKEN) present.`,
-		Example: `  nsctl env lease acquire --pool --wait --holder my-session --json
+		Example: `  eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+  nsctl env lease acquire --pool --wait --holder my-session --json
   nsctl env lease acquire dev --holder ci-123 --ttl 30m
   nsctl env lease acquire --pool --for run-manifest.yaml --json`,
 		Args:          cobra.MaximumNArgs(1),
@@ -81,6 +101,9 @@ Prints the lease, including the token that renew, release and leased commands
 			if steal && fromPool {
 				return nserr.New(nserr.Usage, "--steal takes a named environment, not --pool")
 			}
+			if shell && asJSON {
+				return nserr.New(nserr.Usage, "--shell and --json are two output formats; pass one")
+			}
 			home, err := opts.RequireHome()
 			if err != nil {
 				return err
@@ -92,9 +115,38 @@ Prints the lease, including the token that renew, release and leased commands
 			// whichever process built the command tree into help or the docs.
 			if !cmd.Flags().Changed("pid") {
 				pid = os.Getppid()
+				if session {
+					pid = lease.SessionPID(pid, lease.ProcParent)
+				}
 			}
 			r := lease.Request{Holder: holder, RunID: runID, PID: pid, TTL: ttl, Steal: steal}
+			if session {
+				r.Scope = lease.ScopeSession
+				if !cmd.Flags().Changed("ttl") {
+					r.TTL = sessionTTL(home, opts)
+				}
+			}
 			store := lease.New(home)
+			render := func(l *lease.Lease) error {
+				return renderLease(cmd.OutOrStdout(), l, asJSON, shell)
+			}
+
+			// A run inside a session is answered with the session: contending
+			// for the environment the session already holds could only fail.
+			var mine *lease.Lease
+			if !session && !steal {
+				mine, err = store.ByToken(opts.Lookup("NSCTL_LEASE_TOKEN"))
+				if err != nil {
+					return leaseError(err)
+				}
+				if mine != nil && !mine.IsSession() {
+					mine = nil
+				}
+			}
+			if mine != nil && (fromPool || len(args) == 0) {
+				mine.Nested = true
+				return render(mine)
+			}
 
 			var p *lease.Pool
 			if fromPool {
@@ -115,6 +167,10 @@ Prints the lease, including the token that renew, release and leased commands
 				if err != nil {
 					return nserr.Wrap(nserr.Usage, err)
 				}
+				if mine != nil && mine.Env == env.Slug {
+					mine.Nested = true
+					return render(mine)
+				}
 				if steal || !wait {
 					l, err := store.Acquire(env.Slug, r)
 					if err != nil {
@@ -124,7 +180,7 @@ Prints the lease, including the token that renew, release and leased commands
 						fmt.Fprintf(cmd.ErrOrStderr(), "warning: took %s from %s (%s)\n",
 							env.Slug, l.Stole.Holder, l.Stole.Where())
 					}
-					return renderLease(cmd.OutOrStdout(), l, asJSON)
+					return render(l)
 				}
 				// Waiting for one named environment is a pool of one, so it
 				// queues in turn with everyone else.
@@ -141,7 +197,7 @@ Prints the lease, including the token that renew, release and leased commands
 			if err != nil {
 				return leaseError(err)
 			}
-			return renderLease(cmd.OutOrStdout(), l, asJSON)
+			return render(l)
 		},
 	}
 	cmd.Flags().BoolVar(&fromPool, "pool", false, "lease the closest free environment from the pool")
@@ -150,9 +206,11 @@ Prints the lease, including the token that renew, release and leased commands
 	cmd.Flags().StringVar(&holder, "holder", "", "who is asking, shown to anyone refused (default: user and parent pid)")
 	cmd.Flags().StringVar(&runID, "run-id", "", "an id for this run, recorded in the lease")
 	cmd.Flags().StringVar(&forPath, "for", "", "an environment manifest of what the run will deploy, to pick the closest pool environment")
-	cmd.Flags().DurationVar(&ttl, "ttl", lease.DefaultTTL, "how long the lease lives without a renew")
-	cmd.Flags().IntVar(&pid, "pid", 0, "the process whose exit ends the lease (default: the caller's parent); 0 relies on --ttl alone")
+	cmd.Flags().DurationVar(&ttl, "ttl", lease.DefaultTTL, "how long the lease lives without a renew (with --session: [pool] session_ttl)")
+	cmd.Flags().IntVar(&pid, "pid", 0, "the process whose exit ends the lease (default: the caller's parent; with --session, the session's process); 0 relies on --ttl alone")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print the lease as JSON")
+	cmd.Flags().BoolVar(&session, "session", false, "hold the environment for a working session, not one run")
+	cmd.Flags().BoolVar(&shell, "shell", false, "print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval")
 	return cmd
 }
 
@@ -178,9 +236,16 @@ func newEnvLeaseRenewCommand(opts *Options) *cobra.Command {
 
 func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 	var token string
+	var session bool
 	cmd := &cobra.Command{
-		Use:           "release <name> --token <token>",
-		Short:         "Give a leased environment back",
+		Use:   "release <name> --token <token>",
+		Short: "Give a leased environment back",
+		Long: `Ends the lease the token holds on the environment.
+
+A session lease is ended only with --session. A run inside a session is handed
+the session's own token, so a script written for run leases releasing "its"
+lease would otherwise end the session; without --session such a release leaves
+the lease in place, says so, and exits zero.`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -189,7 +254,19 @@ func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := lease.New(home).Release(args[0], tokenOrEnv(token, opts)); err != nil {
+			store := lease.New(home)
+			release := store.Release
+			if session {
+				release = store.ReleaseSession
+			}
+			err = release(args[0], tokenOrEnv(token, opts))
+			if errors.Is(err, lease.ErrSessionLease) {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"note: %s is held by a session lease, which a run does not end; the session keeps it. "+
+						"Pass --session to end the session.\n", args[0])
+				return nil
+			}
+			if err != nil {
 				return leaseError(err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Released %s\n", args[0])
@@ -197,6 +274,7 @@ func newEnvLeaseReleaseCommand(opts *Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&token, "token", "", "the lease token (default: NSCTL_LEASE_TOKEN)")
+	cmd.Flags().BoolVar(&session, "session", false, "end a session lease, not just a run's use of it")
 	return cmd
 }
 
@@ -238,8 +316,12 @@ func newEnvLeaseListCommand(opts *Options) *cobra.Command {
 			}
 			now := time.Now()
 			for _, l := range leases {
-				fmt.Fprintf(out, "%-12s %s (%s), held %s, expires in %s\n", l.Env, l.Holder, l.Where(),
-					now.Sub(l.Acquired).Round(time.Second), l.Expires().Sub(now).Round(time.Second))
+				scope := "run"
+				if l.IsSession() {
+					scope = "session"
+				}
+				fmt.Fprintf(out, "%-12s %-7s %s (%s), held %s, expires in %s%s\n", l.Env, scope, l.Holder, l.Where(),
+					now.Sub(l.Acquired).Round(time.Second), l.Expires().Sub(now).Round(time.Second), shapedBy(&l))
 			}
 			for i, w := range waiters {
 				fmt.Fprintf(out, "waiting #%d  %s, for %s, queued %s ago\n", i+1, w.Holder,
@@ -338,6 +420,122 @@ func tokenOrEnv(token string, opts *Options) string {
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
 }
 
+// sessionTTL is [pool] session_ttl, or its default when nsctl.toml is absent
+// or unreadable -- acquire must not fail over a file only this value comes from.
+func sessionTTL(home string, opts *Options) time.Duration {
+	cfg, err := nsconfig.Load(home, opts.Lookup)
+	if err != nil {
+		cfg = nil
+	}
+	return cfg.EnvPool().SessionTTLOrDefault()
+}
+
+// shapedBy is the template and working trees a session lease records, for one
+// line of a listing.
+func shapedBy(l *lease.Lease) string {
+	var parts []string
+	if l.Template != "" {
+		parts = append(parts, "template "+l.Template)
+	}
+	if len(l.Repos) > 0 {
+		parts = append(parts, "repos "+strings.Join(l.Repos, ", "))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(parts, "; ")
+}
+
+func newEnvLeaseHeartbeatCommand(opts *Options) *cobra.Command {
+	var token string
+	cmd := &cobra.Command{
+		Use:   "heartbeat [--token <token>]",
+		Short: "Renew the lease a token holds, without naming its environment",
+		Long: `Pushes the expiry of the lease the token holds out by its TTL. The token
+identifies the lease, so a hook or a background loop needs nothing else.`,
+		Example:       `  while sleep 600; do nsctl env lease heartbeat || break; done`,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			l, err := lease.New(home).Heartbeat(tokenOrEnv(token, opts))
+			if err != nil {
+				return leaseError(err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Renewed %s until %s\n", l.Env, l.Expires().Format(time.RFC3339))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&token, "token", "", "the lease token (default: NSCTL_LEASE_TOKEN)")
+	return cmd
+}
+
+func newEnvLeaseWhoamiCommand(opts *Options) *cobra.Command {
+	var token string
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "whoami",
+		Short: "Show the lease this session holds",
+		Long: `Describes the lease NSCTL_LEASE_TOKEN (or --token) holds: its environment,
+scope, holder, template, working trees, expiry and where the environment's
+routes are served. Exits non-zero when the token holds no live lease.`,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := opts.RequireHome()
+			if err != nil {
+				return err
+			}
+			t := tokenOrEnv(token, opts)
+			if t == "" {
+				return nserr.New(nserr.Usage, "no lease token: set NSCTL_LEASE_TOKEN or pass --token")
+			}
+			l, err := lease.New(home).ByToken(t)
+			if err != nil {
+				return leaseError(err)
+			}
+			if l == nil {
+				return nserr.New(nserr.Usage, "this token holds no live lease: it expired, was released or was taken over")
+			}
+			l.Token = ""
+			out := cmd.OutOrStdout()
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(l)
+			}
+			scope := "run"
+			if l.IsSession() {
+				scope = "session"
+			}
+			fmt.Fprintf(out, "environment  %s\n", l.Env)
+			fmt.Fprintf(out, "scope        %s\n", scope)
+			fmt.Fprintf(out, "holder       %s (%s)\n", l.Holder, l.Where())
+			if l.Template != "" {
+				fmt.Fprintf(out, "template     %s\n", l.Template)
+			}
+			for i, r := range l.Repos {
+				label := ""
+				if i == 0 {
+					label = "repos"
+				}
+				fmt.Fprintf(out, "%-12s %s\n", label, r)
+			}
+			fmt.Fprintf(out, "expires      %s\n", l.Expires().Format(time.RFC3339))
+			fmt.Fprintf(out, "routes       %s/<service>/\n", hosturl.Route(l.Env))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&token, "token", "", "the lease token (default: NSCTL_LEASE_TOKEN)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the lease as JSON, without its token")
+	return cmd
+}
+
 // leaseGuard is what every command that changes an environment carries
 // (NERD035 SPEC001): the holder's token to get past a lease, and the override.
 type leaseGuard struct {
@@ -408,13 +606,22 @@ func leaseError(err error) error {
 	return nserr.Wrap(nserr.Fail, err)
 }
 
-func renderLease(out io.Writer, l *lease.Lease, asJSON bool) error {
+func renderLease(out io.Writer, l *lease.Lease, asJSON, shell bool) error {
+	if shell {
+		// Nothing but the exports: this is read by eval.
+		fmt.Fprintf(out, "export HMD_LOCAL_ENV=%s\nexport NSCTL_LEASE_TOKEN=%s\n", l.Env, l.Token)
+		return nil
+	}
 	if asJSON {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		return enc.Encode(l)
 	}
-	fmt.Fprintf(out, "Leased %s to %s until %s\n", l.Env, l.Holder, l.Expires().Format(time.RFC3339))
+	if l.Nested {
+		fmt.Fprintf(out, "Using %s, which this session holds until %s\n", l.Env, l.Expires().Format(time.RFC3339))
+	} else {
+		fmt.Fprintf(out, "Leased %s to %s until %s\n", l.Env, l.Holder, l.Expires().Format(time.RFC3339))
+	}
 	if l.Created {
 		fmt.Fprintf(out, "%s was added to the pool for this run; start it with `nsctl env start %s`.\n", l.Env, l.Env)
 	}

@@ -2,6 +2,13 @@
 
 ## 2026-10-08
 
+- feat: session leases (NERD035 SPEC002). `env lease acquire --session` holds an
+  environment for a working session: TTL `[pool] session_ttl` (default 8h),
+  `--pid` defaulting to the nearest `claude` ancestor (read via sysctl or
+  /proc, not `ps`), and `--shell` printing the `HMD_LOCAL_ENV` and
+  `NSCTL_LEASE_TOKEN` exports. A run lease taken inside a session is answered
+  with the session's lease (`nested`); `release` leaves a session lease in
+  place unless `--session`. New `env lease heartbeat` and `env lease whoami`.
 - fix: a lease on an environment is enforced, not advisory (NERD035 SPEC001).
   `env start`/`apply`/`stop`/`purge`/`delete`, `instance add`/`remove`/`import`,
   `stack add`/`remove` and `bom import` refuse (exit 3, naming the holder) unless

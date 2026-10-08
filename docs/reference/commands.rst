@@ -1403,13 +1403,19 @@ add/remove/import, stack add/remove, bom import -- refuses anyone who does not
 present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
 sessions cannot deploy over each other. --ignore-lease overrides the refusal.
 
-Leases are run-scoped, not session-scoped: take one for the run, release it
-when the run ends. A small pool of environments ([pool] in nsctl.toml; by
-default local plus one cc-N created on demand) then serves many sessions, and a
-run that finds them all busy can queue with --wait.
+A run lease covers one run: take it for the run, release it when the run ends.
+A small pool of environments ([pool] in nsctl.toml; by default local plus one
+cc-N created on demand) then serves many runs, and a run that finds them all
+busy can queue with --wait.
+
+A session lease (acquire --session) covers a whole working session -- one
+person or one coding agent iterating on one environment for hours. It lives for
+[pool] session_ttl (default 8h) between heartbeats, watches the session's own
+process, and answers any run lease taken inside the session, so scripts that
+take run leases work unchanged. Only release --session ends it.
 
 A lease ends when it is released, when its TTL passes without a renew, or when
-the process it watches (--pid, by default the caller's parent) exits.
+the process it watches (--pid) exits.
 
 Usage
 ~~~~~
@@ -1434,6 +1440,16 @@ environment released most recently.
 When the pool has room and nothing is free, the next cc-N is registered for the
 run; the output says so ("created"), and it must be started before deploying.
 
+With --session the lease is held for a working session rather than one run
+(NERD035 SPEC002): its TTL is [pool] session_ttl (default 8h), and --pid
+defaults to the session's process -- the nearest ancestor named claude, else
+the caller's parent. --shell prints the two exports that point every later
+nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
+
+Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
+bare, naming the session's environment, or with --pool -- is answered with the
+session's own lease, marked nested, instead of contending for it.
+
 Prints the lease, including the token that renew, release and leased commands
 (NSCTL_LEASE_TOKEN) present.
 
@@ -1449,7 +1465,8 @@ Examples
 
 .. code-block:: shell
 
-   nsctl env lease acquire --pool --wait --holder my-session --json
+   eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+     nsctl env lease acquire --pool --wait --holder my-session --json
      nsctl env lease acquire dev --holder ci-123 --ttl 30m
      nsctl env lease acquire --pool --for run-manifest.yaml --json
 
@@ -1459,12 +1476,44 @@ Local flags
 * ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
 * ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
 * ``--json`` — print the lease as JSON
-* ``--pid`` — the process whose exit ends the lease (default: the caller's parent); 0 relies on --ttl alone (default: ``0``)
+* ``--pid`` — the process whose exit ends the lease (default: the caller's parent; with --session, the session's process); 0 relies on --ttl alone (default: ``0``)
 * ``--pool`` — lease the closest free environment from the pool
 * ``--run-id`` — an id for this run, recorded in the lease
+* ``--session`` — hold the environment for a working session, not one run
+* ``--shell`` — print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval
 * ``--steal`` — take the environment even if someone else holds it
-* ``--ttl`` — how long the lease lives without a renew (default: ``10m0s``)
+* ``--ttl`` — how long the lease lives without a renew (with --session: [pool] session_ttl) (default: ``10m0s``)
 * ``--wait`` — queue until an environment is free instead of failing
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease heartbeat
+-------------------------
+
+Pushes the expiry of the lease the token holds out by its TTL. The token
+identifies the lease, so a hook or a background loop needs nothing else.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease heartbeat [--token <token>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   while sleep 600; do nsctl env lease heartbeat || break; done
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1496,7 +1545,12 @@ Inherited flags
 nsctl env lease release
 -----------------------
 
-Give a leased environment back
+Ends the lease the token holds on the environment.
+
+A session lease is ended only with --session. A run inside a session is handed
+the session's own token, so a script written for run leases releasing "its"
+lease would otherwise end the session; without --session such a release leaves
+the lease in place, says so, and exits zero.
 
 Usage
 ~~~~~
@@ -1508,6 +1562,7 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--session`` — end a session lease, not just a run's use of it
 * ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
@@ -1530,6 +1585,31 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease whoami
+----------------------
+
+Describes the lease NSCTL_LEASE_TOKEN (or --token) holds: its environment,
+scope, holder, template, working trees, expiry and where the environment's
+routes are served. Exits non-zero when the token holds no live lease.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease whoami [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print the lease as JSON, without its token
 * ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags

@@ -104,7 +104,7 @@ Scope and terminology
 .. spec:: A session lease lives as long as the session
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     ``nsctl env lease acquire --session`` takes a session lease.
 
@@ -114,10 +114,14 @@ Scope and terminology
     - The TTL defaults to ``[pool] session_ttl`` (default ``8h``) instead
       of ``10m``.
     - ``--pid`` defaults to the session's process, not the caller's parent.
-      The session's process is the nearest ancestor that is an interactive
-      shell or a ``claude`` process; failing that, the caller's parent, as
-      today. A session whose process dies loses its lease, exactly as a run
-      does.
+      The session's process is the nearest ancestor named ``claude``. A
+      Claude Code session runs each command in a shell of its own, which
+      exits with the command, so the immediate parent would end the lease
+      at once. Failing a ``claude`` ancestor, it is the caller's parent: a
+      person's interactive shell. Ancestry is read from the process table
+      (``sysctl`` on macOS, ``/proc`` on Linux), not by running ``ps``,
+      which a sandboxed caller may not be allowed to exec. A session whose
+      process dies loses its lease, exactly as a run does.
     - ``nsctl env lease heartbeat [--token]`` renews without naming the
       environment, because the token identifies it. It is meant for a hook
       or a background loop.
@@ -127,19 +131,24 @@ Scope and terminology
       ``hmd bender`` in that shell targets the leased environment without
       flags.
     - **Nesting.** When ``NSCTL_LEASE_TOKEN`` names a live session lease on
-      environment *X*, ``acquire`` for a run, whether bare or naming *X*,
-      returns that session lease instead of contending. ``release`` of a
-      nested run is a no-op. A run asking for a *different* environment
+      environment *X*, ``acquire`` for a run -- bare, naming *X*, or with
+      ``--pool`` -- returns that session lease, marked ``nested``, instead
+      of contending. A run asking for a *different* environment by name
       contends normally. This lets existing scripts that take run leases
       work unchanged inside a session.
+    - A nested run is handed the session's own token, so ``release`` cannot
+      tell the run from the session by the token alone. ``release`` of a
+      session lease therefore needs ``--session``. Without it, ``release``
+      leaves the lease in place, says so, and exits zero: that is what a
+      script written for run leases expects. The session's own end -- a
+      hook, or a person -- passes ``--session``.
     - ``nsctl env lease whoami`` prints the lease ``NSCTL_LEASE_TOKEN``
-      names: environment, scope, template, repositories, expiry and the
-      environment's URLs. It exits non-zero when there is none.
+      names: environment, scope, holder, template, repositories, expiry and
+      the base URL of the environment's routes (``/<env>/<service>/``). It
+      exits non-zero when there is none.
 
-    A session lease never queues behind run leases for the same environment,
-    and run leases never take an environment a session holds. The pool
-    treats a session-held environment as busy, as it treats any held one
-    today.
+    Run leases never take an environment a session holds. The pool treats a
+    session-held environment as busy, as it treats any held one today.
 
 .. spec:: A template is a named environment manifest
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
