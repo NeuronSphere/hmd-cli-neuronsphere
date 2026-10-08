@@ -34,7 +34,7 @@ The Python CLI can derive workloads and configuration from installed plugin
 packages. nsctl uses explicit RepoClass declarations. It does not discover
 workloads just because a Python package is installed.
 
-For an environment started through Python, ``nsctl repo import --dry-run``
+For an environment started through Python, ``nsctl instance import --dry-run``
 shows which deployed entries can become explicit declarations. Run the import
 for each environment that needs this transition, then inspect its manifest
 and plan before applying.

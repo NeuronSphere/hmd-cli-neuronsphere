@@ -1,0 +1,20 @@
+{
+  "name": "content_item",
+  "namespace": "hmd_lang_librarian",
+  "display": "title",
+  "editors": {
+    "table": {
+      "columns": [
+        {
+          "attribute": "content_item_path"
+        },
+        {
+          "attribute": "_updated"
+        },
+        {
+          "attribute": "status"
+        }
+      ]
+    }
+  }
+}

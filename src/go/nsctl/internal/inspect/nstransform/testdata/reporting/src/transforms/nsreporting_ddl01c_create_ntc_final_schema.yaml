@@ -1,0 +1,15 @@
+type: provider
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      CREATE SCHEMA IF NOT EXISTS {{ ns_context['schema_name' ]}}_final
+      WITH (
+        location = '{{ ns_context['bucket_name'] }}/{{ ns_context['schema_name'] }}/final/'
+      )
+    trino_conn_id: trino_conn
+    autocommit: true
+  run_params:
+    schema_name: ntc
+    bucket_name: TRINO_BUCKET

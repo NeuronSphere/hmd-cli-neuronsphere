@@ -1,0 +1,11 @@
+type: provider
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      DROP SCHEMA IF EXISTS {{ ns_context['schema_name' ]}}_final
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_name: ntc

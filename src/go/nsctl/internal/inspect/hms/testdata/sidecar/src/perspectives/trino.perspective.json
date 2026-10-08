@@ -1,0 +1,152 @@
+{
+  "perspective_name": "trino",
+  "perspective_display": "Trino",
+  "graph_display": {},
+  "binding_key": "layer",
+  "entity_extensions": [
+    {
+      "layer": {
+        "display": "Layer",
+        "description": "Which of a noun's tables this binding is (source, staging, final, ux); empty when the noun has one table.",
+        "extension_type": "short_text",
+        "default": ""
+      }
+    },
+    {
+      "catalog": {
+        "display": "Catalog",
+        "description": "The Trino catalog, when it is stated.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "schema_name": {
+        "display": "Schema",
+        "description": "The Trino schema.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "table_name": {
+        "display": "Table Name",
+        "description": "The table name in the physical database.",
+        "extension_type": "short_text",
+        "default": "{entity.name}"
+      }
+    },
+    {
+      "table_type": {
+        "display": "Table Type",
+        "description": "A table or a view.",
+        "extension_type": "enum",
+        "default": "table",
+        "enum_values": [
+          { "id": "table", "description": "Table", "definition": "TABLE" },
+          { "id": "view", "description": "View", "definition": "VIEW" }
+        ]
+      }
+    },
+    {
+      "template": {
+        "display": "Name Template",
+        "description": "The qualified name before run-time values are known, each such value written {name}. Empty for a static name.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "format": {
+        "display": "Storage Format",
+        "description": "The Hive connector's table format.",
+        "extension_type": "enum",
+        "default": null,
+        "enum_values": [
+          { "id": "parquet", "description": "Parquet", "definition": "PARQUET" },
+          { "id": "orc", "description": "ORC", "definition": "ORC" },
+          { "id": "avro", "description": "Avro", "definition": "AVRO" },
+          { "id": "json", "description": "JSON lines", "definition": "JSON" },
+          { "id": "csv", "description": "CSV", "definition": "CSV" },
+          { "id": "textfile", "description": "Text file", "definition": "TEXTFILE" }
+        ]
+      }
+    },
+    {
+      "partitioned_by": {
+        "display": "Partitioned By",
+        "description": "Partition columns, comma-separated, in order.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    },
+    {
+      "external_location": {
+        "display": "External Location",
+        "description": "The storage location of an external table, possibly templated.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    }
+  ],
+  "noun_extensions": [],
+  "relationship_extensions": [],
+  "attribute_extensions": [
+    {
+      "datatype": {
+        "display": "Data Type",
+        "description": "Trino SQL data type. hms_type is the core .hms type an attribute with this data type has.",
+        "extension_type": "enum",
+        "default": null,
+        "enum_values": [
+          { "id": "varchar", "description": "Variable-length string", "definition": "VARCHAR", "hms_type": "string",
+            "parameters": { "max_length": { "description": "Maximum length", "default": null } } },
+          { "id": "char", "description": "Fixed-length string", "definition": "CHAR", "hms_type": "string",
+            "parameters": { "length": { "description": "Length", "default": 1 } } },
+          { "id": "varbinary", "description": "Binary", "definition": "VARBINARY", "hms_type": "blob" },
+          { "id": "json", "description": "JSON value", "definition": "JSON", "hms_type": "mapping" },
+          { "id": "uuid", "description": "UUID", "definition": "UUID", "hms_type": "string" },
+          { "id": "boolean", "description": "Boolean", "definition": "BOOLEAN", "hms_type": "bool" },
+          { "id": "tinyint", "description": "8-bit integer", "definition": "TINYINT", "hms_type": "integer" },
+          { "id": "smallint", "description": "16-bit integer", "definition": "SMALLINT", "hms_type": "integer" },
+          { "id": "integer", "description": "32-bit integer", "definition": "INTEGER", "hms_type": "integer" },
+          { "id": "bigint", "description": "64-bit integer", "definition": "BIGINT", "hms_type": "integer" },
+          { "id": "real", "description": "32-bit float", "definition": "REAL", "hms_type": "float" },
+          { "id": "double", "description": "64-bit float", "definition": "DOUBLE", "hms_type": "float" },
+          { "id": "decimal", "description": "Exact decimal", "definition": "DECIMAL", "hms_type": "float",
+            "parameters": {
+              "precision": { "description": "Total digits", "default": 38 },
+              "scale": { "description": "Digits to the right of the point", "default": 0 }
+            } },
+          { "id": "date", "description": "Calendar date", "definition": "DATE", "hms_type": "timestamp" },
+          { "id": "time", "description": "Time of day", "definition": "TIME", "hms_type": "string",
+            "parameters": { "precision": { "description": "Fractional second digits", "default": 3 } } },
+          { "id": "timestamp", "description": "Timestamp", "definition": "TIMESTAMP", "hms_type": "timestamp",
+            "parameters": { "precision": { "description": "Fractional second digits", "default": 3 } } },
+          { "id": "array", "description": "Array", "definition": "ARRAY", "hms_type": "collection",
+            "parameters": { "element": { "description": "Element type", "default": null } } },
+          { "id": "map", "description": "Map", "definition": "MAP", "hms_type": "mapping",
+            "parameters": { "key": { "description": "Key type", "default": null }, "value": { "description": "Value type", "default": null } } },
+          { "id": "row", "description": "Row (struct)", "definition": "ROW", "hms_type": "mapping",
+            "parameters": { "fields": { "description": "Field list", "default": null } } }
+        ]
+      }
+    },
+    {
+      "is_nullable": {
+        "display": "Nullable",
+        "description": "Whether the column admits nulls. Trino DDL rarely says; absent means unknown.",
+        "extension_type": "bool",
+        "default": "true"
+      }
+    },
+    {
+      "is_partition": {
+        "display": "Partition Key",
+        "description": "Whether the column is one of the table's partition columns.",
+        "extension_type": "bool",
+        "default": "false"
+      }
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "perspective_name": "ansi-sql",
+  "perspective_display": "SQL",
+  "graph_display": {},
+  "entity_extensions": [
+    {
+      "table_name": {
+        "display": "Table Name",
+        "description": "The table name in the physical database.  May contain parameters?",
+        "extension_type": "short_text",
+        "default": "{entity.name}"
+      }
+    }
+  ],
+  "noun_extensions": [],
+  "relationship_extensions": [],
+  "attribute_extensions": [
+    {
+      "datatype": {
+        "display": "Data Type",
+        "description": "Basic SQL Datatypes based on the SQL 2023 standard",
+        "extension_type": "enum",
+        "enum_values": [
+          {
+            "id": "varchar",
+            "description": "Basic varchar type",
+            "definition": "VARCHAR",
+            "parameters": {
+              "max_length": {
+                "description": "Max length of field, int",
+                "default": 255
+              }
+            }
+          },
+          {
+            "id": "decimal",
+            "description": "Decimal  number",
+            "definition": "DECIMAL",
+            "parameters": {
+              "total_digits": {
+                "description": "Total Digits",
+                "default": 6
+              },
+              "digits_right": {
+                "description": "Digits to the right of point",
+                "default": 2
+              }
+            }
+          },
+          {
+            "id": "real",
+            "description": "Real  number",
+            "definition": "REAL"
+          },
+          {
+            "id": "int",
+            "description": "Integer  number",
+            "definition": "INTEGER"
+          },
+          {
+            "id": "float",
+            "description": "Float  number",
+            "definition": "FLOAT"
+          },
+          {
+            "id": "smallint",
+            "description": "Small Int  number",
+            "definition": "SMALLINT"
+          },
+          {
+            "id": "date",
+            "description": "Date",
+            "definition": "DATE"
+          },
+          {
+            "id": "timestamp",
+            "description": "Timestamp",
+            "definition": "TIMESTAMP"
+          }
+        ]
+      }
+    },
+    {
+      "is_nullable": {
+        "display": "Is Nullable",
+        "description": "Can this field be left or set to NULL?",
+        "extension_type": "bool",
+        "default": "true"
+      }
+    },
+    {
+      "is_primary_key": {
+        "display": "Is PK",
+        "description": "Is this field the Primary Key?",
+        "extension_type": "bool",
+        "default": "false"
+      }
+    }
+  ]
+}

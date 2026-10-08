@@ -41,15 +41,15 @@ func readManifest(t *testing.T, env map[string]string, slug string) *manifest.Ma
 	return m
 }
 
-// The first `repo add` in an environment creates the manifest rather than
+// The first `instance add` in an environment creates the manifest rather than
 // requiring one to exist.
-func TestRepoAddCreatesTheManifest(t *testing.T) {
+func TestInstanceAddCreatesTheManifest(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	out, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi")
+	out, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi")
 	if err != nil {
-		t.Fatalf("repo add: %v", err)
+		t.Fatalf("instance add: %v", err)
 	}
 	if !strings.Contains(out, "nsctl env apply") {
 		t.Errorf("output does not name the command that deploys it:\n%s", out)
@@ -67,12 +67,12 @@ func TestRepoAddCreatesTheManifest(t *testing.T) {
 	}
 }
 
-func TestRepoAddParsesTheVersionPin(t *testing.T) {
+func TestInstanceAddParsesTheVersionPin(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi@0.3"); err != nil {
-		t.Fatalf("repo add: %v", err)
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi@0.3"); err != nil {
+		t.Fatalf("instance add: %v", err)
 	}
 	m := readManifest(t, env, "local")
 	if m.Repos[0].Version != "0.3" {
@@ -85,14 +85,14 @@ func TestRepoAddParsesTheVersionPin(t *testing.T) {
 
 // A configuration value is typed: `replicas: 2` is an integer to whatever
 // consumes it, and "2" is a different thing.
-func TestRepoAddTypesConfigurationValues(t *testing.T) {
+func TestInstanceAddTypesConfigurationValues(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	_, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi",
+	_, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi",
 		"--config", "replicas=2", "--config", "debug=true", "--config", "profile=minimal")
 	if err != nil {
-		t.Fatalf("repo add: %v", err)
+		t.Fatalf("instance add: %v", err)
 	}
 
 	config := readManifest(t, env, "local").Repos[0].InstanceConfiguration
@@ -107,14 +107,14 @@ func TestRepoAddTypesConfigurationValues(t *testing.T) {
 	}
 }
 
-func TestRepoAddWritesBothDependencyShapes(t *testing.T) {
+func TestInstanceAddWritesBothDependencyShapes(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	_, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi",
+	_, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi",
 		"--depends", "cluster=eks-cluster", "--depends", "peers=a,b")
 	if err != nil {
-		t.Fatalf("repo add: %v", err)
+		t.Fatalf("instance add: %v", err)
 	}
 
 	deps := readManifest(t, env, "local").Repos[0].Dependencies
@@ -127,12 +127,12 @@ func TestRepoAddWritesBothDependencyShapes(t *testing.T) {
 	}
 }
 
-func TestRepoAddHonoursTheEnvFlag(t *testing.T) {
+func TestInstanceAddHonoursTheEnvFlag(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi", "--env", "dev"); err != nil {
-		t.Fatalf("repo add: %v", err)
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi", "--env", "dev"); err != nil {
+		t.Fatalf("instance add: %v", err)
 	}
 	if m := readManifest(t, env, "dev"); m == nil || len(m.Repos) != 1 {
 		t.Errorf("dev's manifest = %+v", m)
@@ -142,7 +142,7 @@ func TestRepoAddHonoursTheEnvFlag(t *testing.T) {
 	}
 }
 
-func TestRepoAddRefusals(t *testing.T) {
+func TestInstanceAddRefusals(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -150,10 +150,10 @@ func TestRepoAddRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"a substrate name", []string{"repo", "add", "hmd-postgres-rds", "--name", "environment-db"}, "reserved"},
-		{"no working tree", []string{"repo", "add", "hmd-ms-absent"}, "does not exist"},
-		{"a malformed pair", []string{"repo", "add", "hmd-ms-myapi", "--config", "nonsense"}, "key=value"},
-		{"an unknown environment", []string{"repo", "add", "hmd-ms-myapi", "--env", "nope"}, "no environment"},
+		{"a substrate name", []string{"instance", "add", "hmd-postgres-rds", "--name", "environment-db"}, "reserved"},
+		{"no working tree", []string{"instance", "add", "hmd-ms-absent"}, "does not exist"},
+		{"a malformed pair", []string{"instance", "add", "hmd-ms-myapi", "--config", "nonsense"}, "key=value"},
+		{"an unknown environment", []string{"instance", "add", "hmd-ms-myapi", "--env", "nope"}, "no environment"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -173,14 +173,14 @@ func TestRepoAddRefusals(t *testing.T) {
 	}
 }
 
-func TestRepoAddRefusesADuplicateAndSaysHowToDeclareTwo(t *testing.T) {
+func TestInstanceAddRefusesADuplicateAndSaysHowToDeclareTwo(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	_, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi")
+	_, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi")
 	if err == nil {
 		t.Fatal("a duplicate instance name was accepted")
 	}
@@ -190,14 +190,14 @@ func TestRepoAddRefusesADuplicateAndSaysHowToDeclareTwo(t *testing.T) {
 }
 
 // A rejected addition must not leave a partially-written manifest behind.
-func TestRepoAddDoesNotWriteWhenItRefuses(t *testing.T) {
+func TestInstanceAddDoesNotWriteWhenItRefuses(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-absent"); err == nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-absent"); err == nil {
 		t.Fatal("the invalid addition succeeded")
 	}
 
@@ -207,19 +207,19 @@ func TestRepoAddDoesNotWriteWhenItRefuses(t *testing.T) {
 	}
 }
 
-func TestRepoRemoveDropsTheDeclaration(t *testing.T) {
+func TestInstanceRemoveDropsTheDeclaration(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi", "hmd-ms-other")
 	for _, class := range []string{"hmd-ms-myapi", "hmd-ms-other"} {
-		if _, _, err := run(t, fakeEnv(env), "repo", "add", class); err != nil {
-			t.Fatalf("repo add %s: %v", class, err)
+		if _, _, err := run(t, fakeEnv(env), "instance", "add", class); err != nil {
+			t.Fatalf("instance add %s: %v", class, err)
 		}
 	}
 
-	out, stderr, err := run(t, fakeEnv(env), "repo", "remove", "ms-myapi")
+	out, stderr, err := run(t, fakeEnv(env), "instance", "remove", "ms-myapi")
 	if err != nil {
-		t.Fatalf("repo remove: %v", err)
+		t.Fatalf("instance remove: %v", err)
 	}
 	if !strings.Contains(out, "Removed ms-myapi") {
 		t.Errorf("output = %q", out)
@@ -236,21 +236,21 @@ func TestRepoRemoveDropsTheDeclaration(t *testing.T) {
 	}
 }
 
-func TestRepoRemoveRefusalsNameWhatIsDeclared(t *testing.T) {
+func TestInstanceRemoveRefusalsNameWhatIsDeclared(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
 
 	// No manifest at all.
-	_, _, err := run(t, fakeEnv(env), "repo", "remove", "ms-myapi")
+	_, _, err := run(t, fakeEnv(env), "instance", "remove", "ms-myapi")
 	if err == nil || !strings.Contains(err.Error(), "no manifest") {
 		t.Errorf("error = %v, want it to say the environment declares nothing", err)
 	}
 
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = run(t, fakeEnv(env), "repo", "remove", "not-declared")
+	_, _, err = run(t, fakeEnv(env), "instance", "remove", "not-declared")
 	if err == nil {
 		t.Fatal("removing an undeclared instance succeeded")
 	}
@@ -261,17 +261,17 @@ func TestRepoRemoveRefusalsNameWhatIsDeclared(t *testing.T) {
 
 // The substrate is deployed whether or not a manifest exists, so listing it is
 // what explains instances the user never declared.
-func TestRepoListShowsTheSubstrateAndTheDeclarations(t *testing.T) {
+func TestInstanceListShowsTheSubstrateAndTheDeclarations(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "hmd-ms-myapi")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatal(err)
 	}
 
-	out, stderr, err := run(t, fakeEnv(env), "repo", "list")
+	out, stderr, err := run(t, fakeEnv(env), "instance", "list")
 	if err != nil {
-		t.Fatalf("repo list: %v", err)
+		t.Fatalf("instance list: %v", err)
 	}
 	for _, want := range []string{"eks-cluster", "environment-db", "substrate", "ms-myapi", "manifest"} {
 		if !strings.Contains(out, want) {
@@ -285,18 +285,18 @@ func TestRepoListShowsTheSubstrateAndTheDeclarations(t *testing.T) {
 	}
 }
 
-func TestRepoListOnAnEnvironmentWithNoManifestSaysSo(t *testing.T) {
+func TestInstanceListOnAnEnvironmentWithNoManifestSaysSo(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t)
-	out, _, err := run(t, fakeEnv(env), "repo", "list")
+	out, _, err := run(t, fakeEnv(env), "instance", "list")
 	if err != nil {
-		t.Fatalf("repo list: %v", err)
+		t.Fatalf("instance list: %v", err)
 	}
 	if !strings.Contains(out, "no manifest") {
 		t.Errorf("output does not say the environment has none:\n%s", out)
 	}
-	if !strings.Contains(out, "nsctl repo add") {
+	if !strings.Contains(out, "nsctl instance add") {
 		t.Errorf("output does not name the command that declares one:\n%s", out)
 	}
 }
@@ -385,11 +385,11 @@ func TestStatusWord(t *testing.T) {
 
 // Import needs a deployment service; without one there is nothing to read and
 // saying so beats writing an empty manifest.
-func TestRepoImportRefusesWithoutTheDeploymentService(t *testing.T) {
+func TestInstanceImportRefusesWithoutTheDeploymentService(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t)
-	_, _, err := run(t, fakeEnv(env), "repo", "import")
+	_, _, err := run(t, fakeEnv(env), "instance", "import")
 	if err == nil {
 		t.Fatal("import succeeded with no deployment service")
 	}
@@ -406,13 +406,13 @@ func TestRepoImportRefusesWithoutTheDeploymentService(t *testing.T) {
 // It runs with nothing at all running: repoEnv points the deployment service at
 // a closed port, so this also pins that resolution never turns a listing into an
 // error.
-func TestRepoListSaysWhereEachVersionCameFrom(t *testing.T) {
+func TestInstanceListSaysWhereEachVersionCameFrom(t *testing.T) {
 	t.Parallel()
 
 	home, env := repoEnv(t)
 	// Same version as the cached artifact, so the FROM column is the only thing
 	// that can tell the two apart. No declared version: the checkout's own
-	// meta-data/VERSION is what a bare `nsctl repo add` resolves through.
+	// meta-data/VERSION is what a bare `nsctl instance add` resolves through.
 	tree := filepath.Join(env["HMD_REPO_HOME"], "hmd-ms-tree")
 	writeFile(t, filepath.Join(tree, "meta-data", "VERSION"), "0.1.4")
 
@@ -432,9 +432,9 @@ func TestRepoListSaysWhereEachVersionCameFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, stderr, err := run(t, fakeEnv(env), "repo", "list")
+	out, stderr, err := run(t, fakeEnv(env), "instance", "list")
 	if err != nil {
-		t.Fatalf("repo list: %v", err)
+		t.Fatalf("instance list: %v", err)
 	}
 	if !strings.Contains(stderr, "not answering") {
 		t.Errorf("stderr does not explain the missing status: %q", stderr)
@@ -485,7 +485,7 @@ func TestRepoListSaysWhereEachVersionCameFrom(t *testing.T) {
 	}
 }
 
-// listRows parses `repo list`'s table into one field map per instance, keyed by
+// listRows parses `instance list`'s table into one field map per instance, keyed by
 // the header. Reading columns by name is what keeps these assertions about the
 // contents rather than about the column order -- and splitting on the padding
 // rather than on whitespace is what keeps "REPO CLASS" and "artifact
@@ -526,12 +526,12 @@ func listRows(t *testing.T, out string) map[string]map[string]string {
 // by the Docker daemon -- which rejected `platform/warehouse` as a volume
 // name on the first Demo 0 run. A path carrying a variable is left for
 // RepoPath to expand.
-func TestRepoAddAbsolutisesARelativePath(t *testing.T) {
+func TestInstanceAddAbsolutisesARelativePath(t *testing.T) {
 	t.Parallel()
 
 	_, env := repoEnv(t, "acme-platform-warehouse")
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "acme-platform-warehouse", "--path", "."); err != nil {
-		t.Fatalf("repo add: %v", err)
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "acme-platform-warehouse", "--path", "."); err != nil {
+		t.Fatalf("instance add: %v", err)
 	}
 	want, _ := filepath.Abs(".")
 	if got := readManifest(t, env, "local").Repos[0].Source.Path; got != want {
@@ -540,8 +540,8 @@ func TestRepoAddAbsolutisesARelativePath(t *testing.T) {
 
 	_, env = repoEnv(t, "acme-platform-runner")
 	env["ACME_HOME"] = want
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "acme-platform-runner", "--path", "$ACME_HOME/."); err != nil {
-		t.Fatalf("repo add: %v", err)
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "acme-platform-runner", "--path", "$ACME_HOME/."); err != nil {
+		t.Fatalf("instance add: %v", err)
 	}
 	if got := readManifest(t, env, "local").Repos[0].Source.Path; got != "$ACME_HOME/." {
 		t.Errorf("a path with a variable was rewritten to %q", got)

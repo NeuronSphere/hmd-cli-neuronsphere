@@ -78,7 +78,7 @@ verbose output and the next plan before forcing a full redeploy.
 Removal is not teardown
 -----------------------
 
-``repo remove`` deletes an environment declaration. During repository
+``instance remove`` deletes an environment declaration. During repository
 adoption, ``--prune`` removes declarations no longer requested. Neither action
 destroys deployed resources. An undeclared result is an inventory discrepancy,
 not an instruction that apply will delete something.

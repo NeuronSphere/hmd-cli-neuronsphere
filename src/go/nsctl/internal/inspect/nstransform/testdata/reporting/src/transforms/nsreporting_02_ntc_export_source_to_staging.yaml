@@ -1,0 +1,32 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: nsreporting_01_create_ntc_source_table
+    tf_name: nsreporting_02_ntc_export_source_to_staging
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      insert into {{ ns_context['schema_name' ]}}_staging.ntc_instances_export
+      select nid as identifier,
+             transform_name,
+             transform_version,
+             coalesce(try(from_iso8601_timestamp(created_at)), null) as created_at,
+             coalesce(try(from_iso8601_timestamp(scheduled_at)), null) as scheduled_at,
+             coalesce(try(from_iso8601_timestamp(started_at)), null) as started_at,
+             coalesce(try(from_iso8601_timestamp(completed_at)), null) as completed_at,
+             status,
+             cast('{{ ns_context['iso_date'] }}' as date) as export_date,
+             from_iso8601_timestamp(_created) as _created,
+             from_iso8601_timestamp(_updated) as _updated,
+             date_trunc( 'day', from_iso8601_timestamp(_created)) as p_iso_date,
+             '{{ ns_context['environment'] }}' as p_environment
+      from {{ ns_context['schema_name' ]}}_source.ntc_instances_export_{{ ns_context['iso_date'].replace('-', '_') }}_{{ ns_context['environment'] }}
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_name: ntc
+    iso_date: context.iso_date
+    environment: context.environment

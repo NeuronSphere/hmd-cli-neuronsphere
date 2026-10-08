@@ -1,0 +1,18 @@
+{
+  "name": "transform_version_has_transform_instance",
+  "namespace": "hmd_lang_transform",
+  "metatype": "relationship",
+  "ref_from": "hmd_lang_transform.transform_version",
+  "ref_to": "hmd_lang_transform.transform_instance",
+  "attributes": {},
+  "adornments": {
+    "ref_from": {
+      "arrow": false,
+      "cardinality": "1"
+    },
+    "ref_to": {
+      "arrow": true,
+      "cardinality": "*"
+    }
+  }
+}

@@ -194,9 +194,9 @@ func ValidPluginName(name string) error {
 // than imported, because cmd imports this package; a test in cmd asserts the
 // two agree.
 var builtinNouns = []string{
-	"agent", "env", "lock", "artifact", "bom", "repo", "repoclass",
+	"agent", "env", "lock", "artifact", "bom", "instance", "repoclass",
 	"control-plane", "cp", "authd", "login", "logout", "whoami", "version", "doctor", "db",
-	"stack", "plugin", "quickstart", "dns",
+	"stack", "plugin", "quickstart", "dns", "inspect", "model",
 }
 
 // BuiltinNouns is the list cmd's test compares against its tree.

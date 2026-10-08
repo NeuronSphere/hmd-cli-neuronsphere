@@ -1,0 +1,12 @@
+type: provider
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      create schema if not exists "billing_{{ ns_context['schema_suffix'].replace('-', '_') }}"
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_suffix: "source"
+    

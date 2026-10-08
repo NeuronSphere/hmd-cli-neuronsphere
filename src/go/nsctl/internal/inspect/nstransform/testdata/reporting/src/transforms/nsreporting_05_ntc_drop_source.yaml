@@ -1,0 +1,19 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: nsreporting_04_ntc_dbt
+    tf_name: nsreporting_04_ntc_drop_source
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      DROP TABLE IF EXISTS {{ ns_context['schema_name' ]}}_source.ntc_instances_export_{{ ns_context['iso_date'] }}_{{ ns_context['environment'] }}
+    trino_conn_id: trino_conn
+    autocommit: true
+  run_params:
+    schema_name: ntc
+    bucket_name: NSREPORTING_BUCKET
+    iso_date: context.iso_date
+    environment: context.environment

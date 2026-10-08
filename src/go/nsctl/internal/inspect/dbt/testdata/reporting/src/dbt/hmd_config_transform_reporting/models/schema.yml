@@ -1,0 +1,39 @@
+version: 2
+
+sources:
+  - name: ntc_final
+    database: hive
+    schema: ntc_final
+    tables:
+      - name: ntc_instances_export
+        description: "Source table containing NTC instances export data."
+models:
+  - name: dim_transform
+    description: "Transform dimension (name + version)."
+    columns:
+      - name: transform_id
+        description: "Surrogate key for transform name and version."
+        tests: [not_null, unique]
+      - name: transform_name
+      - name: transform_version
+
+  - name: dim_environment
+    description: "Environment dimension."
+    columns:
+      - name: environment_id
+        tests: [not_null, unique]
+      - name: environment
+
+  - name: dim_status
+    description: "Status dimension."
+    columns:
+      - name: status_id
+        tests: [not_null, unique]
+      - name: status
+
+  - name: dim_date_hour
+    description: "Generic hourly date dimension."
+    columns:
+      - name: hour_id
+        tests: [not_null, unique]
+      - name: date_hour
