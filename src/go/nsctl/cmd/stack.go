@@ -115,6 +115,7 @@ func newStackAddCommand(opts *Options) *cobra.Command {
 		envName, localURL, spec string
 		apply, verbose          bool
 		repo                    fromRepo
+		guard                   leaseGuard
 	)
 	cmd := &cobra.Command{
 		Use:   "add <ref>",
@@ -140,6 +141,10 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			home, err := opts.RequireHome()
 			if err != nil {
+				return err
+			}
+			// Before the fetch: a refusal should not cost a download.
+			if err := guard.checkName(cmd, opts, home, envName); err != nil {
 				return err
 			}
 			ref, client, err := stackRef(cmd, opts, args[0], spec)
@@ -230,6 +235,7 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 	cmd.Flags().BoolVar(&repo.allProfiles, "all-profiles", false, "Activate every profile the stack's lock mentions")
 	cmd.Flags().BoolVar(&repo.lean, "lean", false, "Activate no profiles: the stack and its unconditional entries alone")
 	cmd.Flags().StringArrayVar(&repo.names, "name", nil, "Name one instance, as <role-or-declared-name>=<instance>. Repeatable")
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -348,6 +354,7 @@ func newStackListCommand(opts *Options) *cobra.Command {
 func newStackRemoveCommand(opts *Options) *cobra.Command {
 	var envName string
 	var pruneCache bool
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:   "remove <name>",
 		Short: "Undeclare a stack's instances and drop its record",
@@ -366,6 +373,9 @@ unless --prune-cache.`,
 			}
 			_, _, slug, err := resolveEnvSlug(opts, envName)
 			if err != nil {
+				return err
+			}
+			if err := guard.check(cmd, opts, home, slug); err != nil {
 				return err
 			}
 			m, err := openManifest(opts, home, slug)
@@ -427,6 +437,7 @@ unless --prune-cache.`,
 	}
 	cmd.Flags().StringVar(&envName, "env", "", "Environment to edit (default: the default environment)")
 	cmd.Flags().BoolVar(&pruneCache, "prune-cache", false, "Also delete the stack's artifacts from the cache")
+	guard.bind(cmd)
 	return cmd
 }
 

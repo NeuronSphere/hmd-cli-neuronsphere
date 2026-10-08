@@ -24,9 +24,11 @@ func newEnvLeaseCommand(opts *Options) *cobra.Command {
 		Use:   "lease",
 		Short: "Take, renew, release or list run leases on environments",
 		Long: `A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
-an environment until it releases it. While an environment is leased, env apply,
-stop and purge from anyone else are refused, so concurrent sessions cannot deploy
-over each other.
+an environment until it releases it. While an environment is leased, every
+command that changes it -- env start, apply, stop, purge and delete, repo
+add/remove/import, stack add/remove, bom import -- refuses anyone who does not
+present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
+sessions cannot deploy over each other. --ignore-lease overrides the refusal.
 
 Leases are run-scoped, not session-scoped: take one for the run, release it
 when the run ends. A small pool of environments ([pool] in nsctl.toml; by
@@ -334,6 +336,61 @@ func tokenOrEnv(token string, opts *Options) string {
 		return token
 	}
 	return opts.Lookup("NSCTL_LEASE_TOKEN")
+}
+
+// leaseGuard is what every command that changes an environment carries
+// (NERD035 SPEC001): the holder's token to get past a lease, and the override.
+type leaseGuard struct {
+	token  string
+	ignore bool
+}
+
+func (g *leaseGuard) bind(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&g.token, "lease-token", "",
+		"The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)")
+	cmd.Flags().BoolVar(&g.ignore, "ignore-lease", false,
+		"Proceed even though someone else holds the environment's lease")
+}
+
+// check refuses unless slug is unleased or the caller holds its lease. It runs
+// before the command changes anything, so a refusal costs nothing.
+func (g *leaseGuard) check(cmd *cobra.Command, opts *Options, home, slug string) error {
+	err := lease.New(home).Check(slug, tokenOrEnv(g.token, opts))
+	var held *lease.HeldError
+	if g.ignore && errors.As(err, &held) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: ignoring the lease %s holds on %s (%s, until %s)\n",
+			held.Lease.Holder, slug, held.Lease.Where(), held.Lease.Expires().Format(time.RFC3339))
+		return nil
+	}
+	return leaseError(err)
+}
+
+// checkName is check for a name as the user gave it; empty means the default.
+//
+// A name that does not resolve is left to the command, whose own error about
+// it is the better one -- and an environment that is not registered has no
+// lease to protect.
+func (g *leaseGuard) checkName(cmd *cobra.Command, opts *Options, home, name string) error {
+	_, _, slug, err := resolveEnvSlug(opts, name)
+	if err != nil {
+		return nil
+	}
+	return g.check(cmd, opts, home, slug)
+}
+
+// checkAll is check for every registered environment, for a verb that acts on
+// all of them at once.
+func (g *leaseGuard) checkAll(cmd *cobra.Command, opts *Options, home string) error {
+	names, err := registeredNames(home, opts)()
+	if err != nil {
+		return nil
+	}
+	for _, slug := range names {
+		if err := g.check(cmd, opts, home, slug); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func leaseError(err error) error {

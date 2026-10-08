@@ -76,7 +76,7 @@ Scope and terminology
 .. spec:: A lease is enforced by every command that changes its environment
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     ``nsctl env apply``, ``env stop``, ``env purge``, ``env delete``,
     ``stack add``/``remove`` and ``repo add``/``remove`` with ``--env`` shall

@@ -578,6 +578,13 @@ of an environment until it releases it.
 - A lease ends on release, when its TTL (``--ttl``, default 10m) passes without
   a renew, or when the process it watches (``--pid``, default the caller's
   parent) exits. A session killed mid-run therefore never wedges the pool.
+- While an environment is leased, every command that changes it refuses anyone
+  but the holder: ``env start``, ``apply``, ``stop``, ``purge`` (a bare
+  ``purge`` refuses if *any* environment is leased), ``delete``, ``repo add``,
+  ``remove`` and ``import``, ``stack add`` and ``remove``, and ``bom import``.
+  The holder passes its token with ``--lease-token`` or ``NSCTL_LEASE_TOKEN``.
+  ``--ignore-lease`` proceeds anyway and says whose lease it ignored. Read-only
+  commands and ``--dry-run`` are never refused.
 
 Leases are run-scoped, not session-scoped, so a small warm pool serves many
 sessions. The pool is configured in ``nsctl.toml``:

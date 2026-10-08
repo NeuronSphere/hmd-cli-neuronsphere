@@ -658,8 +658,10 @@ Local flags
 * ``--dry-run`` — Show what would be declared, writing and fetching nothing
 * ``--env`` — Local environment to declare into (default: the default environment)
 * ``--exclude`` — An instance to leave out. Repeatable (default: ``[]``)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--include-failed`` — Include instances whose last deployment FAILED
 * ``--instance`` — An instance to take, by name. Repeatable (default: ``[]``)
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--librarian-url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--no-deps`` — Take the selection literally, without what fills its roles
@@ -1296,7 +1298,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the lock mentions
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
 * ``--from-repo`` — Build the environment from the repository at this path
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -1379,7 +1383,9 @@ Aliases: ``rm``.
 Local flags
 ~~~~~~~~~~~
 
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--keep-manifest`` — Keep the environment manifest under $HMD_HOME/environments
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Confirm the removal
 
 Inherited flags
@@ -1391,9 +1397,11 @@ nsctl env lease
 ---------------
 
 A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
-an environment until it releases it. While an environment is leased, env apply,
-stop and purge from anyone else are refused, so concurrent sessions cannot deploy
-over each other.
+an environment until it releases it. While an environment is leased, every
+command that changes it -- env start, apply, stop, purge and delete, repo
+add/remove/import, stack add/remove, bom import -- refuses anyone who does not
+present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
+sessions cannot deploy over each other. --ignore-lease overrides the refusal.
 
 Leases are run-scoped, not session-scoped: take one for the run, release it
 when the run ends. A small pool of environments ([pool] in nsctl.toml; by
@@ -1627,6 +1635,8 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Skip the confirmation
 
 Inherited flags
@@ -1672,6 +1682,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--no-deploy`` — Bring up the infrastructure without reconciling the BOM
 * ``--substrate`` — How much substrate to run: none, core or full (default: what the environment recorded, else full)
 * ``-V, --verbose`` — Show the underlying command output
@@ -1712,7 +1724,13 @@ Usage
 
 .. code-block:: text
 
-   nsctl env stop [name]
+   nsctl env stop [name] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2135,6 +2153,8 @@ Local flags
 * ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
 * ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
 * ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--name`` — Instance name (default: the repo class without its hmd- prefix)
 * ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
 
@@ -2173,6 +2193,8 @@ Local flags
 * ``--all`` — Import instances that are not currently deployed too
 * ``--dry-run`` — Show what would be declared without writing
 * ``--env`` — Environment to import from (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2233,6 +2255,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -3348,7 +3372,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the stack's lock mentions
 * ``--apply`` — Run `nsctl env apply` afterwards
 * ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -3582,6 +3608,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--prune-cache`` — Also delete the stack's artifacts from the cache
 
 Inherited flags

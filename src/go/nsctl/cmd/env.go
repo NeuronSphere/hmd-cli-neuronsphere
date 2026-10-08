@@ -105,6 +105,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 func newEnvStartCommand(opts *Options) *cobra.Command {
 	var noDeploy, verbose, force bool
 	var substrate string
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start an environment's infrastructure",
@@ -151,6 +152,9 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 			if err != nil {
 				return err
 			}
+			if err := guard.check(cmd, opts, home, slug); err != nil {
+				return err
+			}
 			// The mode, recorded before anything starts: a bad value costs a
 			// line, and a good one is what every later command reads.
 			if cmd.Flags().Changed("substrate") {
@@ -186,6 +190,7 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
 		"Deploy everything declared, ignoring what the graph says is already deployed")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	guard.bind(cmd)
 	cmd.Flags().StringVar(&substrate, "substrate", "",
 		"How much substrate to run: none, core or full (default: what the environment recorded, else full)")
 	return cmd
@@ -216,6 +221,7 @@ func newEnvApplyCommand(opts *Options) *cobra.Command {
 	var verbose, force, pull, prune bool
 	var repo fromRepo
 	var libs librarians
+	var guard leaseGuard
 
 	cmd := &cobra.Command{
 		Use:   "apply [name]",
@@ -255,6 +261,9 @@ unless --prune; nothing is ever torn down on your behalf.`,
 			if len(args) == 1 {
 				name = args[0]
 			}
+			if err := guard.checkName(cmd, opts, home, name); err != nil {
+				return err
+			}
 			if repo.requested() {
 				if err := applyFromRepo(cmd, opts, &repo, &libs, home, name, pull, prune); err != nil {
 					return err
@@ -275,6 +284,7 @@ unless --prune; nothing is ever torn down on your behalf.`,
 		"Undeclare instances this repository no longer asks for. Does not tear them down")
 	repo.bind(cmd)
 	libs.bind(cmd)
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -344,7 +354,8 @@ func plural(n int, one, many string) string {
 }
 
 func newEnvStopCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var guard leaseGuard
+	cmd := &cobra.Command{
 		Use:   "stop [name]",
 		Short: "Stop an environment, leaving its state in place",
 		Long: `Stops one environment. This is a stop, not a teardown: the k3s cluster is
@@ -364,12 +375,17 @@ The control plane keeps running.`,
 			if len(args) == 1 {
 				name = args[0]
 			}
+			if err := guard.checkName(cmd, opts, home, name); err != nil {
+				return err
+			}
 			return environment.Stop(cmd.Context(), &environment.Options{
 				Home: home, Lookup: opts.Lookup,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}, name)
 		},
 	}
+	guard.bind(cmd)
+	return cmd
 }
 
 func newEnvListCommand(opts *Options) *cobra.Command {
@@ -652,6 +668,7 @@ func refuseOrphanedManifest(reg *registry.Registry, home, name string, adopt boo
 
 func newEnvDeleteCommand(opts *Options) *cobra.Command {
 	var yes, keepManifest bool
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:     "delete <name>",
 		Aliases: []string{"rm"},
@@ -675,6 +692,9 @@ either state alone, because nothing left knows how to address them.`,
 			env, err := reg.Environment(args[0], opts.Lookup)
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
+			}
+			if err := guard.check(cmd, opts, home, env.Slug); err != nil {
+				return err
 			}
 
 			// Refusing while it is running is the whole point of the check;
@@ -729,6 +749,7 @@ either state alone, because nothing left knows how to address them.`,
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm the removal")
 	cmd.Flags().BoolVar(&keepManifest, "keep-manifest", false,
 		"Keep the environment manifest under $HMD_HOME/environments")
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -774,6 +795,7 @@ func runningContainers(ctx context.Context, env *registry.Environment) []string 
 // nothing of the sort.
 func newEnvPurgeCommand(opts *Options) *cobra.Command {
 	var yes bool
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:   "purge [name]",
 		Short: "Destroy an environment: its cluster, database, graph and state",
@@ -802,6 +824,9 @@ naming them.`,
 			}
 
 			if len(args) == 1 {
+				if err := guard.checkName(cmd, opts, home, args[0]); err != nil {
+					return err
+				}
 				if !yes {
 					return nserr.New(nserr.Usage,
 						"this permanently destroys %q -- its cluster, database, graph and state. Pass --yes to confirm.", args[0])
@@ -809,6 +834,10 @@ naming them.`,
 				return environment.Purge(cmd.Context(), envOpts, args[0])
 			}
 
+			// Purging everything destroys every leased environment with it.
+			if err := guard.checkAll(cmd, opts, home); err != nil {
+				return err
+			}
 			if !yes && !confirmFullPurge(cmd, opts) {
 				return nserr.New(nserr.Usage, "purge cancelled")
 			}
@@ -829,6 +858,7 @@ naming them.`,
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation")
+	guard.bind(cmd)
 	return cmd
 }
 

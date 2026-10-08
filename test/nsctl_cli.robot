@@ -783,3 +783,24 @@ Db Upgrade Without An Engine Fails Cleanly And Writes Nothing
     Should Be Equal As Integers    ${result.rc}    1
     Should Contain    ${result.stderr}    docker
     Directory Should Not Exist    ${home}${/}floci
+
+A Leased Environment Refuses Everyone But The Holder
+    [Documentation]    NERD035 SPEC001: a lease is enforced, not advisory. A
+    ...                destructive verb from another caller stops at the lease
+    ...                with exit 3 and names the holder; the holder's token gets
+    ...                through. Run without an engine, so a regressed guard
+    ...                fails here instead of stopping a real environment.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${tree}=      Create Scratch Repo
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${acq}=       Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --holder    robot-a    --pid    0    --json
+    Should Be Equal As Integers    ${acq.rc}    0
+    ${token}=     Evaluate    json.loads($acq.stdout)["token"]    modules=json
+    ${stop}=      Run nsctl In Home Without An Engine    ${home}    env    stop    dev
+    Should Be Equal As Integers    ${stop.rc}    3
+    Should Contain    ${stop.stderr}    leased by robot-a
+    ${refused}=   Run nsctl In Home Without An Engine    ${home}    repo    add    hmd-ms-foo    --env    dev    --path    ${tree}
+    Should Be Equal As Integers    ${refused.rc}    3
+    ${held}=      Run nsctl In Home Without An Engine    ${home}    repo    add    hmd-ms-foo    --env    dev    --path    ${tree}    --lease-token    ${token}
+    Should Be Equal As Integers    ${held.rc}    0    msg=${held.stderr}

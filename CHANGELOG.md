@@ -2,6 +2,15 @@
 
 ## 2026-10-08
 
+- fix: a lease on an environment is enforced, not advisory (NERD035 SPEC001).
+  `env start`/`apply`/`stop`/`purge`/`delete`, `repo add`/`remove`/`import`,
+  `stack add`/`remove` and `bom import` refuse (exit 3, naming the holder) unless
+  the caller presents the lease's token via `--lease-token` or
+  `NSCTL_LEASE_TOKEN`; a bare `purge` refuses while any environment is leased.
+  `--ignore-lease` overrides and says whose lease it ignored.
+- test: the `cmd` package's tests run against a nonexistent Docker endpoint
+  (TestMain), so a command that gets past a missing guard cannot touch the
+  machine's real containers or volumes.
 - fix: `env lease acquire --pid` defaults to the caller's parent at run time
   instead of at flag registration, so the generated command reference no longer
   embeds whichever PID built it and `docs-reference-check` passes in CI.

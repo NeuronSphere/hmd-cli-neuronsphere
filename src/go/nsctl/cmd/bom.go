@@ -264,6 +264,7 @@ func newBOMImportCommand(opts *Options) *cobra.Command {
 	var envName string
 	var dryRun, noPull, resolve, apply, verbose bool
 	var selectionPath, saveSelection string
+	var guard leaseGuard
 
 	cmd := &cobra.Command{
 		Use:   "import <env>",
@@ -333,6 +334,11 @@ where an artifact could not be fetched -- is declared but never applied.`,
 			_, _, slug, err := resolveEnvSlug(opts, envName)
 			if err != nil {
 				return err
+			}
+			if !dryRun {
+				if err := guard.check(cmd, opts, home, slug); err != nil {
+					return err
+				}
 			}
 			m, err := openManifest(opts, home, slug)
 			if err != nil {
@@ -469,6 +475,7 @@ where an artifact could not be fetched -- is declared but never applied.`,
 	svc.bindFetch(cmd)
 	sel.bind(cmd)
 	cmd.Flags().StringVar(&envName, "env", "", "Local environment to declare into (default: the default environment)")
+	guard.bind(cmd)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be declared, writing and fetching nothing")
 	cmd.Flags().BoolVar(&noPull, "no-pull", false, "Declare without fetching, naming the pulls to run")
 	cmd.Flags().BoolVar(&resolve, "resolve", false,
