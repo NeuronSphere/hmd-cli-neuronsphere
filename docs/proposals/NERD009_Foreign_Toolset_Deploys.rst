@@ -42,7 +42,7 @@ newcomer installs one binary, has Docker, and gets a control plane and an
 environment substrate.
 
 Then they try to deploy their own repository, which is the reason they came, and
-nothing in ``nsctl`` helps. ``nsctl repo add`` declares an *instance* of a
+nothing in ``nsctl`` helps. ``nsctl instance add`` declares an *instance* of a
 RepoClass; it cannot create the RepoClass. Their repo has no
 ``meta-data/VERSION``, no ``meta-data/manifest.json``, and nothing ``hmd
 deploy`` knows how to dispatch. The motion ends one command short of its own
@@ -191,14 +191,14 @@ build``.
     with them: ``internal/repoclass`` owns the BACON one -- its type is
     ``repoclass.Manifest`` (``internal/repoclass/repoclass.go:205-212``) -- and
     ``internal/manifest`` owns the other two. The command tree already
-    distinguishes the same two levels, ``nsctl repo add`` declaring an
-    *instance* and ``nsctl control-plane repo add`` the same for the other
+    distinguishes the same two levels, ``nsctl instance add`` declaring an
+    *instance* and ``nsctl control-plane instance add`` the same for the other
     scope. ``repoclass`` is the platform's own word for the class:
     ``repo_class_name`` is the key in every BOM entry
     (``internal/bom/bom.go:69``) and in ``add_repo_class_version``.
 
     ``nsctl manifest init`` would read as "create an environment manifest",
-    which is the one thing it does not do -- and ``nsctl repo add``'s own help
+    which is the one thing it does not do -- and ``nsctl instance add``'s own help
     text says in so many words that it *"edits the environment manifest"*
     (``cmd/repo.go:22``). No ``nsctl manifest`` alias shall be offered: an alias
     would reintroduce the ambiguity the name exists to remove.
@@ -540,7 +540,7 @@ build``.
     ``ResolveVersion`` falls through to the sentinel
     (``internal/repoclass/repoclass.go:20-21``, ``:188-192``), so the class
     registers under ``0.1.0`` -- a version it never declared, which
-    ``nsctl repo list`` and the deployment graph then report as fact. A missing
+    ``nsctl instance list`` and the deployment graph then report as fact. A missing
     version is a question; ``0.1.0`` is a wrong answer.
 
     ``init`` shall refuse when a manifest already exists, naming ``describe``
@@ -625,7 +625,7 @@ build``.
     them: ``deploy set-command``, ``deploy set-image`` and ``deploy
     set-config``/``unset-config``, the last writing a dotted key path into
     ``deploy.default_configuration`` with JSON-typed values -- the typing rule
-    ``parseConfig`` already applies to ``nsctl repo add --config``.
+    ``parseConfig`` already applies to ``nsctl instance add --config``.
 
     Writes print one line naming the file and the key they changed and exit
     ``0``. Reads print a table, or a JSON document under ``--json``: a new

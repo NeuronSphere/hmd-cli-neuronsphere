@@ -75,6 +75,20 @@ Run nsctl In Home
     ...    stdin=${None}
     RETURN    ${result}
 
+Create Inspect Repos
+    [Documentation]    A language pack with one noun, and a transform repository
+    ...                that builds one table in a staging and a final schema
+    ...                and loads one from the other. Neither declares a
+    ...                perspective.
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}lang${/}meta-data${/}manifest.json    {"name": "hmd-lang-demo"}
+    Create File    ${dir}${/}lang${/}src${/}schemas${/}hmd_lang_demo${/}environment.hms
+    ...    {"name": "environment", "namespace": "hmd_lang_demo", "metatype": "noun", "attributes": {"type": {"type": "string"}}}
+    Create File    ${dir}${/}tf${/}meta-data${/}manifest.json    {"name": "hmd-config-demo"}
+    Create File    ${dir}${/}tf${/}src${/}transforms${/}ddl.yaml
+    ...    type: provider\nconfig: {provider_class: TrinoOperator, params: {sql: "CREATE TABLE demo_staging.thing (id VARCHAR, at DATE); CREATE TABLE demo_final.thing (id VARCHAR, at DATE); INSERT INTO demo_final.thing SELECT id, at FROM demo_staging.thing"}}\n
+    RETURN    ${dir}
+
 *** Test Cases ***
 Version Prints The Injected Version
     [Documentation]    SPEC013: the binary reports the version -ldflags put in
@@ -115,7 +129,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
+    FOR    ${command}    IN    env    instance    repoclass    model    inspect    control-plane    authd    login    logout    whoami    version    stack    plugin
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -547,7 +561,7 @@ Help Leads With What A First Run Needs
     ${start}=     Get Line    ${result.stdout}    ${{ $result.stdout.splitlines().index('Start here:') + 1 }}
     Should Contain    ${start}    quickstart
     # Grouping is presentation only: every command is still listed.
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
+    FOR    ${command}    IN    env    instance    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -587,6 +601,95 @@ Detect Classifies A Repository And Writes Nothing
     Should Contain    ${d.stdout}    "value": "make deploy"
     Should Contain    ${d.stdout}    Makefile:1
     Should Not Exist    ${dir}${/}meta-data${/}manifest.json
+
+Inspect Reports A Model And Writes Nothing
+    [Documentation]    NERD032: inspect reads an .hms schema and a transform's
+    ...                Trino DDL, folds the layered table into one noun, and
+    ...                never writes into the inspected repositories. Without
+    ...                HMD_HOME nothing is stored, and it says so. NERD033: the
+    ...                trino perspective and its layers are derived, not built in.
+    [Tags]    contract    nerd032    nerd033
+    ${dir}=       Create Inspect Repos
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    model    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    hmd_lang_demo.environment
+    Should Contain    ${r.stdout}    demo.thing
+    Should Contain    ${r.stdout}    @trino:final demo_final.thing
+    Should Contain    ${r.stdout}    @trino:staging demo_staging.thing
+    Should Contain    ${r.stderr}    HMD_HOME is not set
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
+
+Inspect Derives A Perspective And Materialises It Only Where Told
+    [Documentation]    NERD033: nsctl ships no perspective. It derives trino from
+    ...                the DDL with the evidence for each piece, records an edit
+    ...                under HMD_HOME, and writes the perspective into the one
+    ...                repository --to names; after that, that repository
+    ...                declares it.
+    [Tags]    contract    nerd033
+    ${dir}=       Create Inspect Repos
+    ${home}=      Create Scratch Home
+    ${lang}=      Create Scratch Repo
+    ${empty}=     Create Scratch Repo
+    ${r}=         Run nsctl    model    perspective    list    ${empty}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Not Contain    ${r.stdout}    trino
+    ${r}=         Run nsctl    model    perspective    derive    ${dir}    --evidence
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    layer: staging -> final
+    Should Contain    ${r.stdout}    date→timestamp
+    Should Contain    ${r.stdout}    the same table name in schemas that differ only in their last _-separated segment
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    format    storage_format    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2    msg=an edit for a key nothing derived must be refused
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    is_partition    partition_key    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2    msg=no table here is partitioned, so there is no is_partition to rename
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    table_type    kind    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    materialise    trino    ${dir}    --to    ${lang}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    File Should Exist    ${lang}${/}src${/}perspectives${/}trino.perspective.json
+    File Should Exist    ${lang}${/}src${/}schemas${/}demo${/}thing.trino.hms
+    ${def}=       Get File    ${lang}${/}src${/}perspectives${/}trino.perspective.json
+    Should Contain    ${def}    "kind"
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
+    ${r}=         Run nsctl    model    perspective    list    ${dir}    ${lang}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    src/perspectives/trino.perspective.json
+
+Inspect Diff Needs A Home
+    [Documentation]    NERD032 SPEC005: snapshots live under HMD_HOME, so a diff
+    ...                without one is a usage error, not an empty diff.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Scratch Repo
+    ${r}=         Run nsctl    model    diff    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    HMD_HOME
+
+Inspect Runs Every Noun And Gates On Errors
+    [Documentation]    NERD032 SPEC008: nsctl inspect runs the inspect verb of
+    ...                every noun that has one over the same repositories, in one
+    ...                shape of finding. A section that cannot run says why and
+    ...                the rest still run; any error exits 1, so it can gate a
+    ...                change; nothing is written.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Inspect Repos
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    1    msg=the demo manifests lack a description, which validate reports as an error
+    Should Contain    ${r.stdout}    REPOCLASS
+    Should Contain    ${r.stdout}    repoclass-validate
+    Should Contain    ${r.stdout}    INSTANCE
+    Should Contain    ${r.stdout}    skipped: HMD_HOME is not set
+    Should Contain    ${r.stdout}    MODEL
+    Should Contain    ${r.stdout}    @trino:final @trino:staging
+    ${r}=         Run nsctl    inspect    ${dir}    --only    model
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stdout}
+    Should Not Contain    ${r.stdout}    REPOCLASS
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
 
 Detect Refuses To Infer Dependencies Or Resources
     [Documentation]    NERD009 SPEC010, and the assertions that matter most: a
@@ -800,7 +903,7 @@ A Leased Environment Refuses Everyone But The Holder
     ${stop}=      Run nsctl In Home Without An Engine    ${home}    env    stop    dev
     Should Be Equal As Integers    ${stop.rc}    3
     Should Contain    ${stop.stderr}    leased by robot-a
-    ${refused}=   Run nsctl In Home Without An Engine    ${home}    repo    add    hmd-ms-foo    --env    dev    --path    ${tree}
+    ${refused}=   Run nsctl In Home Without An Engine    ${home}    instance    add    hmd-ms-foo    --env    dev    --path    ${tree}
     Should Be Equal As Integers    ${refused.rc}    3
-    ${held}=      Run nsctl In Home Without An Engine    ${home}    repo    add    hmd-ms-foo    --env    dev    --path    ${tree}    --lease-token    ${token}
+    ${held}=      Run nsctl In Home Without An Engine    ${home}    instance    add    hmd-ms-foo    --env    dev    --path    ${tree}    --lease-token    ${token}
     Should Be Equal As Integers    ${held.rc}    0    msg=${held.stderr}

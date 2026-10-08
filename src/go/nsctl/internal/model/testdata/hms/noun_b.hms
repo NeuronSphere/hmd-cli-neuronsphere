@@ -1,0 +1,27 @@
+{
+  "name": "noun_b",
+  "namespace": "hmd_lang_mesh_proto.subone",
+  "metatype": "noun",
+  "attributes": {
+    "title": {
+      "type": "string",
+      "description": "noun's title"
+    },
+    "color": {
+      "type": "string",
+      "description": "the noun's color"
+    },
+    "size": {
+      "type": "float",
+      "description": "the noun's size"
+    },
+    "x_pos": {
+      "type": "int",
+      "description": "the noun's x position"
+    },
+    "y_pos": {
+      "type": "int",
+      "description": "the noun's y position"
+    }
+  }
+}

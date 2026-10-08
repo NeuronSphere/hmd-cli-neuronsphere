@@ -129,6 +129,7 @@ None of these verbs needs HMD_HOME or a running platform.`,
 		newRepoClassDescribeCommand(path),
 		newRepoClassDetectCommand(path),
 		newRepoClassValidateCommand(path),
+		newRepoClassInspectCommand(opts, path),
 		newRepoClassBuildCommand(path),
 		newRepoClassDeployCommand(path),
 		newRepoClassLocalCommand(path),
@@ -388,12 +389,7 @@ promotes warnings to errors. Never rewrites the file.`,
 			if err != nil {
 				return err
 			}
-			findings := bacon.Validate(s, bacon.Known{
-				BundledClasses: bundled.RepoClasses(),
-				ReservedNames:  manifest.ReservedNames(),
-			})
-			findings = append(findings, withoutRepeats(findings, stackFindings(s.Dir))...)
-			findings = append(findings, installFindings(s.Dir)...)
+			findings := repoClassFindings(s)
 			errs, warns, notes := bacon.Summary(findings)
 			failed := errs > 0 || (strict && warns > 0)
 			if asJSON {
@@ -422,6 +418,17 @@ promotes warnings to errors. Never rewrites the file.`,
 	cmd.Flags().BoolVar(&strict, "strict", false, "Treat warnings as errors")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the findings as JSON")
 	return cmd
+}
+
+// repoClassFindings is everything validate has to say about a manifest:
+// the schema and semantic passes, a stack's own rules, and install items.
+func repoClassFindings(s *bacon.Store) []bacon.Finding {
+	findings := bacon.Validate(s, bacon.Known{
+		BundledClasses: bundled.RepoClasses(),
+		ReservedNames:  manifest.ReservedNames(),
+	})
+	findings = append(findings, withoutRepeats(findings, stackFindings(s.Dir))...)
+	return append(findings, installFindings(s.Dir)...)
 }
 
 // addCommandHint names the add-command verb for a section. Spelled out per

@@ -53,7 +53,7 @@ NERD010 Repo-Rooted Local Environments
       ``nerd010-bucket-hmd-inf-s3bucket-scratch-scratch-reg1-hmdtr1`` -- so the
       ``--name`` override reached real infrastructure, which is the strongest
       available statement of SPEC005's naming order.
-    - ``nsctl repo list`` reported that instance ``FROM artifact`` while a
+    - ``nsctl instance list`` reported that instance ``FROM artifact`` while a
       checkout of ``hmd-inf-s3bucket`` sat in the real ``$HMD_REPO_HOME``,
       confirming that distribution beats an unasked-for checkout on the
       environment path as well as the control-plane one.
@@ -175,7 +175,7 @@ Reference: what already exists
    * - The declared-instance schema
      - ``manifest.Repo`` -- ``instance_name``, ``repo_class_name``, ``version``,
        ``source``, ``instance_configuration``, ``dependencies`` -- already
-       parsed, validated and written by ``nsctl repo add``
+       parsed, validated and written by ``nsctl instance add``
    * - The manifest store, with a repo-root tier
      - ``NERD009`` SPEC006: ``meta-data/manifest.toml``, then
        ``meta-data/manifest.json``, then repo-root ``neuronsphere.toml``
@@ -185,7 +185,7 @@ Reference: what already exists
    * - TOML in the Go binary
      - ``go-toml/v2``, already a module dependency
    * - Reading an environment's deployed instances back out of the graph
-     - ``nsctl repo import`` -- ``client.EnvironmentInstances`` and
+     - ``nsctl instance import`` -- ``client.EnvironmentInstances`` and
        ``declarationFor``
    * - The content-path grammar
      - ``librarian.Spec.ContentPath()``, which is also BACON's
@@ -455,7 +455,7 @@ already exist.
     #. ``--from-env <env>`` -- **pin what is actually running.** Read the
        environment's deployed instances out of ``ms-deployment`` and write their
        versions, reusing ``client.EnvironmentInstances`` and ``declarationFor``,
-       which ``nsctl repo import`` already has. This is how a lock should be
+       which ``nsctl instance import`` already has. This is how a lock should be
        born: a known-good environment is the only thing that has ever proved
        these versions work together.
     #. ``--pin <class>@<version>``, repeatable, and any ``version_spec`` that is
@@ -684,7 +684,7 @@ already exist.
 
     Changing profiles is an ordinary delta-apply. Activating one adds
     instances. Deactivating one **leaves them deployed** unless ``--prune``,
-    which is the promise ``nsctl repo remove`` already makes -- these verbs edit
+    which is the promise ``nsctl instance remove`` already makes -- these verbs edit
     a manifest, and nothing tears an instance down on the user's behalf.
 
     Both verbs are thin: they compose ``localspec``, the lock reader, the

@@ -79,7 +79,7 @@ func observabilityStack(t *testing.T, reg *ocitest.Registry) string {
 }
 
 // declareArtifact declares an artifact-sourced instance in the default
-// environment by hand, as a previous stack or `repo add` would have.
+// environment by hand, as a previous stack or `instance add` would have.
 func declareArtifact(t *testing.T, home string, env map[string]string, name, class, version string) {
 	t.Helper()
 	m, err := manifest.Load(home, "local", fakeEnv(env))

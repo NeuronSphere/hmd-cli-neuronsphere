@@ -79,7 +79,7 @@ Scope and terminology
     :status: implemented
 
     ``nsctl env apply``, ``env stop``, ``env purge``, ``env delete``,
-    ``stack add``/``remove`` and ``repo add``/``remove`` with ``--env`` shall
+    ``stack add``/``remove`` and ``instance add``/``remove``/``import`` with ``--env`` shall
     check the target environment's lease before they change anything:
 
     - **No live lease:** proceed, as today.

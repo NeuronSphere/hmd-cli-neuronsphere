@@ -7,7 +7,7 @@ import "sort"
 // so the scope is what selects the reserved set and the wording of a refusal.
 //
 // The zero value is ScopeEnvironment, which keeps a Manifest built in memory --
-// by `repo add` against a slug that has none -- validating as it always did.
+// by `instance add` against a slug that has none -- validating as it always did.
 type Scope int
 
 const (

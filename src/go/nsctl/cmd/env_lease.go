@@ -25,7 +25,7 @@ func newEnvLeaseCommand(opts *Options) *cobra.Command {
 		Short: "Take, renew, release or list run leases on environments",
 		Long: `A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
 an environment until it releases it. While an environment is leased, every
-command that changes it -- env start, apply, stop, purge and delete, repo
+command that changes it -- env start, apply, stop, purge and delete, instance
 add/remove/import, stack add/remove, bom import -- refuses anyone who does not
 present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
 sessions cannot deploy over each other. --ignore-lease overrides the refusal.

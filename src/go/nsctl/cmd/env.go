@@ -198,7 +198,7 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 
 // recordSubstrate writes the mode into the environment manifest (NERD014
 // SPEC002), creating the file with no instances when there is none -- the way
-// the first `nsctl repo add` does.
+// the first `nsctl instance add` does.
 func recordSubstrate(opts *Options, home, slug string, mode manifest.Substrate) error {
 	m, err := openManifest(opts, home, slug)
 	if err != nil {
@@ -229,7 +229,7 @@ func newEnvApplyCommand(opts *Options) *cobra.Command {
 		Long: `Deploys the environment substrate and everything the manifest declares.
 
 The manifest at $HMD_HOME/environments/<name>.yaml is the desired state.
-Editing it by hand and running this is the same operation as ` + "`nsctl repo add`" + `,
+Editing it by hand and running this is the same operation as ` + "`nsctl instance add`" + `,
 which edits that file and reconciles for you.
 
 This is what ` + "`env start`" + ` runs at the end, so applying after an edit does not
@@ -336,7 +336,7 @@ func applyFromRepo(cmd *cobra.Command, opts *Options, repo *fromRepo, libs *libr
 	plan.render(cmd, slug)
 	if len(kept) > 0 {
 		// These verbs edit a manifest; nothing tears an instance down on the
-		// user's behalf, which is the promise `nsctl repo remove` already makes.
+		// user's behalf, which is the promise `nsctl instance remove` already makes.
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"note: %s %s no longer asked for, left declared. Pass --prune to undeclare them\n",
 			strings.Join(kept, ", "), plural(len(kept), "is", "are"))
@@ -534,7 +534,7 @@ This only writes the registry. The environment's database, cluster and routes
 are created by ` + "`nsctl env start <name>`" + `, which is also what makes it usable.
 
 A new environment is empty: it gets the substrate and nothing else. Declare
-what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
+what should run on it with ` + "`nsctl instance add --env <name> <repo-class>`" + `.
 
 With --from-repo it is not empty. The repository's ` + "`local`" + ` section and its
 checked-in neuronsphere.lock say what to stand up alongside it, every activated

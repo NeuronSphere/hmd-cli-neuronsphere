@@ -580,7 +580,7 @@ of an environment until it releases it.
   parent) exits. A session killed mid-run therefore never wedges the pool.
 - While an environment is leased, every command that changes it refuses anyone
   but the holder: ``env start``, ``apply``, ``stop``, ``purge`` (a bare
-  ``purge`` refuses if *any* environment is leased), ``delete``, ``repo add``,
+  ``purge`` refuses if *any* environment is leased), ``delete``, ``instance add``,
   ``remove`` and ``import``, ``stack add`` and ``remove``, and ``bom import``.
   The holder passes its token with ``--lease-token`` or ``NSCTL_LEASE_TOKEN``.
   ``--ignore-lease`` proceeds anyway and says whose lease it ignored. Read-only

@@ -192,7 +192,7 @@ func TestReservedReasonNamesTheOwner(t *testing.T) {
 	}
 }
 
-// The zero Scope has to keep behaving as an environment's, because `repo add`
+// The zero Scope has to keep behaving as an environment's, because `instance add`
 // builds a Manifest in memory and never sets one.
 func TestZeroScopeIsTheEnvironmentScope(t *testing.T) {
 	t.Parallel()

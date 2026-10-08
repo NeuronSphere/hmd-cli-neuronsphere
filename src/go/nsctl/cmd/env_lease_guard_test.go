@@ -26,9 +26,9 @@ func TestLeaseRefusesOtherHoldersOnEveryMutatingCommand(t *testing.T) {
 	// run for real against the host daemon if the guard is missing, so they
 	// are not in this table.
 	for _, args := range [][]string{
-		{"repo", "add", "hmd-ms-foo", "--env", "local"},
-		{"repo", "remove", "foo", "--env", "local"},
-		{"repo", "import", "--env", "local"},
+		{"instance", "add", "hmd-ms-foo", "--env", "local"},
+		{"instance", "remove", "foo", "--env", "local"},
+		{"instance", "import", "--env", "local"},
 		{"stack", "remove", "observability", "--env", "local"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -93,11 +93,11 @@ func TestLeaseHolderMayChangeItsEnvironment(t *testing.T) {
 	token := leaseLocal(t, home)
 
 	if _, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home, "NSCTL_LEASE_TOKEN": token}),
-		"repo", "add", "hmd-ms-foo", "--env", "local", "--path", t.TempDir()); err != nil {
+		"instance", "add", "hmd-ms-foo", "--env", "local", "--path", t.TempDir()); err != nil {
 		t.Fatalf("holder via NSCTL_LEASE_TOKEN: %v", err)
 	}
 	if _, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}),
-		"repo", "remove", "ms-foo", "--env", "local", "--lease-token", token); err != nil {
+		"instance", "remove", "ms-foo", "--env", "local", "--lease-token", token); err != nil {
 		t.Fatalf("holder via --lease-token: %v", err)
 	}
 }
@@ -108,7 +108,7 @@ func TestLeaseOnOneEnvironmentLeavesTheOthersAlone(t *testing.T) {
 	leaseLocal(t, home)
 
 	if _, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}),
-		"repo", "add", "hmd-ms-foo", "--env", "dev", "--path", t.TempDir()); err != nil {
+		"instance", "add", "hmd-ms-foo", "--env", "dev", "--path", t.TempDir()); err != nil {
 		t.Fatalf("repo add into the unleased dev: %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestIgnoreLeaseProceedsAndSaysWhose(t *testing.T) {
 	leaseLocal(t, home)
 
 	_, stderr, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}),
-		"repo", "add", "hmd-ms-foo", "--env", "local", "--path", t.TempDir(), "--ignore-lease")
+		"instance", "add", "hmd-ms-foo", "--env", "local", "--path", t.TempDir(), "--ignore-lease")
 	if err != nil {
 		t.Fatalf("--ignore-lease: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestReadOnlyCommandsIgnoreLeases(t *testing.T) {
 	leaseLocal(t, home)
 
 	if _, _, err := run(t, fakeEnv(map[string]string{"HMD_HOME": home}),
-		"repo", "list", "--env", "local"); nserr.CodeOf(err) == nserr.InUse {
+		"instance", "list", "--env", "local"); nserr.CodeOf(err) == nserr.InUse {
 		t.Fatalf("repo list was refused: %v", err)
 	}
 }

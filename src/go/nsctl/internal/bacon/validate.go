@@ -635,7 +635,7 @@ func (v *validator) semantics() {
 		}
 		for _, reserved := range v.known.ReservedNames {
 			if name == reserved {
-				v.add(Warning, "name", "%q is a reserved instance name; `nsctl repo add` refuses an instance called this", name)
+				v.add(Warning, "name", "%q is a reserved instance name; `nsctl instance add` refuses an instance called this", name)
 			}
 		}
 	}
