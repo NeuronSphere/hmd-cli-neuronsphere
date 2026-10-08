@@ -2,6 +2,10 @@
 
 ## 2026-10-08
 
+- fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
+  since 2026-10-01, so every control-plane start that had to build the image,
+  released binaries included, failed in `go mod download`. A test now ties the
+  Dockerfile's builder to go.mod.
 - feat: a session acquire shapes and starts its environment (NERD035 SPEC005).
   `env lease acquire --session --template <t> --repo <path>...` composes before
   taking a lease, places the session (with `--pool`) in the free environment of
