@@ -153,7 +153,7 @@ Scope and terminology
 .. spec:: A template is a named environment manifest
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD035
-    :status: proposed
+    :status: implemented
 
     A template is a file in the environment manifest's own shape
     (``internal/manifest``). It has ``repos``, ``stacks``, ``profiles``,
@@ -162,12 +162,24 @@ Scope and terminology
     name. There is no second schema.
 
     - ``nsctl template add <name> <file>`` copies a manifest in.
-    - ``nsctl template add <name> --stack <ref>`` writes a template whose
-      only content is that stack record, resolved exactly as
-      ``nsctl stack add`` resolves it (``NERD017``).
+    - ``nsctl template add <name> --stack <ref>`` runs ``nsctl stack add``'s
+      planner (``NERD017``) against an empty manifest and stores the result:
+      the stack's declared instances, at their pinned versions and from
+      their artifacts, plus its stack record. ``--profile``,
+      ``--all-profiles``, ``--lean`` and ``--name`` mean what they mean
+      there. The fetch happens here, once, so composing a session from the
+      template (SPEC004) is a merge of manifests and needs no network.
     - ``nsctl template add <name> --from-env <env>`` snapshots an existing
-      environment's manifest, minus its ``source: local`` instances.
+      environment's manifest, minus the instances it declares
+      ``source: {type: local}`` -- working trees -- and says which it
+      dropped. An instance with no ``source`` is kept: it resolves through
+      the usual tiers at deploy time.
+    - Adding over an existing template is refused without ``--force``.
     - ``nsctl template list|show <name>|remove <name>``.
+
+    Template names follow environment names' rules (lowercase letters,
+    digits and hyphens, starting with a letter or digit), up to 63
+    characters.
 
     nsctl ships **no** templates and carries no list of them, for the same
     reason ``NERD017`` gives for stacks. "Analytics" and "telemetry" are

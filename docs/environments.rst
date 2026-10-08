@@ -632,6 +632,33 @@ of for one run:
 - ``nsctl env lease whoami`` shows the lease the token holds: environment,
   scope, holder, expiry and where its routes are served.
 
+Templates
+---------
+
+A **template** is an environment manifest kept under a name in
+``$HMD_HOME/templates/<name>.yaml``: the shape an environment for some kind of
+work starts from -- ``analytics`` for Trino and Airflow, ``telemetry`` for the
+OpenTelemetry collector and ClickHouse. It has the environment manifest's schema
+and validation; nsctl ships none.
+
+.. code-block:: bash
+
+   nsctl template add telemetry --stack observability --profile full
+   nsctl template add analytics --from-env dev
+   nsctl template add warehouse ./warehouse.yaml
+   nsctl template list
+   nsctl template show telemetry
+   nsctl template remove warehouse
+
+- ``--stack <ref>`` plans the stack exactly as ``nsctl stack add`` does, but
+  into an empty manifest, and stores the result: its instances at their pinned
+  versions, from their artifacts, and its stack record. The stack is fetched
+  then, so starting from the template later needs no network.
+- ``--from-env <env>`` copies an environment's manifest, minus the instances it
+  declares ``source: {type: local}`` -- working trees, which belong to whoever
+  was editing them. It names what it left out.
+- Adding over an existing template needs ``--force``.
+
 Registry and state
 ------------------
 

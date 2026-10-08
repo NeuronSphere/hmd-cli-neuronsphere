@@ -930,3 +930,27 @@ A Session Lease Outlives A Run's Release
     Should Be Equal As Integers    ${end.rc}    0
     ${gone}=      Run nsctl In Home Without An Engine    ${home}    env    lease    whoami    --token    ${token}
     Should Not Be Equal As Integers    ${gone.rc}    0
+
+A Template Is Stored, Listed, Shown And Removed By Name
+    [Documentation]    NERD035 SPEC003: a template is an environment manifest
+    ...                kept under a name. Adding over one needs --force, and a
+    ...                name that would leave the templates directory is refused.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    # Flow style: two spaces in a Robot cell would split it into arguments.
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    ${add}=       Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${add.rc}    0    msg=${add.stderr}
+    ${again}=     Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${again.rc}    2
+    Should Contain    ${again.stderr}    --force
+    ${list}=      Run nsctl In Home Without An Engine    ${home}    template    list
+    Should Contain    ${list.stdout}    analytics
+    ${show}=      Run nsctl In Home Without An Engine    ${home}    template    show    analytics
+    Should Contain    ${show.stdout}    name: analytics
+    ${bad}=       Run nsctl In Home Without An Engine    ${home}    template    add    ../escape    ${src}
+    Should Be Equal As Integers    ${bad.rc}    2
+    ${rm}=        Run nsctl In Home Without An Engine    ${home}    template    remove    analytics
+    Should Be Equal As Integers    ${rm.rc}    0
+    File Should Not Exist    ${home}${/}templates${/}analytics.yaml

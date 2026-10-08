@@ -4135,6 +4135,144 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl template
+--------------
+
+A template is an environment manifest kept under a name in
+$HMD_HOME/templates: the instances, stacks and profiles an environment for some
+kind of work starts with -- "analytics" for Trino and Airflow, "telemetry" for
+the OpenTelemetry collector and ClickHouse.
+
+nsctl ships no templates. Make one from a manifest file, from a published stack,
+or from an environment that already has the right shape.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml
+     nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template add
+------------------
+
+Stores a template under <name> from exactly one source:
+
+  <file>            an environment manifest, copied in and renamed <name>
+  --stack <ref>     a published stack, planned as "nsctl stack add" plans it
+                    but into an empty manifest: the stack's instances at their
+                    pinned versions, from their artifacts, and its record.
+                    --profile, --all-profiles, --lean and --name mean what they
+                    mean there. The stack is fetched now, so a session later
+                    started from the template needs no network.
+  --from-env <env>  an environment's manifest, minus the instances it deploys
+                    from a working tree (source: {type: local}), which belong
+                    to whoever was editing them
+
+An existing template is replaced only with --force.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template add <name> [<file> | --stack <ref> | --from-env <env>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability --profile full
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml --force
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — with --stack, activate every profile the stack's lock mentions
+* ``--force`` — replace an existing template of the same name
+* ``--from-env`` — an environment whose manifest the template copies, minus its working trees
+* ``--lean`` — with --stack, activate no profiles
+* ``--local-url`` — with --stack, the control plane's Artifact Librarian
+* ``--name`` — with --stack, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--profile`` — with --stack, local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--spec`` — with --stack, a BACON version spec to choose the version by (e.g. "~= 0.1")
+* ``--stack`` — a published stack to plan the template from
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template list
+-------------------
+
+List the stored templates
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template remove
+---------------------
+
+Deletes the template file. Environments started from it keep their own manifests.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template remove <name>
+
+Aliases: ``rm``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template show
+-------------------
+
+Print a template
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template show <name>
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl version
 -------------
 

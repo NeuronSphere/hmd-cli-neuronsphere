@@ -214,7 +214,7 @@ anonymously.
 Reserved names
 --------------
 
-A plugin may not be called after a built-in noun (``env``, ``repo``,
+A plugin may not be called after a built-in noun (``env``, ``instance``,
 ``stack``, ...) or ``help`` or ``completion``. ``plugin install`` refuses
 such a descriptor; a hand-written declaration with a reserved name is
 warned about at startup and the built-in wins.

@@ -2,6 +2,11 @@
 
 ## 2026-10-08
 
+- feat: environment templates (NERD035 SPEC003). `nsctl template
+  add|list|show|remove` keeps named environment manifests under
+  `$HMD_HOME/templates`. `template add --stack` runs `stack add`'s planner into
+  an empty manifest; `--from-env` copies an environment minus its working
+  trees. `stack add`'s planning moved into a shared `declareStack`.
 - feat: session leases (NERD035 SPEC002). `env lease acquire --session` holds an
   environment for a working session: TTL `[pool] session_ttl` (default 8h),
   `--pid` defaulting to the nearest `claude` ancestor (read via sysctl or

@@ -1,15 +1,19 @@
-// Package lease hands out run-scoped, exclusive use of a local environment.
+// Package lease hands out exclusive use of a local environment.
 //
 // Several Claude sessions -- or a session and a person -- deploying into one
 // environment at once undo each other's work, and every nsctl and hmd verb
-// falls back to the same default environment. A lease says "this run owns
-// that environment until it releases it": env apply, stop and purge -- and,
-// later, verify -- refuse an environment someone else holds.
+// falls back to the same default environment. A lease says "this holder owns
+// that environment until it releases it": every command that changes an
+// environment refuses one someone else holds (NERD035 SPEC001).
 //
-// A lease covers one verify or deploy run, not a session. A small warm pool
-// of environments (`local` plus a couple of `cc-N`) therefore serves many
-// sessions: a run takes the free one whose deployed manifest is closest to
-// what it needs, and queues when none is free.
+// A run lease covers one verify or deploy run. A small warm pool of
+// environments (`local` plus a couple of `cc-N`) therefore serves many runs: a
+// run takes the free one whose deployed manifest is closest to what it needs,
+// and queues when none is free.
+//
+// A session lease (NERD035 SPEC002) covers a whole working session instead:
+// hours, between heartbeats, ended by the session's own process exiting or by
+// ReleaseSession. A run inside the session is answered with it.
 //
 // State is plain files under $HMD_HOME/leases, every mutation made under the
 // host's `leases` lock:

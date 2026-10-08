@@ -160,47 +160,13 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 				return err
 			}
 
-			inst, err := installStack(cmd, opts, home, ref, client, localURL)
+			d, err := declareStack(cmd, opts, home, m, ref, client, localURL, &repo)
 			if err != nil {
 				return err
 			}
-			s := inst.Stack
-			record, _, known := m.Stack(s.Name)
-			if known && record.Version == s.Version && record.Digest == s.Digest.String() {
+			s, plan, added, kept := d.stack, d.plan, d.added, d.kept
+			if d.unchanged {
 				fmt.Fprintf(cmd.OutOrStdout(), "Stack %s %s is already declared in %s\n", s.Name, s.Version, slug)
-			}
-
-			// Plan through the --from-repo rules over the cached stack tree,
-			// with the subject declared from its artifact.
-			repo.path = inst.Dir
-			repo.subject = &manifest.Source{Type: manifest.SourceArtifact}
-			repo.subjectVersion = s.Version
-			repo.recorded = &recordedPlan{Bindings: record.Bindings, Profiles: record.Profiles}
-			repo.compose = composeAgainst(opts, home, m, record)
-			plan, err := planFromRepo(&repo, m)
-			if err != nil {
-				return err
-			}
-			if err := checkNamesAreUsed(&repo, plan); err != nil {
-				return err
-			}
-			if missing := plan.missingArtifacts(home); len(missing) > 0 {
-				// Every layer was just stored; anything missing is a lock entry
-				// the artifact did not carry, which Read already refused.
-				return uncachedError(opts, home, missing, "`nsctl stack pull`")
-			}
-			bindings := record.Bindings
-			added, kept := plan.applyInto(m, false, &bindings)
-			declared := append([]string(nil), added...)
-			sort.Strings(declared)
-			m.SetStack(manifest.StackRecord{
-				Name: s.Name, Version: s.Version, Class: s.Class,
-				Ref: ref.WithTag("").String(), Digest: s.Digest.String(),
-				Profiles: plan.Profiles, Bindings: bindings, Declared: declared,
-			})
-			if problems := m.Validate(opts.Lookup); len(problems) > 0 {
-				return nserr.New(nserr.Usage, "the environment this stack describes is not valid:\n  - %s",
-					strings.Join(problems, "\n  - "))
 			}
 			if err := m.Save(m.Path); err != nil {
 				return nserr.Wrap(nserr.Fail, err)
@@ -237,6 +203,66 @@ Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
 	cmd.Flags().StringArrayVar(&repo.names, "name", nil, "Name one instance, as <role-or-declared-name>=<instance>. Repeatable")
 	guard.bind(cmd)
 	return cmd
+}
+
+// declaredStack is what declareStack did to a manifest.
+type declaredStack struct {
+	stack       *stack.Stack
+	plan        *repoPlan
+	added, kept []string
+	// unchanged says the manifest already recorded this stack at this
+	// version and digest.
+	unchanged bool
+}
+
+// declareStack fetches ref into the cache and declares the stack's instances
+// and its record into m, without saving it: `stack add`'s planner, shared
+// with `template add --stack` (NERD035 SPEC003), which runs it against an
+// empty manifest.
+func declareStack(cmd *cobra.Command, opts *Options, home string, m *manifest.Manifest,
+	ref oci.Ref, client *oci.Client, localURL string, repo *fromRepo) (*declaredStack, error) {
+
+	inst, err := installStack(cmd, opts, home, ref, client, localURL)
+	if err != nil {
+		return nil, err
+	}
+	s := inst.Stack
+	record, _, known := m.Stack(s.Name)
+	unchanged := known && record.Version == s.Version && record.Digest == s.Digest.String()
+
+	// Plan through the --from-repo rules over the cached stack tree,
+	// with the subject declared from its artifact.
+	repo.path = inst.Dir
+	repo.subject = &manifest.Source{Type: manifest.SourceArtifact}
+	repo.subjectVersion = s.Version
+	repo.recorded = &recordedPlan{Bindings: record.Bindings, Profiles: record.Profiles}
+	repo.compose = composeAgainst(opts, home, m, record)
+	plan, err := planFromRepo(repo, m)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkNamesAreUsed(repo, plan); err != nil {
+		return nil, err
+	}
+	if missing := plan.missingArtifacts(home); len(missing) > 0 {
+		// Every layer was just stored; anything missing is a lock entry
+		// the artifact did not carry, which Read already refused.
+		return nil, uncachedError(opts, home, missing, "`nsctl stack pull`")
+	}
+	bindings := record.Bindings
+	added, kept := plan.applyInto(m, false, &bindings)
+	declared := append([]string(nil), added...)
+	sort.Strings(declared)
+	m.SetStack(manifest.StackRecord{
+		Name: s.Name, Version: s.Version, Class: s.Class,
+		Ref: ref.WithTag("").String(), Digest: s.Digest.String(),
+		Profiles: plan.Profiles, Bindings: bindings, Declared: declared,
+	})
+	if problems := m.Validate(opts.Lookup); len(problems) > 0 {
+		return nil, nserr.New(nserr.Usage, "the %s this stack describes is not valid:\n  - %s",
+			strings.TrimSuffix(m.Scope.Noun(), " manifest"), strings.Join(problems, "\n  - "))
+	}
+	return &declaredStack{stack: s, plan: plan, added: added, kept: kept, unchanged: unchanged}, nil
 }
 
 // composeAgainst is NERD017 SPEC010 wired for one environment: index what
