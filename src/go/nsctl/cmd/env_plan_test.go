@@ -235,3 +235,61 @@ func TestEnvPlanRejectsAnUnknownOutputFormat(t *testing.T) {
 		t.Errorf("the error does not name the valid values: %v", err)
 	}
 }
+
+func bindingPlanResult() *environment.PlanResult {
+	r := samplePlanResult()
+	r.Bindings = []bom.Binding{{Instance: "ms-deployment", Role: "workers", Target: "local-neuronsphere"}}
+	r.Ambiguities = []bom.Ambiguity{{
+		Instance: "ms-deployment", Role: "base-vpc",
+		Definition: msdeploy.ResourceRef{ResourceNamespace: "network.neuronsphere.io", ResourceDefinitionName: "vpc"},
+		Candidates: []string{"base-vpc", "other-vpc"},
+	}}
+	return r
+}
+
+// A plan that fills a role on the operator's behalf has to say so, and a role
+// it could not fill has to name the instances to choose between.
+func TestRenderPlanTextReportsBindingsAndAmbiguities(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	renderPlanText(&buf, bindingPlanResult())
+	out := buf.String()
+	for _, want := range []string{
+		"Bound from the control plane's suggestions",
+		"ms-deployment role workers -> local-neuronsphere",
+		"Needs a choice", "--depends role=<instance>",
+		"ms-deployment role base-vpc (network.neuronsphere.io/vpc): base-vpc, other-vpc",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text plan missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderPlanMDAndJSONCarryBindingsAndAmbiguities(t *testing.T) {
+	t.Parallel()
+
+	var md bytes.Buffer
+	renderPlanMD(&md, bindingPlanResult())
+	for _, want := range []string{"Bound from the control plane's suggestions", "`workers` → `local-neuronsphere`", "Needs a choice", "`base-vpc`, `other-vpc`"} {
+		if !strings.Contains(md.String(), want) {
+			t.Errorf("markdown plan missing %q:\n%s", want, md.String())
+		}
+	}
+
+	var js bytes.Buffer
+	if err := renderPlanJSON(&js, bindingPlanResult()); err != nil {
+		t.Fatal(err)
+	}
+	var doc planJSON
+	if err := json.Unmarshal(js.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Bound) != 1 || doc.Bound[0].Target != "local-neuronsphere" {
+		t.Errorf("bound_roles = %+v", doc.Bound)
+	}
+	if len(doc.Ambiguous) != 1 || len(doc.Ambiguous[0].Candidates) != 2 {
+		t.Errorf("ambiguous_roles = %+v", doc.Ambiguous)
+	}
+}

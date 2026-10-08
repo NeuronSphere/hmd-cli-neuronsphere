@@ -2,6 +2,17 @@
 
 ## 2026-10-08
 
+- feat: `env plan` and `env apply` bind a required, resource-typed dependency
+  role the manifest leaves unbound when exactly one instance can satisfy it,
+  from the control plane's `suggest_resource_dependencies` candidates, the
+  substrate's produced types, same-plan producers, and instances of the
+  `repo_class_name` the dependency also names (which covers roles whose
+  resource type nothing produces yet). `env plan` reports what
+  it bound (text, markdown and JSON `bound_roles`) and, for a role with several
+  candidates, lists them (`ambiguous_roles`) and leaves it unbound. Optional
+  roles, roles with a tag selector (service candidates only) and roles the
+  manifest already binds are untouched, so no working environment changes.
+
 - fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
   since 2026-10-01, so every control-plane start that had to build the image,
   released binaries included, failed in `go mod download`. A test now ties the

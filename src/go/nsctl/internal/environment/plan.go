@@ -26,6 +26,10 @@ type PlanResult struct {
 	// validate when nothing would deploy.
 	Validation *msdeploy.ValidateResult
 	Warnings   []bom.CandidateWarning
+	// Bindings are the required roles the plan filled because exactly one
+	// instance satisfies them; Ambiguities are those with several, left unbound.
+	Bindings    []bom.Binding
+	Ambiguities []bom.Ambiguity
 }
 
 // ComputePlan is the dry run behind `nsctl env plan`: it builds exactly what
@@ -118,6 +122,14 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 	if err := seeder.RegisterCatalog(ctx, bomEnv, toDeploy); err != nil {
 		return nil, nserr.Wrap(nserr.Fail, fmt.Errorf("registering the catalog: %w", err))
 	}
+
+	// The same binding Apply performs, so the plan predicts the changeset the
+	// apply will build instead of reporting roles apply would fill.
+	bindings, ambiguities, err := seeder.BindSuggested(ctx, env.Slug, toDeploy, entries)
+	if err != nil {
+		opts.warn("binding suggested dependencies: %v", err)
+	}
+	result.Bindings, result.Ambiguities = bindings, ambiguities
 
 	sorted, err := bom.TopoSort(toDeploy)
 	if err != nil {

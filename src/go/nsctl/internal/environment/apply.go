@@ -320,6 +320,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Client: client, Versions: resolver,
 		Region: names.Region,
 		Warn:   opts.warn,
+		Info:   opts.step,
 	}
 
 	// Two phases, not one changeset.

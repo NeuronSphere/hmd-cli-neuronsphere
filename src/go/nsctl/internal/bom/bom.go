@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
@@ -278,6 +279,15 @@ type Seeder struct {
 	Region string
 	// Warn reports something a seed carried on past. Optional; nil discards.
 	Warn func(format string, a ...any)
+	// Info reports a decision the seed made on the operator's behalf, such as a
+	// dependency role it bound. Optional; nil discards.
+	Info func(format string, a ...any)
+}
+
+func (s *Seeder) note(format string, a ...any) {
+	if s.Info != nil {
+		s.Info(format, a...)
+	}
 }
 
 func (s *Seeder) warn(format string, a ...any) {
@@ -436,6 +446,20 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) ([]
 	}
 	if err := s.RegisterCatalog(ctx, env, entries); err != nil {
 		return nil, err
+	}
+
+	// Fill the required roles the manifest left unbound that only one instance
+	// can satisfy, before the order below is computed from the dependencies.
+	bound, ambiguous, err := s.BindSuggested(ctx, env.Slug, entries, entries)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range bound {
+		s.note("  bound %s role %s to %s (the only instance that satisfies it)", b.Instance, b.Role, b.Target)
+	}
+	for _, a := range ambiguous {
+		s.warn("%s role %s could be %s; choose one with --depends %s=<instance>",
+			a.Instance, a.Role, strings.Join(a.Candidates, ", "), a.Role)
 	}
 
 	// 5. The instances, dependencies first: register_deployed_instance resolves
