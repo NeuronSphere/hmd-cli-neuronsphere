@@ -334,6 +334,14 @@ Scope and terminology
 
     Run leases are unchanged: ending a run lease does not stop anything.
 
+    .. note:: Verified live 2026-10-08 on Colima. ``release --session``
+       stopped ``local``'s running database container, and freed the lease.
+       A session whose 45 s TTL lapsed, and one whose watched process was
+       killed, were each noticed by the next ``env lease list``, which ran
+       ``env stop`` on stderr and freed the lease. In those two runs
+       substrate ``none`` had left nothing of ``local`` running, so they
+       prove the trigger. The stop itself is the one the first run proved.
+
 .. spec:: env purge selects stale environments; a person runs it
     :id: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD035
