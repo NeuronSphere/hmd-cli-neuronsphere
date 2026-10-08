@@ -7,7 +7,7 @@
 # same build from the tree.
 #
 # It is the nsctl binary with a different entrypoint, not a second program.
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 # CGO off so the binary carries no libc dependency of its own.
 ENV CGO_ENABLED=0

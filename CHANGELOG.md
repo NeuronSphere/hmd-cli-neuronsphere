@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-08
+
+- fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
+  since 2026-10-01, so every control-plane start that had to build the image,
+  released binaries included, failed in `go mod download`. A test now ties the
+  Dockerfile's builder to go.mod.
+
 ## 2026-10-01
 
 - feat: `nsctl inspect` runs every noun's `inspect` over the same
