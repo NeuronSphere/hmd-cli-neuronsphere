@@ -29,6 +29,36 @@
 - fix: a session acquire's bring-up starts the control plane first, as
   `env start` does; it called only the environment half and waited five minutes
   on a Floci nothing had started. Both now run one function.
+
+- fix: `env apply` binds a required role to an instance that is deployed and
+  unchanged. The seed was given only the instances being deployed, so a role
+  the plan had bound (`argo`, `otel-collector`) failed at registration with
+  "required role not provided".
+
+- feat: `env plan` and `env apply` also bind a required role that names only a
+  `repo_class_name` (no resource type) when exactly one instance of that class
+  is in the environment, reading the class manifest rather than the control
+  plane. A role with no instance of its class prints the `nsctl instance add`
+  command that declares one.
+
+- fix: `env plan` and `env apply` resync an already-registered class version's
+  dependency edges from the class manifest they just read
+  (`resync_repo_class_version_dependencies`), so an edited manifest takes
+  effect without a version bump. Re-registering a version was refused as
+  "already has version", which left the control plane with the dependencies of
+  the first registration. A failed resync is a warning, not an error.
+
+- feat: `env plan` and `env apply` bind a required, resource-typed dependency
+  role the manifest leaves unbound when exactly one instance can satisfy it,
+  from the control plane's `suggest_resource_dependencies` candidates, the
+  substrate's produced types, same-plan producers, and instances of the
+  `repo_class_name` the dependency also names (which covers roles whose
+  resource type nothing produces yet). `env plan` reports what
+  it bound (text, markdown and JSON `bound_roles`) and, for a role with several
+  candidates, lists them (`ambiguous_roles`) and leaves it unbound. Optional
+  roles, roles with a tag selector (service candidates only) and roles the
+  manifest already binds are untouched, so no working environment changes.
+
 - fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
   since 2026-10-01, so every control-plane start that had to build the image,
   released binaries included, failed in `go mod download`. A test now ties the
@@ -124,6 +154,14 @@
 - fix: `env start` no longer stops another environment that a second session
   is starting or applying at the same time. Its sweep of containers Floci
   woke now skips any environment marked active (`internal/envactivity`).
+
+
+- fix: the substrate's database-account service is `hmd-ms-dbaccount` 0.1.48, which
+  names its secrets after `HMD_ENVIRONMENT_NAME`. nsctl has set that variable since
+  d1b7831, but the bundled 0.1.47 ignores it and looks the admin secret up under
+  `local`, so every `hmd-database-account` deploy in an environment not named
+  `local` failed with a 500 from `create_db_account`.
+
 ## 2026-10-01
 
 - feat: `nsctl inspect` runs every noun's `inspect` over the same

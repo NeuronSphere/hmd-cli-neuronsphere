@@ -38,6 +38,20 @@ environment. A role name and an instance name need not be equal. The
 configuration value ``2`` is parsed as JSON and stays a number; values that
 do not parse as JSON stay strings.
 
+You do not have to name a role the control plane can fill on its own. When the
+class manifest declares a **required** role by resource type, ``env plan`` and
+``env apply`` bind it for you if exactly one instance can satisfy it: one the
+control plane already knows is deployed, or an instance in the plan (the
+substrate included) whose class produces that resource type, or whose class is
+the ``repo_class_name`` the dependency also names. ``env plan``
+lists what it bound. If more than one instance fits, the role is left unbound
+and the plan names the choices; pass ``--depends role=instance`` to pick one.
+Optional roles, roles a ``--depends`` already names, and roles that carry a tag
+selector (only the control plane's own candidates count) are never bound for
+you. A role declared only by repo class name is bound the same way, from the class
+manifest: the one instance of that class in the environment. When there is
+none, the plan prints the ``nsctl instance add`` command that declares one.
+
 ``--path`` selects the checkout explicitly. Otherwise, a local source looks
 under ``$HMD_REPO_HOME/<repo-class>``. Without ``--name``, the instance name
 is the class name with the ``hmd-`` prefix removed. Choose another name to run

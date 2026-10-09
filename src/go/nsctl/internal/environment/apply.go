@@ -338,6 +338,8 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Region: names.Region,
 		Warn:   opts.warn,
 		Step:   opts.step,
+		Info:   opts.step,
+		Known:  declaredEntries,
 	}
 
 	// Two phases, not one changeset.

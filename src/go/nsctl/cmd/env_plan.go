@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
@@ -157,6 +158,8 @@ func renderPlanText(out io.Writer, r *environment.PlanResult) {
 		w.Flush()
 	}
 
+	renderBindingsText(out, r)
+
 	if r.Validation == nil {
 		return
 	}
@@ -197,6 +200,8 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 		fmt.Fprintln(out)
 	}
 
+	renderBindingsMD(out, r)
+
 	if r.Validation == nil {
 		fmt.Fprintln(out, "Nothing to validate: everything declared is already deployed and current.")
 		return
@@ -229,6 +234,41 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 		for _, cw := range r.Warnings {
 			fmt.Fprintf(out, "- `%s` role `%s` → `%s`: %s\n", cw.Instance, cw.Role, cw.Target, cw.Message)
 		}
+	}
+}
+
+// renderBindingsText says what the plan decided about unbound roles: the ones
+// it filled, and the ones it left because more than one instance fits.
+func renderBindingsText(out io.Writer, r *environment.PlanResult) {
+	if len(r.Bindings) > 0 {
+		fmt.Fprintln(out, "\nBound automatically (the only instance that fits):")
+		for _, b := range r.Bindings {
+			fmt.Fprintf(out, "  %s role %s -> %s\n", b.Instance, b.Role, b.Target)
+		}
+	}
+	if len(r.Ambiguities) > 0 {
+		fmt.Fprintln(out, "\nNeeds a choice (more than one instance fits; pass --depends role=<instance>):")
+		for _, a := range r.Ambiguities {
+			fmt.Fprintf(out, "  %s role %s (%s/%s): %s\n", a.Instance, a.Role,
+				a.Definition.ResourceNamespace, a.Definition.ResourceDefinitionName, strings.Join(a.Candidates, ", "))
+		}
+	}
+}
+
+func renderBindingsMD(out io.Writer, r *environment.PlanResult) {
+	if len(r.Bindings) > 0 {
+		fmt.Fprintln(out, "**Bound automatically** (the only instance that fits):")
+		for _, b := range r.Bindings {
+			fmt.Fprintf(out, "- `%s` role `%s` → `%s`\n", b.Instance, b.Role, b.Target)
+		}
+		fmt.Fprintln(out)
+	}
+	if len(r.Ambiguities) > 0 {
+		fmt.Fprintln(out, "**Needs a choice** (more than one instance fits):")
+		for _, a := range r.Ambiguities {
+			fmt.Fprintf(out, "- `%s` role `%s`: %s\n", a.Instance, a.Role, "`"+strings.Join(a.Candidates, "`, `")+"`")
+		}
+		fmt.Fprintln(out)
 	}
 }
 
@@ -272,6 +312,20 @@ type planJSON struct {
 	Remove      []string        `json:"remove"`
 	Validation  *validationJSON `json:"validation,omitempty"`
 	Warnings    []warningJSON   `json:"candidate_warnings,omitempty"`
+	Bound       []bindingJSON   `json:"bound_roles,omitempty"`
+	Ambiguous   []ambiguityJSON `json:"ambiguous_roles,omitempty"`
+}
+
+type bindingJSON struct {
+	Instance string `json:"instance"`
+	Role     string `json:"role"`
+	Target   string `json:"target"`
+}
+
+type ambiguityJSON struct {
+	Instance   string   `json:"instance"`
+	Role       string   `json:"role"`
+	Candidates []string `json:"candidates"`
 }
 
 type planEntryJSON struct {
@@ -316,6 +370,12 @@ func renderPlanJSON(out io.Writer, r *environment.PlanResult) error {
 			Errors:   planIssues(r.Validation.Errors),
 			Warnings: planIssues(r.Validation.Warnings),
 		}
+	}
+	for _, b := range r.Bindings {
+		doc.Bound = append(doc.Bound, bindingJSON{Instance: b.Instance, Role: b.Role, Target: b.Target})
+	}
+	for _, a := range r.Ambiguities {
+		doc.Ambiguous = append(doc.Ambiguous, ambiguityJSON{Instance: a.Instance, Role: a.Role, Candidates: a.Candidates})
 	}
 	for _, cw := range r.Warnings {
 		doc.Warnings = append(doc.Warnings, warningJSON{
