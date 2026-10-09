@@ -2,6 +2,7 @@ package bom
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,5 +111,30 @@ func TestBindSuggestedLeavesAResourceRoleToTheSuggestionPath(t *testing.T) {
 	bound, _, _ := bindByClass(t, deps, toBind, known)
 	if len(bound) != 0 {
 		t.Errorf("bound = %+v, want none: the resource path owns this role", bound)
+	}
+}
+
+// An apply seeds only what needs deploying, but the instance a role binds to
+// may be one that is already deployed and unchanged. Seed must see the whole
+// plan, or apply fails on a role the plan had bound.
+func TestSeedBindsToAnUnchangedInstanceItIsNotDeploying(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := registerCatalogServer(t)
+	defer srv.Close()
+
+	var notes []string
+	s := &Seeder{
+		Client:   msdeploy.New(srv.URL),
+		Versions: depsResolver{deps: classDeps("argo", "hmd-app-argo", "true")},
+		Info:     func(f string, a ...any) { notes = append(notes, fmt.Sprintf(f, a...)) },
+		Known:    []Entry{{RepoInstanceName: "argo", RepoClassName: "hmd-app-argo"}},
+	}
+	entries := []Entry{consumer(nil)}
+	if _, err := s.Seed(context.Background(), Environment{Slug: "relpub", AccountID: "1", Region: "r"}, entries); err != nil {
+		t.Fatal(err)
+	}
+	if entries[0].Dependencies["argo"] != "argo" {
+		t.Errorf("argo = %v, want argo; notes = %v", entries[0].Dependencies["argo"], notes)
 	}
 }

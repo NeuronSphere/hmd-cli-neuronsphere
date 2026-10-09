@@ -282,6 +282,11 @@ type Seeder struct {
 	// Info reports a decision the seed made on the operator's behalf, such as a
 	// dependency role it bound. Optional; nil discards.
 	Info func(format string, a ...any)
+
+	// Known is every instance of the plan, including those not being seeded.
+	// A role may bind to an instance that is already deployed and unchanged,
+	// which Seed is not given; without it apply fails on a role the plan bound.
+	Known []Entry
 }
 
 func (s *Seeder) note(format string, a ...any) {
@@ -467,7 +472,7 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) ([]
 
 	// Fill the required roles the manifest left unbound that only one instance
 	// can satisfy, before the order below is computed from the dependencies.
-	bound, ambiguous, err := s.BindSuggested(ctx, env.Slug, entries, entries)
+	bound, ambiguous, err := s.BindSuggested(ctx, env.Slug, entries, withKnown(entries, s.Known))
 	if err != nil {
 		return nil, err
 	}
@@ -708,3 +713,18 @@ var substrateInstances = map[string]bool{
 // The two are applied as separate changesets, so this is what decides which
 // phase an entry belongs to.
 func IsSubstrate(instanceName string) bool { return substrateInstances[instanceName] }
+
+// withKnown is entries followed by every known entry not already among them.
+func withKnown(entries, known []Entry) []Entry {
+	have := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		have[e.RepoInstanceName] = true
+	}
+	all := append([]Entry(nil), entries...)
+	for _, k := range known {
+		if !have[k.RepoInstanceName] {
+			all = append(all, k)
+		}
+	}
+	return all
+}

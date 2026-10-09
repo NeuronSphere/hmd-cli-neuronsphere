@@ -2,6 +2,11 @@
 
 ## 2026-10-08
 
+- fix: `env apply` binds a required role to an instance that is deployed and
+  unchanged. The seed was given only the instances being deployed, so a role
+  the plan had bound (`argo`, `otel-collector`) failed at registration with
+  "required role not provided".
+
 - feat: `env plan` and `env apply` also bind a required role that names only a
   `repo_class_name` (no resource type) when exactly one instance of that class
   is in the environment, reading the class manifest rather than the control
