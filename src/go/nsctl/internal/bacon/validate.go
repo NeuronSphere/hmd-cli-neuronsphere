@@ -165,6 +165,7 @@ func (v *validator) structure() {
 							v.add(Error, path+".produces", "must be a boolean")
 						}
 					}
+					v.connectsTo(path, res, resources, deploy)
 				}
 			} else {
 				v.add(Error, "deploy.resources", "must be an object keyed by resource name")
@@ -697,4 +698,48 @@ func JSONFindings(findings []Finding) ([]byte, error) {
 		Notes    int    `json:"notes"`
 		Findings []item `json:"findings"`
 	}{e, w, n, items}, "", "  ")
+}
+
+// connectsTo checks a resource's flow hints (NERD036 SPEC002): each names
+// another declaration of this class, or dep:<role> for one of its dependency
+// roles. Only the shape and the names are checked; nothing resolves them.
+func (v *validator) connectsTo(path string, res, resources, deploy *Object) {
+	raw, ok := res.Get("metadata")
+	if !ok {
+		return
+	}
+	metadata, isObj := raw.(*Object)
+	if !isObj {
+		v.add(Error, path+".metadata", "must be an object")
+		return
+	}
+	raw, ok = metadata.Get("connects_to")
+	if !ok {
+		return
+	}
+	targets, isList := raw.([]any)
+	if !isList {
+		v.add(Error, path+".metadata.connects_to", "must be a list of strings")
+		return
+	}
+	dependencies, _ := deploy.Object("dependencies")
+	for i, t := range targets {
+		at := fmt.Sprintf("%s.metadata.connects_to[%d]", path, i)
+		target, isStr := t.(string)
+		if !isStr || target == "" {
+			v.add(Error, at, "must be a list of strings")
+			continue
+		}
+		if role, isDep := strings.CutPrefix(target, "dep:"); isDep {
+			if dependencies == nil {
+				v.add(Error, at, "names dep:%s, but there is no dependency role %s", role, role)
+			} else if _, ok := dependencies.Get(role); !ok {
+				v.add(Error, at, "names dep:%s, but there is no dependency role %s", role, role)
+			}
+			continue
+		}
+		if _, ok := resources.Get(target); !ok {
+			v.add(Error, at, "names %s, which is not declared under deploy.resources (use dep:<role> for a dependency)", target)
+		}
+	}
 }

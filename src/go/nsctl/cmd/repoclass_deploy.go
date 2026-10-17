@@ -171,6 +171,7 @@ func newAddResourceCommand(path *repoClassPath) *cobra.Command {
 	cmd.Flags().BoolVar(&noProduces, "no-produces", false, "This repo class only consumes the resource")
 	cmd.Flags().StringVar(&r.Role, "role", "", "The role the resource fills")
 	cmd.Flags().StringVar(&r.Description, "description", "", "What the resource is")
+	cmd.Flags().StringArrayVar(&r.ConnectsTo, "connects-to", nil, "Where traffic or data goes from this resource: another declaration's name, or dep:<role> (repeatable)")
 	return cmd
 }
 

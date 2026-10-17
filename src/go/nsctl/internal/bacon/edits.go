@@ -231,6 +231,10 @@ type Resource struct {
 	Namespace, Name, Version string
 	Produces                 *bool
 	Role, Description        string
+	// ConnectsTo is where traffic or data goes from this resource: another of
+	// the class's declarations, or dep:<role> (NERD036 SPEC002). It is written
+	// to metadata.connects_to, which dependency resolution never reads.
+	ConnectsTo []string
 }
 
 // AddResource is hmd manifest deploy-add-resource.
@@ -254,6 +258,15 @@ func AddResource(doc *Object, name string, r Resource) (string, error) {
 	}
 	if r.Description != "" {
 		entry.Set("description", r.Description)
+	}
+	if len(r.ConnectsTo) > 0 {
+		targets := make([]any, len(r.ConnectsTo))
+		for i, t := range r.ConnectsTo {
+			targets[i] = t
+		}
+		metadata := NewObject()
+		metadata.Set("connects_to", targets)
+		entry.Set("metadata", metadata)
 	}
 	resources.Set(name, entry)
 	return JoinKey("deploy", "resources", name), nil

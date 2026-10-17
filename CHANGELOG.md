@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-17
+
+- feat: `nsctl repoclass deploy add-resource --connects-to <name|dep:role>`
+  writes a resource's flow hints to `metadata.connects_to` (NERD036 SPEC002),
+  and `repoclass validate` rejects a hint naming no declaration of the class
+  and no dependency role.
+
 ## 2026-10-08
 
 - fix: `env apply` binds a required role to an instance that is deployed and

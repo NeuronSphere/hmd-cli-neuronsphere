@@ -86,6 +86,11 @@ func TestValidateRules(t *testing.T) {
 		{"local gate key unknown", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"dependencies":{"db":{"required":"false","repo_class_name":"x"}}},"local":{"version":1,"dependencies":{"db":{"env":{"A":"b"}}}}}`, nil, Known{}, Warning, "local.dependencies.db.env"},
 		{"local companion key unknown", `{"name":"n","description":"d","build":{},"local":{"version":1,"repos":[{"instance_name":"a","repo_class_name":"b","version":"1"}]}}`, nil, Known{}, Warning, "local.repos[0].version"},
 		{"deploy.resources missing version", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"r":{"resource_namespace":"x","resource_definition_name":"y"}}}}`, nil, Known{}, Error, "deploy.resources.r.version"},
+		// NERD036 SPEC002: metadata.connects_to names a sibling declaration or dep:<role>.
+		{"connects_to unknown sibling", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"api":{"resource_namespace":"x","resource_definition_name":"y","version":"1","metadata":{"connects_to":["fn"]}}}}}`, nil, Known{}, Error, "deploy.resources.api.metadata.connects_to[0]"},
+		{"connects_to unknown role", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"api":{"resource_namespace":"x","resource_definition_name":"y","version":"1","metadata":{"connects_to":["dep:db"]}}}}}`, nil, Known{}, Error, "no dependency role db"},
+		{"connects_to not a list", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"api":{"resource_namespace":"x","resource_definition_name":"y","version":"1","metadata":{"connects_to":"fn"}}}}}`, nil, Known{}, Error, "must be a list of strings"},
+		{"resource metadata not an object", `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],"resources":{"api":{"resource_namespace":"x","resource_definition_name":"y","version":"1","metadata":[]}}}}`, nil, Known{}, Error, "deploy.resources.api.metadata must be an object"},
 		{"capability kind", `{"name":"n","description":"d","build":{},"discovery":{"capabilities":[{"name":"c","kind":"widget","description":"d"}]}}`, nil, Known{}, Error, "capabilities[0].kind"},
 		{"entry point without description", `{"name":"n","description":"d","build":{},"discovery":{"entry_points":[{"path":"p"}]}}`, nil, Known{}, Error, "entry_points[0].description"},
 		{"bad version", `{"name":"n","description":"d","build":{}}`, map[string]string{"meta-data/VERSION": "0.1.0\n"}, Known{}, Warning, "not MAJOR.MINOR"},
@@ -209,6 +214,22 @@ func TestAddDependencyWritesOnlyValidResources(t *testing.T) {
 	for _, f := range Validate(s, Known{}) {
 		if strings.HasPrefix(f.Path, "deploy.dependencies") || strings.HasPrefix(f.Path, "local") {
 			t.Errorf("unexpected finding %s", f)
+		}
+	}
+}
+
+// NERD036 SPEC002: flow hints to a sibling and to a dependency role are clean.
+func TestValidateAcceptsConnectsTo(t *testing.T) {
+	t.Parallel()
+
+	s := classDir(t, `{"name":"n","description":"d","build":{},"deploy":{"commands":[["exec","a"]],
+		"dependencies":{"lib-repo":{"required":"true","repo_class_name":"hmd-inf-s3bucket"}},
+		"resources":{
+			"api":{"resource_namespace":"aws.neuronsphere.io","resource_definition_name":"api-gateway-rest-api","version":"0.1.0","metadata":{"connects_to":["function"]}},
+			"function":{"resource_namespace":"aws.neuronsphere.io","resource_definition_name":"lambda-function","version":"0.1.0","metadata":{"connects_to":["dep:lib-repo"],"owner":"team"}}}}}`, nil)
+	for _, f := range Validate(s, Known{}) {
+		if strings.Contains(f.Path, "metadata") {
+			t.Errorf("unexpected finding %+v", f)
 		}
 	}
 }

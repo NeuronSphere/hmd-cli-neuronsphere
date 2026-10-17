@@ -261,3 +261,32 @@ func TestVerbsReproduceTheAcmeManifest(t *testing.T) {
 		t.Errorf("verbs produced:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// NERD036 SPEC002: --connects-to lands in metadata.connects_to, in order.
+func TestAddResourceWritesConnectsTo(t *testing.T) {
+	t.Parallel()
+
+	doc := NewObject()
+	if _, err := AddResource(doc, "function", Resource{
+		Namespace: "aws.neuronsphere.io", Name: "lambda-function", Version: "0.1.0",
+		ConnectsTo: []string{"entity-table", "dep:lib-repo"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := doc.Lookup("deploy", "resources", "function", "metadata", "connects_to")
+	if !ok {
+		t.Fatal("metadata.connects_to not written")
+	}
+	list, _ := got.([]any)
+	if len(list) != 2 || list[0] != "entity-table" || list[1] != "dep:lib-repo" {
+		t.Errorf("connects_to = %v", got)
+	}
+
+	// Without --connects-to there is no metadata at all.
+	if _, err := AddResource(doc, "table", Resource{Namespace: "a", Name: "b", Version: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Lookup("deploy", "resources", "table", "metadata"); ok {
+		t.Error("metadata written for a resource with no flow hints")
+	}
+}

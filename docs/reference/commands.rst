@@ -2804,6 +2804,7 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--connects-to`` — Where traffic or data goes from this resource: another declaration's name, or dep:<role> (repeatable) (default: ``[]``)
 * ``--description`` — What the resource is
 * ``--no-produces`` — This repo class only consumes the resource
 * ``--produces`` — This repo class produces the resource

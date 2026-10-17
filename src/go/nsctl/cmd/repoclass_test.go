@@ -180,6 +180,11 @@ func TestRepoClassRemoveVerbs(t *testing.T) {
 	if v, _ := readDoc(t, dir).Lookup("deploy", "resources", "ds", "produces"); v != true {
 		t.Errorf("produces = %v", v)
 	}
+	mustRepoclass(t, dir, "deploy", "add-resource", "api", "--resource-namespace", "aws.neuronsphere.io", "--resource-definition-name", "api-gateway-rest-api", "--version", "0.1.0", "--produces", "--connects-to", "ds", "--connects-to", "dep:db2")
+	if v, _ := readDoc(t, dir).Lookup("deploy", "resources", "api", "metadata", "connects_to"); len(v.([]any)) != 2 {
+		t.Errorf("connects_to = %v", v)
+	}
+	mustRepoclass(t, dir, "deploy", "remove-resource", "api")
 	mustRepoclass(t, dir, "deploy", "remove-resource", "ds")
 	mustRepoclass(t, dir, "build", "add-command", "python")
 	mustRepoclass(t, dir, "build", "add-command", "docker", "--no-cache")
