@@ -290,3 +290,46 @@ func TestAddResourceWritesConnectsTo(t *testing.T) {
 		t.Error("metadata written for a resource with no flow hints")
 	}
 }
+
+// Re-adding a role keeps what the verb does not manage: hmd-ms-device-lib's
+// lib-repo names the bucket instance it binds, and gaining a resource block
+// must not cost it that.
+func TestAddDependencyKeepsKeysItDoesNotManage(t *testing.T) {
+	t.Parallel()
+
+	doc := NewObject()
+	deps, _ := ensurePath(doc, "deploy", "dependencies")
+	old := NewObject()
+	old.Set("instance_name", "device-lib-bucket")
+	old.Set("repo_class_name", "hmd-inf-s3bucket")
+	old.Set("required", "true")
+	old.Set("version_spec", "~= 0.1.8")
+	deps.Set("lib-repo", old)
+
+	if _, err := AddDependency(doc, "lib-repo", Dependency{
+		RepoClassName: "hmd-inf-s3bucket", Required: true, VersionSpec: "~= 0.1.8",
+		ResourceNamespace: "aws.neuronsphere.io", ResourceDefinitionName: "s3-bucket", ResourceVersion: "0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := doc.Lookup("deploy", "dependencies", "lib-repo", "instance_name"); v != "device-lib-bucket" {
+		t.Errorf("instance_name = %v, want it kept", v)
+	}
+	if v, _ := doc.Lookup("deploy", "dependencies", "lib-repo", "resource", "resource_definition_name"); v != "s3-bucket" {
+		t.Errorf("resource not written: %v", v)
+	}
+
+	// What the verb does manage is replaced, not merged: dropping --version-spec drops it.
+	if _, err := AddDependency(doc, "lib-repo", Dependency{RepoClassName: "hmd-inf-s3bucket", Required: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Lookup("deploy", "dependencies", "lib-repo", "version_spec"); ok {
+		t.Error("version_spec survived a re-add without it")
+	}
+	if _, ok := doc.Lookup("deploy", "dependencies", "lib-repo", "resource"); ok {
+		t.Error("resource survived a re-add without it")
+	}
+	if v, _ := doc.Lookup("deploy", "dependencies", "lib-repo", "instance_name"); v != "device-lib-bucket" {
+		t.Errorf("instance_name = %v after the second re-add", v)
+	}
+}

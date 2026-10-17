@@ -2,6 +2,10 @@
 
 ## 2026-10-17
 
+- fix: `nsctl repoclass deploy add-dependency` on an existing role keeps the
+  members it does not manage, such as `instance_name`. Adding a resource block
+  to hmd-ms-device-lib's `lib-repo` would otherwise have dropped the bucket
+  instance it binds.
 - feat: `nsctl repoclass deploy add-resource --connects-to <name|dep:role>`
   writes a resource's flow hints to `metadata.connects_to` (NERD036 SPEC002),
   and `repoclass validate` rejects a hint naming no declaration of the class

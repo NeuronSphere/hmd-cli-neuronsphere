@@ -154,9 +154,16 @@ type Dependency struct {
 	Tags                   map[string]string
 }
 
+// dependencyKeys are the members of a role AddDependency writes. A re-add
+// replaces these and keeps every other member (instance_name, say), which the
+// verb has no flag for and the author did not ask to lose.
+var dependencyKeys = map[string]bool{
+	"repo_class_name": true, "required": true, "version_spec": true, "resource": true,
+}
+
 // AddDependency is hmd manifest deploy-add-dependency: `required` as the
 // string the schema's enum demands, the resource block when any of its keys
-// are given, the role replaced in place.
+// are given, the role replaced in place apart from members it does not manage.
 func AddDependency(doc *Object, role string, d Dependency) (string, error) {
 	if d.ResourceNamespace != "" || d.ResourceDefinitionName != "" || d.ResourceVersion != "" ||
 		d.ResourceVersionSpec != "" || len(d.Tags) > 0 {
@@ -186,6 +193,14 @@ func AddDependency(doc *Object, role string, d Dependency) (string, error) {
 		return "", err
 	}
 	entry := NewObject()
+	if existing, ok := deps.Object(role); ok {
+		for _, k := range existing.Keys() {
+			if !dependencyKeys[k] {
+				v, _ := existing.Get(k)
+				entry.Set(k, v)
+			}
+		}
+	}
 	if d.RepoClassName != "" {
 		entry.Set("repo_class_name", d.RepoClassName)
 	}
