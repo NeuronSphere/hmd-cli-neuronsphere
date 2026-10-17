@@ -233,14 +233,19 @@ Terminology
     :links: HMD_CLI_NEURONSPHERE_NERD036
     :status: proposed
 
-    ``hmd-lang-deployment`` gains the noun ``rendering_template`` (``name``,
-    ``version``, ``title``, ``description``, ``descriptor`` mapping,
+    ``hmd-lang-deployment`` gains the noun ``rendering_template``
+    (``template_name`` and ``version`` identify it; ``title``,
+    ``description``, ``descriptor`` mapping, ``files`` mapping,
     ``artifact_location``) and the relationship
     ``repo_instance_provides_rendering_template``.
 
     Deploying a template repo instance calls
-    ``POST /apiop/register_rendering_template`` with its descriptor and
-    artifact location; undeploying it removes the registration. Any number
+    ``POST /apiop/register_rendering_template`` with its descriptor and its
+    template files, by path, as text. Carrying the files inline means a render
+    needs nothing outside the deployment service: fetching a bundle from the
+    artifact librarian would need a service-account token on every render.
+    ``artifact_location`` records where the bundle was published, for
+    provenance only. Undeploying the instance removes the registration. Any number
     of templates, and any number of versions of one template, may be
     registered at once. ``GET /apiop/list_rendering_templates`` and
     ``GET /apiop/get_rendering_template/<name>/<version>`` read them.
@@ -288,12 +293,21 @@ Terminology
     * ``POST /apiop/render_architecture`` (a scope or a model, a template
       name and version spec, parameters) -- returns ``{model, outputs}``;
     * ``GET /apiop/render_architecture_view/<name>`` -- renders a saved view
-      and returns ``{outputs, model_digest, template_name, template_version,
-      rendered_at}`` with an ``ETag`` of the model digest and template
-      version. ``?output=<path>`` returns one output as its media type.
+      and returns ``{view_name, outputs, model, model_digest, etag,
+      template_name, template_version, rendered_at}``. ``model_digest`` is the
+      SHA-256 of the model's canonical JSON; ``etag`` changes exactly when the
+      model or the template version does.
 
-    Rendering fetches the template bundle (cached by name and version) and
-    runs ``hmd_lib_mickey`` in-process over a temporary directory.
+    Rendering applies the rules of ``hmd_lib_mickey``'s render phase to the
+    registered files: every file is a Jinja template named by its path; a file
+    whose name or stem starts with ``_`` or ``.`` is a partial; a ``.j2`` or
+    ``.jinja`` suffix is dropped and the output path is itself rendered; the
+    context is the model's top-level keys plus ``vars`` (the parameters) and
+    ``mickey`` (Mickey's folder defaults). The environment is sandboxed and no
+    Mickey hook runs, because a registered template runs inside the service.
+    Mickey's library itself is not used: its dependency phases need git and a
+    remote-dependency client the service image does not carry. Each template
+    repository checks that ``hmd mickey build`` produces the same outputs.
 
     ``nsctl`` builds the same model from manifests on disk (SPEC009). One
     golden fixture -- the librarian slice's manifests and the model expected
