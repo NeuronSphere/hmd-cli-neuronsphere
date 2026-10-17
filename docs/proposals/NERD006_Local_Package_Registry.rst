@@ -891,10 +891,13 @@ Risks and open questions
        the ``pipconfig`` BuildKit secret, so a repo whose build has a
        ``docker`` command gets ``registry.local.neuronsphere.io`` in a
        container that cannot resolve it.
-     - Untested in phase 1: ``hmd-lang-siesta`` has no Docker build. The hook
-       exists -- ``hmd-cli-docker`` already attaches builds to
-       ``HMD_DOCKER_NETWORK`` -- and this is the first thing to break when a
-       Docker-building repo is tried.
+     - **Resolved.** Confirmed with ``hmd-intg-agent``: every package waited
+       on the unresolvable index (~1 min each). ``hmd-cli-docker build`` now
+       maps any ``*.ns.local`` index host to the ``hmd_proxy`` container's IP
+       with ``--add-host`` (``ImageBuildConfig.add_hosts`` in
+       ``hmd-lib-containers``), or drops those indexes from the build's
+       ``pip.conf`` when the proxy is not running. No dedicated buildx builder
+       is needed.
    * - **Medium**
      - ``HMD_AUTO_PUBLISH=true`` also pushes Docker to ghcr and archives to
        the librarian. A developer reaching for a local publish gets all of
