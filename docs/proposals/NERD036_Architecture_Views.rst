@@ -75,7 +75,7 @@ Terminology
     The JSON document of SPEC001. Neutral: no audience, layout or styling.
 
 *Rendering template*
-    A repo class carrying a Mickey template pack and a ``template.yaml``
+    A repo class carrying a Mickey template pack and a ``template.json``
     descriptor (SPEC003). It turns a model into named outputs.
 
 *Architecture view*
@@ -196,36 +196,51 @@ Terminology
     A rendering template is a repo class (convention: ``hmd-tmpl-arch-*``)
     containing:
 
-    * ``src/mickey/templates/`` -- Jinja templates rendered by
-      ``hmd_lib_mickey`` with the model as context and the request's
-      parameters as ``vars``;
-    * ``template.yaml``:
+    * ``src/mickey/templates/<package>/`` -- Jinja templates rendered with
+      the model as context and the request's parameters as ``vars``, by
+      Mickey's rules (SPEC006). Macros are defined in the file that uses
+      them: Mickey names a template ``<project>/<package>/<file>`` and the
+      deployment service names it ``<file>``, so an ``import`` path cannot
+      resolve in both;
+    * ``template.json``, JSON so the deploy step needs only Python's standard
+      library:
 
-      .. code-block:: yaml
+      .. code-block:: json
 
-          name: aws-customer
-          title: AWS customer architecture
-          description: Client entry point, AWS service icons, internals collapsed.
-          requires_schema: architecture.neuronsphere.io/v1
-          outputs:
-            - {path: architecture.puml, media_type: text/x-plantuml, primary: true}
-            - {path: components.rst, media_type: text/x-rst}
-          parameters:            # JSON Schema; the GUI builds its form from it
-            type: object
-            properties:
-              audience: {type: string, enum: [customer, internal], default: customer}
-              collapse_internal: {type: boolean, default: true}
-          scope_defaults: {depth: 1}
+          {
+            "name": "aws-customer",
+            "title": "AWS customer architecture",
+            "requires_schema": "architecture.neuronsphere.io/v1",
+            "package": "aws_customer",
+            "outputs": [
+              {"path": "architecture.puml", "media_type": "text/x-plantuml", "primary": true},
+              {"path": "components.rst", "media_type": "text/x-rst"}
+            ],
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "audience": {"type": "string", "enum": ["customer", "internal"], "default": "customer"},
+                "show_dependencies": {"type": "boolean", "default": true}
+              }
+            },
+            "scope_defaults": {"depth": 1}
+          }
 
-    * a BACON manifest whose build publishes the template bundle as an
-      artifact and whose deploy registers it (SPEC004).
+      ``parameters`` is a JSON Schema; the GUI builds its form from it;
+    * a BACON manifest whose deploy registers the template (SPEC004) with
+      ``["exec", "python3", "scripts/register_template.py"]`` in a bare
+      Python ``deploy.image``. nsctl runs ``exec``; ``hmd deploy`` does not
+      yet (NERD009 SPEC012), so in the cloud the script is run by hand until
+      it does;
+    * a Robot suite showing that ``hmd mickey build`` renders the same bytes
+      as the deployment service's rules.
 
     A template receives only the model and its parameters. It shall not call
     out to any service, so the same model and parameters always render the
     same outputs.
 
-    Starter templates: ``aws-customer`` (PlantUML stdlib ``awslib`` icons,
-    the first use case), ``dependency-graph``, ``resource-inventory`` and
+    Starter templates: ``aws-customer`` (PlantUML stdlib ``awslib20`` icons,
+    the first use case, ``hmd-tmpl-arch-aws-customer``), ``dependency-graph``, ``resource-inventory`` and
     ``c4-container``.
 
 .. spec:: Templates are deployed into a deployment-service instance
