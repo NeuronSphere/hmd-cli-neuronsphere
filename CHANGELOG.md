@@ -2,6 +2,12 @@
 
 ## 2026-10-17
 
+- feat: env start/apply/plan send a class's `deploy.resources` with
+  `add_repo_class_version` and its resync, so the deployment service keeps
+  what the class declares for the architecture model (NERD036); and the
+  types `deploy.resources` marks produced (BACON's default) are declared
+  with `declare_produces_resource_definition` beside those in
+  `meta-data/resources/*.yaml`.
 - fix: `nsctl repoclass deploy add-dependency` on an existing role keeps the
   members it does not manage, such as `instance_name`. Adding a resource block
   to hmd-ms-device-lib's `lib-repo` would otherwise have dropped the bucket

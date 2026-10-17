@@ -260,6 +260,14 @@ type VersionResolver interface {
 	Produces(repoClass string) ([]repoclass.ResourceDeclaration, error)
 }
 
+// ResourcesResolver is the optional part of VersionResolver that reads a
+// class's BACON deploy.resources from the tree its version came from. The
+// deployment service keeps them on the class version as declared, names and
+// metadata.connects_to included, for the architecture model (NERD036).
+type ResourcesResolver interface {
+	ResolveResources(repoClass, declared string) (map[string]any, error)
+}
+
 // DiscoveryResolver is the optional half of VersionResolver: the BACON
 // discovery block to register with a version (NERD0013 SPEC0005 in
 // hmd-ms-deployment). Optional so a resolver that has no tree to read -- or
@@ -380,6 +388,16 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 				payload["discovery"] = discovery
 			}
 		}
+		var resources map[string]any
+		if rr, ok := s.Versions.(ResourcesResolver); ok {
+			declared, err := rr.ResolveResources(entries[i].RepoClassName, entries[i].RepoClassVersion)
+			if err != nil {
+				s.warn("reading %s's declared resources: %v", entries[i].RepoClassName, err)
+			} else if len(declared) > 0 {
+				resources = declared
+				payload["resources"] = resources
+			}
+		}
 		if err := s.Client.APIOpTolerateExists(ctx, "add_repo_class_version", payload); err != nil {
 			return err
 		}
@@ -388,12 +406,20 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 		// Resync rewires the existing version's dependency edges from the
 		// manifest just read, which is what makes an edited manifest take
 		// effect without a version bump. Only a manifest's own dependencies
-		// are sent: an entry's instance bindings are a different shape.
-		if manifestDeps != nil {
+		// are sent: an entry's instance bindings are a different shape. The
+		// declared resources are refreshed the same way.
+		if manifestDeps != nil || resources != nil {
+			resyncDeps := manifestDeps
+			if resyncDeps == nil {
+				resyncDeps = map[string]any{}
+			}
 			resync := map[string]any{
 				"repo_class_name": entries[i].RepoClassName,
 				"version":         version,
-				"dependencies":    manifestDeps,
+				"dependencies":    resyncDeps,
+			}
+			if resources != nil {
+				resync["resources"] = resources
 			}
 			if _, err := s.Client.APIOp(ctx, "resync_repo_class_version_dependencies", resync); err != nil {
 				s.warn("refreshing %s %s's dependencies from its manifest: %v", entries[i].RepoClassName, version, err)
@@ -623,10 +649,52 @@ func (s *Seeder) producedBy(repoClass string) ([]ProducedDefinition, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading what %s produces: %w", repoClass, err)
 	}
+	declarations = append(declarations, s.manifestProduces(repoClass)...)
 	if defs := FromDeclarations(declarations); len(defs) > 0 {
 		return defs, nil
 	}
 	return fallbackProduces[repoClass], nil
+}
+
+// manifestProduces is what a class's deploy.resources declares it produces:
+// BACON's other way of saying so beside meta-data/resources/*.yaml, where
+// produces defaults to true. These name existing definitions, so they are
+// declared but never upserted as definitions (UpsertResourceDefinitions reads
+// only the YAML documents, which carry the schema).
+func (s *Seeder) manifestProduces(repoClass string) []repoclass.ResourceDeclaration {
+	rr, ok := s.Versions.(ResourcesResolver)
+	if !ok {
+		return nil
+	}
+	resources, err := rr.ResolveResources(repoClass, "")
+	if err != nil {
+		s.warn("reading %s's declared resources: %v", repoClass, err)
+		return nil
+	}
+	var out []repoclass.ResourceDeclaration
+	names := make([]string, 0, len(resources))
+	for name := range resources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		entry, _ := resources[name].(map[string]any)
+		if entry == nil {
+			continue
+		}
+		if produces, set := entry["produces"].(bool); set && !produces {
+			continue
+		}
+		str := func(k string) string { v, _ := entry[k].(string); return v }
+		out = append(out, repoclass.ResourceDeclaration{
+			Namespace: str("resource_namespace"),
+			Name:      str("resource_definition_name"),
+			Version:   str("version"),
+			Role:      str("role"),
+			Produces:  true,
+		})
+	}
+	return out
 }
 
 // producingClasses is every repo class in the BOM, deduplicated, in the order
@@ -728,3 +796,9 @@ func withKnown(entries, known []Entry) []Entry {
 	}
 	return all
 }
+
+// The resolver nsctl seeds with forwards both optional blocks.
+var (
+	_ ResourcesResolver = (*repoclass.Resolver)(nil)
+	_ DiscoveryResolver = (*repoclass.Resolver)(nil)
+)

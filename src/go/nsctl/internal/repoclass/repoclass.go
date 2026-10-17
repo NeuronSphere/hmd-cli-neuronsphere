@@ -320,6 +320,10 @@ type Manifest struct {
 		Image                string         `json:"image"`
 		Dependencies         map[string]any `json:"dependencies"`
 		DefaultConfiguration map[string]any `json:"default_configuration"`
+		// Resources is BACON deploy.resources, forwarded verbatim when a
+		// version is registered so the architecture model can draw what the
+		// class creates and where traffic flows (NERD036).
+		Resources map[string]any `json:"resources"`
 	} `json:"deploy"`
 	// Discovery is the BACON discovery block (summary, entry_points,
 	// capabilities, related_docs), forwarded verbatim when a version is
@@ -440,6 +444,16 @@ func (r *Resolver) ResolveDiscovery(repoClass, declared string) (map[string]any,
 		return nil, err
 	}
 	return manifest.Discovery, nil
+}
+
+// ResolveResources is the deploy.resources block of the same tree Resolve
+// reads, or nil.
+func (r *Resolver) ResolveResources(repoClass, declared string) (map[string]any, error) {
+	_, manifest, err := r.resolveManifest(repoClass, declared)
+	if err != nil || manifest == nil || len(manifest.Deploy.Resources) == 0 {
+		return nil, err
+	}
+	return manifest.Deploy.Resources, nil
 }
 
 // resolveManifest is the tree resolution Resolve and ResolveDiscovery share,
