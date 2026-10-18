@@ -132,7 +132,8 @@ Terminology
       resource requirement more than one producer could satisfy, typically
       because a tag selector cannot be evaluated) or ``unresolved``.
     * Node ids are stable across producers: ``rc:<class>``,
-      ``inst:<environment>/<instance>``, ``res:<owner>/<declaration name>``,
+      ``inst:<environment>/<instance>``, ``res:<owner>/<declaration name>``
+      (the owner is a class name, or ``<environment>/<instance>``),
       ``ext:<name>``.
     * Nodes and edges are sorted by id so two models of the same scope are
       byte-identical and can be compared by digest.
@@ -304,7 +305,7 @@ Terminology
       requirement and produces edges, resolving resource requirements to
       producers through ``get_producers`` and ``get_ancestry``; with an
       environment, instances and their produced ``Resource`` records overlay
-      the classes;
+      the classes, as below;
     * ``POST /apiop/render_architecture`` (a scope or a model, a template
       name and version spec, parameters) -- returns ``{model, outputs}``;
     * ``GET /apiop/render_architecture_view/<name>`` -- renders a saved view
@@ -312,6 +313,33 @@ Terminology
       template_name, template_version, rendered_at}``. ``model_digest`` is the
       SHA-256 of the model's canonical JSON; ``etag`` changes exactly when the
       model or the template version does.
+
+    With an ``environment`` the model describes what is deployed there:
+
+    * A root is ``instance:<name>``, or a class name standing for every
+      instance of that class in the environment. A class root with no instance
+      there stays a ``repo_class`` node with a ``not-deployed`` finding.
+    * Each instance reached that is not destroyed is an ``instance`` node
+      ``inst:<environment>/<name>``. It carries ``repo_class``, the
+      ``version`` its current deployment runs, and ``attributes.status``.
+    * Its resources are the ``deploy.resources`` of that version, as
+      ``res:<environment>/<name>/<declaration>`` grouped under the instance,
+      plus the ``Resource`` records the deployment submitted. A record whose
+      resource definition exactly one declaration names attaches to that
+      declaration as ``attributes.resource_name``. Any other record becomes a
+      resource node of its own, named after the record. Resource ``output`` is
+      never copied into the model, because it can hold credentials.
+    * ``depends_on`` edges are the instance's bindings
+      (``repo_instance_req_repo_instance``), each ``resolved``, and ``depth``
+      counts binding hops. A role the version requires that no binding fills
+      is an ``unbound-role`` finding.
+    * A ``dep:<role>`` flow lands on the bound instance's one resource when it
+      has exactly one, else on the instance.
+
+    In both forms ``scope.root_nodes`` lists the node ids the roots resolved
+    to, so a template finds the roots without parsing them. A template treats
+    ``repo_class`` and ``instance`` nodes alike as the owners resources are
+    grouped under.
 
     Rendering applies the rules of ``hmd_lib_mickey``'s render phase to the
     registered files: every file is a Jinja template named by its path; a file
