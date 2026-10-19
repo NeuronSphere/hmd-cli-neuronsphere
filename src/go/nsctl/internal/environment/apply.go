@@ -145,7 +145,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				strings.Join(unsupported, " and "))
 		}
 	}
-	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
+	entries := append(substrate, bom.DeclaredWithLocalDefaults(bomEnv, declaredRepos, opts.lookup, opts.warn)...)
 
 	// The External Secrets operator, unless opted out. It reaches nsctl through
 	// the environment manifest today, which on a developer machine the Python

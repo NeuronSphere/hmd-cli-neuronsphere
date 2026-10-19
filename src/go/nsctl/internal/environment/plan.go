@@ -70,7 +70,7 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 	if declared != nil {
 		declaredRepos = declared.Repos
 	}
-	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
+	entries := append(substrate, bom.DeclaredWithLocalDefaults(bomEnv, declaredRepos, opts.lookup, opts.warn)...)
 	// The same demand-driven graph Apply appends, so a plan does not omit an
 	// instance the apply it is predicting would deploy.
 	if graphEnabled(opts) {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-15
+
+- feat: `nsctl env apply` and `env plan` read each local-source repo's
+  `meta-data/config_local.json` as its local defaults. It sits between the class's
+  `default_configuration` and the manifest's `instance_configuration`, which still
+  wins. `instance_name`, `deployment_id`, `dependencies` and `details` are dropped
+  first: they are for a direct `hmd deploy --local` and would otherwise override
+  the identity and dependencies nsctl bound.
+
 ## 2026-10-08
 
 - fix: the nsctl service image builds with Go 1.26. go.mod has required 1.26
