@@ -2,6 +2,8 @@
 
 ## 2026-10-20
 
+- fix: `nsctl env plan` composes the desired state the way `env apply` does (`desiredEntries`), including the External Secrets operator nsctl injects and its patched configuration. A plan used to leave ext-secrets out, so its binder could not bind a required `ext-secrets` role (hmd-app-neuronsphere's) and validation failed with `missing_required_role` while the apply it predicted succeeded; it also listed the operator as deployed but undeclared
+- fix: `nsctl instance list` lists the External Secrets operator and its CRDs as substrate, as nsctl deploys them without a manifest line, rather than as `undeclared` (what a deleted declaration leaves behind). A manifest that declares ext-secrets itself still shows as `manifest`
 - feat: `env list --json` and `env status [name] --json` print the same facts
   as their tables as JSON, so a tool (the ns-env Claude Code plugin's pane)
   reads them without parsing columns. `env status --json` also carries
