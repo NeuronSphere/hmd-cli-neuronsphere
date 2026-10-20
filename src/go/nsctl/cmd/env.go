@@ -404,7 +404,8 @@ The control plane keeps running.`,
 }
 
 func newEnvListCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:           "list",
 		Short:         "List the registered environments",
 		Args:          noArgs,
@@ -415,10 +416,51 @@ func newEnvListCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if asJSON {
+				return printJSON(cmd, envListDocument(reg, substrateOf(opts)))
+			}
 			renderEnvList(cmd.OutOrStdout(), cmd.ErrOrStderr(), reg, substrateOf(opts))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
+	return cmd
+}
+
+// envListItem is one row of `env list --json`: the table's columns, with the
+// default environment as a flag rather than a suffix on its name.
+type envListItem struct {
+	Name         string `json:"name"`
+	Default      bool   `json:"default"`
+	AccountID    string `json:"account_id"`
+	PortSlot     int    `json:"port_slot"`
+	K3sCluster   string `json:"k3s_cluster"`
+	Substrate    string `json:"substrate"`
+	Bootstrapped bool   `json:"bootstrapped"`
+	Layout       string `json:"layout"`
+}
+
+// envListDocument is never nil, so an empty registry prints [] and not null.
+func envListDocument(reg *registry.Registry, substrate func(string) manifest.Substrate) []envListItem {
+	items := []envListItem{}
+	for _, name := range reg.Names() {
+		e := reg.Environments[name]
+		layout := "current"
+		if e.LegacyLayout {
+			layout = "legacy"
+		}
+		items = append(items, envListItem{
+			Name:         name,
+			Default:      name == reg.DefaultEnv,
+			AccountID:    e.AccountID,
+			PortSlot:     e.PortSlot,
+			K3sCluster:   e.K3sCluster,
+			Substrate:    string(substrate(e.Slug)),
+			Bootstrapped: e.Bootstrapped(),
+			Layout:       layout,
+		})
+	}
+	return items
 }
 
 func renderEnvList(out, errOut io.Writer, reg *registry.Registry, substrate func(string) manifest.Substrate) {
@@ -452,7 +494,8 @@ func renderEnvList(out, errOut io.Writer, reg *registry.Registry, substrate func
 }
 
 func newEnvStatusCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:           "status [name]",
 		Short:         "Report one environment's containers and routes",
 		Args:          cobra.MaximumNArgs(1),
@@ -472,10 +515,62 @@ func newEnvStatusCommand(opts *Options) *cobra.Command {
 				return nserr.Wrap(nserr.Usage, err)
 			}
 			snap := reporter(opts, reg).EnvironmentStatus(cmd.Context(), e)
+			if asJSON {
+				return printJSON(cmd, envStatusDocument(snap))
+			}
 			renderEnvStatus(cmd.OutOrStdout(), snap)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
+	return cmd
+}
+
+// envStatusDoc is the `env status --json` shape. Running is
+// status.Environment.Running -- every container the environment owns is up --
+// so a reader does not re-derive it from the rows. Routes is a list, not a
+// map, because the table's order is part of what it says.
+type envStatusDoc struct {
+	Name           string               `json:"name"`
+	AccountID      string               `json:"account_id"`
+	DeploymentID   string               `json:"deployment_id"`
+	Substrate      string               `json:"substrate"`
+	K3sCluster     string               `json:"k3s_cluster"`
+	ComposeProject string               `json:"compose_project"`
+	StateDir       string               `json:"state_dir"`
+	Bootstrapped   bool                 `json:"bootstrapped"`
+	LegacyLayout   bool                 `json:"legacy_layout"`
+	Running        bool                 `json:"running"`
+	Containers     []envStatusContainer `json:"containers"`
+	Routes         []envStatusRoute     `json:"routes"`
+}
+
+type envStatusContainer struct {
+	Role  string `json:"role"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type envStatusRoute struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+func envStatusDocument(s status.Environment) envStatusDoc {
+	doc := envStatusDoc{
+		Name: s.Name, AccountID: s.AccountID, DeploymentID: s.DeploymentID,
+		Substrate: string(s.Substrate), K3sCluster: s.K3sCluster,
+		ComposeProject: s.ComposeProject, StateDir: s.StateDir,
+		Bootstrapped: s.Bootstrapped, LegacyLayout: s.LegacyLayout, Running: s.Running(),
+		Containers: []envStatusContainer{}, Routes: []envStatusRoute{},
+	}
+	for _, c := range s.Containers {
+		doc.Containers = append(doc.Containers, envStatusContainer{Role: c.Role, Name: c.Name, State: state(c)})
+	}
+	for _, key := range s.RouteOrder {
+		doc.Routes = append(doc.Routes, envStatusRoute{Name: key, Address: s.Routes[key]})
+	}
+	return doc
 }
 
 func renderEnvStatus(out io.Writer, s status.Environment) {

@@ -1666,7 +1666,12 @@ Usage
 
 .. code-block:: text
 
-   nsctl env list
+   nsctl env list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1833,7 +1838,12 @@ Usage
 
 .. code-block:: text
 
-   nsctl env status [name]
+   nsctl env status [name] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-20
+
+- feat: `env list --json` and `env status [name] --json` print the same facts
+  as their tables as JSON, so a tool (the ns-env Claude Code plugin's pane)
+  reads them without parsing columns. `env status --json` also carries
+  `running`, and keeps the routes in table order.
+
 ## 2026-10-15
 
 - feat: `nsctl env apply` and `env plan` read each local-source repo's
