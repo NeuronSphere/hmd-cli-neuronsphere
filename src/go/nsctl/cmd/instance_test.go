@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -545,5 +546,39 @@ func TestInstanceAddAbsolutisesARelativePath(t *testing.T) {
 	}
 	if got := readManifest(t, env, "local").Repos[0].Source.Path; got != "$ACME_HOME/." {
 		t.Errorf("a path with a variable was rewritten to %q", got)
+	}
+}
+
+// nsctl deploys the External Secrets operator into every environment with a
+// cluster, without a manifest line, exactly as it deploys the substrate. It
+// used to list as "undeclared" -- the label for what a deleted line leaves
+// behind -- which reads as drift the user caused.
+func TestInstanceListShowsTheExtSecretsOperatorAsSubstrate(t *testing.T) {
+	t.Parallel()
+
+	_, env := repoEnv(t)
+	out, _, err := run(t, fakeEnv(env), "instance", "list")
+	if err != nil {
+		t.Fatalf("instance list: %v", err)
+	}
+	rows := listRows(t, out)
+	for _, name := range []string{bom.ExtSecretsCRDsInstance, bom.ExtSecretsInstance} {
+		if got := rows[name]["DECLARED"]; got != "substrate" {
+			t.Errorf("%s DECLARED = %q, want substrate:\n%s", name, got, out)
+		}
+	}
+}
+
+func TestInstanceListOmitsTheExtSecretsOperatorWhenOptedOut(t *testing.T) {
+	t.Parallel()
+
+	_, env := repoEnv(t)
+	env[bom.ExtSecretsEnabledEnv] = "false"
+	out, _, err := run(t, fakeEnv(env), "instance", "list")
+	if err != nil {
+		t.Fatalf("instance list: %v", err)
+	}
+	if _, listed := listRows(t, out)[bom.ExtSecretsInstance]; listed {
+		t.Errorf("%s is listed though it is opted out:\n%s", bom.ExtSecretsInstance, out)
 	}
 }

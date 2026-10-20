@@ -130,9 +130,6 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if err := refuseCoreBindings(mode, declared); err != nil {
 		return err
 	}
-	// The cluster entry only makes sense when k3s is enabled: without it the
-	// eks-cluster node deploys a cluster nothing will run.
-	substrate := bom.SubstrateFor(bomEnv, mode, k3sEnabled(opts))
 	var (
 		declaredRepos  []manifest.Repo
 		declaredStacks []manifest.StackRecord
@@ -151,62 +148,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				strings.Join(unsupported, " and "))
 		}
 	}
-	entries := append(substrate, bom.DeclaredWithLocalDefaults(bomEnv, declaredRepos, opts.lookup, opts.warn)...)
-
-	// The External Secrets operator, unless opted out. It reaches nsctl through
-	// the environment manifest today, which on a developer machine the Python
-	// CLI wrote -- so an environment created by `nsctl env add` alone got a
-	// cluster with no operator on it, and the first cloud chart rendering an
-	// ExternalSecret failed on the missing CRD. Bundling the repo (SPEC006) is
-	// what lets it deploy; declaring it here is what makes it deploy at all.
-	//
-	// Not in Substrate's own list: substrateInstances decides which of the two
-	// changesets an entry lands in, and these belong in the second. The first
-	// is applied before the concrete core Resources are submitted, and a
-	// dependency carrying a tag_selector cannot resolve against a type nothing
-	// has produced yet.
-	if steps.Cluster && extSecretsEnabled(opts) && k3sEnabled(opts) {
-		entries = append(entries, bom.ExtSecrets(bomEnv)...)
-	}
-
-	// The graph, when something actually wants one. Lazily, for the same reason
-	// the Python is lazy: it is a JVM per environment that most local work never
-	// touches, so a default environment deploys none.
-	//
-	// Not gated on the cluster: it is a Floci Neptune cluster, not a chart.
-	// Not in Substrate's own list either -- a substrate name is reserved in
-	// every environment, and this one is deployed only on demand.
-	//
-	// Without this a stack that binds graph-db to `global-graph` -- the shape
-	// `nsctl stack init --from-env` produces, and what hmd-stack-analytics
-	// ships -- fails at register time on an instance that never existed:
-	//
-	//	AssertionError: No repo instance found for name, global-graph
-	//
-	// The alias answered on the network throughout, which is what hid this.
-	if graphEnabled(opts) {
-		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
-			entries = append(entries, bom.Graph(bomEnv))
-		}
-		bom.RepointGraphDatabase(entries)
-	}
-
-	// Before the plan is computed, not only inside Seed.
-	//
-	// Seed injects the per-environment endpoints on the way past, but the
-	// reconcile snapshot hashes the desired state built here. Injecting only in
-	// Seed means the digest covers a pre-injection entry that never matches
-	// what was seeded, and ext-secrets reads as drifted on every single apply.
-	// change_set_builder does the same thing in both places for the same
-	// reason, and says so: "Omitting it left ext-secrets permanently drifted."
-	// Defaults first, then the account. A manifest that declares ext-secrets
-	// itself shadows bom.ExtSecrets' entry, and InjectExtSecretsAccount only
-	// patches keys that already exist -- so without this an environment whose
-	// manifest carries no instance_configuration got the chart's cloud
-	// defaults: IRSA against a role in the control plane's account, every
-	// ClusterSecretStore stuck at InvalidProviderConfig.
-	bom.ApplyExtSecretsDefaults(entries, bomEnv.AccessKeyID)
-	bom.InjectExtSecretsAccount(entries, bomEnv.AccessKeyID)
+	entries := desiredEntries(opts, bomEnv, mode, declaredRepos)
 
 	// Everything this environment declares, kept before the plan narrows
 	// `entries` to what still needs deploying. Demand for a substrate service

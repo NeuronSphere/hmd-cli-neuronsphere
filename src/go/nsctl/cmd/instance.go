@@ -318,6 +318,20 @@ deploying 0.1.4 out of a checkout are both declared in the manifest.`,
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 					name, "-", "-", "substrate", "-", deployedCell(status, name))
 			}
+			// What nsctl deploys on the environment's behalf without a manifest
+			// line (the External Secrets operator), unless the manifest declares
+			// it itself, in which case that declaration is listed below.
+			injected := map[string]bool{}
+			for _, name := range environment.InjectedNames(opts.Lookup, m.SubstrateMode()) {
+				if m != nil {
+					if _, declared := m.Repo(name); declared {
+						continue
+					}
+				}
+				injected[name] = true
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, "-", "-", "substrate", "-", deployedCell(status, name))
+			}
 			if m != nil {
 				declarations := append([]manifest.Repo{}, m.Repos...)
 				sort.Slice(declarations, func(i, j int) bool {
@@ -346,7 +360,7 @@ deploying 0.1.4 out of a checkout are both declared in the manifest.`,
 			// behind, and the only way to notice it. Nothing declares it, so
 			// there is no version to resolve and nowhere for it to come from.
 			for _, name := range msdeploy.DeployedNames(status) {
-				if manifest.Reserved(name) {
+				if manifest.Reserved(name) || injected[name] {
 					continue
 				}
 				if m != nil {

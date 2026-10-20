@@ -69,20 +69,13 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 		mode = manifest.SubstrateFull
 	}
 
-	substrate := bom.SubstrateFor(bomEnv, mode, k3sEnabled(opts))
 	var declaredRepos []manifest.Repo
 	if declared != nil {
 		declaredRepos = declared.Repos
 	}
-	entries := append(substrate, bom.DeclaredWithLocalDefaults(bomEnv, declaredRepos, opts.lookup, opts.warn)...)
-	// The same demand-driven graph Apply appends, so a plan does not omit an
-	// instance the apply it is predicting would deploy.
-	if graphEnabled(opts) {
-		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
-			entries = append(entries, bom.Graph(bomEnv))
-		}
-		bom.RepointGraphDatabase(entries)
-	}
+	// Apply's own desired state, so a plan neither omits an instance the apply
+	// it is predicting would deploy nor fails to bind a role to one.
+	entries := desiredEntries(opts, bomEnv, mode, declaredRepos)
 
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	repoclass.Seed(resolver, declaredRepos)
