@@ -17,6 +17,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.8.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.33.0
 	modernc.org/sqlite v1.60.1
 )
@@ -60,7 +61,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	modernc.org/libc v1.77.1 // indirect

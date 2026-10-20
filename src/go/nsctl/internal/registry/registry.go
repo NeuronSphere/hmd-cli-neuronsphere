@@ -21,6 +21,7 @@
 package registry
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,8 +30,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/atomicfile"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/hostlock"
 )
 
 // Version is the registry schema version the Python writes.
@@ -522,16 +526,49 @@ func (r *Registry) Save(home string) error {
 	// Encode appends a newline; json.dumps does not.
 	payload := strings.TrimSuffix(buf.String(), "\n")
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(payload), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replacing %s: %w", path, err)
+	// A unique temp name, not path+".tmp": two writers sharing one temp file
+	// can rename the other's half-written bytes into place.
+	if err := atomicfile.Write(path, []byte(payload), 0o644, 0o755); err != nil {
+		return err
 	}
 	r.Path = path
 	r.Synthesized = false
 	return nil
+}
+
+// updateTimeout bounds the wait for the registry lock. Holders only load,
+// edit in memory and save, so anything near this long is a wedged process.
+const updateTimeout = 30 * time.Second
+
+// Update applies edit to the registry on disk under the host's registry lock
+// and saves the result, returning it. Nothing is saved when edit fails.
+//
+// Every write goes through here rather than Load ... Save. A caller that
+// loaded minutes ago -- a purge, a bootstrap -- and saves its whole copy
+// silently drops whatever another nsctl registered in between, and two
+// `env add`s working from the same snapshot allocate the same port slot and
+// account. edit always sees the current file, so it must express a change
+// ("remove dev", "set the ports to these"), never "write my old copy back".
+//
+// holder names the operation for anyone left waiting, e.g. "env add dev".
+func Update(home string, lookup Lookup, holder string, edit func(*Registry) error) (*Registry, error) {
+	lock, err := hostlock.Acquire(context.Background(), home, hostlock.Registry, holder, updateTimeout)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+
+	r, err := Load(home, lookup)
+	if err != nil {
+		return nil, err
+	}
+	if err := edit(r); err != nil {
+		return nil, err
+	}
+	if err := r.Save(home); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // Names lists the registered environment slugs, sorted.

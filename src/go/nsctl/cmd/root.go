@@ -194,6 +194,7 @@ above that is a RepoClass you add.`,
 		newDBCommand(opts),
 		newEnvCommand(opts),
 		newInstanceCommand(opts),
+		newTemplateCommand(opts),
 		newDNSCommand(opts),
 		newVersionCommand(opts),
 	)

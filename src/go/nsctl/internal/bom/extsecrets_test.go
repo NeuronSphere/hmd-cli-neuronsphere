@@ -1,6 +1,9 @@
 package bom
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func extSecretsEntry(entries []Entry, name string) *Entry {
 	for i := range entries {
@@ -217,5 +220,39 @@ func TestApplyExtSecretsDefaultsIgnoresOtherClasses(t *testing.T) {
 	ApplyExtSecretsDefaults(entries, "000000000007")
 	if entries[0].InstanceConfiguration != nil {
 		t.Errorf("configuration = %v, want untouched", entries[0].InstanceConfiguration)
+	}
+}
+
+// The accounts the issue named: 8 and 9 are the ones PyYAML leaves unquoted,
+// and 12 and 13 are where test environments were moved to dodge that. Every
+// one reaches the change set as the exact 12-digit string, in every place the
+// chart reads it.
+func TestExtSecretsCarriesEveryAccountIDAsItsString(t *testing.T) {
+	t.Parallel()
+
+	for _, account := range []string{"000000000008", "000000000009", "000000000012", "000000000013"} {
+		entries := []Entry{{RepoInstanceName: "ext-secrets", RepoClassName: ExtSecretsRepoClass}}
+		ApplyExtSecretsDefaults(entries, account)
+		InjectExtSecretsAccount(entries, account)
+
+		raw, err := json.Marshal(entries[0].InstanceConfiguration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg map[string]any
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		for _, store := range []string{"clusterSecretStore", "parameterStoreSecretStore"} {
+			if got := cfg[store].(map[string]any)["localAccessKeyId"]; got != account {
+				t.Errorf("%s: %s.localAccessKeyId = %#v", account, store, got)
+			}
+		}
+		for _, v := range cfg["extraEnv"].([]any) {
+			env := v.(map[string]any)
+			if env["name"] == "AWS_ACCESS_KEY_ID" && env["value"] != account {
+				t.Errorf("%s: AWS_ACCESS_KEY_ID = %#v", account, env["value"])
+			}
+		}
 	}
 }

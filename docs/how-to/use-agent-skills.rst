@@ -27,6 +27,9 @@ The bundled skills cover these tasks:
      - Adopting a repository that has no NeuronSphere metadata
    * - ``nsctl-repoclass-author``
      - Authoring BACON repository metadata
+   * - ``nsctl-session-environment``
+     - Keeping a coding session's work in its own environment (see
+       :doc:`session-environments`)
    * - ``nsctl-local-plugin``
      - Adding local extensions
    * - ``nsctl-debug``

@@ -658,8 +658,10 @@ Local flags
 * ``--dry-run`` — Show what would be declared, writing and fetching nothing
 * ``--env`` — Local environment to declare into (default: the default environment)
 * ``--exclude`` — An instance to leave out. Repeatable (default: ``[]``)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--include-failed`` — Include instances whose last deployment FAILED
 * ``--instance`` — An instance to take, by name. Repeatable (default: ``[]``)
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--librarian-url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--no-deps`` — Take the selection literally, without what fills its roles
@@ -1210,6 +1212,13 @@ checked-in neuronsphere.lock say what to stand up alongside it, every activated
 entry is declared at its pinned version, and the repository itself is declared
 from its working tree -- which is what makes it the thing under test.
 
+With --template and --repo it is composed (NERD035 SPEC004): the template's
+instances, then each repository being edited from its working tree with what
+its lock pins. What the composition already provides is shared rather than
+declared twice, and a repository being edited replaces the one instance of its
+class the template or another repository declares. --profile and --name apply
+to every --repo.
+
 This is the one command that fetches an artifact without being asked, because
 this is first start: there is no environment yet, so there is no offline
 expectation to violate. --no-pull suppresses it.
@@ -1230,6 +1239,7 @@ Examples
      nsctl env add dev --from-repo .
      nsctl env add dev --from-repo . --profile transforms
      nsctl env add dev --from-repo . --lean --name neptune-db=my-graph
+     nsctl env add work --template telemetry --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector
 
 Local flags
 ~~~~~~~~~~~
@@ -1243,6 +1253,8 @@ Local flags
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--no-pull`` — Do not fetch the artifacts the declaration names
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
+* ``--template`` — Start from this template (see `nsctl template list`)
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
@@ -1296,7 +1308,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the lock mentions
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
 * ``--from-repo`` — Build the environment from the repository at this path
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -1379,8 +1393,263 @@ Aliases: ``rm``.
 Local flags
 ~~~~~~~~~~~
 
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--keep-manifest`` — Keep the environment manifest under $HMD_HOME/environments
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Confirm the removal
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease
+---------------
+
+A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
+an environment until it releases it. While an environment is leased, every
+command that changes it -- env start, apply, stop, purge and delete, instance
+add/remove/import, stack add/remove, bom import -- refuses anyone who does not
+present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
+sessions cannot deploy over each other. --ignore-lease overrides the refusal.
+
+A run lease covers one run: take it for the run, release it when the run ends.
+A small pool of environments ([pool] in nsctl.toml; by default local plus one
+cc-N created on demand) then serves many runs, and a run that finds them all
+busy can queue with --wait.
+
+A session lease (acquire --session) covers a whole working session -- one
+person or one coding agent iterating on one environment for hours. It lives for
+[pool] session_ttl (default 8h) between heartbeats, watches the session's own
+process, and answers any run lease taken inside the session, so scripts that
+take run leases work unchanged. Only release --session ends it.
+
+A lease ends when it is released, when its TTL passes without a renew, or when
+the process it watches (--pid) exits.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease acquire
+-----------------------
+
+Leases the named environment (default: the one HMD_LOCAL_ENV or the registry
+names), or with --pool the free pool environment that needs the least redeploying
+for --for, an environment manifest of what the run will deploy. Ties go to the
+environment released most recently.
+
+When the pool has room and nothing is free, the next cc-N is registered for the
+run; the output says so ("created"), and it must be started before deploying.
+
+With --session the lease is held for a working session rather than one run
+(NERD035 SPEC002): its TTL is [pool] session_ttl (default 8h), and --pid
+defaults to the session's process -- the nearest ancestor named claude, else
+the caller's parent. --shell prints the two exports that point every later
+nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
+
+With --template and --repo a session acquire shapes and brings up its
+environment (NERD035 SPEC004, SPEC005): it composes the template and the
+repositories being edited -- before taking any lease, so a composition that
+cannot be built costs nothing -- then, with --pool, places the session in the
+free environment of the same template that needs the least redeploying,
+avoiding one holding another session's working trees. After printing the lease
+it fetches what the composition needs (unless --no-pull), writes it as the
+environment's manifest and runs env start (unless --no-start), with progress on
+stderr. If that fails the lease is kept: fix it and run env start.
+
+Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
+bare, naming the session's environment, or with --pool -- is answered with the
+session's own lease, marked nested, instead of contending for it.
+
+Prints the lease, including the token that renew, release and leased commands
+(NSCTL_LEASE_TOKEN) present.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease acquire [name] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell \
+         --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+     eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+     nsctl env lease acquire --pool --wait --holder my-session --json
+     nsctl env lease acquire dev --holder ci-123 --ttl 30m
+     nsctl env lease acquire --pool --for run-manifest.yaml --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — with --repo, activate every profile each lock mentions
+* ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
+* ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
+* ``--json`` — print the lease as JSON
+* ``--keep-running`` — with --session, do not stop the environment when the session ends
+* ``--lean`` — with --repo, activate no profiles
+* ``--name`` — with --repo, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--no-pull`` — with --template/--repo, do not fetch the artifacts the composition names
+* ``--no-start`` — with --template/--repo, write the session's manifest but do not start the environment
+* ``--pid`` — the process whose exit ends the lease (default: the caller's parent; with --session, the session's process); 0 relies on --ttl alone (default: ``0``)
+* ``--pool`` — lease the closest free environment from the pool
+* ``--profile`` — with --repo, local profiles to activate in every repository. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
+* ``--run-id`` — an id for this run, recorded in the lease
+* ``--session`` — hold the environment for a working session, not one run
+* ``--shell`` — print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval
+* ``--steal`` — take the environment even if someone else holds it
+* ``--template`` — Start from this template (see `nsctl template list`)
+* ``--ttl`` — how long the lease lives without a renew (with --session: [pool] session_ttl) (default: ``10m0s``)
+* ``--wait`` — queue until an environment is free instead of failing
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease heartbeat
+-------------------------
+
+Pushes the expiry of the lease the token holds out by its TTL. The token
+identifies the lease, so a hook or a background loop needs nothing else.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease heartbeat [--token <token>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   while sleep 600; do nsctl env lease heartbeat || break; done
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease list
+--------------------
+
+Show who holds which environment, and who is waiting
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease release
+-----------------------
+
+Ends the lease the token holds on the environment.
+
+A session lease is ended only with --session. A run inside a session is handed
+the session's own token, so a script written for run leases releasing "its"
+lease would otherwise end the session; without --session such a release leaves
+the lease in place, says so, and exits zero.
+
+With --session the name and token may be left out: the session's own lease is
+found by its process, which is what lets a hook end it.
+
+Ending a session stops its environment (NERD035 SPEC006), keeping its state for
+the next session to reuse warm; --keep-running leaves it running. Nothing is
+ever purged here: that is env purge.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease release [<name>] [--token <token>] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--keep-running`` — with --session, leave the environment running instead of stopping it
+* ``--session`` — end a session lease, not just a run's use of it
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease renew
+---------------------
+
+Push a lease's expiry out by its TTL
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease renew <name> --token <token> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease whoami
+----------------------
+
+Describes the lease NSCTL_LEASE_TOKEN (or --token) holds: its environment,
+scope, holder, template, working trees, expiry and where the environment's
+routes are served. Exits non-zero when the token holds no live lease.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease whoami [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print the lease as JSON, without its token
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1470,6 +1739,14 @@ nginx routes and the state directory all go, and none of it comes back.
 With no name it purges every environment and the control plane with them,
 leaving an HMD_HOME a fresh bootstrap can start from.
 
+--idle and --keep select instead (NERD035 SPEC007): pool-created environments
+(cc-N) that hold no lease, released longer ago than --idle, or all but the
+--keep most recently released; both together select what both select. They
+never select a configured [pool] member, a leased environment or the control
+plane, and never fall through to purging everything. --dry-run lists the
+selection; without --yes the list is printed and nothing is purged. Nothing
+runs this for you: a session's end only ever stops its environment.
+
 Resources Floci spawned are deleted through Floci before the control plane
 stops, because a delete asked of a stopped Floci is a delete that did not
 happen -- and its containers and volumes are then left behind with nothing
@@ -1485,6 +1762,11 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--dry-run`` — with --idle or --keep, list what would be purged and purge nothing
+* ``--idle`` — purge pool environments released longer ago than this, e.g. 72h (default: ``0s``)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--keep`` — purge all but this many of the most recently released pool environments (default: ``-1``)
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Skip the confirmation
 
 Inherited flags
@@ -1530,6 +1812,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--no-deploy`` — Bring up the infrastructure without reconciling the BOM
 * ``--substrate`` — How much substrate to run: none, core or full (default: what the environment recorded, else full)
 * ``-V, --verbose`` — Show the underlying command output
@@ -1570,7 +1854,13 @@ Usage
 
 .. code-block:: text
 
-   nsctl env stop [name]
+   nsctl env stop [name] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1682,6 +1972,8 @@ Local flags
 * ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
 * ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
 * ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--name`` — Instance name (default: the repo class without its hmd- prefix)
 * ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
 
@@ -1720,6 +2012,8 @@ Local flags
 * ``--all`` — Import instances that are not currently deployed too
 * ``--dry-run`` — Show what would be declared without writing
 * ``--env`` — Environment to import from (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1814,6 +2108,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -3619,7 +3915,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the stack's lock mentions
 * ``--apply`` — Run `nsctl env apply` afterwards
 * ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -3853,6 +4151,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--prune-cache`` — Also delete the stack's artifacts from the cache
 
 Inherited flags
@@ -3879,6 +4179,144 @@ Local flags
 
 * ``--offline`` — read the cache only
 * ``--spec`` — report which version a BACON version spec would choose
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template
+--------------
+
+A template is an environment manifest kept under a name in
+$HMD_HOME/templates: the instances, stacks and profiles an environment for some
+kind of work starts with -- "analytics" for Trino and Airflow, "telemetry" for
+the OpenTelemetry collector and ClickHouse.
+
+nsctl ships no templates. Make one from a manifest file, from a published stack,
+or from an environment that already has the right shape.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml
+     nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template add
+------------------
+
+Stores a template under <name> from exactly one source:
+
+  <file>            an environment manifest, copied in and renamed <name>
+  --stack <ref>     a published stack, planned as "nsctl stack add" plans it
+                    but into an empty manifest: the stack's instances at their
+                    pinned versions, from their artifacts, and its record.
+                    --profile, --all-profiles, --lean and --name mean what they
+                    mean there. The stack is fetched now, so a session later
+                    started from the template needs no network.
+  --from-env <env>  an environment's manifest, minus the instances it deploys
+                    from a working tree (source: {type: local}), which belong
+                    to whoever was editing them
+
+An existing template is replaced only with --force.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template add <name> [<file> | --stack <ref> | --from-env <env>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability --profile full
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml --force
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — with --stack, activate every profile the stack's lock mentions
+* ``--force`` — replace an existing template of the same name
+* ``--from-env`` — an environment whose manifest the template copies, minus its working trees
+* ``--lean`` — with --stack, activate no profiles
+* ``--local-url`` — with --stack, the control plane's Artifact Librarian
+* ``--name`` — with --stack, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--profile`` — with --stack, local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--spec`` — with --stack, a BACON version spec to choose the version by (e.g. "~= 0.1")
+* ``--stack`` — a published stack to plan the template from
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template list
+-------------------
+
+List the stored templates
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template remove
+---------------------
+
+Deletes the template file. Environments started from it keep their own manifests.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template remove <name>
+
+Aliases: ``rm``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template show
+-------------------
+
+Print a template
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template show <name>
 
 Inherited flags
 ~~~~~~~~~~~~~~~

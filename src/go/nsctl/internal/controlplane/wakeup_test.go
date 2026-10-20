@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/registry"
@@ -52,7 +53,7 @@ func TestRestoreEnvironmentStateStopsWhatFlociWoke(t *testing.T) {
 		"floci-rds-db-scratch": true,
 	})
 
-	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), before)
+	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), before, time.Now())
 
 	sort.Strings(d.stopped)
 	if got := strings.Join(d.stopped, ","); got != "floci-rds-db-local,floci-rds-db-scratch" {
@@ -71,7 +72,7 @@ func TestRestoreEnvironmentStateLeavesWhatWasAlreadyRunning(t *testing.T) {
 		"floci-rds-db-scratch": true, // only this one is new
 	})
 
-	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), before)
+	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), before, time.Now())
 
 	if got := strings.Join(d.stopped, ","); got != "floci-rds-db-scratch" {
 		t.Fatalf("stopped %q, want only the one Floci woke", got)
@@ -90,7 +91,7 @@ func TestRestoreEnvironmentStateExemptsTheEnvironmentBeingStarted(t *testing.T) 
 		"floci-rds-db-scratch": true,
 	})
 
-	restoreEnvironmentState(context.Background(), opts, d, wakeupRegistry(), map[string]bool{})
+	restoreEnvironmentState(context.Background(), opts, d, wakeupRegistry(), map[string]bool{}, time.Now())
 
 	if got := strings.Join(d.stopped, ","); got != "floci-rds-db-scratch" {
 		t.Fatalf("stopped %q, want the started environment left alone", got)
@@ -104,7 +105,7 @@ func TestRestoreEnvironmentStateNeverTouchesTheControlPlane(t *testing.T) {
 
 	d := wakeupDocker(map[string]bool{"floci-rds-db-controlplane": true})
 
-	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), map[string]bool{})
+	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), map[string]bool{}, time.Now())
 
 	for _, name := range d.stopped {
 		if strings.Contains(name, "controlplane") {
@@ -121,7 +122,7 @@ func TestRestoreEnvironmentStateWarnsRatherThanFailing(t *testing.T) {
 	d := wakeupDocker(map[string]bool{"floci-rds-db-scratch": true})
 	d.stopErr = map[string]error{"floci-rds-db-scratch": errors.New("no")}
 
-	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), map[string]bool{})
+	restoreEnvironmentState(context.Background(), testOptions("", nil), d, wakeupRegistry(), map[string]bool{}, time.Now())
 	// Reaching here without a panic or an error return is the assertion.
 }
 

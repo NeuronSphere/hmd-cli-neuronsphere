@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -92,10 +93,15 @@ func Purge(ctx context.Context, opts *Options, name string) error {
 	if err := purgeEnvironment(ctx, opts, reg, env); err != nil {
 		return err
 	}
-	if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
-		return nserr.Wrap(nserr.Usage, err)
-	}
-	if err := reg.Save(opts.Home); err != nil {
+	// Against the registry as it is now, not as it was before the teardown:
+	// another nsctl may have registered an environment in the meantime.
+	if _, err := registry.Update(opts.Home, opts.Lookup, "env purge "+env.Slug, func(r *registry.Registry) error {
+		return r.RemoveEnvironment(env.Slug, opts.Lookup)
+	}); err != nil {
+		var unknown *registry.UnknownEnvironmentError
+		if errors.As(err, &unknown) {
+			return nserr.Wrap(nserr.Usage, err)
+		}
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	opts.step("Purged %s. The control plane is still running.", env.Slug)

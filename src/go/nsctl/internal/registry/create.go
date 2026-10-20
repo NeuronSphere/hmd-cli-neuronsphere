@@ -139,16 +139,28 @@ func (r *Registry) EnsureFirstEnvironment(home, name string, lookup Lookup) (*En
 		name = DefaultEnvName
 	}
 
-	env, err := r.NewEnvironment(home, name, lookup)
+	// Decided again against the file under the lock: two first starts racing
+	// would otherwise each register an environment, and the later save would
+	// drop the earlier one while both went on to start containers.
+	var env *Environment
+	fresh, err := Update(home, lookup, "env start", func(f *Registry) error {
+		if len(f.Environments) > 0 {
+			return nil
+		}
+		e, err := f.NewEnvironment(home, name, lookup)
+		if err != nil {
+			return err
+		}
+		// NewEnvironment only fills DefaultEnv when it was empty. applyDefaults
+		// always sets it -- to `local` -- so on a synthesized registry it is
+		// already populated and would name an environment that does not exist.
+		f.DefaultEnv = e.Slug
+		env = e
+		return nil
+	})
 	if err != nil {
 		return nil, false, err
 	}
-	// NewEnvironment only fills DefaultEnv when it was empty. applyDefaults
-	// always sets it -- to `local` -- so on a synthesized registry it is
-	// already populated and would name an environment that does not exist.
-	r.DefaultEnv = env.Slug
-	if err := r.Save(home); err != nil {
-		return nil, false, err
-	}
-	return env, true, nil
+	*r = *fresh
+	return env, env != nil, nil
 }
