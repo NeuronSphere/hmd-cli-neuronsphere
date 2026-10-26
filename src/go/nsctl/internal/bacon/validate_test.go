@@ -174,6 +174,24 @@ func TestValidateAcceptsAStackWithNoDeployCommands(t *testing.T) {
 	}
 }
 
+// A repository that ships a bundle file is a stack too (NERD0019): it names
+// classes and deploys none of its own.
+func TestValidateAcceptsABundleShippingRepositoryWithNoDeployCommands(t *testing.T) {
+	t.Parallel()
+
+	manifest := `{"name":"n","description":"d","build":{},"deploy":{},"access":[{"name":"ui","url":"http://x/","instance":"ui"}]}`
+	s := classDir(t, manifest, map[string]string{
+		"meta-data/VERSION":        "0.1\n",
+		"meta-data/bundles/n.json": `{"bundle_name":"n","roles":{"ui":{"repo_class_name":"x"}}}`,
+	})
+	if got := messages(Validate(s, Known{}), Error); strings.Contains(got, "declares no commands") {
+		t.Errorf("a bundle-shipping repository should not need deploy.commands: %s", got)
+	}
+	if got := messages(Validate(s, Known{}), Warning); strings.Contains(got, "only a stack's entry") {
+		t.Errorf("a bundle's access entry may name an instance: %s", got)
+	}
+}
+
 // D14: add-dependency refuses a resource it cannot complete instead of
 // writing what validate rejects, and what it does write -- version and range
 // together -- validates, with the known local keys producing no warning.

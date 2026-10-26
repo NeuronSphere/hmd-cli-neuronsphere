@@ -646,12 +646,15 @@ func (v *validator) hasLocalDeployScript() bool {
 	return err == nil
 }
 
-// isStack reports local.stack (NERD017 SPEC001): true means this RepoClass
-// exists to name other RepoClasses and is never itself instanced or deployed.
+// isStack reports local.stack (NERD017 SPEC001), or a repository with no
+// local section that ships meta-data/bundles/*.json (NERD0019): true means
+// this RepoClass exists to name other RepoClasses and is never itself
+// instanced or deployed.
 func (v *validator) isStack() bool {
 	local, ok := v.doc.Object("local")
 	if !ok {
-		return false
+		bundles, _ := filepath.Glob(filepath.Join(v.dir, "meta-data", "bundles", "*.json"))
+		return len(bundles) > 0
 	}
 	stack, _ := local.Get("stack")
 	b, _ := stack.(bool)
