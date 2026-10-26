@@ -2455,6 +2455,7 @@ def seed_bom(
     bom: List[Dict] = None,
     env=None,
     repo_paths: Optional[Dict[str, str]] = None,
+    dry_run: bool = False,
 ) -> Tuple[str, List[Dict]]:
     """Seed the deployment graph and return (csd_nid, nodes) for local execution.
 
@@ -2474,6 +2475,8 @@ def seed_bom(
         tree consulted is the declared one rather than a same-named repo in
         ``HMD_REPO_HOME``. It selects *which* tree, not whether the tree wins:
         see :func:`resolve_repo_version`.
+    :param dry_run: Apply the changeset as a dry run (hmd-ms-deployment
+        NERD0011): the nodes plan instead of deploying and settle PLANNED.
     :returns: Tuple of (csd_nid, nodes list from generate_local_deployment)
     """
     if bom is None:
@@ -2612,6 +2615,7 @@ def seed_bom(
             "change_set_name": change_set_name,
             "deployment_set_name": deployment_set_name,
             "skip_async": True,
+            **({"dry_run": True} if dry_run else {}),
         },
     )
     csd_nid = result["csd_nid"]

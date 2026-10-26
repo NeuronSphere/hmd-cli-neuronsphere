@@ -329,6 +329,8 @@ class LocalWorkflowRunner:
         # stays eligible for retry, and no less, so a succeeded one is not
         # redeployed on every subsequent `up`.
         self.last_succeeded: List[str] = []
+        # Instance name -> where a dry run's plan files were kept (NERD0011).
+        self.last_plan_dirs: Dict[str, str] = {}
 
     def env_route_prefix(self) -> str:
         """The nginx path prefix this environment's services are routed under.
@@ -385,7 +387,13 @@ class LocalWorkflowRunner:
         )
         return candidates[0] if candidates else None
 
-    def run(self, csd_nid: str, nodes: List[Dict], destroy: bool = False) -> bool:
+    def run(
+        self,
+        csd_nid: str,
+        nodes: List[Dict],
+        destroy: bool = False,
+        dry_run: bool = False,
+    ) -> bool:
         """Execute deployment nodes in DAG order.
 
         :param csd_nid: The ChangeSetDeployment identifier
@@ -395,14 +403,23 @@ class LocalWorkflowRunner:
             dependency order; what changes here is the status each node settles
             into (``DESTROYED``, not ``DEPLOYED``) and the fact that a teardown
             produces no Resources to submit.
+        :param dry_run: Whether this is a dry-run manifest (hmd-ms-deployment
+            NERD0011). Its scripts plan rather than deploy, so every node and
+            the changeset settle ``PLANNED``, and nothing counts as landed:
+            ``last_succeeded`` stays empty, so no reconcile snapshot records it.
         :returns: True if all nodes succeeded
         """
-        verb = "DESTROY" if destroy else "DEPLOY"
-        verb_ing = "Destroying" if destroy else "Deploying"
-        success_status = "DESTROYED" if destroy else "DEPLOYED"
-        final_csd_status = "DESTROYED" if destroy else "COMPLETED"
+        verb = "DESTROY" if destroy else "PLAN" if dry_run else "DEPLOY"
+        verb_ing = "Destroying" if destroy else "Planning" if dry_run else "Deploying"
+        success_status = (
+            "DESTROYED" if destroy else "PLANNED" if dry_run else "DEPLOYED"
+        )
+        final_csd_status = (
+            "DESTROYED" if destroy else "PLANNED" if dry_run else "COMPLETED"
+        )
         succeeded: List[str] = []
-        self.last_succeeded = succeeded
+        self.last_succeeded = [] if dry_run else succeeded
+        self.last_plan_dirs = {}
 
         self._set_csd_status(csd_nid, "STARTED")
 
@@ -435,7 +452,7 @@ class LocalWorkflowRunner:
                 f"{verb_ing} {instance_name} ({repo_class_name})",
                 verbose=self.verbose,
             ) as step:
-                result = self._execute_node(node, destroy=destroy)
+                result = self._execute_node(node, destroy=destroy, dry_run=dry_run)
                 if result.success:
                     self._set_status(rid_nid, success_status)
                     succeeded.append(instance_name)
@@ -454,7 +471,9 @@ class LocalWorkflowRunner:
         self._set_csd_status(csd_nid, final_csd_status)
         return True
 
-    def _execute_node(self, node: Dict, destroy: bool = False) -> "_NodeResult":
+    def _execute_node(
+        self, node: Dict, destroy: bool = False, dry_run: bool = False
+    ) -> "_NodeResult":
         """Run one node, in a projectbuilder container or via a Python handler.
 
         A node may carry ``handler``: a callable taking ``(node, destroy)`` and
@@ -472,7 +491,13 @@ class LocalWorkflowRunner:
         """
         handler = node.get("handler")
         if handler is None:
-            return self._execute_in_projectbuilder(node, destroy=destroy)
+            return self._execute_in_projectbuilder(
+                node, destroy=destroy, dry_run=dry_run
+            )
+        if dry_run:
+            # A handler provisions directly; it has no way to only plan.
+            logger.warning(f"Dry run: {node['instance_name']} cannot preview; not run.")
+            return _NodeResult(True)
         try:
             ok = handler(node, destroy)
         except Exception as e:
@@ -630,6 +655,31 @@ class LocalWorkflowRunner:
             logger.debug(f"Applied src/local overlay: {', '.join(applied)}")
         return workspace
 
+    def _keep_plan_output(self, workspace: Optional[str], node: Dict) -> None:
+        """Move a dry run's ``meta-data/plan_output/`` out of the temp workspace
+        to ``<state dir>/plans/<rid>/<instance>/``. Best-effort: the summary has
+        already been posted to the deployment by ``hmd deploy``."""
+        src = Path(workspace or "") / "meta-data" / "plan_output"
+        if not src.is_dir():
+            return
+        state_dir = (
+            Path(self.env.state_dir)
+            if self.env is not None
+            else Path(os.environ.get("HMD_HOME", tempfile.gettempdir()))
+        )
+        dest = (
+            state_dir
+            / "plans"
+            / (node.get("rid_nid") or "direct")
+            / node["instance_name"]
+        )
+        try:
+            shutil.rmtree(dest, ignore_errors=True)
+            shutil.copytree(src, dest)
+            self.last_plan_dirs[node["instance_name"]] = str(dest)
+        except OSError as e:
+            logger.warning(f"Could not keep the plan for {node['instance_name']}: {e}")
+
     def _node_deployment_id(self, node: Dict) -> str:
         """The deployment id this node's deploy will name its resources with.
 
@@ -656,9 +706,15 @@ class LocalWorkflowRunner:
         return node.get("deployment_id") or os.environ.get("HMD_DID", "aaa")
 
     def _execute_in_projectbuilder(
-        self, node: Dict, destroy: bool = False
+        self, node: Dict, destroy: bool = False, dry_run: bool = False
     ) -> "_NodeResult":
         """Run a deploy script in an hmd-img-projectbuilder container.
+
+        A dry run (NERD0011) runs the generated ``hmd deploy --dry-run`` script in
+        a temp copy of the workspace -- its plan files can carry sensitive values
+        and must not land in the developer's checkout -- stages no image, submits
+        no Resources, and keeps the plan files under the environment's state dir.
+        A ``deploy_local.sh`` override cannot preview, so it is not run.
 
         The container runs on the neuronsphere_default network with
         AWS_ENDPOINT_URL pointing to the single Floci instance so CDKTF and
@@ -681,14 +737,15 @@ class LocalWorkflowRunner:
 
         repo_class_name = node["repo_class_name"]
 
-        # A destroy removes the Lambda, so it never needs the image.
-        if not destroy:
+        # A destroy removes the Lambda, so it never needs the image; a dry run
+        # deploys no Lambda.
+        if not destroy and not dry_run:
             image_ok, image_err = self._ensure_node_image(node)
             if not image_ok:
                 return _NodeResult(False, stderr=image_err)
 
         # Charts read their image from the k3s node's containerd, not the host's.
-        if not destroy:
+        if not destroy and not dry_run:
             self._ensure_k3s_image(node)
 
         # NERD0004/0006: expose a container-reachable Deployment Service URL so the
@@ -745,6 +802,17 @@ class LocalWorkflowRunner:
         tmp_workspace: Optional[str] = None
         deploy_script_overridden = False
 
+        if (
+            dry_run
+            and overlay_dir is not None
+            and (overlay_dir / "deploy_local.sh").is_file()
+        ):
+            logger.warning(
+                f"Dry run: {node['instance_name']} deploys through "
+                f"src/local/deploy_local.sh, which cannot preview; not run."
+            )
+            return _NodeResult(True)
+
         if overlay_dir is not None:
             if (overlay_dir / "deploy_local.sh").is_file():
                 # Highest precedence: a full deploy-script override.
@@ -762,6 +830,11 @@ class LocalWorkflowRunner:
             elif _overlay_has_tool_files(overlay_dir):
                 tmp_workspace = self._prepare_overlay_workspace(repo_path, overlay_dir)
                 workspace = tmp_workspace
+        if dry_run and tmp_workspace is None and repo_path:
+            tmp_workspace = self._prepare_overlay_workspace(
+                repo_path, overlay_dir or Path(repo_path) / "src" / "local"
+            )
+            workspace = tmp_workspace
 
         # There is no bundled-in-image fallback for a repo's own deploy source
         # (unlike the best-effort sibling-repo mounts elsewhere in the local
@@ -942,8 +1015,15 @@ class LocalWorkflowRunner:
             # which tears Resources down rather than producing them (any
             # resources_output/ left over from the prior deploy would otherwise
             # be re-submitted for an instance that no longer exists).
-            if result.returncode == 0 and not incontainer_submit and not destroy:
+            if (
+                result.returncode == 0
+                and not incontainer_submit
+                and not destroy
+                and not dry_run
+            ):
                 resource_count = self._submit_produced_resources(workspace, node)
+            if dry_run:
+                self._keep_plan_output(workspace, node)
         finally:
             os.unlink(script_file.name)
             if tmp_workspace is not None:

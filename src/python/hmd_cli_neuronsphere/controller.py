@@ -1086,6 +1086,18 @@ class EnvController(Controller):
                 ["--json"],
                 {"help": "Output JSON", "action": "store_true", "dest": "json_mode"},
             ),
+            (
+                ["--dry-run"],
+                {
+                    "help": (
+                        "Also plan every entry `up --upgrade` would add or redeploy "
+                        "(Terraform plan, nothing applied) and list what each would "
+                        "create, update, delete and replace"
+                    ),
+                    "action": "store_true",
+                    "dest": "dry_run",
+                },
+            ),
         ],
     )
     def plan(self):
@@ -1097,6 +1109,9 @@ class EnvController(Controller):
 
         load_hmd_env()
         env = env_registry.resolve_env(_env_name(self.app.pargs))
+        if getattr(self.app.pargs, "dry_run", False):
+            self._dry_run_plan(env)
+            return
         plan = environment_plan(env)
 
         if getattr(self.app.pargs, "json_mode", False):
@@ -1136,6 +1151,57 @@ class EnvController(Controller):
                 f"\n    Apply with `hmd neuronsphere up --env {env.slug} "
                 f"{' '.join(flags)}`"
             )
+        print()
+
+    def _dry_run_plan(self, env):
+        import json
+
+        from .environments import environment_dry_run, render_dry_run_report
+
+        result = environment_dry_run(
+            env, verbose=getattr(self.app.pargs, "verbose", False)
+        )
+        plan, report = result["plan"], result["report"]
+        if getattr(self.app.pargs, "json_mode", False):
+            print(
+                json.dumps(
+                    {
+                        "environment": env.slug,
+                        "csd_nid": result["csd_nid"],
+                        "ok": result["ok"],
+                        "report": report,
+                        "plan_dirs": result["plan_dirs"],
+                    },
+                    indent=2,
+                )
+            )
+            return
+        if plan.degraded:
+            print(
+                "\n  Could not read the deployment graph — is the local "
+                "NeuronSphere running?\n"
+            )
+            return
+        if result["csd_nid"] is None:
+            print(f"\n  Environment '{env.slug}': nothing to add or redeploy.\n")
+            return
+        totals = report["totals"]
+        print(
+            f"\n  Dry run of '{env.slug}' ({result['csd_nid']}): "
+            f"{totals['create']} create, {totals['update']} update, "
+            f"{totals['delete']} delete, {totals['replace']} replace. "
+            "Nothing was applied.\n"
+        )
+        for line in render_dry_run_report(report, result["plan_dirs"]):
+            print(f"    {line}")
+        if plan.remove:
+            print(
+                f"\n    Not planned: {', '.join(plan.remove)} would be destroyed "
+                "by `up --prune`."
+            )
+        if not result["ok"]:
+            print("\n    Warning: some instances could not be planned")
+            self.app.exit_code = 1
         print()
 
     @ex(

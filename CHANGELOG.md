@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-26
+
+- feat: `hmd neuronsphere env plan --dry-run` dry-runs what `up --upgrade` would add or redeploy (hmd-ms-deployment NERD0011): the entries are applied as a dry-run changeset, each CDKTF instance is planned in projectbuilder and nothing is applied, and the report lists per instance what it would create, update, delete and replace, its deletes and replaces by address, plan-policy violations and fidelity. `LocalWorkflowRunner.run(dry_run=True)` settles nodes and the changeset `PLANNED`, records nothing as landed, runs no handler or `deploy_local.sh` override, stages no image, submits no Resources, and plans in a temp copy of the repo whose plan files are kept under the environment's state dir
+
 ## 2026-10-20
 
 - fix: `nsctl env plan` composes the desired state the way `env apply` does (`desiredEntries`), including the External Secrets operator nsctl injects and its patched configuration. A plan used to leave ext-secrets out, so its binder could not bind a required `ext-secrets` role (hmd-app-neuronsphere's) and validation failed with `missing_required_role` while the apply it predicted succeeded; it also listed the operator as deployed but undeclared

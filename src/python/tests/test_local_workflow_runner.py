@@ -241,6 +241,105 @@ class RunStatusTests(unittest.TestCase):
         self.assertEqual(runner.last_succeeded, ["local-neuronsphere"])
         self.assertIn(("rid-api", "FAILED"), self.statuses)
 
+    def test_dry_run_marks_nodes_planned_and_lands_nothing(self):
+        runner = self._runner()
+        self.assertTrue(runner.run("csd-1", self.NODES, dry_run=True))
+        self.assertEqual(
+            self.statuses, [("rid-core", "PLANNED"), ("rid-api", "PLANNED")]
+        )
+        self.assertEqual(self.csd_statuses, ["STARTED", "PLANNED"])
+        # Nothing was deployed, so no reconcile snapshot may record it.
+        self.assertEqual(runner.last_succeeded, [])
+
+    def test_dry_run_never_calls_a_handler(self):
+        runner = LocalWorkflowRunner("http://x")
+        handler = mock.Mock()
+        result = runner._execute_node(
+            {"instance_name": "core-db", "repo_class_name": "x", "handler": handler},
+            dry_run=True,
+        )
+        self.assertTrue(result.success)
+        handler.assert_not_called()
+
+
+class DryRunWorkspaceTests(unittest.TestCase):
+    """A dry run plans in a copy of the checkout and keeps the plan files under
+    the environment's state dir, never in the developer's tree."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        self.repo = os.path.join(self.root, "repos", "hmd-inf-thing")
+        os.makedirs(os.path.join(self.repo, "meta-data"))
+        self.state = os.path.join(self.root, "state")
+        self._roots = mock.patch.object(b, "_artifact_roots", return_value=[])
+        self._roots.start()
+        b._reset_artifact_version_index()
+
+    def tearDown(self):
+        self._roots.stop()
+        b._reset_artifact_version_index()
+        self._tmp.cleanup()
+
+    def _run(self, write_override=False):
+        if write_override:
+            os.makedirs(os.path.join(self.repo, "src", "local"))
+            with open(
+                os.path.join(self.repo, "src", "local", "deploy_local.sh"), "w"
+            ) as f:
+                f.write("echo real deploy\n")
+        env = mock.Mock(state_dir=self.state, slug="dev")
+        runner = LocalWorkflowRunner(
+            "http://x", env=env, repo_paths={"hmd-inf-thing": self.repo}
+        )
+        mounted = []
+
+        def fake_run(cmd, **kwargs):
+            workspace = cmd[cmd.index("-w") - 1].split(":")[0]
+            mounted.append(workspace)
+            out = os.path.join(workspace, "meta-data", "plan_output")
+            os.makedirs(out)
+            with open(os.path.join(out, "summary.json"), "w") as f:
+                f.write('{"dry_run": true}')
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        node = {
+            "instance_name": "thing",
+            "repo_class_name": "hmd-inf-thing",
+            "rid_nid": "rid-1",
+            "script": "hmd deploy --dry-run",
+        }
+        with mock.patch.object(
+            runner, "_ensure_node_image"
+        ) as image, mock.patch.object(
+            runner, "_submit_produced_resources"
+        ) as submit, mock.patch.object(
+            runner, "_repo_path", return_value=self.repo
+        ), mock.patch(
+            "hmd_cli_neuronsphere.local_workflow_runner.subprocess.run",
+            side_effect=fake_run,
+        ) as docker, mock.patch("hmd_cli_neuronsphere.floci_deployer.env_target"):
+            result = runner._execute_in_projectbuilder(node, dry_run=True)
+        return runner, result, mounted, image, submit, docker
+
+    def test_plans_in_a_copy_and_keeps_the_plan(self):
+        runner, result, mounted, image, submit, _ = self._run()
+        self.assertTrue(result.success)
+        self.assertNotEqual(mounted[0], self.repo)
+        self.assertFalse(
+            os.path.exists(os.path.join(self.repo, "meta-data", "plan_output"))
+        )
+        kept = os.path.join(self.state, "plans", "rid-1", "thing", "summary.json")
+        self.assertTrue(os.path.exists(kept))
+        self.assertEqual(runner.last_plan_dirs["thing"], os.path.dirname(kept))
+        image.assert_not_called()
+        submit.assert_not_called()
+
+    def test_a_deploy_local_override_is_not_run(self):
+        _, result, _, _, _, docker = self._run(write_override=True)
+        self.assertTrue(result.success)
+        docker.assert_not_called()
+
 
 class EnvRoutePrefixTests(unittest.TestCase):
     """In-container deploys must address the environment's own services.

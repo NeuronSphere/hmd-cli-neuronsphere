@@ -166,6 +166,7 @@ Commands
     hmd neuronsphere env list
     hmd neuronsphere env status dev2
     hmd neuronsphere env plan --env dev2    # what `up` would add/change/destroy
+    hmd neuronsphere env plan --env dev2 --dry-run   # and what each would create/delete in Terraform
     hmd neuronsphere env show --env dev2    # the resolved change_set definition
     hmd neuronsphere env use dev2           # change the default
     hmd neuronsphere env delete dev2
@@ -180,6 +181,19 @@ Commands
 ``route-service``, ``db-provision`` and ``db-register``. When omitted it
 resolves in this order: ``$HMD_LOCAL_ENV``, the registry's default environment,
 then ``local``.
+
+``plan --dry-run`` goes one level deeper than ``plan`` (hmd-ms-deployment NERD0011). It applies
+the entries ``up --upgrade`` would add or redeploy as a **dry-run** changeset and runs each in a
+projectbuilder container exactly as it would deploy, except that ``hmd deploy --dry-run`` plans
+instead of applying. Every CDKTF instance reports what it would create, update, delete and
+replace, every delete and replace by address, plan-policy violations, and whether the plan is
+exact or approximate (a new instance, or one whose dependencies are changing too). Other tools
+cannot preview and are not run, nor is a ``src/local/deploy_local.sh`` override. Nothing is
+applied, no Resource is submitted and no reconcile snapshot is written, so the entries are still
+pending for the real ``up --upgrade``. Each plan runs in a temporary copy of the repo and its
+files (``summary.json``, ``tfplan.json``, ``cdk.tf.json``) are kept under the environment's state
+dir at ``plans/<repo instance deployment id>/<instance>/``. ``--json`` prints the deployment
+service's ``get_dry_run_report``.
 
 Stopping vs. purging
 ~~~~~~~~~~~~~~~~~~~~
