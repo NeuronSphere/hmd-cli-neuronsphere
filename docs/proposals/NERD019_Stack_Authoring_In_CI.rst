@@ -3,6 +3,13 @@
 NERD019 Stack Authoring in CI
 =============================
 
+.. note::
+
+   Superseded in part by ``NERD0019_HMD_MS_DEPLOYMENT`` (hmd-ms-deployment, *Bundle Unifies
+   Stack*, proposed 2026-10-26): a stack becomes a repo class shipping ``meta-data/bundles/*.json``,
+   its lock a ``release_version`` of that bundle, ``nsctl stack`` becomes ``nsctl bundle`` (with
+   ``stack`` kept as an alias), and the ``stacks:`` environment record becomes ``bundles:``.
+
 .. req:: Author, build and publish a stack from checked-in files, in CI, with no tenant and no running platform
     :id: HMD_CLI_NEURONSPHERE_NERD019
     :status: implemented

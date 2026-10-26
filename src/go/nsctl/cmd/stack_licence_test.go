@@ -67,7 +67,7 @@ func TestStackBuildSubjectHonoursItsDeclaredLicence(t *testing.T) {
 	writeFile(t, filepath.Join(repoDir, "src", "cdktf", "stack.py"), "kept")
 	home := t.TempDir()
 
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir)
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir)
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -115,7 +115,7 @@ func TestStackPushAnnotatesCompanionsFromTheirOwnManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub := fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"})
-	out, errOut, err := run(t, pub, "--home", t.TempDir(), "stack", "push", repoDir, reg.Host()+"/acme/stacks/obs", "--artifacts", artifactsDir)
+	out, errOut, err := run(t, pub, "--home", t.TempDir(), "bundle", "push", repoDir, reg.Host()+"/acme/stacks/obs", "--artifacts", artifactsDir)
 	if err != nil {
 		t.Fatalf("push: %v\n%s\n%s", err, out, errOut)
 	}
@@ -150,10 +150,10 @@ func TestStackPushAnnotatesCompanionsFromTheirOwnManifest(t *testing.T) {
 	}
 
 	// The layout path says the same thing.
-	if _, _, err := run(t, fakeEnv(nil), "--home", t.TempDir(), "stack", "build", repoDir, "--artifacts", artifactsDir); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", t.TempDir(), "bundle", "build", repoDir, "--artifacts", artifactsDir); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, pub, "--home", t.TempDir(), "stack", "push", reg.Host()+"/acme/stacks/obs2", "--from", filepath.Join(repoDir, "build", "stack"))
+	out, _, err = run(t, pub, "--home", t.TempDir(), "bundle", "push", reg.Host()+"/acme/stacks/obs2", "--from", filepath.Join(repoDir, "build", "stack"))
 	if err != nil {
 		t.Fatalf("push --from: %v\n%s", err, out)
 	}

@@ -696,6 +696,9 @@ func (p *repoPlan) render(cmd *cobra.Command, slug string) {
 				in.Repo.InstanceName, in.Repo.RepoClassName, in.Repo.Version)
 		}
 	}
+	for _, n := range p.Spec.Notices {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", n)
+	}
 	for _, w := range p.Unfilled {
 		fmt.Fprintf(cmd.ErrOrStderr(), "note: optional %s; left unfilled\n",
 			unfilledMessage(p.Spec.Path, w, false))

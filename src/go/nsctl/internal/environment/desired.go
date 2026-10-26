@@ -44,7 +44,7 @@ func desiredEntries(opts *Options, bomEnv bom.Environment, mode manifest.Substra
 	// every environment, and this one is deployed only on demand.
 	//
 	// Without this a stack that binds graph-db to `global-graph` -- the shape
-	// `nsctl stack init --from-env` produces, and what hmd-stack-analytics
+	// `nsctl bundle init --from-env` produces, and what hmd-stack-analytics
 	// ships -- fails at register time on an instance that never existed:
 	//
 	//	AssertionError: No repo instance found for name, global-graph

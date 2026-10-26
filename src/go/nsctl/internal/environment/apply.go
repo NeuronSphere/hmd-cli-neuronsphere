@@ -137,7 +137,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	)
 	if declared != nil {
 		declaredRepos = declared.Repos
-		declaredStacks = declared.Stacks
+		declaredStacks = declared.Bundles
 		repoPaths = repoclass.Paths(declaredRepos, opts.Lookup)
 		opts.step("Manifest %s declares %d instance(s)", declared.Path, len(declaredRepos))
 		if unsupported := declared.Unsupported(); len(unsupported) > 0 {
@@ -475,6 +475,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(succeeded))
+	recordBundles(ctx, opts, client, env.Slug, declaredStacks)
 	// Named only when there is something to show. A pointer to an empty table is
 	// noise, and the alternative -- printing the credentials here -- puts them in
 	// scrollback and CI logs for every reader of every apply (NERD023 SPEC006).

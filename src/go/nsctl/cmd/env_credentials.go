@@ -76,7 +76,7 @@ local state and works with nothing running.`,
 				stacks []manifest.StackRecord
 			)
 			if m != nil {
-				repos, stacks = m.Repos, m.Stacks
+				repos, stacks = m.Repos, m.Bundles
 			}
 
 			o := credentials.Options{

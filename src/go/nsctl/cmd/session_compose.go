@@ -247,8 +247,8 @@ func replaceWithWorkingTrees(m *manifest.Manifest, subjects map[string]string) [
 		kept = append(kept, r)
 	}
 	m.Repos = kept
-	for i := range m.Stacks {
-		rec := &m.Stacks[i]
+	for i := range m.Bundles {
+		rec := &m.Bundles[i]
 		for key, instance := range rec.Bindings {
 			if to, ok := renames[instance]; ok {
 				rec.Bindings[key] = to

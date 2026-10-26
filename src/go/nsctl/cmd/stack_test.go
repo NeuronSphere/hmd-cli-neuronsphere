@@ -53,7 +53,7 @@ func publishStack(t *testing.T, reg *ocitest.Registry, repoDir, artifactsDir, na
 	t.Helper()
 	ref := reg.Host() + "/hmdlabs/stacks/" + name
 	pubEnv := fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat", "HMD_LOCAL_MS_DEPLOYMENT_URL": "http://127.0.0.1:1"})
-	out, errOut, err := run(t, pubEnv, "--home", t.TempDir(), "stack", "push", repoDir, ref, "--artifacts", artifactsDir)
+	out, errOut, err := run(t, pubEnv, "--home", t.TempDir(), "bundle", "push", repoDir, ref, "--artifacts", artifactsDir)
 	if err != nil {
 		t.Fatalf("stack push: %v\n%s%s", err, out, errOut)
 	}
@@ -70,7 +70,7 @@ func TestStackPushReadsTheVersionAndFillsDigests(t *testing.T) {
 	ref := reg.Host() + "/hmdlabs/stacks/obs"
 	env := fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"})
 
-	out, _, err := run(t, env, "--home", t.TempDir(), "stack", "push", repoDir, ref, "--artifacts", artifactsDir, "--update-lock")
+	out, _, err := run(t, env, "--home", t.TempDir(), "bundle", "push", repoDir, ref, "--artifacts", artifactsDir, "--update-lock")
 	if err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestStackPushRefusals(t *testing.T) {
 	home := t.TempDir()
 
 	// Anonymous: refused before any request.
-	_, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "push", repoDir, reg.Host()+"/x/obs", "--artifacts", artifactsDir)
+	_, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "push", repoDir, reg.Host()+"/x/obs", "--artifacts", artifactsDir)
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "--token") {
 		t.Errorf("anonymous: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestStackPushRefusals(t *testing.T) {
 	// A missing companion zip with no librarian to fall back to.
 	empty := t.TempDir()
 	_, _, err = run(t, fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"}), "--home", home,
-		"stack", "push", repoDir, reg.Host()+"/x/obs", "--artifacts", empty)
+		"bundle", "push", repoDir, reg.Host()+"/x/obs", "--artifacts", empty)
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "_build.zip") {
 		t.Errorf("missing zip: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestStackPushRefusals(t *testing.T) {
 	plain := t.TempDir()
 	writeFile(t, filepath.Join(plain, "meta-data", "manifest.json"), `{"name":"hmd-ms-x"}`)
 	_, _, err = run(t, fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"}), "--home", home,
-		"stack", "push", plain, reg.Host()+"/x/obs:1.0", "--artifacts", artifactsDir)
+		"bundle", "push", plain, reg.Host()+"/x/obs:1.0", "--artifacts", artifactsDir)
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "not a stack") {
 		t.Errorf("plain repo: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 	home, env := fromRepoEnv(t)
 	// No credential of any kind, and the control plane's librarian is a
 	// closed port: the Put is a warning, not a failure (SPEC003 step 4).
-	out, errOut, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	out, errOut, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if err != nil {
 		t.Fatalf("stack add: %v\n%s%s", err, out, errOut)
 	}
@@ -182,7 +182,7 @@ func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 	}
 
 	// Idempotent, and a profile widens it.
-	out, _, err = run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1", "--profile", "full")
+	out, _, err = run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1", "--profile", "full")
 	if err != nil {
 		t.Fatalf("second add: %v", err)
 	}
@@ -199,11 +199,11 @@ func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 	}
 
 	// list and remove.
-	out, _, err = run(t, fakeEnv(env), "stack", "list", "--env", "local")
+	out, _, err = run(t, fakeEnv(env), "bundle", "list", "--env", "local")
 	if err != nil || !strings.Contains(out, "obs") || !strings.Contains(out, "0.1.0") || !strings.Contains(out, "clickhouse") {
 		t.Errorf("list: %q, %v", out, err)
 	}
-	out, _, err = run(t, fakeEnv(env), "stack", "remove", "obs", "--env", "local")
+	out, _, err = run(t, fakeEnv(env), "bundle", "remove", "obs", "--env", "local")
 	if err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -211,13 +211,13 @@ func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 		t.Errorf("remove out = %q", out)
 	}
 	m = loadEnv(t, home, "local")
-	if len(m.Repos) != 0 || len(m.Stacks) != 0 {
-		t.Errorf("after remove: repos %v, stacks %v", instanceNames(m), m.Stacks)
+	if len(m.Repos) != 0 || len(m.Bundles) != 0 {
+		t.Errorf("after remove: repos %v, stacks %v", instanceNames(m), m.Bundles)
 	}
 	if !artifact.Cached(home, "hmd-inf-otel", "0.1.5") {
 		t.Error("remove must keep the cache")
 	}
-	_, _, err = run(t, fakeEnv(env), "stack", "remove", "obs", "--env", "local")
+	_, _, err = run(t, fakeEnv(env), "bundle", "remove", "obs", "--env", "local")
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Errorf("removing twice: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestStackRemoveLeavesSharedInstancesAlone(t *testing.T) {
 	repoDir, artifactsDir := stackRepo(t)
 	ref := publishStack(t, reg, repoDir, artifactsDir, "obs")
 	home, env := fromRepoEnv(t)
-	if _, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1"); err != nil {
 		t.Fatal(err)
 	}
 	// The user also declares otel by hand under the same name: now it is
@@ -239,7 +239,7 @@ func TestStackRemoveLeavesSharedInstancesAlone(t *testing.T) {
 	if err := m.Save(m.Path); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := run(t, fakeEnv(env), "stack", "remove", "obs", "--env", "local")
+	out, _, err := run(t, fakeEnv(env), "bundle", "remove", "obs", "--env", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,14 +264,14 @@ func TestStackVersionsListsAndCaches(t *testing.T) {
 
 	home := t.TempDir()
 	env := fakeEnv(nil)
-	out, _, err := run(t, env, "--home", home, "stack", "versions", reg.Host()+"/hmdlabs/stacks/obs", "--spec", "== 0.1.*")
+	out, _, err := run(t, env, "--home", home, "bundle", "versions", reg.Host()+"/hmdlabs/stacks/obs", "--spec", "== 0.1.*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(strings.TrimSpace(out), "0.2.0\n0.1.0") || strings.Contains(out, "latest") || !strings.Contains(out, "to 0.1.0") {
 		t.Errorf("out = %q", out)
 	}
-	out, _, err = run(t, env, "--home", home, "stack", "versions", reg.Host()+"/hmdlabs/stacks/obs", "--offline")
+	out, _, err = run(t, env, "--home", home, "bundle", "versions", reg.Host()+"/hmdlabs/stacks/obs", "--offline")
 	if err != nil || !strings.Contains(out, "From cache") || !strings.Contains(out, "0.2.0") {
 		t.Errorf("offline: %q, %v", out, err)
 	}
@@ -283,7 +283,7 @@ func TestStackPullCachesWithoutDeclaring(t *testing.T) {
 	repoDir, artifactsDir := stackRepo(t)
 	ref := publishStack(t, reg, repoDir, artifactsDir, "obs")
 	home, env := fromRepoEnv(t)
-	out, _, err := run(t, fakeEnv(env), "stack", "pull", ref+":0.1.0", "--local-url", "http://127.0.0.1:1")
+	out, _, err := run(t, fakeEnv(env), "bundle", "pull", ref+":0.1.0", "--local-url", "http://127.0.0.1:1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestStackPullCachesWithoutDeclaring(t *testing.T) {
 	if !artifact.Cached(home, "hmd-inf-clickhouse", "0.3.0") {
 		t.Error("not cached")
 	}
-	if m, _ := manifest.Load(home, "local", fakeEnv(env)); m != nil && len(m.Stacks) != 0 {
+	if m, _ := manifest.Load(home, "local", fakeEnv(env)); m != nil && len(m.Bundles) != 0 {
 		t.Error("pull must not declare")
 	}
 }
@@ -301,20 +301,20 @@ func TestStackPullCachesWithoutDeclaring(t *testing.T) {
 func TestStackAddRefusals(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
-	_, _, err := run(t, fakeEnv(nil), "stack", "add", "obs")
+	_, _, err := run(t, fakeEnv(nil), "bundle", "add", "obs")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "HMD_HOME") {
 		t.Errorf("no home: %v", err)
 	}
 	_, env := fromRepoEnv(t)
-	_, _, err = run(t, fakeEnv(env), "stack", "add", "github.com/acme/stack@1.0")
+	_, _, err = run(t, fakeEnv(env), "bundle", "add", "github.com/acme/stack@1.0")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "NERD016") {
 		t.Errorf("github: %v", err)
 	}
-	_, _, err = run(t, fakeEnv(env), "stack", "add", reg.Host()+"/hmdlabs/stacks/absent")
+	_, _, err = run(t, fakeEnv(env), "bundle", "add", reg.Host()+"/hmdlabs/stacks/absent")
 	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(err.Error(), "private") {
 		t.Errorf("absent: %v", err)
 	}
-	_, _, err = run(t, fakeEnv(env), "stack", "versions", "127.0.0.1:1/x/y")
+	_, _, err = run(t, fakeEnv(env), "bundle", "versions", "127.0.0.1:1/x/y")
 	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(err.Error(), "127.0.0.1:1") {
 		t.Errorf("closed port must fail cleanly naming the host: %v", err)
 	}

@@ -168,8 +168,8 @@ func TestTemplateAddFromAStackStoresItsInstancesAndRecord(t *testing.T) {
 	if _, ok := m.Repo("otel"); !ok {
 		t.Error("the stack's companion otel is not in the template")
 	}
-	if len(m.Stacks) != 1 || m.Stacks[0].Version != "0.1.0" {
-		t.Errorf("stack records = %+v, want one at 0.1.0", m.Stacks)
+	if len(m.Bundles) != 1 || m.Bundles[0].Version != "0.1.0" {
+		t.Errorf("stack records = %+v, want one at 0.1.0", m.Bundles)
 	}
 	// Nothing reached the environment.
 	if envM, _ := manifest.Load(home, "local", fakeEnv(env)); envM != nil && len(envM.Repos) > 0 {

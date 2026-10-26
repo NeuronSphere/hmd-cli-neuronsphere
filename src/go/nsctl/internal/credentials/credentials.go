@@ -184,7 +184,7 @@ func stackEntries(ctx context.Context, o Options, class []Entry, reveal bool) []
 			out = append(out, Entry{
 				Instance: st.Name, Name: st.Name, Stack: st.Name,
 				Problem: "this stack's record predates the class being recorded, so its own " +
-					"access declaration cannot be found; re-run `nsctl stack add` to record it",
+					"access declaration cannot be found; re-run `nsctl bundle add` to record it",
 			})
 			continue
 		}

@@ -150,6 +150,15 @@ type Manifest struct {
 	// would otherwise prevent.
 	Dependencies []Dependency
 	Local        Local
+	// Bundle is the bundle file this was read from (meta-data/bundles/<name>.json,
+	// NERD0019), or "" when it was read from the manifest's local section.
+	Bundle string
+	// Notices are things worth telling the user that are not errors: a
+	// deprecated declaration that still works. Callers print them.
+	Notices []string
+	// hasLocal records whether the manifest carried a local section at all,
+	// which is what decides whether Load looks for a bundle file instead.
+	hasLocal bool
 }
 
 // Want is one thing a repository asks for locally: a dependency to fill, or a
@@ -193,7 +202,13 @@ type Want struct {
 	Suggest  string
 }
 
-// Load reads repoDir/meta-data/manifest.json.
+// Load reads repoDir/meta-data/manifest.json, or the repository's bundle file.
+//
+// A manifest with a local section is read as it always was; one marked
+// `stack: true` also carries a notice that the bundle file replaces it
+// (NERD0019 SPEC0006). A manifest with no local section and exactly one
+// meta-data/bundles/*.json is read from that file (LoadBundle). With several
+// bundle files the caller must say which, so Load refuses and names them.
 //
 // Every problem is reported at once rather than failing on the first, so an
 // author fixing a hand-edited section sees the whole list -- manifest.Validate's
@@ -209,7 +224,27 @@ func Load(repoDir string) (*Manifest, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	m.Path = path
-	return m, nil
+	if m.hasLocal {
+		if m.Local.Stack {
+			m.Notices = append(m.Notices, fmt.Sprintf(
+				"%s: 'local.stack' is deprecated; declare the stack as a bundle in %s/<name>.json (NERD0019)",
+				path, filepath.ToSlash(BundleDir)))
+		}
+		return m, nil
+	}
+	names, err := BundleNames(repoDir)
+	if err != nil {
+		return nil, err
+	}
+	switch len(names) {
+	case 0:
+		return m, nil
+	case 1:
+		return LoadBundle(repoDir, names[0])
+	default:
+		return nil, fmt.Errorf("%s ships several bundles (%s); name the one to use",
+			filepath.Join(repoDir, BundleDir), strings.Join(names, ", "))
+	}
 }
 
 // Parse builds a Manifest from raw BACON JSON.
@@ -295,6 +330,7 @@ func Parse(data []byte) (*Manifest, error) {
 	}
 
 	if doc.Local != nil {
+		m.hasLocal = true
 		l := doc.Local
 		switch l.Version {
 		case 0, Version:
@@ -571,3 +607,7 @@ func find(deps []Dependency, role string) (Dependency, bool) {
 // defect nothing could observe until a deploy failed for a role one of them
 // thought optional.
 func truthy(v any) (bool, error) { return repoclass.Truthy(v) }
+
+// HasLocal reports whether the manifest carried a local section, as opposed
+// to none or a bundle file read in its place.
+func (m *Manifest) HasLocal() bool { return m.hasLocal }

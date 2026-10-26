@@ -125,7 +125,7 @@ func (u Unsatisfied) Error() string {
 	}
 	msg := fmt.Sprintf("role %q needs %s, and nothing in the environment provides it", u.Role, what)
 	if u.Suggest != "" {
-		msg += fmt.Sprintf("; add a stack that does (`nsctl stack add %s`)", u.Suggest)
+		msg += fmt.Sprintf("; add a stack that does (`nsctl bundle add %s`)", u.Suggest)
 	}
 	msg += fmt.Sprintf(", or bind an existing instance with --name %s=<instance>", u.Role)
 	return msg

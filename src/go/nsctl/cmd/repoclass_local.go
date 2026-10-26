@@ -141,7 +141,7 @@ func newLocalRequireCommand(path *repoClassPath) *cobra.Command {
 		Use:   "require <role>",
 		Short: "Mark a dependency role external: another stack's instance fills it",
 		Long: `Writes local.dependencies.<role> with external: true. Nothing is pinned or
-bundled for the role; "nsctl stack add" binds it to an instance in the
+bundled for the role; "nsctl bundle add" binds it to an instance in the
 environment that produces the role's resource type, or refuses naming
 --suggest. Declare the role first with "deploy add-dependency", with a
 resource type, so the match is by what is needed rather than by name.`,

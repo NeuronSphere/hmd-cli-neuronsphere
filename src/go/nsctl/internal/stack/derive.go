@@ -119,7 +119,7 @@ func (g *Graph) overlay(m *manifest.Manifest) {
 		return
 	}
 	declaredBy := map[string]manifest.StackRecord{}
-	for _, rec := range m.Stacks {
+	for _, rec := range m.Bundles {
 		for _, in := range rec.Owned() {
 			declaredBy[in] = rec
 		}

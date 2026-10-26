@@ -26,14 +26,47 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versions"
 )
 
-// newStackCommand installs published sets of RepoClasses. NERD017.
+// newBundleCommand installs published bundles of RepoClasses. NERD017, and
+// NERD0019 for the name: a stack is a bundle.
+func newBundleCommand(opts *Options) *cobra.Command {
+	return newBundleGroup(opts, "bundle")
+}
+
+// newStackCommand is `nsctl stack`, the verb's name before NERD0019: the same
+// commands, hidden, each saying which bundle command replaces it.
 func newStackCommand(opts *Options) *cobra.Command {
+	group := newBundleGroup(opts, "stack")
+	group.Hidden = true
+	deprecate(group, "nsctl bundle")
+	return group
+}
+
+// deprecate makes every command under c say, on stderr, which command
+// replaces it. Not cobra's Deprecated, which prints to the command's output
+// stream and so into what a script reads from `stack versions`; and a PreRunE
+// rather than a PersistentPreRun, which would shadow the root's.
+func deprecate(c *cobra.Command, replacement string) {
+	for _, sub := range c.Commands() {
+		deprecate(sub, replacement+" "+sub.Name())
+	}
+	next := c.PreRunE
+	c.PreRunE = func(cmd *cobra.Command, args []string) error {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %q is deprecated, use %q instead (NERD0019)\n", cmd.CommandPath(), replacement)
+		if next != nil {
+			return next(cmd, args)
+		}
+		return nil
+	}
+}
+
+func newBundleGroup(opts *Options, use string) *cobra.Command {
 	group := &cobra.Command{
-		Use:   "stack",
-		Short: "Add, list, remove and publish stacks of RepoClasses",
-		Long: `A stack is a RepoClass whose repository declares the companions it needs (a
-"local" section and a neuronsphere.lock) published as one artifact in an OCI
-registry, holding the build zip of every RepoClass the lock pins. "stack add"
+		Use:   use,
+		Short: "Add, list, remove and publish bundles of RepoClasses",
+		Long: `A bundle -- a stack, in earlier releases -- is a set of RepoClasses a repository
+declares in meta-data/bundles/<name>.json (or, before NERD0019, a "local" section
+marked stack), pinned by a neuronsphere.lock and published as one artifact in an
+OCI registry, holding the build zip of every RepoClass the lock pins. "bundle add"
 fetches it -- anonymously from a public namespace, no tenant needed -- unpacks
 every zip into the artifact cache, and declares the instances in an
 environment manifest the way "env add --from-repo" would from a checkout.
@@ -55,6 +88,7 @@ nsctl carries no list of stacks; a bare name expands to
 		newStackVersionsCommand(opts),
 		newStackBuildCommand(opts),
 		newStackPushCommand(opts),
+		newBundleMigrateCommand(opts),
 	)
 	return group
 }
@@ -132,9 +166,9 @@ environment with a --from-repo repository or another stack.
 printed. A public namespace needs no credential.
 
 Nothing is deployed until "nsctl env apply <env>"; --apply runs it.`,
-		Example: `  nsctl stack add observability
-  nsctl stack add observability --env dev --apply
-  nsctl stack add ghcr.io/acme/stacks/warehouse:0.4.0 --profile full --name warehouse-db=db`,
+		Example: `  nsctl bundle add observability
+  nsctl bundle add observability --env dev --apply
+  nsctl bundle add ghcr.io/acme/stacks/warehouse:0.4.0 --profile full --name warehouse-db=db`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -247,7 +281,7 @@ func declareStack(cmd *cobra.Command, opts *Options, home string, m *manifest.Ma
 	if missing := plan.missingArtifacts(home); len(missing) > 0 {
 		// Every layer was just stored; anything missing is a lock entry
 		// the artifact did not carry, which Read already refused.
-		return nil, uncachedError(opts, home, missing, "`nsctl stack pull`")
+		return nil, uncachedError(opts, home, missing, "`nsctl bundle pull`")
 	}
 	bindings := record.Bindings
 	added, kept := plan.applyInto(m, false, &bindings)
@@ -354,19 +388,19 @@ func newStackListCommand(opts *Options) *cobra.Command {
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				records := m.Stacks
+				records := m.Bundles
 				if records == nil {
 					records = []manifest.StackRecord{}
 				}
 				return enc.Encode(records)
 			}
-			if len(m.Stacks) == 0 {
+			if len(m.Bundles) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "No stacks declared in %s\n", m.Path)
 				return nil
 			}
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 2, 4, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tVERSION\tINSTANCES\tFROM")
-			for _, s := range m.Stacks {
+			for _, s := range m.Bundles {
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Version, strings.Join(s.Owned(), ","), s.Ref)
 			}
 			return tw.Flush()
@@ -415,7 +449,7 @@ unless --prune-cache.`,
 			// Instances other records or the manifest's own bindings also
 			// claim are not this stack's alone.
 			shared := map[string]bool{}
-			for _, other := range m.Stacks {
+			for _, other := range m.Bundles {
 				if other.Name == record.Name {
 					continue
 				}
@@ -584,8 +618,8 @@ lock entry's "source", an OCI reference published with "nsctl artifact push"
 with a tenant credential). The tier that served each entry is printed, and
 so is the licence each layer's manifest declares (NERD017 SPEC011): nsctl
 records what an author declared and refuses nothing on its account.`,
-		Example: `  nsctl stack build
-  nsctl stack build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release`,
+		Example: `  nsctl bundle build
+  nsctl bundle build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -610,7 +644,7 @@ records what an author declared and refuses nothing on its account.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Fail, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Built stack %s (%d layer(s), %s) -> %s\n%s\nPush it with: nsctl stack push <ref> --from %s --bump\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "Built stack %s (%d layer(s), %s) -> %s\n%s\nPush it with: nsctl bundle push <ref> --from %s --bump\n",
 				tagged.Tag, len(m.Layers), d, dir, licencesLine(m), out)
 			return nil
 		},
@@ -633,7 +667,7 @@ func newStackPushCommand(opts *Options) *cobra.Command {
 		Use:   "push [<repo-dir>] <ref> [--from build/stack] [--bump]",
 		Short: "Publish a stack to an OCI registry",
 		Long: `Push a stack artifact to an OCI registry. With --from, push the OCI image
-layout "nsctl stack build" wrote -- the CI path: build, inspect, then push.
+layout "nsctl bundle build" wrote -- the CI path: build, inspect, then push.
 Without it, build from the repository first (the laptop path), taking pinned
 zips from --artifacts, the artifact cache, each lock entry's "source", or the
 cloud Artifact Librarian, in that order.
@@ -644,9 +678,9 @@ none or VERSION is a newer major.minor). A tag the registry already has is
 refused: a published version is immutable. A credential is required:
 --token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
 repository's owner), or a profile's registry_url after "nsctl login".`,
-		Example: `  nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
-  nsctl stack push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
-  nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock`,
+		Example: `  nsctl bundle build && nsctl bundle push ghcr.io/acme/stacks/obs --from build/stack --bump
+  nsctl bundle push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
+  nsctl bundle push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock`,
 		Args:          cobra.RangeArgs(1, 2),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -750,7 +784,7 @@ repository's owner), or a profile's registry_url after "nsctl login".`,
 		},
 	}
 	cmd.Flags().StringVar(&token, "token", "", "registry token or PAT (overrides "+oci.TokenEnv+")")
-	cmd.Flags().StringVar(&from, "from", "", "push the OCI image layout `nsctl stack build` wrote at this path")
+	cmd.Flags().StringVar(&from, "from", "", "push the OCI image layout `nsctl bundle build` wrote at this path")
 	cmd.Flags().BoolVar(&bump, "bump", false, "tag with the next patch of the newest published version")
 	cmd.Flags().StringVar(&tag, "tag", "", "tag to publish under")
 	cmd.Flags().StringVar(&artifactsDir, "artifacts", "", "directory holding <class>_<version>_build.zip for every pinned companion")

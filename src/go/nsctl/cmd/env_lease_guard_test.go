@@ -29,7 +29,7 @@ func TestLeaseRefusesOtherHoldersOnEveryMutatingCommand(t *testing.T) {
 		{"instance", "add", "hmd-ms-foo", "--env", "local"},
 		{"instance", "remove", "foo", "--env", "local"},
 		{"instance", "import", "--env", "local"},
-		{"stack", "remove", "observability", "--env", "local"},
+		{"bundle", "remove", "observability", "--env", "local"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			t.Parallel()

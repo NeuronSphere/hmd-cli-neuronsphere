@@ -52,7 +52,7 @@ func newTemplateAddCommand(opts *Options) *cobra.Command {
 		Long: `Stores a template under <name> from exactly one source:
 
   <file>            an environment manifest, copied in and renamed <name>
-  --stack <ref>     a published stack, planned as "nsctl stack add" plans it
+  --stack <ref>     a published stack, planned as "nsctl bundle add" plans it
                     but into an empty manifest: the stack's instances at their
                     pinned versions, from their artifacts, and its record.
                     --profile, --all-profiles, --lean and --name mean what they
@@ -149,9 +149,9 @@ An existing template is replaced only with --force.`,
 // describeTemplate is a template's size, for one line of output.
 func describeTemplate(m *manifest.Manifest) string {
 	parts := []string{fmt.Sprintf("%d instance%s", len(m.Repos), plural(len(m.Repos), "", "s"))}
-	if len(m.Stacks) > 0 {
-		names := make([]string, 0, len(m.Stacks))
-		for _, s := range m.Stacks {
+	if len(m.Bundles) > 0 {
+		names := make([]string, 0, len(m.Bundles))
+		for _, s := range m.Bundles {
 			names = append(names, s.Name+" "+s.Version)
 		}
 		parts = append(parts, "stack "+strings.Join(names, ", "))

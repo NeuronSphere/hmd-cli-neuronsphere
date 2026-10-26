@@ -75,6 +75,9 @@ differently share one checked-in lock.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
+			for _, n := range m.Notices {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", n)
+			}
 			if check {
 				return runLockCheck(cmd, repoDir, m)
 			}

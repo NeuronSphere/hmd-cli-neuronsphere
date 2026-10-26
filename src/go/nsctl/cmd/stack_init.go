@@ -54,10 +54,10 @@ look tied to this machine are listed for review.
 "local" section and dependencies of an existing manifest (the refresh job);
 --diff only reports whether they would change, exiting 1 when they would.
 --from-env also writes meta-data/reference-bom.json so CI can re-derive.`,
-		Example: `  nsctl stack init hmd-stack-analytics
-  nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
-  nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow
-  nsctl stack init hmd-stack-analytics --from-bom meta-data/reference-bom.json --select trino --update`,
+		Example: `  nsctl bundle init hmd-stack-analytics
+  nsctl bundle init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
+  nsctl bundle init hmd-stack-analytics --from-env local --select superset,trino,airflow
+  nsctl bundle init hmd-stack-analytics --from-bom meta-data/reference-bom.json --select trino --update`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -310,7 +310,7 @@ func scaffoldStack(cmd *cobra.Command, dir, name, description string, d *stack.D
 		fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", filepath.Join(dir, p))
 	}
 	if d == nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Next: add companions (nsctl repoclass local add ...) or derive them (nsctl stack init %s --from-env <env> --select ... --update), then nsctl lock\n", name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Next: add companions (nsctl repoclass local add ...) or derive them (nsctl bundle init %s --from-env <env> --select ... --update), then nsctl lock\n", name)
 	}
 	return nil
 }

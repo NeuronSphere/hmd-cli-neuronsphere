@@ -101,7 +101,7 @@ func TestStackAddDeclaresADependencyNobodyProvides(t *testing.T) {
 	reg := ocitest.New(t)
 	ref := observabilityStack(t, reg)
 	home, env := fromRepoEnv(t)
-	out, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	out, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -136,7 +136,7 @@ func TestStackAddBindsToAnExistingProducerByResource(t *testing.T) {
 	}
 	declareArtifact(t, home, env, "warehouse-bucket", "hmd-inf-s3bucket", "0.1.11")
 
-	out, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	out, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -160,7 +160,7 @@ func TestStackAddBindsToAnExistingProducerByResource(t *testing.T) {
 		t.Errorf("record bindings = %v", rec.Bindings)
 	}
 	// Removing the stack leaves the provider, which is not the stack's.
-	if _, _, err := run(t, fakeEnv(env), "stack", "remove", "observability", "--env", "local"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "bundle", "remove", "observability", "--env", "local"); err != nil {
 		t.Fatal(err)
 	}
 	m = loadEnv(t, home, "local")
@@ -206,17 +206,17 @@ content_path = "repository:/hmd-app-airflow/0.4.344/hmd-app-airflow_0.4.344_buil
 	ref := publishStack(t, reg, repoDir, artifactsDir, "airflow")
 
 	_, env := fromRepoEnv(t)
-	_, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	_, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Fatalf("err = %v", err)
 	}
-	for _, want := range []string{"trino.neuronsphere.io/cluster", "nsctl stack add warehouse", "--name query=<instance>"} {
+	for _, want := range []string{"trino.neuronsphere.io/cluster", "nsctl bundle add warehouse", "--name query=<instance>"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("message lacks %q:\n%v", want, err)
 		}
 	}
 	// --lean drops the gated role, and the stack adds fine.
-	if _, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1", "--lean"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1", "--lean"); err != nil {
 		t.Errorf("--lean: %v", err)
 	}
 }
@@ -227,7 +227,7 @@ func TestStackAddSharesACompanionAlreadyDeclaredAndRefusesAClassClash(t *testing
 	ref := observabilityStack(t, reg)
 	home, env := fromRepoEnv(t)
 	declareArtifact(t, home, env, "otel", "hmd-inf-otel", "0.1.4")
-	out, _, err := run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	out, _, err := run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -243,7 +243,7 @@ func TestStackAddSharesACompanionAlreadyDeclaredAndRefusesAClassClash(t *testing
 	// The same name as a different class is a refusal, not a silent replace.
 	home2, env2 := fromRepoEnv(t)
 	declareArtifact(t, home2, env2, "otel", "hmd-inf-redis", "0.1.42")
-	_, _, err = run(t, fakeEnv(env2), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	_, _, err = run(t, fakeEnv(env2), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "--name otel=<instance>") {
 		t.Errorf("clash: %v", err)
 	}

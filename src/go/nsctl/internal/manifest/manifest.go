@@ -161,13 +161,18 @@ type Manifest struct {
 	// duplicated under its default name.
 	Bindings map[string]string `yaml:"bindings,omitempty" json:"bindings,omitempty"`
 
-	// Stacks records every stack added to this environment (NERD017
-	// SPEC009): what was installed, from where, at which digest, and the
-	// bindings its planner chose. A stack's bindings live here and not in
-	// Bindings so a stack and a --from-repo subject can share an environment
-	// without one apply overwriting the other's naming. Optional; the schema
-	// version is unchanged.
-	Stacks []StackRecord `yaml:"stacks,omitempty" json:"stacks,omitempty"`
+	// Bundles records every bundle added to this environment (NERD017
+	// SPEC009, NERD0019 SPEC0003): what was installed, from where, at which
+	// digest, and the bindings its planner chose. A bundle's bindings live
+	// here and not in Bindings so a bundle and a --from-repo subject can share
+	// an environment without one apply overwriting the other's naming.
+	// Optional; the schema version is unchanged.
+	Bundles []BundleRecord `yaml:"bundles,omitempty" json:"bundles,omitempty"`
+
+	// LegacyStacks is the `stacks:` key Bundles was called before NERD0019.
+	// Parse folds it into Bundles, so nothing else reads it and Save never
+	// writes it.
+	LegacyStacks []BundleRecord `yaml:"stacks,omitempty" json:"stacks,omitempty"`
 
 	// Template names the template this environment was composed from
 	// (NERD035 SPEC004), for placing a session in the closest environment.
@@ -190,8 +195,8 @@ type Manifest struct {
 	Scope Scope `yaml:"-" json:"-"`
 }
 
-// StackRecord is one added stack.
-type StackRecord struct {
+// BundleRecord is one added bundle -- a stack, in NERD017's word.
+type BundleRecord struct {
 	Name    string `yaml:"name" json:"name"`
 	Version string `yaml:"version" json:"version"`
 	// Ref is the source reference without a version; Digest is the manifest
@@ -219,8 +224,11 @@ type StackRecord struct {
 	Declared []string `yaml:"declared,omitempty" json:"declared,omitempty"`
 }
 
+// StackRecord is BundleRecord's name before NERD0019.
+type StackRecord = BundleRecord
+
 // Owned is the instances a stack record is entitled to undeclare.
-func (s StackRecord) Owned() []string {
+func (s BundleRecord) Owned() []string {
 	if s.Declared != nil {
 		return append([]string(nil), s.Declared...)
 	}
@@ -234,7 +242,7 @@ func (s StackRecord) Owned() []string {
 
 // Stack returns the record for a stack name.
 func (m *Manifest) Stack(name string) (StackRecord, int, bool) {
-	for i, s := range m.Stacks {
+	for i, s := range m.Bundles {
 		if s.Name == name {
 			return s, i, true
 		}
@@ -245,10 +253,10 @@ func (m *Manifest) Stack(name string) (StackRecord, int, bool) {
 // SetStack adds or replaces a record by name.
 func (m *Manifest) SetStack(rec StackRecord) {
 	if _, i, ok := m.Stack(rec.Name); ok {
-		m.Stacks[i] = rec
+		m.Bundles[i] = rec
 		return
 	}
-	m.Stacks = append(m.Stacks, rec)
+	m.Bundles = append(m.Bundles, rec)
 }
 
 // RemoveStack drops a record, reporting whether there was one.
@@ -257,7 +265,7 @@ func (m *Manifest) RemoveStack(name string) bool {
 	if !ok {
 		return false
 	}
-	m.Stacks = append(m.Stacks[:i], m.Stacks[i+1:]...)
+	m.Bundles = append(m.Bundles[:i], m.Bundles[i+1:]...)
 	return true
 }
 
@@ -425,7 +433,20 @@ func Parse(data []byte, ext string) (*Manifest, error) {
 	if err := doc.Decode(m); err != nil {
 		return nil, err
 	}
+	m.foldLegacyStacks()
 	return m, nil
+}
+
+// foldLegacyStacks moves records under the pre-NERD0019 `stacks:` key into
+// Bundles. A name recorded under both keeps the `bundles:` record, which is
+// the one a current nsctl wrote.
+func (m *Manifest) foldLegacyStacks() {
+	for _, rec := range m.LegacyStacks {
+		if _, _, ok := m.Stack(rec.Name); !ok {
+			m.Bundles = append(m.Bundles, rec)
+		}
+	}
+	m.LegacyStacks = nil
 }
 
 // PyYAML's YAML 1.1 int and float resolvers, verbatim from
@@ -593,13 +614,13 @@ func (m *Manifest) Validate(lookup Lookup) []string {
 	}
 
 	stackNames := map[string]bool{}
-	for i, st := range m.Stacks {
-		where := fmt.Sprintf("stacks[%d]", i)
+	for i, st := range m.Bundles {
+		where := fmt.Sprintf("bundles[%d]", i)
 		switch {
 		case st.Name == "":
 			problems = append(problems, where+": 'name' is required")
 		case stackNames[st.Name]:
-			problems = append(problems, fmt.Sprintf("%s: duplicate stack %q", where, st.Name))
+			problems = append(problems, fmt.Sprintf("%s: duplicate bundle %q", where, st.Name))
 		default:
 			stackNames[st.Name] = true
 		}
