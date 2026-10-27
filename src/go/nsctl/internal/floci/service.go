@@ -3,6 +3,7 @@ package floci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,12 +71,13 @@ func ServiceImage(ctx context.Context, d ImagePresence, ref ImageRef, lookup fun
 	if repoClass == "" {
 		repoClass = ref.Service
 	}
-	var candidates, remote []string
-	for _, key := range []string{"HMD_CONTAINER_REGISTRY", "HMD_LOCAL_NS_CONTAINER_REGISTRY"} {
+	var candidates, remote, named []string
+	for _, key := range []string{"HMD_CONTAINER_REGISTRY", RegistryEnv} {
 		if prefix := lookup(key); prefix != "" {
 			ref := prefix + "/" + repoClass + ":" + version
 			candidates = append(candidates, ref)
 			remote = append(remote, ref)
+			named = append(named, key+"="+prefix)
 		}
 	}
 	candidates = append(candidates, repoClass+":"+version)
@@ -91,10 +93,13 @@ func ServiceImage(ctx context.Context, d ImagePresence, ref ImageRef, lookup fun
 	// the published registry: a caller who set HMD_CONTAINER_REGISTRY meant that
 	// registry, and silently serving a different one's image is a worse outcome
 	// than saying what is missing.
+	var pullErrs []string
 	for _, ref := range remote {
-		if err := d.PullImage(ctx, ref); err == nil {
+		err := d.PullImage(ctx, ref)
+		if err == nil {
 			return ref, nil
 		}
+		pullErrs = append(pullErrs, fmt.Sprintf("%s: %v", ref, err))
 	}
 	published := repoclass.PublishedRegistry + "/" + repoClass + ":" + version
 	if len(remote) == 0 {
@@ -104,9 +109,19 @@ func ServiceImage(ctx context.Context, d ImagePresence, ref ImageRef, lookup fun
 		candidates = append(candidates, published)
 	}
 
-	return "", fmt.Errorf(
+	msg := fmt.Sprintf(
 		"no image for %s@%s (looked for %v). Build it with `hmd build` in that repo, or set %s to a version you have",
 		repoClass, version, candidates, repoclass.VersionEnvVar(repoClass))
+	if len(named) > 0 && lookup("HMD_CONTAINER_REGISTRY") != repoclass.PublishedRegistry && lookup(RegistryEnv) != repoclass.PublishedRegistry {
+		// The likely cause is not the version: HMD_CONTAINER_REGISTRY usually
+		// names the org a user's own images go to, and the control plane's are
+		// published only to the default -- which naming any registry turns off.
+		msg += fmt.Sprintf(".\n  Pulls failed:\n    %s\n  %s set, so %s was not tried. Control-plane images are published there; "+
+			"to keep your registry and add it, set %s=%s in hmd.env.",
+			strings.Join(pullErrs, "\n    "), strings.Join(named, " and "), repoclass.PublishedRegistry,
+			RegistryEnv, repoclass.PublishedRegistry)
+	}
+	return "", errors.New(msg)
 }
 
 // ServiceConfig is the SERVICE_CONFIG a foundation service runs with.

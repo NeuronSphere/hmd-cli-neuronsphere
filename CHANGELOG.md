@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-27
+
+- fix: a control-plane service image that a named registry lacks now says which of `HMD_CONTAINER_REGISTRY`/`HMD_LOCAL_NS_CONTAINER_REGISTRY` was set, what each pull answered, and that `HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/hmdlabs` adds the registry the control plane is published to
+- fix: a k3s container that exits while the eks-cluster deploy waits now ends that deploy within seconds with k3s's own cause (`Runner.Watch`, `floci.K3sDiedSince`), instead of after the provider's 30-minute create timeout; the deploy container is removed
+- fix: `env start` pulls the k3s wrapper image when it is not cached so the br_netfilter probe can run on a fresh machine, and `nsctl doctor`'s `bridge netfilter` row warns (rather than staying silent) when its probe image is absent; its remedy now gives the persistent colima.yaml `provision` block
+- feat: `nsctl doctor` reports Colima's TCP-only `portForwarder` (`port forwarder` row) and whether docker holds a ghcr.io login (`registry login` row); the `host names` row also checks `registry.local.neuronsphere.io`
+- feat: `env start` hands the cluster the host's `docker login` to ghcr.io as k3s `registries.yaml` (copied in owner-only, k3s restarted only when it changed), so private images pull
+- feat: every projectbuilder deploy shares a tofu provider cache under `$HMD_HOME/.cache/nsctl/tofu-plugins` (`HMD_LOCAL_NS_NO_TOFU_PLUGIN_CACHE` opts out), so `tofu init` stops depending on registry.opentofu.org once a provider is cached
+- feat: plugins receive `NSCTL_PROJECTBUILDER_IMAGE`, the projectbuilder image nsctl deploys with
+
 ## 2026-10-26
 
 - fix: `repoclass validate` treats a repository that ships `meta-data/bundles/*.json` and has no `local` section as a stack: it needs no `deploy.commands`, and its `access` entries may name instances

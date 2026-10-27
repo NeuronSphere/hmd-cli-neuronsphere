@@ -544,6 +544,37 @@ func TestServiceImageDoesNotCrossAnExplicitRegistry(t *testing.T) {
 	}
 }
 
+// HMD_CONTAINER_REGISTRY names the org a user's own images live in, which is
+// often not where the control plane's are published. The refusal must say so,
+// with the variable that adds the published registry back -- a first-run user
+// set HMD_CONTAINER_REGISTRY=ghcr.io/neuronsphere and got a message naming
+// neither registry variable.
+func TestServiceImageNamesTheRegistryVariablesWhenANamedRegistryLacksTheImage(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(k string) string {
+		if k == "HMD_CONTAINER_REGISTRY" {
+			return "ghcr.io/neuronsphere"
+		}
+		return ""
+	}
+	f := nothingPublished()
+	f.failing["ghcr.io/neuronsphere/hmd-ms-naming:0.1.60"] = true
+	_, err := ServiceImage(context.Background(), f, ImageRef{Service: "hmd-ms-naming", Version: "0.1.60"}, lookup)
+	if err == nil {
+		t.Fatal("ServiceImage() succeeded with every pull failing")
+	}
+	for _, want := range []string{
+		"HMD_CONTAINER_REGISTRY=ghcr.io/neuronsphere",
+		RegistryEnv + "=" + repoclass.PublishedRegistry,
+		"not found",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
+	}
+}
+
 // A version that exists nowhere is what the refusal was really written for, and
 // it still names both remedies.
 func TestServiceImageRefusesAVersionThatExistsNowhere(t *testing.T) {

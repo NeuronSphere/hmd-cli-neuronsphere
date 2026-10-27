@@ -18,6 +18,11 @@ const (
 	EnvPluginName    = "NSCTL_PLUGIN_NAME"
 	EnvPluginVersion = "NSCTL_PLUGIN_VERSION"
 	EnvPluginDir     = "NSCTL_PLUGIN_DIR"
+	// EnvProjectBuilderImage is the projectbuilder image nsctl deploys with,
+	// resolved the way a deploy resolves it, so a plugin that runs the Python
+	// toolset in a container (the toolchain's `builder`) runs the same one and
+	// never carries a default of its own to drift.
+	EnvProjectBuilderImage = "NSCTL_PROJECTBUILDER_IMAGE"
 )
 
 // Environ builds the child's environment: the process environment, then

@@ -28,6 +28,18 @@ const bridgeProbeImage = "nginx:stable-alpine"
 // engine that has stopped answering, which the rows above already report.
 const bridgeProbeTimeout = 20 * time.Second
 
+// colimaBridgeRemedy is the by-hand fix and the one that survives `colima
+// stop`, as docs/how-to/choose-a-container-engine.rst gives them.
+const colimaBridgeRemedy = "To load it by hand on Colima:\n" +
+	"  colima ssh -- sudo modprobe br_netfilter\n" +
+	"That does not survive `colima stop`. To make it permanent, add to ~/.colima/default/colima.yaml:\n" +
+	"  provision:\n" +
+	"    - mode: system\n" +
+	"      script: |\n" +
+	"        modprobe br_netfilter\n" +
+	"        sysctl -w net.bridge.bridge-nf-call-iptables=1 net.bridge.bridge-nf-call-ip6tables=1\n" +
+	"then `colima stop && colima start`. Docker Desktop's kernel loads it already."
+
 // BridgeChecks reports whether the engine's kernel applies netfilter to bridged
 // frames.
 func BridgeChecks(ctx context.Context, ep dockerhost.Endpoint) []doctor.Check {
@@ -39,11 +51,20 @@ func BridgeChecks(ctx context.Context, ep dockerhost.Endpoint) []doctor.Check {
 // bridgeCheck is the pure decision: every row it returns is a function of what
 // the runner said.
 func bridgeCheck(ctx context.Context, d floci.DockerRunner, host string) []doctor.Check {
-	// No image, no row. A preflight that pulls cannot run offline, and an
-	// offline machine is not a misconfigured one.
+	// No image, no probe: a preflight that pulls cannot run offline, and an
+	// offline machine is not a misconfigured one. But say so -- a silent skip
+	// is how a fresh Colima VM reached the EKS create timeout with doctor
+	// reporting nothing about the module that was missing.
 	if _, _, err := d.Run(ctx, floci.HostArgs(host,
 		"image", "inspect", "-f", "{{.Id}}", bridgeProbeImage)...); err != nil {
-		return nil
+		return []doctor.Check{{
+			Name:   "bridge netfilter",
+			Status: doctor.StatusWarn,
+			Detail: "not checked: the probe image " + bridgeProbeImage + " is not in the local image cache, " +
+				"and doctor does not pull. A fresh Colima VM has no br_netfilter, and the local cluster " +
+				"will not start without it.",
+			Remedy: "docker pull " + bridgeProbeImage + " and run nsctl doctor again.\n" + colimaBridgeRemedy,
+		}}
 	}
 
 	c := doctor.Check{Name: "bridge netfilter"}
@@ -63,9 +84,7 @@ func bridgeCheck(ctx context.Context, d floci.DockerRunner, host string) []docto
 			"Service call, ingress-backed interfaces and the LoadBalancer ports all fail while the " +
 			"node still reports Ready. Modules are host-wide, so nothing running in a container can " +
 			"load it for you."
-		c.Remedy = "nsctl loads it itself when it builds a cluster. To do it by hand on Colima:\n" +
-			"  colima ssh -- sudo modprobe br_netfilter\n" +
-			"It does not survive `colima stop`. Docker Desktop's kernel loads it already."
+		c.Remedy = "nsctl loads it itself when it builds a cluster. " + colimaBridgeRemedy
 	case answer == "present:0":
 		// A different fault with a different fix, so never the same row: this
 		// one needs a sysctl, not a module, and k3s will most likely set it

@@ -172,6 +172,32 @@ func TempDir(home string) string {
 	return dir
 }
 
+// TofuPluginCacheMount is where a deploy container sees the shared provider
+// cache.
+const TofuPluginCacheMount = "/root/.terraform.d/plugin-cache"
+
+// noTofuPluginCacheEnv opts out of the shared provider cache, for someone
+// bisecting a provider problem who wants every init to download afresh.
+const noTofuPluginCacheEnv = "HMD_LOCAL_NS_NO_TOFU_PLUGIN_CACHE"
+
+// tofuPluginCache is the host directory every projectbuilder deploy shares as
+// its tofu provider cache, or "" when there is none to share.
+//
+// Deploys run in throwaway containers, so each `tofu init` downloaded every
+// provider again from registry.opentofu.org, and an intermittent timeout
+// there failed the node. With the cache, only a provider version nobody on
+// this home has used yet needs the registry.
+func (c Config) tofuPluginCache() string {
+	if c.Home == "" || (c.Lookup != nil && c.Lookup(noTofuPluginCacheEnv) != "") {
+		return ""
+	}
+	dir := filepath.Join(c.Home, ".cache", "nsctl", "tofu-plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
+}
+
 // Runner executes nodes and records what happened.
 type Runner struct {
 	Docker Docker
@@ -199,6 +225,15 @@ type Runner struct {
 	// It takes no context: it is called on a failure path where the run's
 	// context may already be cancelled, and it bounds itself.
 	Diagnose func() string
+
+	// Watch, when set, is polled every WatchInterval while a node's container
+	// runs, with the time the node started. An error means the node can no
+	// longer succeed -- the cluster it deploys onto has died -- and ends it:
+	// the deploy container is removed and the node fails with that error.
+	// Without it a provider waits out its own create timeout (thirty minutes
+	// for the EKS cluster) on a container that exited in seconds.
+	Watch         func(ctx context.Context, since time.Time) error
+	WatchInterval time.Duration
 
 	// LogDir, when set, is where a failed node's complete stdout and stderr
 	// are written (<LogDir>/<instance>.log), since the report below keeps
@@ -298,7 +333,7 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		r.step("  deploying %s (%s@%s)...", node.InstanceName, node.RepoClassName, node.Version)
 	}
 
-	stdout, stderr, err := r.Docker.Run(ctx, args...)
+	stdout, stderr, err := r.runWatched(ctx, node, args)
 	if err != nil {
 		return Result{Node: node, Failed: true, Stdout: stdout, Stderr: stderr, Err: err}
 	}
@@ -307,6 +342,73 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 		r.step("    submitted %d produced resource(s)", n)
 	}
 	return Result{Node: node, Stdout: stdout, Stderr: stderr}
+}
+
+// DefaultWatchInterval is how often Watch is polled when WatchInterval is zero.
+const DefaultWatchInterval = 5 * time.Second
+
+// runWatched runs a node's container, ending it early when Watch reports the
+// node can no longer succeed.
+func (r *Runner) runWatched(ctx context.Context, node msdeploy.DeploymentNode, args []string) ([]byte, []byte, error) {
+	if r.Watch == nil {
+		return r.Docker.Run(ctx, args...)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	started := time.Now()
+	interval := r.WatchInterval
+	if interval <= 0 {
+		interval = DefaultWatchInterval
+	}
+	watchErr := make(chan error, 1)
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-t.C:
+				if err := r.Watch(runCtx, started); err != nil {
+					watchErr <- err
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	stdout, stderr, err := r.Docker.Run(runCtx, args...)
+	select {
+	case werr := <-watchErr:
+		// Cancelling killed the docker client, not the container: `--rm`
+		// only removes it once it exits, and it is still polling.
+		r.removeNodeContainer(node)
+		r.warn("%s: stopped the deploy: %v", node.InstanceName, werr)
+		return stdout, stderr, werr
+	default:
+		return stdout, stderr, err
+	}
+}
+
+// removeNodeContainer force-removes the projectbuilder container a node ran
+// in, found by the labels dockerArgs sets. It is a cleanup on a failure path,
+// so it bounds itself and reports nothing.
+func (r *Runner) removeNodeContainer(node msdeploy.DeploymentNode) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, _, err := r.Docker.Run(ctx, "ps", "-q",
+		"--filter", "label="+EnvironmentLabel+"="+r.Config.Environment,
+		"--filter", "label="+InstanceLabel+"="+node.InstanceName)
+	if err != nil {
+		return
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return
+	}
+	_, _, _ = r.Docker.Run(ctx, append([]string{"rm", "-f"}, ids...)...)
 }
 
 // dockerArgs builds the projectbuilder invocation.
@@ -394,6 +496,16 @@ func (r *Runner) dockerArgs(node msdeploy.DeploymentNode, workspace, scriptPath 
 		args = append(args, "-e", key+"="+env[key])
 	}
 	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock")
+	if cache := r.Config.tofuPluginCache(); cache != "" {
+		args = append(args,
+			"-v", cache+":"+TofuPluginCacheMount,
+			"-e", "TF_PLUGIN_CACHE_DIR="+TofuPluginCacheMount,
+			// A lock file recorded on another platform carries no hash for
+			// this one, and without this tofu declines the cache and goes back
+			// to the registry -- the dependency being removed.
+			"-e", "TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+		)
+	}
 	if kubeconfig := r.Config.kubeconfigMount(); kubeconfig != "" {
 		args = append(args,
 			"-v", kubeconfig+":/root/.kube/config:ro",

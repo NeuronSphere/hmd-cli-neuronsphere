@@ -21,6 +21,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/authd"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dockercreds"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/envactivity"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
@@ -401,7 +402,17 @@ const noKernelSetupEnv = "HMD_LOCAL_NS_NO_KERNEL_SETUP"
 // different engine's kernel from the one about to run the cluster would be the
 // bug rather than the fix.
 func ensureBridgeNetfilter(ctx context.Context, opts *Options, d *container.Docker, image string) {
-	state, err := floci.EnsureBridgeNetfilter(ctx, d, "", image, opts.lookup(noKernelSetupEnv) != "")
+	optOut := opts.lookup(noKernelSetupEnv) != ""
+	state, err := floci.EnsureBridgeNetfilter(ctx, d, "", image, optOut)
+	// The probe never pulls, and on a first start the wrapper image is not
+	// cached yet -- Floci pulls it later, when it spawns the cluster. That is
+	// exactly the machine whose kernel lacks the module, so fetch the image
+	// and ask again rather than let the cluster find out by exiting.
+	if state == floci.BridgeUnknown && image != "" && !d.ImagePresent(ctx, image) {
+		if pullErr := d.PullImage(ctx, image); pullErr == nil {
+			state, err = floci.EnsureBridgeNetfilter(ctx, d, "", image, optOut)
+		}
+	}
 	switch state {
 	case floci.BridgeLoaded:
 		opts.step("  loaded br_netfilter on the engine's kernel, without which no Service would answer")
@@ -693,11 +704,38 @@ func uiURLs(f *found) []string {
 	return urls
 }
 
+// syncClusterRegistryAuth hands the cluster the docker CLI's login to the
+// private image registry. With none there is nothing to do; `nsctl doctor`
+// says so. A failure is a warning: public images still pull.
+func syncClusterRegistryAuth(ctx context.Context, opts *Options, d *container.Docker, cluster string) {
+	cred, ok := dockercreds.Resolver{}.Lookup(ctx, floci.PrivateImageRegistry)
+	if !ok {
+		return
+	}
+	creds := map[string]dockercreds.Credential{floci.PrivateImageRegistry: cred}
+	changed, err := floci.SyncK3sRegistryAuth(ctx, d, cluster, creds, runner.TempDir(opts.Home))
+	if err != nil {
+		opts.warn("the cluster cannot pull private images from %s: %v", floci.PrivateImageRegistry, err)
+	}
+	if !changed {
+		return
+	}
+	opts.step("  gave the cluster your docker login to %s; restarting k3s to load it", floci.PrivateImageRegistry)
+	if err := floci.WaitForK3sAPI(ctx, d, cluster, 3*time.Minute, 3*time.Second); err != nil {
+		opts.warn("%v", err)
+	}
+}
+
 // startCluster does the work that needs a live cluster: the host routes, the
 // kubeconfig, the operators and the ingress upstream.
 func startCluster(ctx context.Context, opts *Options, reg *registry.Registry, d *container.Docker, r *router.Router,
 	routerEnv router.Env, env *registry.Environment, cluster, network, dbContainer, graphContainer string,
 	f *found) error {
+
+	// First, because it may restart k3s: nothing below should run against a
+	// cluster about to go down, and no chart should reach it before it can
+	// pull a private image.
+	syncClusterRegistryAuth(ctx, opts, d, cluster)
 
 	clusterIP := d.ContainerIP(ctx, cluster, network)
 	if clusterIP == "" {
