@@ -356,6 +356,33 @@ func VerifyK3sAlive(ctx context.Context, d K3sInspector, name string) error {
 	return k3sDied(ctx, d, name)
 }
 
+// engineClockSkew allows for an engine VM's clock (Colima, Docker Desktop)
+// running a little behind the host's, which stamps StartedAt.
+const engineClockSkew = 10 * time.Second
+
+// K3sDiedSince reports a k3s container that was started at or after since and
+// has stopped for good, or nil.
+//
+// It is what a deploy watches while Floci creates the cluster: a container
+// that exits there (br_netfilter missing, a cgroup it cannot delegate into)
+// otherwise leaves the provider polling for its full create timeout. The start
+// time is what tells that container from one an earlier run left exited, which
+// Floci is about to recreate and which must not end anything.
+func K3sDiedSince(ctx context.Context, d K3sInspector, name string, since time.Time) error {
+	if name == "" {
+		return nil
+	}
+	st, ok := d.InspectState(ctx, name)
+	if !ok {
+		return nil
+	}
+	started, err := time.Parse(time.RFC3339Nano, st.StartedAt)
+	if err != nil || started.Before(since.Add(-engineClockSkew)) {
+		return nil
+	}
+	return k3sDied(ctx, d, name)
+}
+
 // WriteKubeconfig fetches the cluster's kubeconfig and writes it host-readable.
 //
 // It is read from /etc/rancher/k3s/k3s.yaml inside the container, which carries

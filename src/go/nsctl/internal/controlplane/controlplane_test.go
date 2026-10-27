@@ -39,8 +39,9 @@ func TestTheHostNamesNoticeNamesBothRemedies(t *testing.T) {
 		"neuronsphere",
 		"nsctl dns install",
 		"/etc/hosts",
-		"127.0.0.1 neuronsphere neuronsphere-workload",
+		"127.0.0.1 neuronsphere neuronsphere-workload registry.local.neuronsphere.io",
 		"hmd build",
+		"package index",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notice should mention %q, got:\n%s", want, got)

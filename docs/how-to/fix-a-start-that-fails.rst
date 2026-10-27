@@ -46,6 +46,25 @@ it:
 A registry that cannot be reached at all is reported as a warning, not a
 failure: being offline is not a misconfiguration.
 
+A control-plane service image is not found
+------------------------------------------
+
+``HMD_CONTAINER_REGISTRY`` usually names the org *your* images are pushed to.
+The control plane's service images (``hmd-ms-naming`` and the rest) are
+published only to ``ghcr.io/hmdlabs``, and naming any registry turns off the
+fallback to it -- deliberately, so an image is never silently served from a
+registry you did not name. The refusal says which variables were set and what
+each pull answered::
+
+   no image for hmd-ms-naming@0.1.60 (looked for [ghcr.io/neuronsphere/hmd-ms-naming:0.1.60 ...]).
+     Pulls failed:
+       ghcr.io/neuronsphere/hmd-ms-naming:0.1.60: ... not found
+     HMD_CONTAINER_REGISTRY=ghcr.io/neuronsphere set, so ghcr.io/hmdlabs was not tried.
+     Control-plane images are published there; to keep your registry and add it,
+     set HMD_LOCAL_NS_CONTAINER_REGISTRY=ghcr.io/hmdlabs in hmd.env.
+
+Both registries are then tried, yours first.
+
 A deploy dies in ``tofu init``
 ------------------------------
 
@@ -67,6 +86,42 @@ is gone either way, so if the registry under ``$HMD_HOME`` survived, rebuild
 the control plane with it::
 
    nsctl control-plane reset
+
+``tofu init`` timing out on ``registry.opentofu.org`` is a different failure:
+the provider download, not Floci. Every deploy container shares a provider
+cache under ``$HMD_HOME/.cache/nsctl/tofu-plugins``, so once a provider version
+has been downloaded no later ``init`` needs the registry for it. A first
+download that times out is still a retry; the cache is what keeps it from
+recurring. ``HMD_LOCAL_NS_NO_TOFU_PLUGIN_CACHE=1`` turns the cache off.
+
+The cluster exits while the deploy waits
+----------------------------------------
+
+The ``eks-cluster`` node asks Floci for a cluster, and Floci starts the k3s
+container. If that container exits -- most often a Colima VM without
+``br_netfilter`` -- the deploy stops within seconds, removes its container,
+and reports what k3s said::
+
+   eks-cluster: stopped the deploy: the k3s container floci-eks-... is not running
+     (exited, exit code 1) ...
+     k3s said: ...
+
+Before, the provider polled ``Still creating...`` for its full 30-minute
+timeout on a container that had already exited. The fix is the one the message
+names; for ``br_netfilter`` see the section below.
+
+A workload stays in ``ImagePullBackOff``
+----------------------------------------
+
+The local cluster pulls with containerd, which reads nothing of
+``docker login``. ``nsctl`` hands it your docker login to ``ghcr.io`` on every
+``env start`` (restarting k3s once when the credential changes), so the fix is::
+
+   docker login ghcr.io -u <github user>      # a token with read:packages
+   nsctl env start
+
+``nsctl doctor``'s ``registry login`` row says whether there is a credential
+to hand over.
 
 Nothing in the cluster can reach a Service
 ------------------------------------------

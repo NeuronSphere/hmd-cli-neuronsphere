@@ -77,6 +77,11 @@ func TestAnAbsentModuleWarnsAndNamesModprobe(t *testing.T) {
 	if !strings.Contains(c.Remedy, "modprobe br_netfilter") {
 		t.Errorf("remedy does not name the command: %q", c.Remedy)
 	}
+	// The one-off modprobe is lost on `colima stop`; the provision block is
+	// the fix that stays.
+	if !strings.Contains(c.Remedy, "provision:") {
+		t.Errorf("remedy does not give the persistent colima.yaml fix: %q", c.Remedy)
+	}
 }
 
 // The two faults need opposite fixes, so the rows must never be interchangeable:
@@ -110,11 +115,18 @@ func TestAnUnreadableSysctlIsNotAMissingModule(t *testing.T) {
 // The cold-first-run contract, and the row most likely to regress: nothing is
 // pulled, so a machine that has not cached the probe image gets no row at all
 // rather than a warning about the probe (NERD028 SPEC003).
-func TestAnAbsentProbeImageIsNoRow(t *testing.T) {
+func TestAnAbsentProbeImageWarnsWithoutPulling(t *testing.T) {
 	t.Parallel()
+	// Offline-safe still: nothing is pulled. But a silent skip is how a fresh
+	// Colima VM reached a 30-minute EKS timeout with doctor saying nothing, so
+	// the row says the module was not checked and how to check it.
 	d := &fakeRunner{err: map[string]error{"image": errors.New("No such image")}}
-	if checks := bridgeCheck(context.Background(), d, ""); len(checks) != 0 {
-		t.Fatalf("want no rows, got %+v", checks)
+	c := onlyCheck(t, bridgeCheck(context.Background(), d, ""))
+	if c.Status != doctor.StatusWarn {
+		t.Errorf("status = %v, want warning", c.Status)
+	}
+	if !strings.Contains(c.Remedy, "docker pull "+bridgeProbeImage) {
+		t.Errorf("remedy does not say how to make the check possible: %q", c.Remedy)
 	}
 	if len(d.calls) != 1 {
 		t.Errorf("want the probe skipped entirely, got %d calls", len(d.calls))

@@ -44,6 +44,8 @@ To point ``nsctl`` somewhere else, point ``docker`` there::
    bind mounts          ok       the engine runs in a virtual machine ...
    bridge netfilter     ok       br_netfilter is loaded; bridged frames reach iptables
    CLI and API agree    ok       unix:///Users/you/.colima/default/docker.sock
+   port forwarder       ok       Colima forwards UDP, so the local resolver is reachable
+   registry login       ok       docker holds a credential for ghcr.io; nsctl passes it to the local cluster
    host names           ok       resolve to loopback
 
 It changes nothing on your platform and exits ``2`` when something needs
@@ -75,6 +77,18 @@ pulls the lot. Colima's 20 GiB default runs out partway through. Disk can only
 be grown after creation, never shrunk.
 
 On Docker Desktop, use *Settings -> Resources*.
+
+Let UDP through Colima's port forwarder
+---------------------------------------
+
+Colima's default ``portForwarder: ssh`` forwards TCP only. Every web port
+works, so the engine looks healthy, but the local DNS resolver listens on UDP
+and is unreachable from the Mac. In ``~/.colima/default/colima.yaml``::
+
+   portForwarder: grpc
+
+then ``colima stop && colima start``. ``nsctl doctor`` reports it as the
+``port forwarder`` row.
 
 Load br_netfilter in the engine's VM
 ------------------------------------

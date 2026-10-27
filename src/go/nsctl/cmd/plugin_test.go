@@ -15,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/oci/ocitest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/plugin"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
 // helloScript is the plugin fixture: it prints its argv and the SPEC005
@@ -22,6 +23,7 @@ import (
 const helloScript = `#!/bin/sh
 echo "hello argv: $*"
 echo "hello env: name=$NSCTL_PLUGIN_NAME version=$NSCTL_PLUGIN_VERSION home=$HMD_HOME nsctl=$NSCTL_VERSION"
+echo "hello builder: $NSCTL_PROJECTBUILDER_IMAGE"
 exit ${NSCTL_TEST_EXIT:-0}
 `
 
@@ -166,6 +168,11 @@ func TestPluginInstallListUpdateRemove(t *testing.T) {
 	}
 	if !strings.Contains(out, "hello argv: a --b --help") || !strings.Contains(out, "name=hello version=1.1.0 home="+home+" nsctl=9.9.9") {
 		t.Errorf("hello out = %q", out)
+	}
+	// The projectbuilder image a deploy would use, so a plugin that runs the
+	// Python toolset in a container never carries a default of its own.
+	if !strings.Contains(out, "hello builder: "+runner.ProjectBuilderRef(nil)) {
+		t.Errorf("hello out lacks the projectbuilder image: %q", out)
 	}
 
 	out, _, err = run(t, env, "--home", home, "plugin", "remove", "hello")

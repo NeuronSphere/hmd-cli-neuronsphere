@@ -2,11 +2,14 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/artifact"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
@@ -437,5 +440,127 @@ func TestSharedTreeCoversEveryCacheRoot(t *testing.T) {
 	}
 	if sharedTree("", filepath.Join(artifact.Root(home), "x@1")) {
 		t.Error("sharedTree said true with no HMD_HOME to anchor it")
+	}
+}
+
+// hangingDocker is a deploy that never finishes on its own -- tofu polling
+// "Still creating..." for a cluster whose container has already exited --
+// and records every other docker call the runner makes while it hangs.
+type hangingDocker struct {
+	mu    sync.Mutex
+	calls [][]string
+}
+
+func (h *hangingDocker) Run(ctx context.Context, args ...string) ([]byte, []byte, error) {
+	h.mu.Lock()
+	h.calls = append(h.calls, args)
+	h.mu.Unlock()
+	if len(args) > 0 && args[0] == "run" {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+	if len(args) > 0 && args[0] == "ps" {
+		return []byte("abc123\n"), nil, nil
+	}
+	return nil, nil, nil
+}
+
+// A k3s container that dies during the eks-cluster deploy used to leave the
+// node blocked for the provider's 30-minute create timeout, though the
+// container had exited in seconds naming its cause. Watch ends the node with
+// that cause, and the deploy container is removed rather than left running.
+func TestWatchEndsANodeWhoseClusterDied(t *testing.T) {
+	t.Parallel()
+
+	repoHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoHome, "hmd-inf-eks-cluster"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := &hangingDocker{}
+	r := testRunner(t, nil, repoHome)
+	r.Docker = h
+	r.Config.Environment = "scratch"
+	died := errors.New("the k3s container floci-eks-x is not running (exited, exit code 1)")
+	r.Watch = func(context.Context, time.Time) error { return died }
+	r.WatchInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res := r.RunNode(ctx, msdeploy.DeploymentNode{
+		InstanceName: "eks-cluster", RepoClassName: "hmd-inf-eks-cluster", Script: "hmd deploy",
+	})
+	if ctx.Err() != nil {
+		t.Fatal("RunNode waited out the deploy instead of ending on the watch")
+	}
+	if !res.Failed || !errors.Is(res.Err, died) {
+		t.Fatalf("RunNode = failed %v, err %v; want the watch's error", res.Failed, res.Err)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var removed bool
+	for _, c := range h.calls {
+		if c[0] == "rm" && strings.Contains(strings.Join(c, " "), "abc123") {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Errorf("the deploy container was not removed; calls: %v", h.calls)
+	}
+}
+
+// A watch that never fires changes nothing.
+func TestAQuietWatchLeavesTheNodeAlone(t *testing.T) {
+	t.Parallel()
+
+	repoHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoHome, "hmd-inf-thing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := &fakeDocker{}
+	r := testRunner(t, d, repoHome)
+	r.Watch = func(context.Context, time.Time) error { return nil }
+	r.WatchInterval = time.Millisecond
+	res := r.RunNode(context.Background(), msdeploy.DeploymentNode{
+		InstanceName: "thing", RepoClassName: "hmd-inf-thing", Script: "hmd deploy",
+	})
+	if res.Failed {
+		t.Fatalf("RunNode: %v", res.Err)
+	}
+}
+
+// registry.opentofu.org timed out intermittently inside deploy containers and
+// nowhere else, failing `tofu init` twice in a row before it worked unchanged.
+// A provider cache shared across deploys makes every init after the first one
+// that downloaded a provider independent of the registry.
+func TestDeploysShareATofuProviderCache(t *testing.T) {
+	t.Parallel()
+
+	repoHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoHome, "hmd-inf-thing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	d := &fakeDocker{}
+	r := testRunner(t, d, repoHome)
+	r.Config.Home = home
+	if res := r.RunNode(context.Background(), msdeploy.DeploymentNode{
+		InstanceName: "thing", RepoClassName: "hmd-inf-thing", Script: "hmd deploy",
+	}); res.Failed {
+		t.Fatalf("RunNode: %v", res.Err)
+	}
+
+	cache := filepath.Join(home, ".cache", "nsctl", "tofu-plugins")
+	joined := strings.Join(d.args, " ")
+	for _, want := range []string{
+		"-v " + cache + ":" + TofuPluginCacheMount,
+		"TF_PLUGIN_CACHE_DIR=" + TofuPluginCacheMount,
+		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("docker args lack %q:\n%s", want, joined)
+		}
+	}
+	if st, err := os.Stat(cache); err != nil || !st.IsDir() {
+		t.Errorf("the cache directory was not created: %v", err)
 	}
 }

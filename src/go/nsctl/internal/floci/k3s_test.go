@@ -635,3 +635,29 @@ func TestKubeconfigStaleComparesAgainstTheRunningCluster(t *testing.T) {
 		t.Error("an unreadable cluster made the kubeconfig stale")
 	}
 }
+
+// A cluster that started during the deploy and then exited is the one the
+// deploy is waiting on; one that exited before the deploy began is left over
+// from an earlier run, which Floci recreates, and must not end anything.
+func TestK3sDiedSinceOnlyCondemnsAContainerStartedDuringTheDeploy(t *testing.T) {
+	t.Parallel()
+
+	since := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	exited := func(started string) *fakeK3s {
+		return &fakeK3s{stateOK: true, state: container.State{Status: "exited", ExitCode: 1, StartedAt: started},
+			log: `level=fatal msg="br_netfilter"`}
+	}
+
+	if err := K3sDiedSince(context.Background(), exited("2026-10-27T12:00:05.123Z"), "floci-eks-x", since); err == nil {
+		t.Error("a cluster that started during the deploy and exited was not reported")
+	}
+	if err := K3sDiedSince(context.Background(), exited("2026-10-26T09:00:00Z"), "floci-eks-x", since); err != nil {
+		t.Errorf("a cluster that exited before the deploy began was reported: %v", err)
+	}
+	if err := K3sDiedSince(context.Background(), exited("0001-01-01T00:00:00Z"), "floci-eks-x", since); err != nil {
+		t.Errorf("a cluster that never started was reported: %v", err)
+	}
+	if err := K3sDiedSince(context.Background(), &fakeK3s{}, "floci-eks-x", since); err != nil {
+		t.Errorf("a cluster that does not exist yet was reported: %v", err)
+	}
+}

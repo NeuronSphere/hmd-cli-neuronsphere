@@ -21,18 +21,20 @@ import (
 func DoctorOptions(opts *Options) doctor.Options {
 	d := container.New()
 	return doctor.Options{
-		Lookup:      opts.Lookup,
-		Home:        opts.Home,
-		GOOS:        runtime.GOOS,
-		Docker:      d,
-		Resolver:    &dockerhost.Resolver{Inspect: dockerhost.CLIInspector(d), Lookup: opts.Lookup},
-		Connect:     ConnectEngine,
-		CLIEndpoint: d.ContextEndpoint,
-		Hosts:       func() error { return CheckHostsEntries(nil) },
-		Suffix:      func() error { return CheckLocalSuffix(context.Background(), opts) },
-		Images:      func(ctx context.Context) []doctor.Check { return ImageChecks(ctx, opts) },
-		Storage:     func(ctx context.Context) []doctor.Check { return StorageChecks(ctx, opts) },
-		Bridge:      BridgeChecks,
+		Lookup:        opts.Lookup,
+		Home:          opts.Home,
+		GOOS:          runtime.GOOS,
+		Docker:        d,
+		Resolver:      &dockerhost.Resolver{Inspect: dockerhost.CLIInspector(d), Lookup: opts.Lookup},
+		Connect:       ConnectEngine,
+		CLIEndpoint:   d.ContextEndpoint,
+		Hosts:         func() error { return CheckHostsEntries(nil) },
+		Suffix:        func() error { return CheckLocalSuffix(context.Background(), opts) },
+		Images:        func(ctx context.Context) []doctor.Check { return ImageChecks(ctx, opts) },
+		Storage:       func(ctx context.Context) []doctor.Check { return StorageChecks(ctx, opts) },
+		Bridge:        BridgeChecks,
+		Forwarder:     ForwarderChecks,
+		RegistryLogin: RegistryLoginChecks,
 	}
 }
 
@@ -103,6 +105,9 @@ func doctorOptions(opts *Options) doctor.Options {
 	// yet -- would be wrong about what it measured.
 	o.Images = nil
 	o.Storage = nil
+	// Run-only reports, which Gate never calls; nil'd for the same reason.
+	o.Forwarder = nil
+	o.RegistryLogin = nil
 	// Bridge is deliberately kept. It reaches no network and asks Floci
 	// nothing -- it reads one file in a throwaway container on the endpoint
 	// Gate just proved -- so neither reason above applies, and a start heading

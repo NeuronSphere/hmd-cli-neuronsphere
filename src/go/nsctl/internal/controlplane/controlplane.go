@@ -47,7 +47,12 @@ import (
 // names itself -- so this is a report rather than a requirement. It still
 // matters for the legacy Python artifact path, which follows the same URLs
 // through hmd_lib_librarian_client and has no such override.
-var HostsEntries = []string{"neuronsphere", "neuronsphere-workload"}
+//
+// registry.local.neuronsphere.io is the NERD006 package index as uv.toml and
+// pip.conf name it. nsctl does not dial it, and it is outside the suffix the
+// local resolver serves, so /etc/hosts is the only thing that makes it resolve
+// for host tools -- `nsctl plugin install`, host uv, a host `hmd build`.
+var HostsEntries = []string{"neuronsphere", "neuronsphere-workload", "registry.local.neuronsphere.io"}
 
 // dockerClient is the Docker surface Stop needs to reach Floci-spawned
 // containers, narrowed so the sweep is testable without a daemon.
@@ -293,8 +298,8 @@ func CheckHostsEntries(resolve Resolver) error {
 // remedy that works beats two where the first cannot.
 func hostNamesNotice(missing []string) string {
 	return fmt.Sprintf(
-		"%s do not resolve on this host. nsctl reaches them anyway, but `hmd build` and `push-artifact` cannot follow a presigned URL until they do.\n"+
-			"  These are bare names, so the resolver `nsctl dns install` sets up cannot claim them -- only /etc/hosts can:\n\n"+
+		"%s do not resolve on this host. nsctl reaches the platform's names anyway, but `hmd build` and `push-artifact` cannot follow a presigned URL, and host uv and pip cannot reach the local package index, until they do.\n"+
+			"  None of them is under the suffix the `nsctl dns install` resolver serves, so only /etc/hosts can resolve them:\n\n"+
 			"    echo '127.0.0.1 %s' | sudo tee -a /etc/hosts\n",
 		strings.Join(missing, " and "), strings.Join(HostsEntries, " "))
 }

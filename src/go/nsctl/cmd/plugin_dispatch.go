@@ -16,6 +16,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nsconfig"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/plugin"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/runner"
 )
 
 // pluginGroupID is the help group declared plugins are listed under.
@@ -163,15 +164,16 @@ func newItemDispatchCommand(opts *Options, process hmdenv.Lookup, decl nsconfig.
 			}
 			file, _ := hmdenv.Load(home)
 			env := plugin.Environ(os.Environ(), file, map[string]string{
-				"HMD_HOME":                 home,
-				plugin.EnvHome:             home,
-				plugin.EnvVersion:          opts.Version,
-				plugin.EnvBinary:           plugin.Executable(),
-				plugin.EnvPluginName:       it.Noun,
-				plugin.EnvPluginVersion:    decl.Version,
-				plugin.EnvPluginDir:        it.Path,
-				"NSCTL_PLUGIN_DECLARED_IN": nsconfig.Path(home, process),
-				installitems.KnowledgeEnv:  installitems.KnowledgeDir(home),
+				"HMD_HOME":                    home,
+				plugin.EnvHome:                home,
+				plugin.EnvVersion:             opts.Version,
+				plugin.EnvBinary:              plugin.Executable(),
+				plugin.EnvPluginName:          it.Noun,
+				plugin.EnvPluginVersion:       decl.Version,
+				plugin.EnvPluginDir:           it.Path,
+				"NSCTL_PLUGIN_DECLARED_IN":    nsconfig.Path(home, process),
+				plugin.EnvProjectBuilderImage: runner.ProjectBuilderRef(opts.Lookup),
+				installitems.KnowledgeEnv:     installitems.KnowledgeDir(home),
 			})
 			code, err := plugin.Run(bin, argv, env, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 			if err != nil {
@@ -288,14 +290,15 @@ func newPluginDispatchCommand(opts *Options, process hmdenv.Lookup, decl nsconfi
 				version = "dev"
 			}
 			env := plugin.Environ(os.Environ(), file, map[string]string{
-				"HMD_HOME":                 home,
-				plugin.EnvHome:             home,
-				plugin.EnvVersion:          opts.Version,
-				plugin.EnvBinary:           plugin.Executable(),
-				plugin.EnvPluginName:       decl.Name,
-				plugin.EnvPluginVersion:    version,
-				plugin.EnvPluginDir:        dirOf(bin),
-				"NSCTL_PLUGIN_DECLARED_IN": nsconfig.Path(home, process),
+				"HMD_HOME":                    home,
+				plugin.EnvHome:                home,
+				plugin.EnvVersion:             opts.Version,
+				plugin.EnvBinary:              plugin.Executable(),
+				plugin.EnvPluginName:          decl.Name,
+				plugin.EnvPluginVersion:       version,
+				plugin.EnvPluginDir:           dirOf(bin),
+				"NSCTL_PLUGIN_DECLARED_IN":    nsconfig.Path(home, process),
+				plugin.EnvProjectBuilderImage: runner.ProjectBuilderRef(opts.Lookup),
 			})
 			args := inv.args
 			if inv.noun != decl.Name {

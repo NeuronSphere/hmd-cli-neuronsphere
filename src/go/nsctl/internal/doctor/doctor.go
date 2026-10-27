@@ -139,6 +139,15 @@ type Options struct {
 	// network and asks Floci nothing, so neither objection that keeps those two
 	// out of the preflight applies here.
 	Bridge func(ctx context.Context, ep dockerhost.Endpoint) []Check
+	// Forwarder reports whether the engine's port forwarder carries UDP to
+	// the host, which the local resolver needs (Colima's default does not).
+	// Nil skips it. Run only: a start does not depend on it.
+	Forwarder func(ep dockerhost.Endpoint) []Check
+	// RegistryLogin reports whether the docker CLI holds a credential for the
+	// registry the cluster pulls private images from, which nsctl hands to
+	// k3s. Nil skips it. Run only: an anonymous start is a complete start
+	// until a private image is wanted.
+	RegistryLogin func(ctx context.Context) []Check
 }
 
 func (o Options) lookup(key string) string {
@@ -215,6 +224,12 @@ func Run(ctx context.Context, o Options) []Check {
 	}
 	if o.Storage != nil {
 		checks = append(checks, o.Storage(ctx)...)
+	}
+	if o.Forwarder != nil {
+		checks = append(checks, o.Forwarder(ep)...)
+	}
+	if o.RegistryLogin != nil {
+		checks = append(checks, o.RegistryLogin(ctx)...)
 	}
 	// Both name rows are warnings, not failures. Name resolution is reported,
 	// not required (NERD025 SPEC004): nsctl dials the bare Floci names itself and

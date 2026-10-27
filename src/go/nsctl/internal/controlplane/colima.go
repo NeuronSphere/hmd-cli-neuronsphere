@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/dockerhost"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/doctor"
 )
 
 // colimaSocketMarker identifies a Colima endpoint by the path it serves on.
@@ -73,4 +76,27 @@ func colimaProfileDir(endpointHost string) string {
 // an endpoint itself; getting the endpoint wrong is the defect NERD021 is about.
 func ColimaUDPNotice(ctx context.Context, opts *Options) string {
 	return ColimaUDPUnreachable(currentEndpointHost(ctx, opts))
+}
+
+// ForwarderChecks is the doctor row for the engine's port forwarder: no row
+// for an engine that is not Colima, a warning for Colima's TCP-only default.
+//
+// The local-names row already says this when the wildcard suffix fails to
+// resolve, but only then, and only as the third of three causes. A first-run
+// user found it only after the platform was up; a row of its own says it
+// before anything depends on it.
+func ForwarderChecks(ep dockerhost.Endpoint) []doctor.Check {
+	if colimaProfileDir(ep.Host) == "" {
+		return nil
+	}
+	c := doctor.Check{Name: "port forwarder"}
+	if why := ColimaUDPUnreachable(ep.Host); why != "" {
+		c.Status = doctor.StatusWarn
+		c.Detail = "Colima forwards TCP only, so the local DNS resolver is unreachable from this Mac"
+		c.Remedy = strings.TrimSpace(why)
+		return []doctor.Check{c}
+	}
+	c.Status = doctor.StatusOK
+	c.Detail = "Colima forwards UDP, so the local resolver is reachable"
+	return []doctor.Check{c}
 }

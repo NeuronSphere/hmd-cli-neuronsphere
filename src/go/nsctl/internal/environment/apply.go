@@ -356,6 +356,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// at the moment of failure or not at all.
 	if k3sContainer != "" {
 		run.Diagnose = clusterFailureContext(opts, d, env, k3sContainer)
+		// The cluster's container is spawned by Floci during the eks-cluster
+		// node; if it exits, nothing above it can deploy, and the provider
+		// would otherwise poll for its full create timeout.
+		run.Watch = func(ctx context.Context, since time.Time) error {
+			return floci.K3sDiedSince(ctx, d, k3sContainer, since)
+		}
 	}
 
 	// Phase A: the substrate.
