@@ -128,6 +128,16 @@ type fakeRDS struct {
 	// deletedClusters records the graph deletes a purge issues. Floci serves
 	// Neptune's control plane on the RDS API, which is why they land here.
 	deletedClusters []string
+	clusterStatus   string
+}
+
+func (f *fakeRDS) DescribeDBClusters(_ context.Context, _ *rds.DescribeDBClustersInput, _ ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error) {
+	if f.clusterStatus == "" {
+		return &rds.DescribeDBClustersOutput{}, nil
+	}
+	return &rds.DescribeDBClustersOutput{
+		DBClusters: []rdstypes.DBCluster{{Status: aws.String(f.clusterStatus)}},
+	}, nil
 }
 
 func (f *fakeRDS) DescribeDBSubnetGroups(_ context.Context, in *rds.DescribeDBSubnetGroupsInput, _ ...func(*rds.Options)) (*rds.DescribeDBSubnetGroupsOutput, error) {
@@ -354,6 +364,20 @@ func TestDBInstanceStatusDistinguishesFailedFromAbsent(t *testing.T) {
 				t.Errorf("DBInstanceStatus = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// A graph whose container Floci lost keeps a cluster record reporting
+// available, which is the only thing that tells it apart from one never
+// deployed.
+func TestDBClusterStatusDistinguishesLostFromAbsent(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{"", "available"} {
+		p := newProvisioner(newFakeSecrets(), &fakeRDS{clusterStatus: status}, &fakeS3{})
+		if got := p.DBClusterStatus(context.Background(), "id"); got != status {
+			t.Errorf("DBClusterStatus = %q, want %q", got, status)
+		}
 	}
 }
 

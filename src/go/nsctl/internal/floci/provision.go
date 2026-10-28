@@ -95,6 +95,7 @@ type rdsAPI interface {
 	DescribeDBSubnetGroups(ctx context.Context, in *rds.DescribeDBSubnetGroupsInput, opts ...func(*rds.Options)) (*rds.DescribeDBSubnetGroupsOutput, error)
 	DeleteDBSubnetGroup(ctx context.Context, in *rds.DeleteDBSubnetGroupInput, opts ...func(*rds.Options)) (*rds.DeleteDBSubnetGroupOutput, error)
 	DeleteDBCluster(ctx context.Context, in *rds.DeleteDBClusterInput, opts ...func(*rds.Options)) (*rds.DeleteDBClusterOutput, error)
+	DescribeDBClusters(ctx context.Context, in *rds.DescribeDBClustersInput, opts ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error)
 }
 
 type s3API interface {
@@ -331,6 +332,21 @@ func (p *Provisioner) DeleteDBSubnetGroup(ctx context.Context, name string) erro
 		return err
 	}
 	return nil
+}
+
+// DBClusterStatus is what Floci reports for a DB cluster -- in practice the
+// graph -- or "" when there is no such cluster.
+//
+// The DBInstanceStatus question asked of the graph: a record with no container
+// behind it is a graph Floci lost, not one that was never deployed.
+func (p *Provisioner) DBClusterStatus(ctx context.Context, identifier string) string {
+	out, err := p.RDS.DescribeDBClusters(ctx, &rds.DescribeDBClustersInput{
+		DBClusterIdentifier: aws.String(identifier),
+	})
+	if err != nil || len(out.DBClusters) == 0 {
+		return ""
+	}
+	return aws.ToString(out.DBClusters[0].Status)
 }
 
 // DeleteDBCluster removes a DB cluster record -- in practice the graph, since

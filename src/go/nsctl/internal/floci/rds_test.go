@@ -206,3 +206,63 @@ func TestTheDatabaseIsNotRestartedByAliasing(t *testing.T) {
 		t.Errorf("restarted = %v, want none: Postgres does not bind its container IP", f.restarted)
 	}
 }
+
+// fakeGraphRecords is the cluster-record side of a graph.
+type fakeGraphRecords struct {
+	status  string
+	deleted []string
+}
+
+func (f *fakeGraphRecords) DBClusterStatus(context.Context, string) string { return f.status }
+
+func (f *fakeGraphRecords) DeleteDBCluster(_ context.Context, id string) error {
+	f.deleted = append(f.deleted, id)
+	f.status = ""
+	return nil
+}
+
+// Floci lost the container and the data in it, but kept the record. Left in
+// place, the record makes hmd-inf-neptune's deploy a no-op and the graph never
+// comes back; cleared, the next deploy creates it again.
+func TestALostGraphHasItsRecordCleared(t *testing.T) {
+	t.Parallel()
+
+	records := &fakeGraphRecords{status: "available"}
+	cleared, err := ClearLostGraph(context.Background(), records, &fakeContainers{}, "000000000002", "graph")
+	if err != nil {
+		t.Fatalf("ClearLostGraph: %v", err)
+	}
+	if !cleared || len(records.deleted) != 1 || records.deleted[0] != "graph" {
+		t.Errorf("cleared=%v deleted=%v, want the record deleted", cleared, records.deleted)
+	}
+}
+
+// A stopped container still holds the graph's data: it is started, never
+// replaced.
+func TestAGraphWithAContainerIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	records := &fakeGraphRecords{status: "available"}
+	cleared, err := ClearLostGraph(context.Background(), records,
+		&fakeContainers{name: "floci-neptune-graph"}, "000000000002", "graph")
+	if err != nil {
+		t.Fatalf("ClearLostGraph: %v", err)
+	}
+	if cleared || len(records.deleted) != 0 {
+		t.Errorf("cleared=%v deleted=%v, want nothing touched", cleared, records.deleted)
+	}
+}
+
+// No record and no container is an environment that never wanted a graph.
+func TestAGraphNeverDeployedIsNotLost(t *testing.T) {
+	t.Parallel()
+
+	records := &fakeGraphRecords{}
+	cleared, err := ClearLostGraph(context.Background(), records, &fakeContainers{}, "000000000002", "graph")
+	if err != nil {
+		t.Fatalf("ClearLostGraph: %v", err)
+	}
+	if cleared || len(records.deleted) != 0 {
+		t.Errorf("cleared=%v deleted=%v, want nothing touched", cleared, records.deleted)
+	}
+}

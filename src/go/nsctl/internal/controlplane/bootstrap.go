@@ -99,30 +99,7 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 	opts.step("  hmd-ms-deployment does not exist yet, so these nodes are not recorded anywhere")
 
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
-	deployer := &runner.Runner{
-		Docker: docker,
-		// No client: the service these would report to is the last node. A
-		// nil client makes the runner's status calls no-ops rather than a
-		// stream of connection errors.
-		Client: nil,
-		Config: runner.Config{
-			Network:              reg.ControlPlane.Network,
-			Image:                ProjectBuilderRef(opts),
-			FlociEndpoint:        floci.InternalEndpoint,
-			AccountID:            target.AccountID,
-			DeploymentServiceURL: MSDeploymentURL(),
-			LocalProxy:           "http://hmd_proxy",
-			RepoHome:             opts.lookup("HMD_REPO_HOME"),
-			Home:                 opts.Home,
-			Lookup:               opts.Lookup,
-			Environment:          CPDeploymentID,
-			DeploymentID:         CPDeploymentID,
-			Region:               names.Region,
-			CustomerCode:         names.CustomerCode,
-			Extra:                map[string]string{"AWS_REGION": opts.lookup("AWS_REGION")},
-		},
-		Out: opts.Out, Err: opts.Err,
-	}
+	deployer := bootstrapRunner(opts, reg, target, docker, names)
 
 	// 1. The network, which the database is placed into. Without it
 	// CreateDBInstance fails with DBSubnetGroupNotFoundFault, since the group
@@ -212,6 +189,74 @@ func Bootstrap(ctx context.Context, opts *Options, reg *registry.Registry,
 		return nserr.Wrap(nserr.Fail, err)
 	}
 	opts.step("  bootstrapped")
+	return nil
+}
+
+// bootstrapRunner runs control-plane nodes: in the control plane's network,
+// under deployment id `cp`, reporting nowhere.
+func bootstrapRunner(opts *Options, reg *registry.Registry, target floci.Target,
+	docker *container.Docker, names floci.Names) *runner.Runner {
+
+	return &runner.Runner{
+		Docker: docker,
+		// No client: the service these would report to is the last node. A
+		// nil client makes the runner's status calls no-ops rather than a
+		// stream of connection errors.
+		Client: nil,
+		Config: runner.Config{
+			Network:              reg.ControlPlane.Network,
+			Image:                ProjectBuilderRef(opts),
+			FlociEndpoint:        floci.InternalEndpoint,
+			AccountID:            target.AccountID,
+			DeploymentServiceURL: MSDeploymentURL(),
+			LocalProxy:           "http://hmd_proxy",
+			RepoHome:             opts.lookup("HMD_REPO_HOME"),
+			Home:                 opts.Home,
+			Lookup:               opts.Lookup,
+			Environment:          CPDeploymentID,
+			DeploymentID:         CPDeploymentID,
+			Region:               names.Region,
+			CustomerCode:         names.CustomerCode,
+			Extra:                map[string]string{"AWS_REGION": opts.lookup("AWS_REGION")},
+		},
+		Out: opts.Out, Err: opts.Err,
+	}
+}
+
+// recoverLostGraph redeploys the control-plane graph when Floci kept its
+// record but lost its container.
+//
+// Bootstrap deploys the graph exactly once and `control-plane reset` touches
+// only the foundation services, so nothing else rebuilds it. Without this the
+// artifact librarian answers every request with "global-graph: Name or service
+// not known" until the control plane is purged.
+func recoverLostGraph(ctx context.Context, opts *Options, reg *registry.Registry,
+	target floci.Target, docker *container.Docker, prov *floci.Provisioner, names floci.Names) error {
+
+	identifier := CPGraphIdentifier(names)
+	cleared, err := floci.ClearLostGraph(ctx, prov, docker, target.AccountID, identifier)
+	if err != nil || !cleared {
+		return err
+	}
+	opts.warn("Floci kept the control-plane graph's record but lost its container, and the data in it; redeploying it empty")
+	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
+	if err := deployNode(ctx, opts, bootstrapRunner(opts, reg, target, docker, names), resolver,
+		CPGraphInstance, CPGraphRepoClass, graphConfig()); err != nil {
+		return err
+	}
+	graphContainer, err := floci.EnsureNeptuneRunning(ctx, docker, target.AccountID,
+		identifier, CPGraphHost, reg.ControlPlane.Network)
+	if err != nil {
+		return err
+	}
+	if graphContainer == "" {
+		return nserr.New(nserr.Fail,
+			"the control-plane graph deploy reported success but Floci spawned no container for %s", identifier)
+	}
+	opts.step("  %s is up and aliased as %s", graphContainer, CPGraphHost)
+	// The librarian mirrors its content-item types into the graph only on a
+	// cold start, so a warm one keeps answering NoSuchContentItemException.
+	opts.warn("an empty graph needs `nsctl control-plane reset hmd-ms-artifact-lib` to reload the librarian's content-item types")
 	return nil
 }
 

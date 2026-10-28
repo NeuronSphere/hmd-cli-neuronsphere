@@ -712,6 +712,13 @@ func Start(ctx context.Context, opts *Options) error {
 	if err := prov.CheckStorage(ctx, prov.TFStateBucket(names.Region)); err != nil {
 		return nserr.Wrap(nserr.Fail, err)
 	}
+	// After the storage check: the graph deploy runs in projectbuilder and
+	// refreshes its state from that bucket like any other node.
+	if reg.ControlPlane.Bootstrapped {
+		if err := recoverLostGraph(ctx, opts, reg, target, docker, prov, names); err != nil {
+			opts.warn("%v", err)
+		}
+	}
 
 	restoreEnvironmentState(ctx, opts, docker, reg, runningBefore, sweepSince)
 

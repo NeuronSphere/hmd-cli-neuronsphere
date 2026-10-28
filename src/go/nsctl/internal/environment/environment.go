@@ -226,10 +226,21 @@ func Start(ctx context.Context, opts *Options, name string) error {
 		graphID := floci.GraphIdentifier(names)
 		graphContainer, err = floci.EnsureNeptuneRunning(ctx, d, env.AccountID, graphID,
 			env.GraphContainer, reg.ControlPlane.Network)
-		if err != nil {
+		switch {
+		case err != nil:
 			opts.warn("%v", err)
-		} else if graphContainer != "" {
+		case graphContainer != "":
 			opts.step("  %s is up and aliased as %s", graphContainer, env.GraphContainer)
+		default:
+			// The deployment graph still calls global-graph DEPLOYED and the
+			// snapshot still matches, so without the mark the plan reads it as
+			// unchanged and the cleared record is never rebuilt.
+			if cleared, err := floci.ClearLostGraph(ctx, prov, d, env.AccountID, graphID); err != nil {
+				opts.warn("%v", err)
+			} else if cleared {
+				opts.markForRedeploy(bom.GraphInstance)
+				opts.warn("Floci kept the graph record for %q but lost its container, and the data in it; the deploy recreates the graph empty", env.Slug)
+			}
 		}
 	}
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-28
+
+- fix: `nsctl env start` and the control plane's warm start recover a graph Floci lost. A killed Floci keeps a Neptune cluster's record, reporting `available`, but removes its container, and nothing recreated it: `EnsureNeptuneRunning` found no container to start, hmd-inf-neptune's deploy is a no-op against the surviving record, and the plan read the instance as unchanged. `floci.ClearLostGraph` deletes such a record (the data went with the container); `env start` then marks `global-graph` for redeploy, and the control plane redeploys `control-plane-graph` with the bootstrap runner and warns that `nsctl control-plane reset hmd-ms-artifact-lib` reloads the librarian's content-item types into the empty graph
+
 ## 2026-10-26
 
 - fix: `repoclass validate` treats a repository that ships `meta-data/bundles/*.json` and has no `local` section as a stack: it needs no `deploy.commands`, and its `access` entries may name instances

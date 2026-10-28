@@ -249,3 +249,36 @@ func ReleaseUnmanagedSubnetGroup(ctx context.Context, api SubnetGroups, name str
 	}
 	return true, nil
 }
+
+// GraphRecords is the cluster-record surface ClearLostGraph needs. *Provisioner
+// satisfies it.
+type GraphRecords interface {
+	DBClusterStatus(ctx context.Context, identifier string) string
+	DeleteDBCluster(ctx context.Context, identifier string) error
+}
+
+// ClearLostGraph deletes the record of a graph whose container is gone, and
+// reports whether it did.
+//
+// Floci keeps a Neptune cluster's record, reporting available, after the
+// container behind it has been removed -- which a killed Floci does. Nothing
+// brings that container back: EnsureNeptuneRunning finds none to start, and
+// hmd-inf-neptune's deploy_local.sh is idempotent on the identifier, so a
+// redeploy is a no-op against the surviving record. Every consumer then fails
+// on `global-graph: Name or service not known`, several layers from the cause.
+//
+// Not the data loss DeleteDBCluster warns of: Floci mounts no volume for a
+// graph, so its data went with the container. The caller redeploys the graph,
+// which comes back empty.
+func ClearLostGraph(ctx context.Context, records GraphRecords, d Containers, accountID, identifier string) (bool, error) {
+	if name, _ := d.FlociContainer(ctx, "neptune", accountID, identifier); name != "" {
+		return false, nil
+	}
+	if records.DBClusterStatus(ctx, identifier) == "" {
+		return false, nil
+	}
+	if err := records.DeleteDBCluster(ctx, identifier); err != nil {
+		return false, err
+	}
+	return true, nil
+}
