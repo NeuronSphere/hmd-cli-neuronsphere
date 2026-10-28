@@ -1,0 +1,48 @@
+{
+  "perspective_name": "librarian-content",
+  "perspective_display": "Artifact Librarian content",
+  "graph_display": {},
+  "entity_extensions": [
+    {
+      "content_item_type": {
+        "display": "Content Item Type",
+        "description": "The hmd_lang_librarian.content_item_type short_name the content is uploaded as.",
+        "extension_type": "short_text",
+        "default": "{entity.name}"
+      }
+    },
+    {
+      "format": {
+        "display": "File Format",
+        "description": "The file format of each content item.",
+        "extension_type": "enum",
+        "default": null,
+        "enum_values": [
+          { "id": "parquet", "description": "Parquet", "definition": "parquet" },
+          { "id": "csv", "description": "CSV", "definition": "csv" },
+          { "id": "json", "description": "JSON", "definition": "json" }
+        ]
+      }
+    },
+    {
+      "path_template": {
+        "display": "Content Path",
+        "description": "The content item path, with run-time values written {name}.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    }
+  ],
+  "noun_extensions": [],
+  "relationship_extensions": [],
+  "attribute_extensions": [
+    {
+      "source_expression": {
+        "display": "Source",
+        "description": "How the producer computes the column, when it is a projection of a graph noun.",
+        "extension_type": "short_text",
+        "default": null
+      }
+    }
+  ]
+}

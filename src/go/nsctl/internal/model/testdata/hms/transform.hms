@@ -1,0 +1,27 @@
+{
+  "name": "transform",
+  "namespace": "hmd_lang_transform",
+  "metatype": "noun",
+  "attributes": {
+    "name": {
+      "type": "string",
+      "description": "The text identifier of the transform",
+      "required": true
+    },
+    "is_active": {
+      "type": "enum",
+      "enum_def": [
+        "pending",
+        "active",
+        "inactive"
+      ],
+      "description": "The status of a transform",
+      "required": true
+    },
+    "last_deployed": {
+      "type": "timestamp",
+      "description": "The last time the transform was deployed",
+      "required": false
+    }
+  }
+}

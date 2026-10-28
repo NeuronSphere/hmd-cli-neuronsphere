@@ -58,7 +58,7 @@ func analyticsHome(t *testing.T) (home string, env map[string]string, bomFile, s
 			{InstanceName: "superset", RepoClassName: "hmd-inf-superset", Source: &manifest.Source{Type: manifest.SourceLocal, Path: supersetTree}},
 			{InstanceName: "airflow", RepoClassName: "hmd-app-airflow", Version: "0.4.344", Source: &manifest.Source{Type: manifest.SourceArtifact}},
 		},
-		Stacks: []manifest.StackRecord{{Name: "storage", Version: "0.1.0", Ref: "oci://ghcr.io/hmdlabs/stacks/storage", Declared: []string{"bucket"}}},
+		Bundles: []manifest.StackRecord{{Name: "storage", Version: "0.1.0", Ref: "oci://ghcr.io/hmdlabs/stacks/storage", Declared: []string{"bucket"}}},
 	}
 	if err := m.Save(m.Path); err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func analyticsHome(t *testing.T) (home string, env map[string]string, bomFile, s
 func TestStackInitScaffoldsARepoClassWithItsWorkflow(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "hmd-stack-x")
-	out, _, err := run(t, fakeEnv(nil), "stack", "init", "hmd-stack-x", "--path", dir, "--description", "An x")
+	out, _, err := run(t, fakeEnv(nil), "bundle", "init", "hmd-stack-x", "--path", dir, "--description", "An x")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -105,11 +105,11 @@ func TestStackInitScaffoldsARepoClassWithItsWorkflow(t *testing.T) {
 			t.Errorf("workflow lacks %q", want)
 		}
 	}
-	_, _, err = run(t, fakeEnv(nil), "stack", "init", "hmd-stack-x", "--path", dir)
+	_, _, err = run(t, fakeEnv(nil), "bundle", "init", "hmd-stack-x", "--path", dir)
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("second init: %v", err)
 	}
-	_, _, err = run(t, fakeEnv(nil), "stack", "init", "Bad_Name", "--path", t.TempDir())
+	_, _, err = run(t, fakeEnv(nil), "bundle", "init", "Bad_Name", "--path", t.TempDir())
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Errorf("bad name: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "hmd-stack-analytics")
 
 	// Dry run: the table, and nothing on disk.
-	out, errOut, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	out, errOut, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow", "--dry-run")
 	if err != nil {
 		t.Fatalf("%v\n%s%s", err, out, errOut)
@@ -148,7 +148,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	}
 
 	// For real: manifest, lock, workflow.
-	out, _, err = run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	out, _, err = run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -189,7 +189,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	}
 
 	// The derived stack builds offline from the cache.
-	out, _, err = run(t, fakeEnv(env), "stack", "build", dir)
+	out, _, err = run(t, fakeEnv(env), "bundle", "build", dir)
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -199,7 +199,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 
 	// --diff agrees with itself, disagrees after the environment moves, and
 	// --update brings it back.
-	if _, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	if _, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow", "--diff"); err != nil {
 		t.Errorf("--diff on an unchanged environment: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	if err := os.WriteFile(bomFile, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	_, _, err = run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow", "--diff")
 	if nserr.CodeOf(err) != nserr.Fail || !strings.Contains(err.Error(), "0.3.13") {
 		t.Errorf("--diff after a move: %v", err)
@@ -221,7 +221,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	if _, err := artifact.Store(home, "hmd-inf-trino", "0.3.13", artifactZip(t, "hmd-inf-trino", "0.3.13", "moved")); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	out, _, err = run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow", "--update")
 	if err != nil || !strings.Contains(out, "Rewrote the local section") {
 		t.Errorf("--update: %q, %v", out, err)
@@ -235,7 +235,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	if raw, _ := os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json")); !strings.Contains(string(raw), `"description"`) {
 		t.Error("--update dropped keys it should preserve")
 	}
-	out, _, err = run(t, fakeEnv(env), "stack", "init", "hmd-stack-analytics", "--path", dir,
+	out, _, err = run(t, fakeEnv(env), "bundle", "init", "hmd-stack-analytics", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino,airflow", "--update")
 	if err != nil || !strings.Contains(out, "already up to date") {
 		t.Errorf("idempotent --update: %q, %v", out, err)
@@ -246,12 +246,12 @@ func TestStackInitRefusesAWorkingTreeUnlessBundled(t *testing.T) {
 	t.Parallel()
 	home, env, bomFile, _ := analyticsHome(t)
 	dir := filepath.Join(t.TempDir(), "hmd-stack-viz")
-	_, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-viz", "--path", dir,
+	_, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-viz", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "superset")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "--bundle-local superset") {
 		t.Fatalf("err = %v", err)
 	}
-	out, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-viz", "--path", dir,
+	out, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-viz", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "superset", "--bundle-local", "superset")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -259,7 +259,7 @@ func TestStackInitRefusesAWorkingTreeUnlessBundled(t *testing.T) {
 	if !strings.Contains(out, "Bundled superset (hmd-inf-superset@0.5.1)") || !artifact.Cached(home, "hmd-inf-superset", "0.5.1") {
 		t.Errorf("working tree not bundled: %q", out)
 	}
-	if _, _, err := run(t, fakeEnv(env), "stack", "build", dir); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "bundle", "build", dir); err != nil {
 		t.Errorf("build with the bundled tree: %v", err)
 	}
 }
@@ -268,7 +268,7 @@ func TestStackInitIncludeProvidedBundlesTheOtherStacksInstance(t *testing.T) {
 	t.Parallel()
 	_, env, bomFile, _ := analyticsHome(t)
 	dir := filepath.Join(t.TempDir(), "hmd-stack-wh")
-	out, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-wh", "--path", dir,
+	out, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-wh", "--path", dir,
 		"--from-bom", bomFile, "--env", "local", "--select", "trino", "--include-provided", "--dry-run")
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestStackInitFromEnvWritesTheReferenceBOM(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "hmd-stack-ms")
-	out, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-ms", "--path", dir, "--from-env", "local", "--select", "metastore")
+	out, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-ms", "--path", dir, "--from-env", "local", "--select", "metastore")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -341,7 +341,7 @@ func TestStackInitFromEnvWritesTheReferenceBOM(t *testing.T) {
 		t.Errorf("out = %q", out)
 	}
 	// The reference BOM re-derives to the same thing.
-	if _, _, err := run(t, fakeEnv(env), "stack", "init", "hmd-stack-ms", "--path", dir,
+	if _, _, err := run(t, fakeEnv(env), "bundle", "init", "hmd-stack-ms", "--path", dir,
 		"--from-bom", filepath.Join(dir, "meta-data", "reference-bom.json"), "--select", "metastore", "--diff"); err != nil {
 		t.Errorf("--diff against the written reference BOM: %v", err)
 	}

@@ -69,6 +69,9 @@ type Config struct {
 	// installation runs. NERD018 SPEC001. A plugin exists because it is
 	// listed here and for no other reason.
 	Plugins map[string]Plugin `toml:"plugin,omitempty"`
+	// Pool is the [pool] table: the local environments run leases are handed
+	// out from. Optional; see EnvPool for the defaults.
+	Pool *Pool `toml:"pool,omitempty"`
 }
 
 // Plugin is one declared CLI plugin.
@@ -194,9 +197,9 @@ func ValidPluginName(name string) error {
 // than imported, because cmd imports this package; a test in cmd asserts the
 // two agree.
 var builtinNouns = []string{
-	"agent", "env", "lock", "artifact", "bom", "repo", "repoclass",
+	"agent", "env", "lock", "artifact", "bom", "instance", "repoclass",
 	"control-plane", "cp", "authd", "login", "logout", "whoami", "version", "doctor", "db",
-	"stack", "plugin", "quickstart", "dns",
+	"bundle", "stack", "plugin", "quickstart", "dns", "inspect", "model", "template",
 }
 
 // BuiltinNouns is the list cmd's test compares against its tree.
@@ -449,6 +452,11 @@ func Parse(data []byte) (*Config, error) {
 			return nil, err
 		}
 		cfg.Plugins[name] = plugin
+	}
+	if cfg.Pool != nil {
+		if err := cfg.Pool.validate(); err != nil {
+			return nil, err
+		}
 	}
 	return &cfg, nil
 }

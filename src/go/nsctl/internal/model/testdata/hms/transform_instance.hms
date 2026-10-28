@@ -1,0 +1,86 @@
+{
+  "name": "transform_instance",
+  "namespace": "hmd_lang_transform",
+  "metatype": "noun",
+  "attributes": {
+    "instance_name": {
+      "type": "string",
+      "description": "The name of the instance",
+      "required": true
+    },
+    "status": {
+      "type": "enum",
+      "enum_def": [
+        "created",
+        "ready",
+        "scheduled",
+        "running",
+        "scheduling_failed",
+        "scheduling_failed_max_attempts",
+        "complete_failed",
+        "complete_successful",
+        "cancelled",
+        "failed_max_attempts"
+      ],
+      "description": "The status of a transform instance.",
+      "required": true
+    },
+    "run_context": {
+      "type": "mapping",
+      "description": "The input context variables with which the Transform Instance was run."
+    },
+    "created_at": {
+      "type": "timestamp",
+      "description": "The time the transform instance was created"
+    },
+    "scheduled_at": {
+      "type": "timestamp",
+      "description": "The time the transform instance was scheduled"
+    },
+    "started_at": {
+      "type": "timestamp",
+      "description": "The time the transform instance was started"
+    },
+    "error_message": {
+      "type": "string",
+      "description": "The error message if the transform instance failed"
+    },
+    "scheduling_attempts": {
+      "type": "integer",
+      "description": "Number of engine submission attempts; drives scheduling backoff and the retry cap."
+    },
+    "last_scheduling_attempt_at": {
+      "type": "timestamp",
+      "description": "The time of the most recent engine submission attempt; drives scheduling backoff."
+    },
+    "scheduling_error_message": {
+      "type": "string",
+      "description": "The latest engine submission failure reason (overwritten each attempt), distinct from error_message."
+    },
+    "completed_at": {
+      "type": "timestamp",
+      "description": "The time the transform instance was completed"
+    },
+    "priority": {
+      "type": "integer",
+      "description": "The priority of the transform instance. Higher numbers are higher priority."
+    },
+    "pool": {
+      "type": "string",
+      "description": "The Airflow pool the transform instance runs in. Used to cap concurrency for heavy workloads (e.g. `trino_writes`). Defaults to `default_pool` when unset."
+    },
+    "instance_key": {
+      "type": "string",
+      "description": "Deterministic idempotency key for a scheduling intent: lowercase hex SHA-1 of `\"{transform_id}:{entity_id}:{scope}\"`. Optional/nullable for backward compatibility with instances created before the key existed. Flagged `advisory_lock` so the Postgres engine performs an idempotent claim-and-create on this value, guaranteeing at most one instance per scheduling intent.",
+      "advisory_lock": true
+    },
+    "transform_name": {
+      "type": "string",
+      "description": "Denormalized name of the Transform this instance belongs to. Populated at creation (and defensively on status change) so the eligibility filter can check `has this Entity been processed by this Transform?` with a single-hop property check instead of a multi-hop reverse traversal."
+    },
+    "transform_version": {
+      "type": "string",
+      "description": "Denormalized version of the TransformVersion this instance belongs to. Populated alongside `transform_name`."
+    }
+  }
+}

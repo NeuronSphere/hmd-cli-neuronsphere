@@ -229,9 +229,7 @@ class HelmReleaseCrossCheckTests(_ReconcileTest):
             csb, "full_definition", return_value=[entry]
         ), mock.patch.object(
             b, "_repo_instance_status", return_value={"my-api": "DEPLOYED"}
-        ), mock.patch(
-            "hmd_cli_neuronsphere.k3s_operators.live_helm_releases"
-        ) as live:
+        ), mock.patch("hmd_cli_neuronsphere.k3s_operators.live_helm_releases") as live:
             er.compute_plan("http://x", env=self.env)
         live.assert_not_called()
 

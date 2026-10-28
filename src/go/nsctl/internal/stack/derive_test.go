@@ -48,7 +48,7 @@ func fixtureManifest() *manifest.Manifest {
 			{InstanceName: "superset", RepoClassName: "hmd-inf-superset", Source: &manifest.Source{Type: manifest.SourceLocal, Path: "/src/superset"}},
 			{InstanceName: "airflow", RepoClassName: "hmd-app-airflow", Version: "0.4.344", Source: &manifest.Source{Type: manifest.SourceArtifact}},
 		},
-		Stacks: []manifest.StackRecord{{Name: "storage", Version: "0.1.0", Ref: "oci://ghcr.io/hmdlabs/stacks/storage", Declared: []string{"bucket"}}},
+		Bundles: []manifest.StackRecord{{Name: "storage", Version: "0.1.0", Ref: "oci://ghcr.io/hmdlabs/stacks/storage", Declared: []string{"bucket"}}},
 	}
 }
 

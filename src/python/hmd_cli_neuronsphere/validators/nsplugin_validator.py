@@ -423,17 +423,15 @@ def _validate_telemetry_profiles(
             mt = metric.get("metric_type")
             if mt is not None and mt not in valid_metric_types:
                 result.add_warning(
-                    f"{prefix}.metric_type '{mt}' " f"not in {valid_metric_types}"
+                    f"{prefix}.metric_type '{mt}' not in {valid_metric_types}"
                 )
 
             src = metric.get("source")
             if src is not None and src not in valid_sources:
-                result.add_warning(
-                    f"{prefix}.source '{src}' " f"not in {valid_sources}"
-                )
+                result.add_warning(f"{prefix}.source '{src}' not in {valid_sources}")
 
             cmp = metric.get("comparison")
             if cmp is not None and cmp not in valid_comparisons:
                 result.add_warning(
-                    f"{prefix}.comparison '{cmp}' " f"not in {valid_comparisons}"
+                    f"{prefix}.comparison '{cmp}' not in {valid_comparisons}"
                 )

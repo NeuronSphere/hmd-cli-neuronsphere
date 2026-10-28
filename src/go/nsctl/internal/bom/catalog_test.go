@@ -2,12 +2,15 @@ package bom
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/repoclass"
 )
 
 // registerCatalogServer answers every request RegisterCatalog and Seed can
@@ -105,4 +108,102 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// treeResolver reports a version whose tree carries a default configuration,
+// the way repoclass.Resolver does for a working tree.
+type treeResolver struct {
+	defaults map[string]any
+}
+
+func (r treeResolver) Resolve(repoClass, declared string) (string, map[string]any, map[string]any, error) {
+	return "0.1", nil, r.defaults, nil
+}
+
+func (r treeResolver) Produces(string) ([]repoclass.ResourceDeclaration, error) { return nil, nil }
+
+// existingVersionServer answers add_repo_class_version the way ms-deployment
+// does for a version it already has, and serves that version with stored as
+// its default configuration.
+func existingVersionServer(t *testing.T, stored map[string]any) (*httptest.Server, *[]string) {
+	t.Helper()
+	var (
+		mu    sync.Mutex
+		calls []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/apiop/add_repo_class_version":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"RepoClass, hmd-inf-otel-collector, already has version 0.1."}`))
+		case strings.HasPrefix(r.URL.Path, "/apiop/find_repo_class_versions"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"identifier": "rcv-1", "version": "0.1", "default_configuration": stored},
+			})
+		case strings.HasPrefix(r.URL.Path, "/api/") && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	return srv, &calls
+}
+
+func registerOtel(t *testing.T, srv *httptest.Server, resolver VersionResolver, instanceConfig map[string]any) {
+	t.Helper()
+	s := &Seeder{Client: msdeploy.New(srv.URL), Versions: resolver, Warn: func(string, ...any) {}}
+	entries := []Entry{{
+		RepoInstanceName: "otel-collector", RepoClassName: "hmd-inf-otel-collector",
+		RepoClassVersion: "0.1", InstanceConfiguration: instanceConfig,
+	}}
+	if err := s.RegisterCatalog(context.Background(), Environment{Slug: "local", AccountID: "1", Region: "reg1"}, entries); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// NERD034 SPEC001: the version is already registered, the tree's default has
+// since changed, and the catalog row is updated rather than left stale.
+func TestRegisterCatalogUpdatesAnExistingVersionsChangedDefault(t *testing.T) {
+	t.Parallel()
+
+	srv, calls := existingVersionServer(t, map[string]any{"exporter": "s3"})
+	defer srv.Close()
+
+	registerOtel(t, srv, treeResolver{defaults: map[string]any{"exporter": "clickhouse"}}, nil)
+	if !contains(*calls, "PUT /api/hmd_lang_deployment.repo_class_version") {
+		t.Errorf("the changed default was never written; calls were %v", *calls)
+	}
+}
+
+func TestRegisterCatalogLeavesAnUnchangedDefaultAlone(t *testing.T) {
+	t.Parallel()
+
+	srv, calls := existingVersionServer(t, map[string]any{"exporter": "clickhouse"})
+	defer srv.Close()
+
+	registerOtel(t, srv, treeResolver{defaults: map[string]any{"exporter": "clickhouse"}}, nil)
+	if contains(*calls, "PUT /api/hmd_lang_deployment.repo_class_version") {
+		t.Errorf("an unchanged default was rewritten; calls were %v", *calls)
+	}
+}
+
+// With no tree, RegisterCatalog registers the instance's own configuration as
+// the class default. That is not a statement about the class and must never
+// overwrite what the catalog already holds.
+func TestRegisterCatalogNeverSyncsTheInstanceFallback(t *testing.T) {
+	t.Parallel()
+
+	srv, calls := existingVersionServer(t, map[string]any{"exporter": "s3"})
+	defer srv.Close()
+
+	registerOtel(t, srv, declaringResolver{}, map[string]any{"exporter": "instance-only"})
+	for _, c := range *calls {
+		if strings.HasPrefix(c, "POST /apiop/find_repo_class_versions/hmd-inf-otel-collector") || c == "PUT /api/hmd_lang_deployment.repo_class_version" {
+			t.Errorf("the instance fallback reached the catalog: %q", c)
+		}
+	}
 }

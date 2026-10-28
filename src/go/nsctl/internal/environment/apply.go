@@ -15,6 +15,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/credentials"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/envactivity"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/floci"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/k3s"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/librarian"
@@ -102,6 +103,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if err != nil {
 		return nserr.Wrap(nserr.Usage, err)
 	}
+	done, err := envactivity.Begin(opts.Home, env.Slug)
+	if err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	defer done()
 
 	d := container.New()
 	client, err := connectMSDeployment(ctx, opts)
@@ -128,9 +134,6 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	if err := refuseCoreBindings(mode, declared); err != nil {
 		return err
 	}
-	// The cluster entry only makes sense when k3s is enabled: without it the
-	// eks-cluster node deploys a cluster nothing will run.
-	substrate := bom.SubstrateFor(bomEnv, mode, k3sEnabled(opts))
 	var (
 		declaredRepos  []manifest.Repo
 		declaredStacks []manifest.StackRecord
@@ -138,7 +141,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	)
 	if declared != nil {
 		declaredRepos = declared.Repos
-		declaredStacks = declared.Stacks
+		declaredStacks = declared.Bundles
 		repoPaths = repoclass.Paths(declaredRepos, opts.Lookup)
 		opts.step("Manifest %s declares %d instance(s)", declared.Path, len(declaredRepos))
 		if unsupported := declared.Unsupported(); len(unsupported) > 0 {
@@ -149,62 +152,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 				strings.Join(unsupported, " and "))
 		}
 	}
-	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
-
-	// The External Secrets operator, unless opted out. It reaches nsctl through
-	// the environment manifest today, which on a developer machine the Python
-	// CLI wrote -- so an environment created by `nsctl env add` alone got a
-	// cluster with no operator on it, and the first cloud chart rendering an
-	// ExternalSecret failed on the missing CRD. Bundling the repo (SPEC006) is
-	// what lets it deploy; declaring it here is what makes it deploy at all.
-	//
-	// Not in Substrate's own list: substrateInstances decides which of the two
-	// changesets an entry lands in, and these belong in the second. The first
-	// is applied before the concrete core Resources are submitted, and a
-	// dependency carrying a tag_selector cannot resolve against a type nothing
-	// has produced yet.
-	if steps.Cluster && extSecretsEnabled(opts) && k3sEnabled(opts) {
-		entries = append(entries, bom.ExtSecrets(bomEnv)...)
-	}
-
-	// The graph, when something actually wants one. Lazily, for the same reason
-	// the Python is lazy: it is a JVM per environment that most local work never
-	// touches, so a default environment deploys none.
-	//
-	// Not gated on the cluster: it is a Floci Neptune cluster, not a chart.
-	// Not in Substrate's own list either -- a substrate name is reserved in
-	// every environment, and this one is deployed only on demand.
-	//
-	// Without this a stack that binds graph-db to `global-graph` -- the shape
-	// `nsctl stack init --from-env` produces, and what hmd-stack-analytics
-	// ships -- fails at register time on an instance that never existed:
-	//
-	//	AssertionError: No repo instance found for name, global-graph
-	//
-	// The alias answered on the network throughout, which is what hid this.
-	if graphEnabled(opts) {
-		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
-			entries = append(entries, bom.Graph(bomEnv))
-		}
-		bom.RepointGraphDatabase(entries)
-	}
-
-	// Before the plan is computed, not only inside Seed.
-	//
-	// Seed injects the per-environment endpoints on the way past, but the
-	// reconcile snapshot hashes the desired state built here. Injecting only in
-	// Seed means the digest covers a pre-injection entry that never matches
-	// what was seeded, and ext-secrets reads as drifted on every single apply.
-	// change_set_builder does the same thing in both places for the same
-	// reason, and says so: "Omitting it left ext-secrets permanently drifted."
-	// Defaults first, then the account. A manifest that declares ext-secrets
-	// itself shadows bom.ExtSecrets' entry, and InjectExtSecretsAccount only
-	// patches keys that already exist -- so without this an environment whose
-	// manifest carries no instance_configuration got the chart's cloud
-	// defaults: IRSA against a role in the control plane's account, every
-	// ClusterSecretStore stuck at InvalidProviderConfig.
-	bom.ApplyExtSecretsDefaults(entries, bomEnv.AccessKeyID)
-	bom.InjectExtSecretsAccount(entries, bomEnv.AccessKeyID)
+	entries := desiredEntries(opts, bomEnv, mode, declaredRepos)
 
 	// Everything this environment declares, kept before the plan narrows
 	// `entries` to what still needs deploying. Demand for a substrate service
@@ -262,6 +210,11 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.Fail, err)
 	}
 
+	// The developer's trees, digested now, before anything deploys: an edit
+	// made while this runs is then drift for the next apply rather than
+	// something recorded as applied without having been (NERD034 SPEC002).
+	trees := workingTreeDigests(opts, repoPaths, entries)
+
 	// What is already deployed and current does not need deploying again. The
 	// graph answers the first half; the snapshot of the last apply answers the
 	// second, since the graph records that an instance is DEPLOYED but not
@@ -295,6 +248,12 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			}
 		}
 		plan = reconcile.Compute(entries, status, snapshot, opts.redeployInstances)
+		// The entry hash covers what the environment manifest declares, not
+		// the tree it deploys from, so a chart or manifest-default edit in a
+		// working tree reads as current until the tree's own digest says not.
+		if moved := plan.MarkTreesChanged(reconcile.LoadSnapshotTrees(env.StateDir), trees); len(moved) > 0 {
+			opts.step("Working tree changed since the last apply: %s", strings.Join(moved, ", "))
+		}
 		opts.step("Plan: %s", plan.Summary())
 		for _, name := range plan.Remove {
 			// Reported, never acted on. Removing a line from a manifest is not
@@ -305,7 +264,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 			// Record the digests anyway: an environment deployed before
 			// snapshots existed has none, and without one drift is invisible
 			// forever.
-			if err := reconcile.WriteSnapshot(env.StateDir, entries, nil); err != nil {
+			if err := reconcile.WriteSnapshot(env.StateDir, entries, nil, trees); err != nil {
 				opts.warn("%v", err)
 			}
 			opts.step("  everything declared is already deployed and current")
@@ -324,6 +283,9 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		Client: client, Versions: resolver,
 		Region: names.Region,
 		Warn:   opts.warn,
+		Step:   opts.step,
+		Info:   opts.step,
+		Known:  declaredEntries,
 	}
 
 	// Two phases, not one changeset.
@@ -499,7 +461,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 	// plan already found deployed and current. A digest recorded for an entry
 	// that failed would make the next run read it as up to date.
 	succeeded := run.Succeeded
-	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil); writeErr != nil {
+	if writeErr := reconcile.WriteSnapshot(env.StateDir, settled(plan, succeeded), nil, trees); writeErr != nil {
 		opts.warn("%v", writeErr)
 	}
 	// Again, for what Phase B itself spawned, and on failure as well as
@@ -517,6 +479,7 @@ func Apply(ctx context.Context, opts *Options, name string) error {
 		return nserr.Wrap(nserr.DeployFailed, err)
 	}
 	opts.step("  deployed %d instance(s)", len(succeeded))
+	recordBundles(ctx, opts, client, env.Slug, declaredStacks)
 	// Named only when there is something to show. A pointer to an empty table is
 	// noise, and the alternative -- printing the credentials here -- puts them in
 	// scrollback and CI logs for every reader of every apply (NERD023 SPEC006).

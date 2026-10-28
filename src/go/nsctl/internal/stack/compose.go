@@ -125,7 +125,7 @@ func (u Unsatisfied) Error() string {
 	}
 	msg := fmt.Sprintf("role %q needs %s, and nothing in the environment provides it", u.Role, what)
 	if u.Suggest != "" {
-		msg += fmt.Sprintf("; add a stack that does (`nsctl stack add %s`)", u.Suggest)
+		msg += fmt.Sprintf("; add a stack that does (`nsctl bundle add %s`)", u.Suggest)
 	}
 	msg += fmt.Sprintf(", or bind an existing instance with --name %s=<instance>", u.Role)
 	return msg
@@ -176,7 +176,7 @@ func Compose(wants []localspec.Want, p Providers, owned map[string]bool, pinned 
 			if p.ClassOf(w.DefaultName) == w.RepoClassName {
 				binds[w.Key] = w.DefaultName
 			} else {
-				conflicts = append(conflicts, fmt.Sprintf("%q is already declared as %s, not %s; rename this stack's with --name %s=<instance>",
+				conflicts = append(conflicts, fmt.Sprintf("%q is already declared as %s, not %s; rename the new one with --name %s=<instance>",
 					w.DefaultName, p.ClassOf(w.DefaultName), w.RepoClassName, w.Key))
 			}
 		}

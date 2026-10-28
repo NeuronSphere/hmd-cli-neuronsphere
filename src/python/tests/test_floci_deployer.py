@@ -453,9 +453,7 @@ class StartNeptuneContainerReadinessTests(unittest.TestCase):
             fd, "_stopped_floci_container", return_value=container
         ), mock.patch.object(
             fd.subprocess, "run", side_effect=fake_run
-        ), mock.patch.object(
-            fd.time, "sleep"
-        ):
+        ), mock.patch.object(fd.time, "sleep"):
             return fd.start_neptune_container("graph-dev2")
 
     def test_waits_out_a_slow_boot_then_succeeds(self):
@@ -495,9 +493,7 @@ class StartNeptuneContainerReadinessTests(unittest.TestCase):
             fd, "_stopped_floci_container", return_value="floci-neptune-abc"
         ), mock.patch.object(
             fd.subprocess, "run", side_effect=fake_run
-        ), mock.patch.object(
-            fd.time, "sleep"
-        ):
+        ), mock.patch.object(fd.time, "sleep"):
             fd.start_neptune_container("graph-dev2")
 
         self.assertTrue(probes)
@@ -538,9 +534,7 @@ class EnsureNeptuneRunningTests(unittest.TestCase):
             fd, "neptune_cluster_exists", return_value=cluster
         ), mock.patch.object(
             fd.time, "time", side_effect=lambda: next(clock)
-        ), mock.patch.object(
-            fd.time, "sleep"
-        ) as sleep:
+        ), mock.patch.object(fd.time, "sleep") as sleep:
             self.sleep = sleep
             return fd.ensure_neptune_running("graph-cp", timeout=300)
 
@@ -562,9 +556,7 @@ class EnsureNeptuneRunningTests(unittest.TestCase):
             fd, "_stopped_floci_container", return_value="floci-neptune-abc"
         ), mock.patch.object(
             fd, "start_neptune_container", return_value=True
-        ) as start, mock.patch.object(
-            fd.time, "sleep"
-        ) as sleep:
+        ) as start, mock.patch.object(fd.time, "sleep") as sleep:
             name = fd.ensure_neptune_running("graph-cp")
 
         self.assertEqual(name, "floci-neptune-abc")

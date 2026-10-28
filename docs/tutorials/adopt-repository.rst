@@ -106,7 +106,7 @@ Review and apply
 
 Inspect the declaration and preview deployment::
 
-   nsctl repo list --env dev
+   nsctl instance list --env dev
    nsctl env plan dev
    nsctl env plan dev --output md > plan.md
 
@@ -118,7 +118,7 @@ Start the environment to create its infrastructure and apply the declaration::
 
    nsctl env start dev
    nsctl env status dev
-   nsctl repo list --env dev
+   nsctl instance list --env dev
    nsctl env plan dev
 
 For subsequent declaration edits on the running environment, use

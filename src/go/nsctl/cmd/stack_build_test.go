@@ -22,7 +22,7 @@ func TestStackBuildWritesADeterministicLayoutFromArtifacts(t *testing.T) {
 	home := t.TempDir()
 	env := fakeEnv(map[string]string{"HMD_LOCAL_MS_DEPLOYMENT_URL": "http://127.0.0.1:1"})
 
-	out, _, err := run(t, env, "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir)
+	out, _, err := run(t, env, "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir)
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -35,7 +35,7 @@ func TestStackBuildWritesADeterministicLayoutFromArtifacts(t *testing.T) {
 		t.Fatalf("layout: %v, tag %q", err, tag)
 	}
 	first, _ := os.ReadFile(filepath.Join(layout, "index.json"))
-	if _, _, err := run(t, env, "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir); err != nil {
+	if _, _, err := run(t, env, "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir); err != nil {
 		t.Fatal(err)
 	}
 	second, _ := os.ReadFile(filepath.Join(layout, "index.json"))
@@ -43,7 +43,7 @@ func TestStackBuildWritesADeterministicLayoutFromArtifacts(t *testing.T) {
 		t.Error("two builds from the same inputs differ")
 	}
 	// The subject zip never carries the layout: build/ is skipped.
-	if _, _, err := run(t, env, "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir); err != nil {
+	if _, _, err := run(t, env, "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -57,7 +57,7 @@ func TestStackBuildTakesCompanionsFromTheCache(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "build", repoDir)
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "build", repoDir)
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -96,7 +96,7 @@ func TestStackBuildTakesCompanionsFromAnOCISource(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Anonymous build, no --artifacts, empty cache: the OCI source serves.
-	out, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "build", repoDir)
+	out, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "build", repoDir)
 	if err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
@@ -114,7 +114,7 @@ func TestStackBuildTakesCompanionsFromAnOCISource(t *testing.T) {
 func TestStackBuildRefusalNamesEveryTierAndTheRemedy(t *testing.T) {
 	t.Parallel()
 	repoDir, _ := stackRepo(t)
-	_, _, err := run(t, fakeEnv(nil), "--home", t.TempDir(), "stack", "build", repoDir)
+	_, _, err := run(t, fakeEnv(nil), "--home", t.TempDir(), "bundle", "build", repoDir)
 	if nserr.CodeOf(err) != nserr.Usage {
 		t.Fatalf("err = %v", err)
 	}
@@ -130,7 +130,7 @@ func TestStackPushFromLayoutWithBump(t *testing.T) {
 	reg := ocitest.New(t)
 	repoDir, artifactsDir := stackRepo(t)
 	home := t.TempDir()
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir); err != nil {
 		t.Fatal(err)
 	}
 	layout := filepath.Join(repoDir, "build", "stack")
@@ -138,7 +138,7 @@ func TestStackPushFromLayoutWithBump(t *testing.T) {
 	pub := fakeEnv(map[string]string{"HMD_REGISTRY_TOKEN": "pat"})
 
 	// First push: nothing published, VERSION 0.1.0 is explicit -> 0.1.0.
-	out, _, err := run(t, pub, "--home", home, "stack", "push", ref, "--from", layout, "--bump")
+	out, _, err := run(t, pub, "--home", home, "bundle", "push", ref, "--from", layout, "--bump")
 	if err != nil {
 		t.Fatalf("push: %v\n%s", err, out)
 	}
@@ -146,7 +146,7 @@ func TestStackPushFromLayoutWithBump(t *testing.T) {
 		t.Errorf("out = %q", out)
 	}
 	// Same again: 0.1.0 is published, and an explicit VERSION cannot bump.
-	_, _, err = run(t, pub, "--home", home, "stack", "push", ref, "--from", layout, "--bump")
+	_, _, err = run(t, pub, "--home", home, "bundle", "push", ref, "--from", layout, "--bump")
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "already published") {
 		t.Errorf("republish: %v", err)
 	}
@@ -154,10 +154,10 @@ func TestStackPushFromLayoutWithBump(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoDir, "meta-data", "VERSION"), []byte("0.1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := run(t, fakeEnv(nil), "--home", home, "stack", "build", repoDir, "--artifacts", artifactsDir, "--tag", "0.1"); err != nil {
+	if _, _, err := run(t, fakeEnv(nil), "--home", home, "bundle", "build", repoDir, "--artifacts", artifactsDir, "--tag", "0.1"); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, pub, "--home", home, "stack", "push", ref, "--from", layout, "--bump")
+	out, _, err = run(t, pub, "--home", home, "bundle", "push", ref, "--from", layout, "--bump")
 	if err != nil {
 		t.Fatalf("bump: %v\n%s", err, out)
 	}
@@ -165,17 +165,17 @@ func TestStackPushFromLayoutWithBump(t *testing.T) {
 		t.Errorf("bump out = %q", out)
 	}
 	// An explicit existing tag without --bump is refused too.
-	_, _, err = run(t, pub, "--home", home, "stack", "push", ref+":0.1.1", "--from", layout)
+	_, _, err = run(t, pub, "--home", home, "bundle", "push", ref+":0.1.1", "--from", layout)
 	if nserr.CodeOf(err) != nserr.Usage || !strings.Contains(err.Error(), "immutable") {
 		t.Errorf("overwrite: %v", err)
 	}
 	// The consumer sees both, newest first, and names the stack by its ref.
-	out, _, err = run(t, fakeEnv(nil), "--home", home, "stack", "versions", ref)
+	out, _, err = run(t, fakeEnv(nil), "--home", home, "bundle", "versions", ref)
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(out), "0.1.1\n0.1.0") {
 		t.Errorf("versions: %q, %v", out, err)
 	}
 	_, env := fromRepoEnv(t)
-	out, _, err = run(t, fakeEnv(env), "stack", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
+	out, _, err = run(t, fakeEnv(env), "bundle", "add", ref, "--env", "local", "--local-url", "http://127.0.0.1:1")
 	if err != nil || !strings.Contains(out, "Declared stack obs 0.1.1") {
 		t.Errorf("add from a layout-built stack: %q, %v", out, err)
 	}

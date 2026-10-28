@@ -199,8 +199,8 @@ def render_compose_yaml(
     for bucket in buckets:
         if "transform" in compose_dict.get("services", {}):
             compose_dict["services"]["transform"]["environment"][
-                f'{bucket["name"].upper()}_BUCKET'
-            ] = f's3://{bucket["url"]}'
+                f"{bucket['name'].upper()}_BUCKET"
+            ] = f"s3://{bucket['url']}"
 
     # Inject HMDMS-service bucket env vars (e.g. DEVICE_BUCKET=s3://device-librarian).
     # Each librarian declares its own content_path_configs internally; transform

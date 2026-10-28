@@ -1,0 +1,16 @@
+{
+  "namespace": "hmd_lang_demo",
+  "name": "export",
+  "bindings": [
+    {
+      "layer": {"value": "final"},
+      "schema_name": {"value": "demo_final"},
+      "table_name": {"value": "export"},
+      "format": {"value": "parquet", "definition": "PARQUET"},
+      "attributes": {
+        "export_date": {"datatype": {"value": "date", "definition": "DATE"}, "is_partition": {"value": true}},
+        "amount": {"datatype": {"value": "decimal", "definition": "DECIMAL", "parameters": {"precision": 10, "scale": 2}}}
+      }
+    }
+  ]
+}

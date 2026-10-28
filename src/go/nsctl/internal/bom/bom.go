@@ -10,8 +10,10 @@ package bom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
@@ -284,11 +286,33 @@ type Seeder struct {
 	Region string
 	// Warn reports something a seed carried on past. Optional; nil discards.
 	Warn func(format string, a ...any)
+	// Step reports progress worth a line. Optional; nil discards.
+	Step func(format string, a ...any)
+	// Info reports a decision the seed made on the operator's behalf, such as a
+	// dependency role it bound. Optional; nil discards.
+	Info func(format string, a ...any)
+
+	// Known is every instance of the plan, including those not being seeded.
+	// A role may bind to an instance that is already deployed and unchanged,
+	// which Seed is not given; without it apply fails on a role the plan bound.
+	Known []Entry
+}
+
+func (s *Seeder) note(format string, a ...any) {
+	if s.Info != nil {
+		s.Info(format, a...)
+	}
 }
 
 func (s *Seeder) warn(format string, a ...any) {
 	if s.Warn != nil {
 		s.Warn(format, a...)
+	}
+}
+
+func (s *Seeder) step(format string, a ...any) {
+	if s.Step != nil {
+		s.Step(format, a...)
 	}
 }
 
@@ -322,8 +346,9 @@ func ResolveVersions(entries []Entry, versions VersionResolver) error {
 // RegisterCatalog performs the changeset-independent catalog writes Seed needs
 // before it ever builds a ChangeSet: repo class version registration, resource
 // type registration, produced-resource declarations, and the environment's own
-// entities. Every write is idempotent -- add_repo_class_version tolerates
-// "already exists", declare_produces is deduped server-side, and
+// entities. Every write is idempotent -- an already-registered version is
+// brought in line with its tree rather than re-added, declare_produces is
+// deduped server-side, and
 // EnsureEnvironment/EnsureDeploymentSet find-first -- so this is safe to call
 // speculatively. That is exactly what `nsctl env plan` needs: a dry run's
 // validate_changeset and suggest_resource_dependencies calls have to resolve
@@ -346,8 +371,17 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 		if version == "" {
 			return fmt.Errorf("no version for %s, and the BOM entry declares none", entries[i].RepoClassName)
 		}
+		manifestDeps := deps
 		if deps == nil {
 			deps = entries[i].Dependencies
+		}
+		// Only a default read from a tree describes the class. The fallback
+		// below is this one instance's configuration, which is fine to seed a
+		// version nothing has registered yet but must never overwrite a
+		// default the catalog already holds.
+		synced := map[string]any{}
+		if defaultConfig != nil {
+			synced["default_configuration"] = defaultConfig
 		}
 		if defaultConfig == nil {
 			defaultConfig = entries[i].InstanceConfiguration
@@ -368,10 +402,44 @@ func (s *Seeder) RegisterCatalog(ctx context.Context, env Environment, entries [
 				s.warn("reading %s's discovery metadata: %v", entries[i].RepoClassName, err)
 			} else if len(discovery) > 0 {
 				payload["discovery"] = discovery
+				synced["discovery"] = discovery
 			}
 		}
-		if err := s.Client.APIOpTolerateExists(ctx, "add_repo_class_version", payload); err != nil {
+		_, err = s.Client.APIOp(ctx, "add_repo_class_version", payload)
+		var apiErr *msdeploy.Error
+		switch {
+		case errors.As(err, &apiErr) && apiErr.AlreadyExists():
+			// The service refuses a version it has and offers no update, so
+			// an edited manifest would otherwise never reach the catalog and
+			// every deploy would merge the first default registered (NERD034
+			// SPEC001). A failure here is a warning: the version is
+			// registered, and its old default is what already ran.
+			if len(synced) > 0 {
+				updated, syncErr := s.Client.SyncRepoClassVersion(ctx, entries[i].RepoClassName, version, synced)
+				if syncErr != nil {
+					s.warn("updating %s %s's catalog entry from its tree: %v", entries[i].RepoClassName, version, syncErr)
+				} else if updated {
+					s.step("  updated %s %s's default configuration from its tree", entries[i].RepoClassName, version)
+				}
+			}
+		case err != nil:
 			return err
+		}
+		// A version already registered is never re-registered, so an edit to
+		// the class manifest since then would not reach the control plane.
+		// Resync rewires the existing version's dependency edges from the
+		// manifest just read, which is what makes an edited manifest take
+		// effect without a version bump. Only a manifest's own dependencies
+		// are sent: an entry's instance bindings are a different shape.
+		if manifestDeps != nil {
+			resync := map[string]any{
+				"repo_class_name": entries[i].RepoClassName,
+				"version":         version,
+				"dependencies":    manifestDeps,
+			}
+			if _, err := s.Client.APIOp(ctx, "resync_repo_class_version_dependencies", resync); err != nil {
+				s.warn("refreshing %s %s's dependencies from its manifest: %v", entries[i].RepoClassName, version, err)
+			}
 		}
 		entries[i].RepoClassVersion = version
 	}
@@ -442,6 +510,20 @@ func (s *Seeder) Seed(ctx context.Context, env Environment, entries []Entry) ([]
 	}
 	if err := s.RegisterCatalog(ctx, env, entries); err != nil {
 		return nil, err
+	}
+
+	// Fill the required roles the manifest left unbound that only one instance
+	// can satisfy, before the order below is computed from the dependencies.
+	bound, ambiguous, err := s.BindSuggested(ctx, env.Slug, entries, withKnown(entries, s.Known))
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range bound {
+		s.note("  bound %s role %s to %s (the only instance that satisfies it)", b.Instance, b.Role, b.Target)
+	}
+	for _, a := range ambiguous {
+		s.warn("%s role %s could be %s; choose one with --depends %s=<instance>",
+			a.Instance, a.Role, strings.Join(a.Candidates, ", "), a.Role)
 	}
 
 	// 5. The instances, dependencies first: register_deployed_instance resolves
@@ -631,7 +713,7 @@ func SubstrateFor(env Environment, mode manifest.Substrate, withCluster bool) []
 }
 
 // SubstrateNames lists the instances a mode deploys, in deploy order. What
-// `repo list` prints as substrate rows; IsSubstrate is deliberately not
+// `instance list` prints as substrate rows; IsSubstrate is deliberately not
 // consulted, because a name is reserved whether or not this environment
 // deploys it.
 func SubstrateNames(mode manifest.Substrate) []string {
@@ -673,3 +755,18 @@ var substrateInstances = map[string]bool{
 // The two are applied as separate changesets, so this is what decides which
 // phase an entry belongs to.
 func IsSubstrate(instanceName string) bool { return substrateInstances[instanceName] }
+
+// withKnown is entries followed by every known entry not already among them.
+func withKnown(entries, known []Entry) []Entry {
+	have := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		have[e.RepoInstanceName] = true
+	}
+	all := append([]Entry(nil), entries...)
+	for _, k := range known {
+		if !have[k.RepoInstanceName] {
+			all = append(all, k)
+		}
+	}
+	return all
+}

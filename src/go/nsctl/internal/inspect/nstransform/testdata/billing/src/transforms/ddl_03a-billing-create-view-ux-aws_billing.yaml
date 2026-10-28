@@ -1,0 +1,16 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: ddl_02b-billing-create-table-final
+    tf_name: ddl_03a-billing-create-view-ux-aws_billing
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      create or replace view billing_ux.aws_billing as
+      select * from billing_final.aws_billing
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params: {}

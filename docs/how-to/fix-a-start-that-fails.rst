@@ -127,3 +127,60 @@ path, so a different one misses every single one of them::
    export HMD_HOME=/the/path/you/deleted
    nsctl env purge --yes
    docker ps -a --filter name=floci    # should be empty
+
+A service cannot call itself back
+---------------------------------
+
+An environment service resolved through ``ms-naming`` answers at
+``http://hmd_proxy/<instance>/``, but an apply writes only the did-prefixed
+route ``/<did>/<instance>/``. Anything in the cluster that resolves through
+naming rather than ``NS_LOCAL_PROXY`` therefore reaches nginx's catch-all::
+
+   {"error": "no route defined"}
+
+``hmd-ms-transform``'s celery workers do exactly this: ``query_graph_entities``
+evaluates its gremlin query against the graph successfully, then fails posting
+``/apiop/entity_query_run/<id>/start`` back to its own service and retries with
+backoff forever. Nothing in the worker log names a route, so it reads as a
+trigger that never matches rather than a routing gap. The same applies to a
+librarian addressed by naming.
+
+Until route generation emits both spellings, add the un-prefixed alias beside
+the generated one in ``$HMD_HOME/.cache/nginx/http.d/`` -- copy the
+``location /<did>/<instance>/`` block, drop the ``/<did>`` from the location
+only, and ``nginx -s reload -c /etc/nginx/ns/neuronsphere.conf`` in
+``hmd_proxy``. It is regenerated on the next ``env start``.
+
+An image is in the node and still will not run
+----------------------------------------------
+
+``ctr images import`` reports success, ``ctr images ls`` shows the tag, and the
+kubelet pulls anyway despite ``imagePullPolicy: IfNotPresent`` -- then fails on
+a registry it has no credential for. Two distinct causes:
+
+**The import carried no layers.** ``docker save`` of a multi-arch image exports
+the index alone, so what lands is a ``manifest.list`` with nothing under it for
+the node's platform. The giveaway is ``total: 0.0 B`` during import and a
+``application/vnd.oci.image.index.v1+json`` line rather than
+``…image.manifest.v1+json``. Save one platform explicitly::
+
+   docker save --platform linux/arm64 <image> \
+     | docker exec -i <k3s container> ctr -n k8s.io images import -
+
+**The tag is not the image.** A node can hold an older build under the same tag
+than the host does. Compare digests rather than tags::
+
+   docker image inspect <image> --format '{{index .RepoDigests 0}}'
+   docker exec <k3s container> ctr -n k8s.io images ls | grep <image>
+
+This is easy to miss because everything downstream looks like a code bug: a
+stale ``hmd-img-transform-client`` lacking its ``environment == "local"``
+short-circuit sends workflow pods down the cloud auth path, where they fail
+first on ``NoCredentialsError`` and then on a missing Okta secret -- both of
+which the current build exists to avoid.
+
+Argo also needs the pull secret to *exist* even when nothing is pulled: its
+emissary executor resolves each image's entrypoint, and a missing
+``hmd-docker-repo-secret`` surfaces as::
+
+   failed to look-up entrypoint/cmd for image ""

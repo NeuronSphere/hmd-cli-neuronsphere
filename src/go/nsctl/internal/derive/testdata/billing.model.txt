@@ -1,0 +1,693 @@
+A billing.aws_billing bill_bill_type type=string req=?
+A billing.aws_billing bill_billing_entity type=string req=?
+A billing.aws_billing bill_billing_period_end_date type=timestamp req=?
+A billing.aws_billing bill_billing_period_start_date type=timestamp req=?
+A billing.aws_billing bill_invoice_id type=string req=?
+A billing.aws_billing bill_invoicing_entity type=string req=?
+A billing.aws_billing bill_payer_account_id type=string req=?
+A billing.aws_billing identity_line_item_id type=string req=?
+A billing.aws_billing identity_time_interval type=string req=?
+A billing.aws_billing line_item_availability_zone type=string req=?
+A billing.aws_billing line_item_blended_cost type=float req=?
+A billing.aws_billing line_item_blended_rate type=string req=?
+A billing.aws_billing line_item_currency_code type=string req=?
+A billing.aws_billing line_item_legal_entity type=string req=?
+A billing.aws_billing line_item_line_item_description type=string req=?
+A billing.aws_billing line_item_line_item_type type=string req=?
+A billing.aws_billing line_item_normalization_factor type=float req=?
+A billing.aws_billing line_item_normalized_usage_amount type=float req=?
+A billing.aws_billing line_item_operation type=string req=?
+A billing.aws_billing line_item_product_code type=string req=?
+A billing.aws_billing line_item_resource_id type=string req=?
+A billing.aws_billing line_item_tax_type type=string req=?
+A billing.aws_billing line_item_unblended_cost type=float req=?
+A billing.aws_billing line_item_unblended_rate type=string req=?
+A billing.aws_billing line_item_usage_account_id type=string req=?
+A billing.aws_billing line_item_usage_amount type=float req=?
+A billing.aws_billing line_item_usage_end_date type=timestamp req=?
+A billing.aws_billing line_item_usage_start_date type=timestamp req=?
+A billing.aws_billing line_item_usage_type type=string req=?
+A billing.aws_billing month type=string req=?
+A billing.aws_billing pricing_currency type=string req=?
+A billing.aws_billing pricing_public_on_demand_cost type=float req=?
+A billing.aws_billing pricing_public_on_demand_rate type=string req=?
+A billing.aws_billing pricing_rate_code type=string req=?
+A billing.aws_billing pricing_rate_id type=string req=?
+A billing.aws_billing pricing_term type=string req=?
+A billing.aws_billing pricing_unit type=string req=?
+A billing.aws_billing product_account_assistance type=string req=?
+A billing.aws_billing product_alarm_type type=string req=?
+A billing.aws_billing product_architectural_review type=string req=?
+A billing.aws_billing product_architecture_support type=string req=?
+A billing.aws_billing product_availability type=string req=?
+A billing.aws_billing product_availability_zone type=string req=?
+A billing.aws_billing product_best_practices type=string req=?
+A billing.aws_billing product_capacitystatus type=string req=?
+A billing.aws_billing product_case_severityresponse_times type=string req=?
+A billing.aws_billing product_classicnetworkingsupport type=string req=?
+A billing.aws_billing product_clock_speed type=string req=?
+A billing.aws_billing product_current_generation type=string req=?
+A billing.aws_billing product_customer_service_and_communities type=string req=?
+A billing.aws_billing product_database_engine type=string req=?
+A billing.aws_billing product_dedicated_ebs_throughput type=string req=?
+A billing.aws_billing product_deployment_option type=string req=?
+A billing.aws_billing product_description type=string req=?
+A billing.aws_billing product_durability type=string req=?
+A billing.aws_billing product_ecu type=string req=?
+A billing.aws_billing product_endpoint_type type=string req=?
+A billing.aws_billing product_engine_code type=string req=?
+A billing.aws_billing product_enhanced_networking_supported type=string req=?
+A billing.aws_billing product_finding_group type=string req=?
+A billing.aws_billing product_finding_source type=string req=?
+A billing.aws_billing product_finding_storage type=string req=?
+A billing.aws_billing product_from_location type=string req=?
+A billing.aws_billing product_from_location_type type=string req=?
+A billing.aws_billing product_from_region_code type=string req=?
+A billing.aws_billing product_group type=string req=?
+A billing.aws_billing product_group_description type=string req=?
+A billing.aws_billing product_included_services type=string req=?
+A billing.aws_billing product_insightstype type=string req=?
+A billing.aws_billing product_instance_family type=string req=?
+A billing.aws_billing product_instance_type type=string req=?
+A billing.aws_billing product_instance_type_family type=string req=?
+A billing.aws_billing product_intel_avx2_available type=string req=?
+A billing.aws_billing product_intel_avx_available type=string req=?
+A billing.aws_billing product_intel_turbo_available type=string req=?
+A billing.aws_billing product_launch_support type=string req=?
+A billing.aws_billing product_license_model type=string req=?
+A billing.aws_billing product_location type=string req=?
+A billing.aws_billing product_location_type type=string req=?
+A billing.aws_billing product_logs_destination type=string req=?
+A billing.aws_billing product_marketoption type=string req=?
+A billing.aws_billing product_max_iops_burst_performance type=string req=?
+A billing.aws_billing product_max_iopsvolume type=string req=?
+A billing.aws_billing product_max_throughputvolume type=string req=?
+A billing.aws_billing product_max_volume_size type=string req=?
+A billing.aws_billing product_memory type=string req=?
+A billing.aws_billing product_message_delivery_frequency type=string req=?
+A billing.aws_billing product_message_delivery_order type=string req=?
+A billing.aws_billing product_min_volume_size type=string req=?
+A billing.aws_billing product_network_performance type=string req=?
+A billing.aws_billing product_normalization_size_factor type=string req=?
+A billing.aws_billing product_operating_system type=string req=?
+A billing.aws_billing product_operation type=string req=?
+A billing.aws_billing product_operations_support type=string req=?
+A billing.aws_billing product_parameter_type type=string req=?
+A billing.aws_billing product_physical_processor type=string req=?
+A billing.aws_billing product_platopricingtype type=string req=?
+A billing.aws_billing product_platostoragetype type=string req=?
+A billing.aws_billing product_platousagetype type=string req=?
+A billing.aws_billing product_pre_installed_sw type=string req=?
+A billing.aws_billing product_pricing_unit type=string req=?
+A billing.aws_billing product_proactive_guidance type=string req=?
+A billing.aws_billing product_processor_architecture type=string req=?
+A billing.aws_billing product_processor_features type=string req=?
+A billing.aws_billing product_product_family type=string req=?
+A billing.aws_billing product_product_name type=string req=?
+A billing.aws_billing product_programmatic_case_management type=string req=?
+A billing.aws_billing product_queue_type type=string req=?
+A billing.aws_billing product_region type=string req=?
+A billing.aws_billing product_region_code type=string req=?
+A billing.aws_billing product_routing_target type=string req=?
+A billing.aws_billing product_routing_type type=string req=?
+A billing.aws_billing product_servicecode type=string req=?
+A billing.aws_billing product_servicename type=string req=?
+A billing.aws_billing product_sku type=string req=?
+A billing.aws_billing product_standard_group type=string req=?
+A billing.aws_billing product_standard_storage type=string req=?
+A billing.aws_billing product_storage type=string req=?
+A billing.aws_billing product_storage_class type=string req=?
+A billing.aws_billing product_storage_media type=string req=?
+A billing.aws_billing product_storage_type type=string req=?
+A billing.aws_billing product_technical_support type=string req=?
+A billing.aws_billing product_tenancy type=string req=?
+A billing.aws_billing product_thirdparty_software_support type=string req=?
+A billing.aws_billing product_throughput type=string req=?
+A billing.aws_billing product_tiertype type=string req=?
+A billing.aws_billing product_to_location type=string req=?
+A billing.aws_billing product_to_location_type type=string req=?
+A billing.aws_billing product_to_region_code type=string req=?
+A billing.aws_billing product_training type=string req=?
+A billing.aws_billing product_transfer_type type=string req=?
+A billing.aws_billing product_usagetype type=string req=?
+A billing.aws_billing product_vcpu type=string req=?
+A billing.aws_billing product_version type=string req=?
+A billing.aws_billing product_volume_api_name type=string req=?
+A billing.aws_billing product_volume_type type=string req=?
+A billing.aws_billing product_vpcnetworkingsupport type=string req=?
+A billing.aws_billing product_who_can_open_cases type=string req=?
+A billing.aws_billing reservation_amortized_upfront_cost_for_usage type=float req=?
+A billing.aws_billing reservation_amortized_upfront_fee_for_billing_period type=float req=?
+A billing.aws_billing reservation_effective_cost type=float req=?
+A billing.aws_billing reservation_end_time type=string req=?
+A billing.aws_billing reservation_modification_status type=string req=?
+A billing.aws_billing reservation_normalized_units_per_reservation type=string req=?
+A billing.aws_billing reservation_number_of_reservations type=string req=?
+A billing.aws_billing reservation_recurring_fee_for_usage type=float req=?
+A billing.aws_billing reservation_start_time type=string req=?
+A billing.aws_billing reservation_subscription_id type=string req=?
+A billing.aws_billing reservation_total_reserved_normalized_units type=string req=?
+A billing.aws_billing reservation_total_reserved_units type=string req=?
+A billing.aws_billing reservation_units_per_reservation type=string req=?
+A billing.aws_billing reservation_unused_amortized_upfront_fee_for_billing_period type=float req=?
+A billing.aws_billing reservation_unused_normalized_unit_quantity type=float req=?
+A billing.aws_billing reservation_unused_quantity type=float req=?
+A billing.aws_billing reservation_unused_recurring_fee type=float req=?
+A billing.aws_billing reservation_upfront_value type=float req=?
+A billing.aws_billing resource_tags_aws_created_by type=string req=?
+A billing.aws_billing resource_tags_user_ad_hoc type=string req=?
+A billing.aws_billing resource_tags_user_env type=string req=?
+A billing.aws_billing resource_tags_user_instance_name type=string req=?
+A billing.aws_billing resource_tags_user_repo_name type=string req=?
+A billing.aws_billing resource_tags_user_service type=string req=?
+A billing.aws_billing resource_tags_user_version type=string req=?
+A billing.aws_billing savings_plan_amortized_upfront_commitment_for_billing_period type=float req=?
+A billing.aws_billing savings_plan_recurring_commitment_for_billing_period type=float req=?
+A billing.aws_billing savings_plan_savings_plan_a_r_n type=string req=?
+A billing.aws_billing savings_plan_savings_plan_effective_cost type=float req=?
+A billing.aws_billing savings_plan_savings_plan_rate type=float req=?
+A billing.aws_billing savings_plan_total_commitment_to_date type=float req=?
+A billing.aws_billing savings_plan_used_commitment type=float req=?
+A billing.aws_billing year type=string req=?
+B billing.aws_billing @trino:final primary=true ref=false loc=billing_final.aws_billing format=parquet(PARQUET)null partitioned_by=year,month()null schema_name=billing_final()null table_name=aws_billing()null table_type=table(TABLE)null
+B billing.aws_billing @trino:source primary=false ref=false loc=billing_source.aws_billing_{time.year~a7c1}_{time.month~39cd} external_location=s3a://billing-hmd-inf-s3bucket-aaa-dev-reg1-hmdtr1/billing/hmd.billing/hmd.billing/year={time.year~a7c1}/month={time.month~39cd}()null format=parquet(PARQUET)null schema_name=billing_source()null table_name=aws_billing_{time.year~a7c1}_{time.month~39cd}()null table_type=table(TABLE)null template=billing_source.aws_billing_{time.year~a7c1}_{time.month~39cd}()null
+B billing.aws_billing @trino:staging primary=false ref=false loc=billing_staging.aws_billing format=parquet(PARQUET)null partitioned_by=year,month()null schema_name=billing_staging()null table_name=aws_billing()null table_type=table(TABLE)null
+B billing.aws_billing @trino:ux primary=false ref=false loc=billing_ux.aws_billing schema_name=billing_ux()null table_name=aws_billing()null table_type=view(VIEW)null
+C billing.aws_billing @trino:final bill_bill_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final bill_billing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final bill_billing_period_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:final bill_billing_period_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:final bill_invoice_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final bill_invoicing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final bill_payer_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final identity_line_item_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final identity_time_interval type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_blended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final line_item_blended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_currency_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_legal_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_line_item_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_line_item_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_normalization_factor type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final line_item_normalized_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final line_item_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_product_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_resource_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_tax_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_unblended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final line_item_unblended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_usage_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final line_item_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final line_item_usage_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:final line_item_usage_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:final line_item_usage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final month type=string datatype=varchar(VARCHAR)null is_partition=true()null
+C billing.aws_billing @trino:final pricing_currency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final pricing_public_on_demand_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final pricing_public_on_demand_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final pricing_rate_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final pricing_rate_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final pricing_term type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_account_assistance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_alarm_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_architectural_review type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_architecture_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_availability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_best_practices type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_capacitystatus type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_case_severityresponse_times type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_classicnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_clock_speed type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_current_generation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_customer_service_and_communities type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_database_engine type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_dedicated_ebs_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_deployment_option type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_durability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_ecu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_endpoint_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_engine_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_enhanced_networking_supported type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_finding_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_finding_source type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_finding_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_from_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_from_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_from_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_group_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_included_services type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_insightstype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_instance_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_instance_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_instance_type_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_intel_avx2_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_intel_avx_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_intel_turbo_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_launch_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_license_model type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_logs_destination type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_marketoption type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_max_iops_burst_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_max_iopsvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_max_throughputvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_max_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_memory type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_message_delivery_frequency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_message_delivery_order type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_min_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_network_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_normalization_size_factor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_operating_system type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_operations_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_parameter_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_physical_processor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_platopricingtype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_platostoragetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_platousagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_pre_installed_sw type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_proactive_guidance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_processor_architecture type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_processor_features type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_product_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_product_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_programmatic_case_management type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_queue_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_region type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_routing_target type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_routing_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_servicecode type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_servicename type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_sku type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_standard_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_standard_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_storage_class type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_storage_media type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_storage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_technical_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_tenancy type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_thirdparty_software_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_tiertype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_to_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_to_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_to_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_training type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_transfer_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_usagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_vcpu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_volume_api_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_volume_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_vpcnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final product_who_can_open_cases type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_amortized_upfront_cost_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_end_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_modification_status type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_normalized_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_number_of_reservations type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_recurring_fee_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_start_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_subscription_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_total_reserved_normalized_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_total_reserved_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final reservation_unused_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_unused_normalized_unit_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_unused_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_unused_recurring_fee type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final reservation_upfront_value type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final resource_tags_aws_created_by type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_ad_hoc type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_env type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_instance_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_repo_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_service type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final resource_tags_user_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final savings_plan_amortized_upfront_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final savings_plan_recurring_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final savings_plan_savings_plan_a_r_n type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:final savings_plan_savings_plan_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final savings_plan_savings_plan_rate type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final savings_plan_total_commitment_to_date type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final savings_plan_used_commitment type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:final year type=string datatype=varchar(VARCHAR)null is_partition=true()null
+C billing.aws_billing @trino:source bill_bill_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source bill_billing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source bill_billing_period_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:source bill_billing_period_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:source bill_invoice_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source bill_invoicing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source bill_payer_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source identity_line_item_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source identity_time_interval type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_blended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source line_item_blended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_currency_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_legal_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_line_item_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_line_item_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_normalization_factor type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source line_item_normalized_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source line_item_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_product_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_resource_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_tax_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_unblended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source line_item_unblended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_usage_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source line_item_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source line_item_usage_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:source line_item_usage_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:source line_item_usage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source month type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_currency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_public_on_demand_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source pricing_public_on_demand_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_rate_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_rate_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_term type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_account_assistance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_alarm_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_architectural_review type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_architecture_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_availability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_best_practices type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_capacitystatus type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_case_severityresponse_times type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_classicnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_clock_speed type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_current_generation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_customer_service_and_communities type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_database_engine type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_dedicated_ebs_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_deployment_option type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_durability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_ecu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_endpoint_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_engine_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_enhanced_networking_supported type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_finding_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_finding_source type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_finding_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_from_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_from_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_from_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_group_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_included_services type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_insightstype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_instance_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_instance_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_instance_type_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_intel_avx2_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_intel_avx_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_intel_turbo_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_launch_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_license_model type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_logs_destination type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_marketoption type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_max_iops_burst_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_max_iopsvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_max_throughputvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_max_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_memory type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_message_delivery_frequency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_message_delivery_order type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_min_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_network_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_normalization_size_factor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_operating_system type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_operations_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_parameter_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_physical_processor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_platopricingtype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_platostoragetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_platousagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_pre_installed_sw type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_proactive_guidance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_processor_architecture type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_processor_features type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_product_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_product_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_programmatic_case_management type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_queue_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_region type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_routing_target type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_routing_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_servicecode type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_servicename type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_sku type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_standard_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_standard_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_storage_class type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_storage_media type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_storage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_technical_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_tenancy type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_thirdparty_software_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_tiertype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_to_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_to_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_to_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_training type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_transfer_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_usagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_vcpu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_volume_api_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_volume_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_vpcnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source product_who_can_open_cases type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_amortized_upfront_cost_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_end_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_modification_status type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_normalized_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_number_of_reservations type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_recurring_fee_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_start_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_subscription_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_total_reserved_normalized_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_total_reserved_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source reservation_unused_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_unused_normalized_unit_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_unused_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_unused_recurring_fee type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source reservation_upfront_value type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source resource_tags_aws_created_by type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_ad_hoc type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_env type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_instance_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_repo_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_service type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source resource_tags_user_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source savings_plan_amortized_upfront_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source savings_plan_recurring_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source savings_plan_savings_plan_a_r_n type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:source savings_plan_savings_plan_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source savings_plan_savings_plan_rate type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source savings_plan_total_commitment_to_date type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source savings_plan_used_commitment type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:source year type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging bill_bill_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging bill_billing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging bill_billing_period_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:staging bill_billing_period_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:staging bill_invoice_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging bill_invoicing_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging bill_payer_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging identity_line_item_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging identity_time_interval type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_blended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging line_item_blended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_currency_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_legal_entity type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_line_item_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_line_item_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_normalization_factor type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging line_item_normalized_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging line_item_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_product_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_resource_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_tax_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_unblended_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging line_item_unblended_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_usage_account_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging line_item_usage_amount type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging line_item_usage_end_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:staging line_item_usage_start_date type=timestamp datatype=timestamp(TIMESTAMP)null
+C billing.aws_billing @trino:staging line_item_usage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging month type=string datatype=varchar(VARCHAR)null is_partition=true()null
+C billing.aws_billing @trino:staging pricing_currency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging pricing_public_on_demand_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging pricing_public_on_demand_rate type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging pricing_rate_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging pricing_rate_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging pricing_term type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_account_assistance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_alarm_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_architectural_review type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_architecture_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_availability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_availability_zone type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_best_practices type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_capacitystatus type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_case_severityresponse_times type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_classicnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_clock_speed type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_current_generation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_customer_service_and_communities type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_database_engine type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_dedicated_ebs_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_deployment_option type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_durability type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_ecu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_endpoint_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_engine_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_enhanced_networking_supported type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_finding_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_finding_source type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_finding_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_from_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_from_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_from_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_group_description type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_included_services type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_insightstype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_instance_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_instance_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_instance_type_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_intel_avx2_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_intel_avx_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_intel_turbo_available type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_launch_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_license_model type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_logs_destination type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_marketoption type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_max_iops_burst_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_max_iopsvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_max_throughputvolume type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_max_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_memory type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_message_delivery_frequency type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_message_delivery_order type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_min_volume_size type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_network_performance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_normalization_size_factor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_operating_system type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_operation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_operations_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_parameter_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_physical_processor type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_platopricingtype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_platostoragetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_platousagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_pre_installed_sw type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_pricing_unit type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_proactive_guidance type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_processor_architecture type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_processor_features type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_product_family type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_product_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_programmatic_case_management type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_queue_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_region type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_routing_target type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_routing_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_servicecode type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_servicename type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_sku type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_standard_group type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_standard_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_storage type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_storage_class type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_storage_media type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_storage_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_technical_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_tenancy type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_thirdparty_software_support type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_throughput type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_tiertype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_to_location type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_to_location_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_to_region_code type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_training type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_transfer_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_usagetype type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_vcpu type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_volume_api_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_volume_type type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_vpcnetworkingsupport type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging product_who_can_open_cases type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_amortized_upfront_cost_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_end_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_modification_status type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_normalized_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_number_of_reservations type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_recurring_fee_for_usage type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_start_time type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_subscription_id type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_total_reserved_normalized_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_total_reserved_units type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_units_per_reservation type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging reservation_unused_amortized_upfront_fee_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_unused_normalized_unit_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_unused_quantity type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_unused_recurring_fee type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging reservation_upfront_value type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging resource_tags_aws_created_by type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_ad_hoc type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_env type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_instance_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_repo_name type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_service type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging resource_tags_user_version type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging savings_plan_amortized_upfront_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging savings_plan_recurring_commitment_for_billing_period type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging savings_plan_savings_plan_a_r_n type=string datatype=varchar(VARCHAR)null
+C billing.aws_billing @trino:staging savings_plan_savings_plan_effective_cost type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging savings_plan_savings_plan_rate type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging savings_plan_total_commitment_to_date type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging savings_plan_used_commitment type=float datatype=double(DOUBLE)null
+C billing.aws_billing @trino:staging year type=string datatype=varchar(VARCHAR)null is_partition=true()null
+D info type-word-alias billing/src/transforms/02-billing-source-to-staging-aws_billing.yaml:12
+D info type-word-alias billing/src/transforms/03-billing-staging-to-final-aws_billing.yaml:12
+D info unused-run-param billing/src/transforms/ddl_02a-billing-create-table-staging.yaml:190
+D info unused-run-param billing/src/transforms/ddl_02b-billing-create-table-final.yaml:190
+D warning tf-name-mismatch billing/src/transforms/01-billing-create-source.yaml:8

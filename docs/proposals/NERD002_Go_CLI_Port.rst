@@ -802,11 +802,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
          - ``hmd neuronsphere down --purge [--env <n>]``
        * - ``nsctl env apply [<name>]``
          - ``hmd neuronsphere up --env <name> --upgrade``
-       * - ``nsctl repo add <class>[@<version>]``
+       * - ``nsctl instance add <class>[@<version>]``
          - (no equivalent -- edit the manifest by hand)
-       * - ``nsctl repo remove <instance>``
+       * - ``nsctl instance remove <instance>``
          - (no equivalent -- edit the manifest by hand)
-       * - ``nsctl repo list``
+       * - ``nsctl instance list``
          - (no equivalent)
        * - ``nsctl env list`` / ``nsctl env status``
          - ``hmd neuronsphere env list`` / ``status``
@@ -834,7 +834,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
 
     Everything above that is a RepoClass the user adds. Airflow, Argo,
     transform, Trino, Superset and the rest are **not** built into the binary;
-    they are what ``repo add`` declares and ``env apply`` deploys. The
+    they are what ``instance add`` declares and ``env apply`` deploys. The
     environment manifest at ``$HMD_HOME/environments/<slug>.yaml`` is the
     desired state, and the ``repo`` verbs are wrappers that edit that file --
     editing it by hand and running ``env apply`` is the same operation, so
@@ -2389,7 +2389,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     **SUPERSEDED -- MEDIUM: installed-package plugin contributions.** Plugin
     discovery is withdrawn entirely (SPEC005), so neither half ports and the
     bundle format this entry proposed does not exist. What replaces it in
-    practice is ``nsctl repo import``, which reads an environment's deployed
+    practice is ``nsctl instance import``, which reads an environment's deployed
     instances out of the deployment graph and writes them into its manifest --
     so an environment brought up by the Python CLI is migrated by reading what
     it actually deployed rather than by re-describing its plugins. The residual
@@ -2567,8 +2567,11 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     version resolution; ``internal/reconcile`` with golden-vector digest tests
     and ``--force-full-redeploy``; ``repoclass.Produces`` reading a repo's own
     ``meta-data/resources/*.yaml``; the control-plane bootstrap DAG; and the
-    verbs ``env add``, ``env delete``, ``env apply``, ``repo add``,
-    ``repo remove``, ``repo list`` and ``repo import``.
+    verbs ``env add``, ``env delete``, ``env apply``, ``instance add``,
+    ``instance remove``, ``instance list`` and ``instance import``. (These
+    landed as ``nsctl repo``; the noun was renamed ``instance`` on 2026-10-01,
+    beside ``repoclass``, because what it edits is a repo class's instances in
+    an environment, not a repository.)
 
     *Deliverable:* ``nsctl`` bootstraps a control plane from an empty
     ``HMD_HOME`` and reconciles an environment to its manifest.
@@ -2576,7 +2579,7 @@ version is injected by ``-ldflags`` from ``meta-data/VERSION``.
     *Verified:* a cold bootstrap of a fresh ``HMD_HOME`` deploys the VPC,
     Postgres, core databases, graph and all three foundation services and exits
     0, with ``hmd-ms-deployment`` answering; a second start skips the
-    bootstrap. Against an environment the Python CLI brought up, ``repo
+    bootstrap. Against an environment the Python CLI brought up, ``instance
     import`` recovered 29 instances and ``env apply`` then reported "0 to
     deploy, 0 changed, 32 unchanged, 0 deployed but undeclared".
 

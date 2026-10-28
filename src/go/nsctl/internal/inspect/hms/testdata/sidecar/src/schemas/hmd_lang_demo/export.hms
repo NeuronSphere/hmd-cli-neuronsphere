@@ -1,0 +1,9 @@
+{
+  "name": "export",
+  "namespace": "hmd_lang_demo",
+  "metatype": "noun",
+  "attributes": {
+    "export_date": {"type": "timestamp", "description": "Day of the export", "required": true},
+    "amount": {"type": "float"}
+  }
+}

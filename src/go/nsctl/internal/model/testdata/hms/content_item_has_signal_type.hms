@@ -1,0 +1,8 @@
+{
+  "name": "content_item_has_signal_type",
+  "namespace": "hmd_lang_nsreporting",
+  "metatype": "relationship",
+  "ref_from": "hmd_lang_librarian.content_item",
+  "ref_to": "hmd_lang_nsreporting.signal_type",
+  "attributes": {}
+}

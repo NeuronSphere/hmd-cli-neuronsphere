@@ -1889,6 +1889,92 @@ def environment_plan(env: LocalEnvironment):
     )
 
 
+def environment_dry_run(env: LocalEnvironment, verbose: bool = False) -> Dict:
+    """Dry-run what ``up --upgrade`` would add or redeploy (hmd-ms-deployment
+    NERD0011): each entry is planned in a projectbuilder container exactly as it
+    would deploy, and nothing is applied. No reconcile snapshot is written, so
+    the entries stay pending for the real ``up --upgrade``.
+
+    :returns: ``{"plan", "csd_nid", "ok", "report", "plan_dirs"}``; ``csd_nid``
+        is None when there was nothing to plan.
+    """
+    import requests
+
+    from . import env_reconcile
+    from .bom_seeder import _raise_for_status, seed_bom
+    from .change_set_builder import declared_repo_paths
+    from .env_manifest import load_manifest
+    from .local_workflow_runner import LocalWorkflowRunner
+
+    load_hmd_env()
+    manifest = load_manifest(env.slug)
+    plan = env_reconcile.compute_plan(_MS_DEPLOYMENT_URL, env=env, manifest=manifest)
+    result = {
+        "plan": plan,
+        "csd_nid": None,
+        "ok": True,
+        "report": None,
+        "plan_dirs": {},
+    }
+    pending = plan.add + plan.change
+    if plan.degraded or not pending:
+        return result
+
+    repo_paths = declared_repo_paths(manifest)
+    csd_nid, nodes = seed_bom(
+        _MS_DEPLOYMENT_URL, bom=pending, env=env, repo_paths=repo_paths, dry_run=True
+    )
+    runner = LocalWorkflowRunner(
+        _MS_DEPLOYMENT_URL,
+        cluster_name=env.k3s_cluster,
+        env=env,
+        repo_paths=repo_paths,
+        verbose=verbose,
+    )
+    result["csd_nid"] = csd_nid
+    result["ok"] = runner.run(csd_nid, nodes, dry_run=True)
+    result["plan_dirs"] = dict(runner.last_plan_dirs)
+
+    resp = requests.get(
+        f"{_MS_DEPLOYMENT_URL}/apiop/get_dry_run_report/{csd_nid}", timeout=60
+    )
+    _raise_for_status(resp, "get_dry_run_report")
+    result["report"] = resp.json()
+    return result
+
+
+def render_dry_run_report(report: Dict, plan_dirs: Dict[str, str]) -> List[str]:
+    """Lines summarising a get_dry_run_report response, deletes first."""
+    lines = []
+    for item in report.get("instances", []):
+        plan = item.get("plan") or {}
+        name = item["repo_instance_name"]
+        if not item.get("planned"):
+            lines.append(f"{name}: not planned ({item.get('status')})")
+            continue
+        c = plan.get("counts") or {}
+        fidelity = plan.get("fidelity", "exact")
+        lines.append(
+            f"{name}: {c.get('create', 0)} create, {c.get('update', 0)} update, "
+            f"{c.get('delete', 0)} delete, {c.get('replace', 0)} replace ({fidelity})"
+        )
+        for reason in plan.get("fidelity_reasons") or []:
+            lines.append(f"    approximate: {reason}")
+        if plan.get("unmigrated"):
+            lines.append("    unmigrated: do_migrate_state was skipped")
+        for d in plan.get("deletes") or []:
+            lines.append(f"    DELETE   {d['type']}  {d['address']}")
+        for d in plan.get("replaces") or []:
+            lines.append(f"    REPLACE  {d['type']}  {d['address']}")
+        for v in plan.get("violations") or []:
+            lines.append(
+                f"    POLICY   {v.get('rule')} {v.get('address') or ''}".rstrip()
+            )
+        if name in plan_dirs:
+            lines.append(f"    plan files: {plan_dirs[name]}")
+    return lines
+
+
 def environment_status(env: LocalEnvironment) -> Dict:
     """A serializable snapshot of one environment."""
     import subprocess

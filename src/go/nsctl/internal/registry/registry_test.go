@@ -1,9 +1,12 @@
 package registry
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -915,5 +918,68 @@ func TestRetiredAccountsAreNeverAllocated(t *testing.T) {
 	}
 	if got := r.AllocateAccountID(); got != "000000000003" {
 		t.Errorf("allocated %s, want 000000000003 past the retired account", got)
+	}
+}
+
+// Concurrent writers used to load, edit and save with no lock, so the later
+// save dropped the earlier one's environment -- and both could be handed the
+// same port slot or account. Update serialises them.
+func TestConcurrentUpdatesKeepEveryEnvironmentWithUniqueAllocations(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	const n = 12
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := Update(home, nil, "test", func(r *Registry) error {
+				_, err := r.NewEnvironment(home, fmt.Sprintf("env%d", i), nil)
+				return err
+			})
+			if err != nil {
+				t.Errorf("Update(env%d) error = %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	reg, err := Load(home, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(reg.Environments); got != n {
+		t.Fatalf("registered %d environments, want %d: %v", got, n, reg.Names())
+	}
+	slots, accounts := map[int]string{}, map[string]string{}
+	for slug, e := range reg.Environments {
+		if other, dup := slots[e.PortSlot]; dup {
+			t.Errorf("%s and %s share port slot %d", slug, other, e.PortSlot)
+		}
+		slots[e.PortSlot] = slug
+		if other, dup := accounts[e.AccountID]; dup {
+			t.Errorf("%s and %s share account %s", slug, other, e.AccountID)
+		}
+		accounts[e.AccountID] = slug
+	}
+}
+
+func TestUpdateDoesNotSaveWhenTheEditFails(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	boom := errors.New("boom")
+	_, err := Update(home, nil, "test", func(r *Registry) error {
+		if _, err := r.NewEnvironment(home, "dev", nil); err != nil {
+			return err
+		}
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("Update() error = %v, want boom", err)
+	}
+	if _, err := os.Stat(Path(home)); !os.IsNotExist(err) {
+		t.Errorf("the registry was written despite the failed edit (stat err = %v)", err)
 	}
 }

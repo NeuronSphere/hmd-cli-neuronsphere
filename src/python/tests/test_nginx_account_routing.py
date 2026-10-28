@@ -52,8 +52,7 @@ class EnvRoutesCarryTheirAccount(unittest.TestCase):
     def test_credential_scope_names_the_account(self):
         out = self._render(_env())
         self.assertIn(
-            'proxy_set_header Authorization "AWS4-HMAC-SHA256 '
-            "Credential=000000000001/",
+            'proxy_set_header Authorization "AWS4-HMAC-SHA256 Credential=000000000001/',
             out,
         )
 

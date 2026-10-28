@@ -1,0 +1,21 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: ddl_01b-billing-schema-staging
+    tf_name: ddl_01c-billing-schema-final
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      create schema if not exists "billing_{{ ns_context['schema_suffix'].replace('-', '_') }}"
+      with (
+          location = '{{ ns_context['location'] }}/billing/{{ ns_context['schema_suffix'].replace('-', '_') }}'
+      )
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_suffix: "final"
+    location: TRINO_BUCKET
+    

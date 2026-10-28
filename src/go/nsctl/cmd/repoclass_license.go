@@ -18,8 +18,8 @@ func newRepoClassLicenseCommand(path *repoClassPath) *cobra.Command {
 		Short: "Declare the licence of what is published from this repo class",
 		Long: `Write or remove the manifest's "license": the SPDX expression of what nsctl
 publishes from this tree, and the root-relative paths that stay out of every
-zip it makes from it ("nsctl artifact push <dir>", "nsctl stack build/push",
-"nsctl stack init --bundle-local", "nsctl artifact register <dir>"). Every
+zip it makes from it ("nsctl artifact push <dir>", "nsctl bundle build/push",
+"nsctl bundle init --bundle-local", "nsctl artifact register <dir>"). Every
 published layer is annotated org.opencontainers.image.licenses with the
 expression. A repo class that declares nothing is published whole and
 unannotated; nsctl never infers a licence and never refuses one.`,

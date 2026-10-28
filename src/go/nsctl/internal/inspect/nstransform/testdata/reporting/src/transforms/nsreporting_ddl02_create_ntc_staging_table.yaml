@@ -1,0 +1,34 @@
+type: provider
+query_config:
+  query_name: by_transform_name_dependent_transform
+  query_value:
+    dep_tf_name: nsreporting_ddl01b_create_ntc_staging_schema
+    tf_name: nsreporting_ddl02_create_ntc_staging_table
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      CREATE TABLE IF NOT EXISTS {{ ns_context['schema_name' ]}}_staging.ntc_instances_export (
+        identifier VARCHAR,
+        transform_name VARCHAR,
+        transform_version VARCHAR,
+        created_at TIMESTAMP,
+        scheduled_at TIMESTAMP,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        status VARCHAR,
+        export_date DATE,
+        _created TIMESTAMP,
+        _updated TIMESTAMP,
+        p_iso_date DATE,
+        p_environment VARCHAR
+      )
+      WITH (
+        format = 'PARQUET',
+        partitioned_by = ARRAY['p_iso_date', 'p_environment']
+      )
+    trino_conn_id: trino_conn_overwrite
+    autocommit: true
+  run_params:
+    schema_name: ntc

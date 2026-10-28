@@ -121,7 +121,7 @@ Run::
    nsctl env list
    nsctl env status local
    nsctl control-plane status
-   nsctl repo list --env local
+   nsctl instance list --env local
 
 The registry listing should contain ``local``. Status reports the environment's
 resources and their state; the repository listing distinguishes declarations

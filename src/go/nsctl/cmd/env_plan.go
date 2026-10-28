@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/bom"
@@ -11,6 +12,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/manifest"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/msdeploy"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/nserr"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/reconcile"
 	"github.com/spf13/cobra"
 )
 
@@ -142,14 +144,21 @@ func renderPlanText(out io.Writer, r *environment.PlanResult) {
 		for _, e := range r.Reconcile.Add {
 			fmt.Fprintf(w, "  add\t%s\t%s\n", e.RepoInstanceName, e.RepoClassName)
 		}
+		fromTree := treeChanged(r.Reconcile)
 		for _, e := range r.Reconcile.Change {
-			fmt.Fprintf(w, "  change\t%s\t%s\n", e.RepoInstanceName, e.RepoClassName)
+			note := ""
+			if fromTree[e.RepoInstanceName] {
+				note = "\t(local tree)"
+			}
+			fmt.Fprintf(w, "  change\t%s\t%s%s\n", e.RepoInstanceName, e.RepoClassName, note)
 		}
 		for _, name := range r.Reconcile.Remove {
 			fmt.Fprintf(w, "  undeclared\t%s\t-\n", name)
 		}
 		w.Flush()
 	}
+
+	renderBindingsText(out, r)
 
 	if r.Validation == nil {
 		return
@@ -181,8 +190,8 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 	fmt.Fprintf(out, "## Plan: %s\n\n", r.EnvSlug)
 	fmt.Fprintf(out, "%s\n\n", r.Reconcile.Summary())
 
-	renderMDList(out, "Add", r.Reconcile.Add)
-	renderMDList(out, "Change", r.Reconcile.Change)
+	renderMDList(out, "Add", r.Reconcile.Add, nil)
+	renderMDList(out, "Change", r.Reconcile.Change, treeChanged(r.Reconcile))
 	if len(r.Reconcile.Remove) > 0 {
 		fmt.Fprintln(out, "**Deployed but no longer declared** (left running, never destroyed):")
 		for _, name := range r.Reconcile.Remove {
@@ -190,6 +199,8 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 		}
 		fmt.Fprintln(out)
 	}
+
+	renderBindingsMD(out, r)
 
 	if r.Validation == nil {
 		fmt.Fprintln(out, "Nothing to validate: everything declared is already deployed and current.")
@@ -226,15 +237,64 @@ func renderPlanMD(out io.Writer, r *environment.PlanResult) {
 	}
 }
 
-func renderMDList(out io.Writer, heading string, entries []bom.Entry) {
+// renderBindingsText says what the plan decided about unbound roles: the ones
+// it filled, and the ones it left because more than one instance fits.
+func renderBindingsText(out io.Writer, r *environment.PlanResult) {
+	if len(r.Bindings) > 0 {
+		fmt.Fprintln(out, "\nBound automatically (the only instance that fits):")
+		for _, b := range r.Bindings {
+			fmt.Fprintf(out, "  %s role %s -> %s\n", b.Instance, b.Role, b.Target)
+		}
+	}
+	if len(r.Ambiguities) > 0 {
+		fmt.Fprintln(out, "\nNeeds a choice (more than one instance fits; pass --depends role=<instance>):")
+		for _, a := range r.Ambiguities {
+			fmt.Fprintf(out, "  %s role %s (%s/%s): %s\n", a.Instance, a.Role,
+				a.Definition.ResourceNamespace, a.Definition.ResourceDefinitionName, strings.Join(a.Candidates, ", "))
+		}
+	}
+}
+
+func renderBindingsMD(out io.Writer, r *environment.PlanResult) {
+	if len(r.Bindings) > 0 {
+		fmt.Fprintln(out, "**Bound automatically** (the only instance that fits):")
+		for _, b := range r.Bindings {
+			fmt.Fprintf(out, "- `%s` role `%s` → `%s`\n", b.Instance, b.Role, b.Target)
+		}
+		fmt.Fprintln(out)
+	}
+	if len(r.Ambiguities) > 0 {
+		fmt.Fprintln(out, "**Needs a choice** (more than one instance fits):")
+		for _, a := range r.Ambiguities {
+			fmt.Fprintf(out, "- `%s` role `%s`: %s\n", a.Instance, a.Role, "`"+strings.Join(a.Candidates, "`, `")+"`")
+		}
+		fmt.Fprintln(out)
+	}
+}
+
+func renderMDList(out io.Writer, heading string, entries []bom.Entry, fromTree map[string]bool) {
 	if len(entries) == 0 {
 		return
 	}
 	fmt.Fprintf(out, "**%s:**\n", heading)
 	for _, e := range entries {
-		fmt.Fprintf(out, "- `%s` (%s)\n", e.RepoInstanceName, e.RepoClassName)
+		note := ""
+		if fromTree[e.RepoInstanceName] {
+			note = " -- local tree changed"
+		}
+		fmt.Fprintf(out, "- `%s` (%s)%s\n", e.RepoInstanceName, e.RepoClassName, note)
 	}
 	fmt.Fprintln(out)
+}
+
+// treeChanged is the set of changes that came from a developer's working tree
+// rather than the manifest (NERD034 SPEC002).
+func treeChanged(p *reconcile.Plan) map[string]bool {
+	out := make(map[string]bool, len(p.TreeChanged))
+	for _, name := range p.TreeChanged {
+		out[name] = true
+	}
+	return out
 }
 
 // planJSON is the CLI's stable JSON contract for `env plan --output json` --
@@ -247,10 +307,25 @@ type planJSON struct {
 	Degraded    bool            `json:"degraded"`
 	Add         []planEntryJSON `json:"add"`
 	Change      []planEntryJSON `json:"change"`
+	TreeChanged []string        `json:"tree_changed,omitempty"`
 	Unchanged   []string        `json:"unchanged"`
 	Remove      []string        `json:"remove"`
 	Validation  *validationJSON `json:"validation,omitempty"`
 	Warnings    []warningJSON   `json:"candidate_warnings,omitempty"`
+	Bound       []bindingJSON   `json:"bound_roles,omitempty"`
+	Ambiguous   []ambiguityJSON `json:"ambiguous_roles,omitempty"`
+}
+
+type bindingJSON struct {
+	Instance string `json:"instance"`
+	Role     string `json:"role"`
+	Target   string `json:"target"`
+}
+
+type ambiguityJSON struct {
+	Instance   string   `json:"instance"`
+	Role       string   `json:"role"`
+	Candidates []string `json:"candidates"`
 }
 
 type planEntryJSON struct {
@@ -285,6 +360,7 @@ func renderPlanJSON(out io.Writer, r *environment.PlanResult) error {
 		Degraded:    r.Reconcile.Degraded,
 		Add:         planEntries(r.Reconcile.Add),
 		Change:      planEntries(r.Reconcile.Change),
+		TreeChanged: r.Reconcile.TreeChanged,
 		Unchanged:   r.Reconcile.Unchanged,
 		Remove:      r.Reconcile.Remove,
 	}
@@ -294,6 +370,12 @@ func renderPlanJSON(out io.Writer, r *environment.PlanResult) error {
 			Errors:   planIssues(r.Validation.Errors),
 			Warnings: planIssues(r.Validation.Warnings),
 		}
+	}
+	for _, b := range r.Bindings {
+		doc.Bound = append(doc.Bound, bindingJSON{Instance: b.Instance, Role: b.Role, Target: b.Target})
+	}
+	for _, a := range r.Ambiguities {
+		doc.Ambiguous = append(doc.Ambiguous, ambiguityJSON{Instance: a.Instance, Role: a.Role, Candidates: a.Candidates})
 	}
 	for _, cw := range r.Warnings {
 		doc.Warnings = append(doc.Warnings, warningJSON{

@@ -75,6 +75,20 @@ Run nsctl In Home
     ...    stdin=${None}
     RETURN    ${result}
 
+Create Inspect Repos
+    [Documentation]    A language pack with one noun, and a transform repository
+    ...                that builds one table in a staging and a final schema
+    ...                and loads one from the other. Neither declares a
+    ...                perspective.
+    ${dir}=       Create Scratch Repo
+    Create File    ${dir}${/}lang${/}meta-data${/}manifest.json    {"name": "hmd-lang-demo"}
+    Create File    ${dir}${/}lang${/}src${/}schemas${/}hmd_lang_demo${/}environment.hms
+    ...    {"name": "environment", "namespace": "hmd_lang_demo", "metatype": "noun", "attributes": {"type": {"type": "string"}}}
+    Create File    ${dir}${/}tf${/}meta-data${/}manifest.json    {"name": "hmd-config-demo"}
+    Create File    ${dir}${/}tf${/}src${/}transforms${/}ddl.yaml
+    ...    type: provider\nconfig: {provider_class: TrinoOperator, params: {sql: "CREATE TABLE demo_staging.thing (id VARCHAR, at DATE); CREATE TABLE demo_final.thing (id VARCHAR, at DATE); INSERT INTO demo_final.thing SELECT id, at FROM demo_staging.thing"}}\n
+    RETURN    ${dir}
+
 *** Test Cases ***
 Version Prints The Injected Version
     [Documentation]    SPEC013: the binary reports the version -ldflags put in
@@ -115,7 +129,7 @@ Help Lists Every Top-Level Command
     [Tags]    contract
     ${result}=    Run nsctl    --help
     Should Be Equal As Integers    ${result.rc}    0
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin
+    FOR    ${command}    IN    env    instance    repoclass    model    inspect    control-plane    authd    login    logout    whoami    version    stack    plugin
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -547,7 +561,7 @@ Help Leads With What A First Run Needs
     ${start}=     Get Line    ${result.stdout}    ${{ $result.stdout.splitlines().index('Start here:') + 1 }}
     Should Contain    ${start}    quickstart
     # Grouping is presentation only: every command is still listed.
-    FOR    ${command}    IN    env    repo    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
+    FOR    ${command}    IN    env    instance    repoclass    control-plane    authd    login    logout    whoami    version    stack    plugin    doctor    db    agent    artifact    lock    bom
         Should Contain    ${result.stdout}    ${command}
     END
 
@@ -587,6 +601,95 @@ Detect Classifies A Repository And Writes Nothing
     Should Contain    ${d.stdout}    "value": "make deploy"
     Should Contain    ${d.stdout}    Makefile:1
     Should Not Exist    ${dir}${/}meta-data${/}manifest.json
+
+Inspect Reports A Model And Writes Nothing
+    [Documentation]    NERD032: inspect reads an .hms schema and a transform's
+    ...                Trino DDL, folds the layered table into one noun, and
+    ...                never writes into the inspected repositories. Without
+    ...                HMD_HOME nothing is stored, and it says so. NERD033: the
+    ...                trino perspective and its layers are derived, not built in.
+    [Tags]    contract    nerd032    nerd033
+    ${dir}=       Create Inspect Repos
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    model    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    hmd_lang_demo.environment
+    Should Contain    ${r.stdout}    demo.thing
+    Should Contain    ${r.stdout}    @trino:final demo_final.thing
+    Should Contain    ${r.stdout}    @trino:staging demo_staging.thing
+    Should Contain    ${r.stderr}    HMD_HOME is not set
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
+
+Inspect Derives A Perspective And Materialises It Only Where Told
+    [Documentation]    NERD033: nsctl ships no perspective. It derives trino from
+    ...                the DDL with the evidence for each piece, records an edit
+    ...                under HMD_HOME, and writes the perspective into the one
+    ...                repository --to names; after that, that repository
+    ...                declares it.
+    [Tags]    contract    nerd033
+    ${dir}=       Create Inspect Repos
+    ${home}=      Create Scratch Home
+    ${lang}=      Create Scratch Repo
+    ${empty}=     Create Scratch Repo
+    ${r}=         Run nsctl    model    perspective    list    ${empty}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Not Contain    ${r.stdout}    trino
+    ${r}=         Run nsctl    model    perspective    derive    ${dir}    --evidence
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    layer: staging -> final
+    Should Contain    ${r.stdout}    date→timestamp
+    Should Contain    ${r.stdout}    the same table name in schemas that differ only in their last _-separated segment
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    format    storage_format    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2    msg=an edit for a key nothing derived must be refused
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    is_partition    partition_key    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2    msg=no table here is partitioned, so there is no is_partition to rename
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    edit    trino    rename-key    table_type    kind    --path    ${dir}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    --home    ${home}    model    perspective    materialise    trino    ${dir}    --to    ${lang}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    File Should Exist    ${lang}${/}src${/}perspectives${/}trino.perspective.json
+    File Should Exist    ${lang}${/}src${/}schemas${/}demo${/}thing.trino.hms
+    ${def}=       Get File    ${lang}${/}src${/}perspectives${/}trino.perspective.json
+    Should Contain    ${def}    "kind"
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
+    ${r}=         Run nsctl    model    perspective    list    ${dir}    ${lang}
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    src/perspectives/trino.perspective.json
+
+Inspect Diff Needs A Home
+    [Documentation]    NERD032 SPEC005: snapshots live under HMD_HOME, so a diff
+    ...                without one is a usage error, not an empty diff.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Scratch Repo
+    ${r}=         Run nsctl    model    diff    ${dir}
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    HMD_HOME
+
+Inspect Runs Every Noun And Gates On Errors
+    [Documentation]    NERD032 SPEC008: nsctl inspect runs the inspect verb of
+    ...                every noun that has one over the same repositories, in one
+    ...                shape of finding. A section that cannot run says why and
+    ...                the rest still run; any error exits 1, so it can gate a
+    ...                change; nothing is written.
+    [Tags]    contract    nerd032
+    ${dir}=       Create Inspect Repos
+    ${before}=    List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    ${r}=         Run nsctl    inspect    ${dir}
+    Should Be Equal As Integers    ${r.rc}    1    msg=the demo manifests lack a description, which validate reports as an error
+    Should Contain    ${r.stdout}    REPOCLASS
+    Should Contain    ${r.stdout}    repoclass-validate
+    Should Contain    ${r.stdout}    INSTANCE
+    Should Contain    ${r.stdout}    skipped: HMD_HOME is not set
+    Should Contain    ${r.stdout}    MODEL
+    Should Contain    ${r.stdout}    @trino:final @trino:staging
+    ${r}=         Run nsctl    inspect    ${dir}    --only    model
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stdout}
+    Should Not Contain    ${r.stdout}    REPOCLASS
+    ${after}=     List Files In Directory    ${dir}${/}tf${/}src${/}transforms
+    Should Be Equal    ${before}    ${after}
 
 Detect Refuses To Infer Dependencies Or Resources
     [Documentation]    NERD009 SPEC010, and the assertions that matter most: a
@@ -783,3 +886,146 @@ Db Upgrade Without An Engine Fails Cleanly And Writes Nothing
     Should Be Equal As Integers    ${result.rc}    1
     Should Contain    ${result.stderr}    docker
     Directory Should Not Exist    ${home}${/}floci
+
+A Leased Environment Refuses Everyone But The Holder
+    [Documentation]    NERD035 SPEC001: a lease is enforced, not advisory. A
+    ...                destructive verb from another caller stops at the lease
+    ...                with exit 3 and names the holder; the holder's token gets
+    ...                through. Run without an engine, so a regressed guard
+    ...                fails here instead of stopping a real environment.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${tree}=      Create Scratch Repo
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${acq}=       Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --holder    robot-a    --pid    0    --json
+    Should Be Equal As Integers    ${acq.rc}    0
+    ${token}=     Evaluate    json.loads($acq.stdout)["token"]    modules=json
+    ${stop}=      Run nsctl In Home Without An Engine    ${home}    env    stop    dev
+    Should Be Equal As Integers    ${stop.rc}    3
+    Should Contain    ${stop.stderr}    leased by robot-a
+    ${refused}=   Run nsctl In Home Without An Engine    ${home}    instance    add    hmd-ms-foo    --env    dev    --path    ${tree}
+    Should Be Equal As Integers    ${refused.rc}    3
+    ${held}=      Run nsctl In Home Without An Engine    ${home}    instance    add    hmd-ms-foo    --env    dev    --path    ${tree}    --lease-token    ${token}
+    Should Be Equal As Integers    ${held.rc}    0    msg=${held.stderr}
+
+A Session Lease Outlives A Run's Release
+    [Documentation]    NERD035 SPEC002: a session lease is held for the session.
+    ...                --shell prints only the exports eval reads, a run-style
+    ...                release leaves the session's lease in place and exits
+    ...                zero, and only release --session ends it.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${sh}=        Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --session    --holder    robot-s    --pid    0    --shell
+    Should Be Equal As Integers    ${sh.rc}    0    msg=${sh.stderr}
+    Should Contain    ${sh.stdout}    export HMD_LOCAL_ENV=dev
+    ${token}=     Evaluate    re.search(r"NSCTL_LEASE_TOKEN=(\\S+)", $sh.stdout).group(1)    modules=re
+    ${run}=       Run nsctl In Home Without An Engine    ${home}    env    lease    release    dev    --token    ${token}
+    Should Be Equal As Integers    ${run.rc}    0
+    Should Contain    ${run.stderr}    --session
+    ${who}=       Run nsctl In Home Without An Engine    ${home}    env    lease    whoami    --token    ${token}
+    Should Be Equal As Integers    ${who.rc}    0
+    Should Contain    ${who.stdout}    session
+    ${end}=       Run nsctl In Home Without An Engine    ${home}    env    lease    release    dev    --token    ${token}    --session
+    Should Be Equal As Integers    ${end.rc}    0
+    ${gone}=      Run nsctl In Home Without An Engine    ${home}    env    lease    whoami    --token    ${token}
+    Should Not Be Equal As Integers    ${gone.rc}    0
+
+A Template Is Stored, Listed, Shown And Removed By Name
+    [Documentation]    NERD035 SPEC003: a template is an environment manifest
+    ...                kept under a name. Adding over one needs --force, and a
+    ...                name that would leave the templates directory is refused.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    # Flow style: two spaces in a Robot cell would split it into arguments.
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    ${add}=       Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${add.rc}    0    msg=${add.stderr}
+    ${again}=     Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${again.rc}    2
+    Should Contain    ${again.stderr}    --force
+    ${list}=      Run nsctl In Home Without An Engine    ${home}    template    list
+    Should Contain    ${list.stdout}    analytics
+    ${show}=      Run nsctl In Home Without An Engine    ${home}    template    show    analytics
+    Should Contain    ${show.stdout}    name: analytics
+    ${bad}=       Run nsctl In Home Without An Engine    ${home}    template    add    ../escape    ${src}
+    Should Be Equal As Integers    ${bad.rc}    2
+    ${rm}=        Run nsctl In Home Without An Engine    ${home}    template    remove    analytics
+    Should Be Equal As Integers    ${rm.rc}    0
+    File Should Not Exist    ${home}${/}templates${/}analytics.yaml
+
+An Environment Composed From A Template Records It
+    [Documentation]    NERD035 SPEC004: env add --template declares the
+    ...                template's instances and records which template it was.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    ${add}=       Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Should Be Equal As Integers    ${add.rc}    0    msg=${add.stderr}
+    ${env}=       Run nsctl In Home Without An Engine    ${home}    env    add    work    --template    analytics    --no-pull
+    Should Be Equal As Integers    ${env.rc}    0    msg=${env.stderr}
+    ${m}=         Get File    ${home}${/}environments${/}work.yaml
+    Should Contain    ${m}    template: analytics
+    Should Contain    ${m}    hmd-inf-trino
+    ${mix}=       Run nsctl In Home Without An Engine    ${home}    env    add    other    --template    analytics    --from-repo    ${home}
+    Should Be Equal As Integers    ${mix.rc}    2
+
+A Session Acquire Writes Its Composition Before Starting
+    [Documentation]    NERD035 SPEC005: a session acquire with --template
+    ...                writes the composed manifest into the leased environment,
+    ...                and with --no-start stops there.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    ${src}=       Set Variable    ${home}${/}analytics-src.yaml
+    Create File    ${src}    {version: 1, name: anything, repos: [{instance_name: trino, repo_class_name: hmd-inf-trino, version: 0.1.4, source: {type: artifact}}]}
+    Run nsctl In Home Without An Engine    ${home}    template    add    analytics    ${src}
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${acq}=       Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --session    --pid    0    --template    analytics    --no-start    --no-pull    --shell
+    Should Be Equal As Integers    ${acq.rc}    0    msg=${acq.stderr}
+    Should Contain    ${acq.stdout}    export HMD_LOCAL_ENV=dev
+    Should Not Contain    ${acq.stdout}    Wrote
+    ${m}=         Get File    ${home}${/}environments${/}dev.yaml
+    Should Contain    ${m}    template: analytics
+
+Keep Running Is About A Session's End
+    [Documentation]    NERD035 SPEC006: --keep-running only means something for
+    ...                a session lease, so without --session it is refused.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    dev    --pid    0    --keep-running
+    Should Be Equal As Integers    ${r.rc}    2
+    Should Contain    ${r.stderr}    --session
+
+A Purge Selector Never Purges Everything
+    [Documentation]    NERD035 SPEC007: a selector that selects nothing says so
+    ...                and exits zero; it never falls through to bare purge.
+    ...                --dry-run needs a selector.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Run nsctl In Home Without An Engine    ${home}    env    add    dev
+    ${r}=         Run nsctl In Home Without An Engine    ${home}    env    purge    --idle    1h    --yes
+    Should Be Equal As Integers    ${r.rc}    0    msg=${r.stderr}
+    Should Contain    ${r.stdout}    nothing to purge
+    Directory Should Exist    ${home}${/}.config
+    ${dry}=       Run nsctl In Home Without An Engine    ${home}    env    purge    --dry-run
+    Should Be Equal As Integers    ${dry.rc}    2
+
+Max Running Refuses A Session That Would Start One More
+    [Documentation]    NERD035 SPEC008: with max_running 1 and a session
+    ...                holding local, a session acquire that would start
+    ...                another environment exits 3 and names the budget.
+    [Tags]    contract    nerd035
+    ${home}=      Create Scratch Home
+    Create File    ${home}${/}.config${/}nsctl.toml    [pool]\nsize = 3\nmembers = ["local"]\nmax_running = 1\n
+    ${src}=       Set Variable    ${home}${/}lite.yaml
+    Create File    ${src}    {version: 1, name: lite, substrate: none, repos: []}
+    Run nsctl In Home Without An Engine    ${home}    template    add    lite    ${src}
+    Run nsctl In Home Without An Engine    ${home}    env    add    local
+    ${a}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    local    --session    --pid    0
+    Should Be Equal As Integers    ${a.rc}    0    msg=${a.stderr}
+    ${b}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    --session    --pool    --pid    0    --template    lite    --no-pull
+    Should Be Equal As Integers    ${b.rc}    3    msg=${b.stderr}
+    Should Contain    ${b.stderr}    max_running

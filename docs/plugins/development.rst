@@ -44,8 +44,8 @@ Where an extension is declared decides its lifetime, not just its location.
      - that environment is running
      - the control plane is running
    * - Verbs
-     - ``nsctl repo …`` / ``nsctl env apply``
-     - ``nsctl control-plane repo …`` / ``control-plane apply``
+     - ``nsctl instance …`` / ``nsctl env apply``
+     - ``nsctl control-plane instance …`` / ``control-plane apply``
    * - Specified by
      - ``docs/reference/commands.rst``
      - ``NERD004``
@@ -62,7 +62,7 @@ Adding one
 .. code-block:: bash
 
     # to an environment
-    nsctl repo add hmd-ms-myapi --env dev2 --name my-api \
+    nsctl instance add hmd-ms-myapi --env dev2 --name my-api \
         --depends eks-cluster=eks-cluster \
         --depends database-instance=environment-db
     nsctl env apply --env dev2
@@ -70,7 +70,7 @@ Adding one
 .. code-block:: bash
 
     # to the control plane
-    nsctl control-plane repo add hmd-inf-local-registry --name package-registry \
+    nsctl control-plane instance add hmd-inf-local-registry --name package-registry \
         --config url=http://registry.ns.local \
         --config upstream=server:8080
     nsctl control-plane apply

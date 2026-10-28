@@ -156,7 +156,7 @@ project; it does not deploy into an environment cluster. Extensions cannot pin
 container names, publish host ports, or use named volumes. The proxy handles
 external routing.
 
-``control-plane repo add|remove|list`` manages declarations, and
+``control-plane instance add|remove|list`` manages declarations, and
 ``control-plane apply`` converges them. Startup applies them too. An extension
 failure is reported separately and does not prevent the base control plane
 from starting.

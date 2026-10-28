@@ -151,7 +151,7 @@ func TestSnapshotRoundTrips(t *testing.T) {
 
 	dir := t.TempDir()
 	entries := []bom.Entry{entry("a", "1.0"), entry("b", "2.0")}
-	if err := WriteSnapshot(dir, entries, map[string]string{"a": "release-a"}); err != nil {
+	if err := WriteSnapshot(dir, entries, map[string]string{"a": "release-a"}, nil); err != nil {
 		t.Fatalf("WriteSnapshot: %v", err)
 	}
 
@@ -217,10 +217,10 @@ func TestWriteSnapshotReplacesAtomically(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	if err := WriteSnapshot(dir, []bom.Entry{entry("a", "1.0")}, nil); err != nil {
+	if err := WriteSnapshot(dir, []bom.Entry{entry("a", "1.0")}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteSnapshot(dir, []bom.Entry{entry("a", "2.0")}, nil); err != nil {
+	if err := WriteSnapshot(dir, []bom.Entry{entry("a", "2.0")}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -250,7 +250,7 @@ func TestSnapshotPathIsInTheStateDirectory(t *testing.T) {
 func TestWriteSnapshotWithNoStateDirectoryIsANoOp(t *testing.T) {
 	t.Parallel()
 
-	if err := WriteSnapshot("", []bom.Entry{entry("a", "1.0")}, nil); err != nil {
+	if err := WriteSnapshot("", []bom.Entry{entry("a", "1.0")}, nil, nil); err != nil {
 		t.Errorf("WriteSnapshot: %v", err)
 	}
 }

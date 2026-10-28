@@ -1,0 +1,12 @@
+{
+  "name": "signal_type",
+  "namespace": "hmd_lang_nsreporting",
+  "metatype": "noun",
+  "attributes": {
+    "name": {
+      "type": "string",
+      "description": "OpenTelemetry signal type (traces, metrics, logs)",
+      "required": true
+    }
+  }
+}

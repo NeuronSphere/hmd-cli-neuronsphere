@@ -3,7 +3,7 @@ package cmd
 import "testing"
 
 // The opt-in is recorded in the environment manifest, survives a later
-// `repo add`, and is cleared as absence like the substrate's default.
+// `instance add`, and is cleared as absence like the substrate's default.
 func TestRecordHostWorkspaceRoundTrips(t *testing.T) {
 	t.Parallel()
 
@@ -18,11 +18,11 @@ func TestRecordHostWorkspaceRoundTrips(t *testing.T) {
 		t.Errorf("recorded %+v, want host_workspace", m)
 	}
 
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatal(err)
 	}
 	if m := readManifest(t, env, "local"); !m.HostWorkspace {
-		t.Errorf("repo add dropped host_workspace: %+v", m)
+		t.Errorf("instance add dropped host_workspace: %+v", m)
 	}
 
 	if err := recordHostWorkspace(opts, home, "local", false); err != nil {

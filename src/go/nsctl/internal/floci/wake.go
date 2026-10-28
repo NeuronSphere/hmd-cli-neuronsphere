@@ -86,13 +86,15 @@ type WakeFailure struct {
 // The invariant is the plain one: *starting one thing does not change which
 // other environments are running*. Only a container that was down in `before`
 // and is up now is stopped, so an environment the user had running is never
-// touched, and neither is one Floci left alone. `exempt` is the environment the
-// caller is itself starting.
-func StopWoken(ctx context.Context, d WakeDocker, envs []EnvAccount, network string, before map[string]bool, exempt string) ([]string, []WakeFailure) {
+// touched, and neither is one Floci left alone. `exempt` names the environments
+// to leave alone regardless: the one the caller is itself starting, and any
+// another nsctl started in the same window (see internal/envactivity). Nil
+// exempts nothing.
+func StopWoken(ctx context.Context, d WakeDocker, envs []EnvAccount, network string, before map[string]bool, exempt func(slug string) bool) ([]string, []WakeFailure) {
 	woke := map[string]bool{}
 	var failures []WakeFailure
 	for slug, names := range ContainersByEnv(ctx, d, envs, network) {
-		if slug == exempt {
+		if exempt != nil && exempt(slug) {
 			continue
 		}
 		for _, name := range names {

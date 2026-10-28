@@ -658,8 +658,10 @@ Local flags
 * ``--dry-run`` — Show what would be declared, writing and fetching nothing
 * ``--env`` — Local environment to declare into (default: the default environment)
 * ``--exclude`` — An instance to leave out. Repeatable (default: ``[]``)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--include-failed`` — Include instances whose last deployment FAILED
 * ``--instance`` — An instance to take, by name. Repeatable (default: ``[]``)
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--librarian-url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--no-deps`` — Take the selection literally, without what fills its roles
@@ -775,7 +777,7 @@ declared extensions without the Floci health wait, the bootstrap or the route
 rewrite a full start does.
 
 Editing the manifest by hand and running this is the same operation as using
-`nsctl control-plane repo`.
+`nsctl control-plane instance`.
 
 An extension that fails is reported and skipped; nothing else is affected. The
 exit status is non-zero when any did, so a script notices.
@@ -797,8 +799,8 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo
-------------------------
+nsctl control-plane instance
+----------------------------
 
 Edits the control-plane manifest at $HMD_HOME/.config/control-plane.yaml.
 
@@ -809,22 +811,22 @@ result -- so nothing here touches a running control plane on its own.
 An extension declared here outlives every environment, is up whenever the
 control plane is, and there is one of it per HMD_HOME. Anything that should be
 one-per-environment belongs in an environment manifest instead; see
-`nsctl repo add`.
+`nsctl instance add`.
 
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl control-plane repo
+   nsctl control-plane instance
 
 Inherited flags
 ~~~~~~~~~~~~~~~
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo add
-----------------------------
+nsctl control-plane instance add
+--------------------------------
 
 Adds a repo class to the control-plane manifest.
 
@@ -839,16 +841,16 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo add <repo-class>[@<version>] [flags]
+   nsctl control-plane instance add <repo-class>[@<version>] [flags]
 
 Examples
 ~~~~~~~~
 
 .. code-block:: shell
 
-   nsctl control-plane repo add hmd-inf-local-registry --name registry \
+   nsctl control-plane instance add hmd-inf-local-registry --name registry \
        --config url=http://registry.ns.local --config upstream=server:3141
-     nsctl control-plane repo add hmd-inf-local-registry --config pypi.enabled=true
+     nsctl control-plane instance add hmd-inf-local-registry --config pypi.enabled=true
 
 Local flags
 ~~~~~~~~~~~
@@ -862,8 +864,8 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo list
------------------------------
+nsctl control-plane instance list
+---------------------------------
 
 Lists the control-plane manifest's declarations with their resolved versions.
 
@@ -875,15 +877,15 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo list
+   nsctl control-plane instance list
 
 Inherited flags
 ~~~~~~~~~~~~~~~
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
-nsctl control-plane repo remove
--------------------------------
+nsctl control-plane instance remove
+-----------------------------------
 
 Removes an instance from the control-plane manifest.
 
@@ -896,7 +898,7 @@ Usage
 
 .. code-block:: text
 
-   nsctl control-plane repo remove <instance>
+   nsctl control-plane instance remove <instance>
 
 Aliases: ``rm``.
 
@@ -1203,12 +1205,19 @@ This only writes the registry. The environment's database, cluster and routes
 are created by `nsctl env start <name>`, which is also what makes it usable.
 
 A new environment is empty: it gets the substrate and nothing else. Declare
-what should run on it with `nsctl repo add --env <name> <repo-class>`.
+what should run on it with `nsctl instance add --env <name> <repo-class>`.
 
 With --from-repo it is not empty. The repository's `local` section and its
 checked-in neuronsphere.lock say what to stand up alongside it, every activated
 entry is declared at its pinned version, and the repository itself is declared
 from its working tree -- which is what makes it the thing under test.
+
+With --template and --repo it is composed (NERD035 SPEC004): the template's
+instances, then each repository being edited from its working tree with what
+its lock pins. What the composition already provides is shared rather than
+declared twice, and a repository being edited replaces the one instance of its
+class the template or another repository declares. --profile and --name apply
+to every --repo.
 
 This is the one command that fetches an artifact without being asked, because
 this is first start: there is no environment yet, so there is no offline
@@ -1230,6 +1239,7 @@ Examples
      nsctl env add dev --from-repo .
      nsctl env add dev --from-repo . --profile transforms
      nsctl env add dev --from-repo . --lean --name neptune-db=my-graph
+     nsctl env add work --template telemetry --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector
 
 Local flags
 ~~~~~~~~~~~
@@ -1243,6 +1253,8 @@ Local flags
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--no-pull`` — Do not fetch the artifacts the declaration names
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
+* ``--template`` — Start from this template (see `nsctl template list`)
 * ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
 
 Inherited flags
@@ -1256,7 +1268,7 @@ nsctl env apply
 Deploys the environment substrate and everything the manifest declares.
 
 The manifest at $HMD_HOME/environments/<name>.yaml is the desired state.
-Editing it by hand and running this is the same operation as `nsctl repo add`,
+Editing it by hand and running this is the same operation as `nsctl instance add`,
 which edits that file and reconciles for you.
 
 This is what `env start` runs at the end, so applying after an edit does not
@@ -1296,7 +1308,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the lock mentions
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
 * ``--from-repo`` — Build the environment from the repository at this path
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the repository and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -1379,8 +1393,263 @@ Aliases: ``rm``.
 Local flags
 ~~~~~~~~~~~
 
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--keep-manifest`` — Keep the environment manifest under $HMD_HOME/environments
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Confirm the removal
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease
+---------------
+
+A lease gives one run -- a deploy, a test suite, a verify -- exclusive use of
+an environment until it releases it. While an environment is leased, every
+command that changes it -- env start, apply, stop, purge and delete, instance
+add/remove/import, stack add/remove, bom import -- refuses anyone who does not
+present the lease's token (--lease-token, or NSCTL_LEASE_TOKEN), so concurrent
+sessions cannot deploy over each other. --ignore-lease overrides the refusal.
+
+A run lease covers one run: take it for the run, release it when the run ends.
+A small pool of environments ([pool] in nsctl.toml; by default local plus one
+cc-N created on demand) then serves many runs, and a run that finds them all
+busy can queue with --wait.
+
+A session lease (acquire --session) covers a whole working session -- one
+person or one coding agent iterating on one environment for hours. It lives for
+[pool] session_ttl (default 8h) between heartbeats, watches the session's own
+process, and answers any run lease taken inside the session, so scripts that
+take run leases work unchanged. Only release --session ends it.
+
+A lease ends when it is released, when its TTL passes without a renew, or when
+the process it watches (--pid) exits.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease acquire
+-----------------------
+
+Leases the named environment (default: the one HMD_LOCAL_ENV or the registry
+names), or with --pool the free pool environment that needs the least redeploying
+for --for, an environment manifest of what the run will deploy. Ties go to the
+environment released most recently.
+
+When the pool has room and nothing is free, the next cc-N is registered for the
+run; the output says so ("created"), and it must be started before deploying.
+
+With --session the lease is held for a working session rather than one run
+(NERD035 SPEC002): its TTL is [pool] session_ttl (default 8h), and --pid
+defaults to the session's process -- the nearest ancestor named claude, else
+the caller's parent. --shell prints the two exports that point every later
+nsctl, hmd deploy --local and hmd bender in the shell at the leased environment.
+
+With --template and --repo a session acquire shapes and brings up its
+environment (NERD035 SPEC004, SPEC005): it composes the template and the
+repositories being edited -- before taking any lease, so a composition that
+cannot be built costs nothing -- then, with --pool, places the session in the
+free environment of the same template that needs the least redeploying,
+avoiding one holding another session's working trees. After printing the lease
+it fetches what the composition needs (unless --no-pull), writes it as the
+environment's manifest and runs env start (unless --no-start), with progress on
+stderr. If that fails the lease is kept: fix it and run env start.
+
+Inside a session (NSCTL_LEASE_TOKEN names a live session lease), an acquire --
+bare, naming the session's environment, or with --pool -- is answered with the
+session's own lease, marked nested, instead of contending for it.
+
+Prints the lease, including the token that renew, release and leased commands
+(NSCTL_LEASE_TOKEN) present.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease acquire [name] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   eval "$(nsctl env lease acquire --session --pool --wait --shell \
+         --template telemetry --repo ~/src/hmd-inf-clickhouse)"
+     eval "$(nsctl env lease acquire --session --pool --wait --shell)"
+     nsctl env lease acquire --pool --wait --holder my-session --json
+     nsctl env lease acquire dev --holder ci-123 --ttl 30m
+     nsctl env lease acquire --pool --for run-manifest.yaml --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — with --repo, activate every profile each lock mentions
+* ``--for`` — an environment manifest of what the run will deploy, to pick the closest pool environment
+* ``--holder`` — who is asking, shown to anyone refused (default: user and parent pid)
+* ``--json`` — print the lease as JSON
+* ``--keep-running`` — with --session, do not stop the environment when the session ends
+* ``--lean`` — with --repo, activate no profiles
+* ``--name`` — with --repo, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--no-pull`` — with --template/--repo, do not fetch the artifacts the composition names
+* ``--no-start`` — with --template/--repo, write the session's manifest but do not start the environment
+* ``--pid`` — the process whose exit ends the lease (default: the caller's parent; with --session, the session's process); 0 relies on --ttl alone (default: ``0``)
+* ``--pool`` — lease the closest free environment from the pool
+* ``--profile`` — with --repo, local profiles to activate in every repository. Repeatable, or comma-separated (default: ``[]``)
+* ``--repo`` — A repository being edited, deployed from its working tree with what its lock pins. Repeatable (default: ``[]``)
+* ``--run-id`` — an id for this run, recorded in the lease
+* ``--session`` — hold the environment for a working session, not one run
+* ``--shell`` — print export lines for HMD_LOCAL_ENV and NSCTL_LEASE_TOKEN, for eval
+* ``--steal`` — take the environment even if someone else holds it
+* ``--template`` — Start from this template (see `nsctl template list`)
+* ``--ttl`` — how long the lease lives without a renew (with --session: [pool] session_ttl) (default: ``10m0s``)
+* ``--wait`` — queue until an environment is free instead of failing
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease heartbeat
+-------------------------
+
+Pushes the expiry of the lease the token holds out by its TTL. The token
+identifies the lease, so a hook or a background loop needs nothing else.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease heartbeat [--token <token>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   while sleep 600; do nsctl env lease heartbeat || break; done
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease list
+--------------------
+
+Show who holds which environment, and who is waiting
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease release
+-----------------------
+
+Ends the lease the token holds on the environment.
+
+A session lease is ended only with --session. A run inside a session is handed
+the session's own token, so a script written for run leases releasing "its"
+lease would otherwise end the session; without --session such a release leaves
+the lease in place, says so, and exits zero.
+
+With --session the name and token may be left out: the session's own lease is
+found by its process, which is what lets a hook end it.
+
+Ending a session stops its environment (NERD035 SPEC006), keeping its state for
+the next session to reuse warm; --keep-running leaves it running. Nothing is
+ever purged here: that is env purge.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease release [<name>] [--token <token>] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--keep-running`` — with --session, leave the environment running instead of stopping it
+* ``--session`` — end a session lease, not just a run's use of it
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease renew
+---------------------
+
+Push a lease's expiry out by its TTL
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease renew <name> --token <token> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl env lease whoami
+----------------------
+
+Describes the lease NSCTL_LEASE_TOKEN (or --token) holds: its environment,
+scope, holder, template, working trees, expiry and where the environment's
+routes are served. Exits non-zero when the token holds no live lease.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl env lease whoami [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — print the lease as JSON, without its token
+* ``--token`` — the lease token (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1397,7 +1666,12 @@ Usage
 
 .. code-block:: text
 
-   nsctl env list
+   nsctl env list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1470,6 +1744,14 @@ nginx routes and the state directory all go, and none of it comes back.
 With no name it purges every environment and the control plane with them,
 leaving an HMD_HOME a fresh bootstrap can start from.
 
+--idle and --keep select instead (NERD035 SPEC007): pool-created environments
+(cc-N) that hold no lease, released longer ago than --idle, or all but the
+--keep most recently released; both together select what both select. They
+never select a configured [pool] member, a leased environment or the control
+plane, and never fall through to purging everything. --dry-run lists the
+selection; without --yes the list is printed and nothing is purged. Nothing
+runs this for you: a session's end only ever stops its environment.
+
 Resources Floci spawned are deleted through Floci before the control plane
 stops, because a delete asked of a stopped Floci is a delete that did not
 happen -- and its containers and volumes are then left behind with nothing
@@ -1485,6 +1767,11 @@ Usage
 Local flags
 ~~~~~~~~~~~
 
+* ``--dry-run`` — with --idle or --keep, list what would be purged and purge nothing
+* ``--idle`` — purge pool environments released longer ago than this, e.g. 72h (default: ``0s``)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--keep`` — purge all but this many of the most recently released pool environments (default: ``-1``)
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--yes`` — Skip the confirmation
 
 Inherited flags
@@ -1538,6 +1825,8 @@ Local flags
 
 * ``--force-full-redeploy`` — Deploy everything declared, ignoring what the graph says is already deployed
 * ``--host-workspace`` — Mount the projects root read-write into the cluster node at /hmd/workspace (recorded; applies when the cluster is created)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--no-deploy`` — Bring up the infrastructure without reconciling the BOM
 * ``--substrate`` — How much substrate to run: none, core or full (default: what the environment recorded, else full)
 * ``-V, --verbose`` — Show the underlying command output
@@ -1557,7 +1846,12 @@ Usage
 
 .. code-block:: text
 
-   nsctl env status [name]
+   nsctl env status [name] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1578,7 +1872,262 @@ Usage
 
 .. code-block:: text
 
-   nsctl env stop [name]
+   nsctl env stop [name] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl inspect
+-------------
+
+Runs the inspect verb of every noun that has one over the repositories in the
+named directories (default: the current one; a directory that is not itself a
+repository stands for the repositories in it), and prints one section per noun:
+
+  repoclass  what each repository is: its BACON manifest's summary and
+             validation, or for one without a manifest, what detection
+             can and cannot tell
+  instance   where those repo classes are declared in environments under
+             HMD_HOME, and whether their dependency wiring resolves
+  model      the data model the repositories describe, and every place
+             its artifacts disagree
+
+Findings share one shape and one severity scale across nouns. Exits 1 when
+any section reports an error, so it can gate a change. Writes nothing in any
+repository. Each noun's own inspect verb shows its section in more detail.
+NERD032 SPEC008.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl inspect [path...] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl inspect
+     nsctl inspect ~/src --only repoclass,model
+     nsctl inspect ~/src/hmd-config-transform-reporting --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print every section as one JSON document
+* ``--only`` — Run only these sections (repoclass, instance, model) (default: ``[]``)
+* ``--refresh`` — Inspect the data model again rather than show its latest snapshot
+* ``--skip`` — Skip these sections (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance
+--------------
+
+Edits the environment manifest at $HMD_HOME/environments/<env>.yaml.
+
+These verbs are wrappers: they change that file and nothing else. Editing it
+by hand is equivalent, and either way `nsctl env apply` is what deploys the
+result -- so nothing here touches a running environment on its own.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance add
+------------------
+
+Adds a repo class to the environment's manifest.
+
+The instance is named after the repo class with its hmd- prefix dropped unless
+--name says otherwise, so `nsctl instance add hmd-ms-transform` declares an
+instance called ms-transform.
+
+Declaring is not deploying. Run `nsctl env apply` to deploy the result.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance add <repo-class>[@<version>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl instance add hmd-ms-transform
+     nsctl instance add hmd-ms-transform@0.3 --name transform
+     nsctl instance add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
+     nsctl instance add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2
+
+Local flags
+~~~~~~~~~~~
+
+* ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
+* ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
+* ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+* ``--name`` — Instance name (default: the repo class without its hmd- prefix)
+* ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance import
+---------------------
+
+Reads what the deployment graph has for this environment and declares it.
+
+This is the migration path from the Python CLI. An environment brought up by
+`hmd neuronsphere up` gets its workloads from installed plugin packages, which
+nsctl does not read -- so those instances show as "undeclared" until they are
+written into a manifest. This writes them.
+
+Substrate instances are skipped: nsctl deploys those whether or not a manifest
+names them, and declaring one would make it removable by deleting a line.
+
+Instances the manifest already declares are left exactly as they are, so
+running this twice changes nothing the second time and a hand-edited
+declaration is never overwritten.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance import [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all`` — Import instances that are not currently deployed too
+* ``--dry-run`` — Show what would be declared without writing
+* ``--env`` — Environment to import from (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance inspect
+----------------------
+
+For each repo class among the repositories in the named directories (default:
+the current one), lists every instance of it an environment manifest under
+HMD_HOME declares, and the control-plane manifest: the environment, instance
+name, version, where it deploys from and its dependency wiring. Reads the
+manifests only; no control plane is asked.
+
+Findings: a dependency wired to an instance its manifest does not declare and
+that is not substrate (error -- the deploy would fail on it); a repo class no
+environment declares (info); an instance deploying from a checkout other than
+the repository inspected (info). Exits 1 on an error. This is the instance
+section of `nsctl inspect`. NERD032 SPEC010.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance inspect [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Only this environment (default: every environment, and the control plane)
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print the section as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance list
+-------------------
+
+Lists the environment manifest's declarations beside the deployment graph.
+
+The substrate is listed too, marked as such: nsctl deploys it whether or not a
+manifest exists, so seeing it here explains instances you never declared.
+
+An instance shown as undeclared is deployed but named by no manifest -- what a
+deleted line leaves behind.
+
+DECLARED and FROM answer two different questions. DECLARED is where the
+declaration came from; FROM is where the version came from, which the
+declaration cannot say -- an instance deploying 0.1.4 out of an artifact and one
+deploying 0.1.4 out of a checkout are both declared in the manifest.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to list (default: the default environment)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl instance remove
+---------------------
+
+Removes an instance from the environment's manifest.
+
+This edits the manifest only. What is already deployed stays deployed: nsctl
+does not tear an instance down on your behalf.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl instance remove <instance> [flags]
+
+Aliases: ``rm``.
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1711,6 +2260,306 @@ Usage
 .. code-block:: text
 
    nsctl logout
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model
+-----------
+
+The logical data model a set of repositories describes: .hms nouns, the
+tables, views, dbt models and exports that carry them, lineage between them,
+and every place those artifacts disagree. Nothing has to be declared first:
+perspectives no repository declares are derived from the files. NERD032,
+NERD033.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect ~/src
+     nsctl model inspect ~/src ntc_instances_export --sources
+     nsctl model diff ~/src --live
+     nsctl model perspective derive ~/src --evidence
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model diff
+----------------
+
+Compares the latest two snapshots of the same directories, or with --live the
+latest snapshot against the directories as they are now (without storing the
+result), and prints the semantic difference: nouns and attributes added or
+removed, an attribute's type, requiredness or enum values changed, a column
+added to one layer, lineage edges and disagreements that appeared or went away.
+
+Snapshots are taken by `nsctl model inspect --refresh` and stored under HMD_HOME. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model diff [path...] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect ~/src --refresh   # baseline
+     # ...edit a transform or an .hms schema...
+     nsctl model inspect ~/src --refresh
+     nsctl model diff ~/src
+     nsctl model diff ~/src --live
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the changes as JSON
+* ``--live`` — Compare the latest snapshot with the directories as they are now
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model inspect
+-------------------
+
+Reads .hms language pack schemas and their perspective sidecars, NeuronSphere
+transform SQL and dbt projects in the named directories (default: the current
+one) and prints the logical model they describe: nouns and their .hms
+attributes, each noun's perspective bindings (the Trino tables, views and dbt
+models that carry it, with their physical types), lineage between nouns, and
+every place the artifacts disagree. A directory that is not itself a repository
+stands for the repositories directly inside it.
+
+An argument that is not a directory names a noun to show in full: its fully
+qualified name (hmd_lang_transform.transform_instance) or just its name.
+
+Perspectives are not built in: a repository declares one under
+src/perspectives/<name>.perspective.json, or it is derived from the files
+(`nsctl model perspective`). NERD033.
+
+With --hms the selected nouns are printed as an .hms document plus one
+<name>.<perspective>.hms sidecar per perspective, and each perspective's
+definition; with --out <dir> those files are written under <dir>, laid out as
+src/schemas/<namespace>/ and src/perspectives/. With --context each noun is
+printed as the one document a code generator reads: the .hms schema with each
+perspective's values under extensions.<perspective>.
+
+Each inspection is stored as a snapshot under HMD_HOME, keyed by the set of
+directories inspected. Without --refresh the latest snapshot is shown; with it,
+the directories are inspected again and a new snapshot is stored, which
+`nsctl model diff` compares with the one before. Without HMD_HOME
+nothing is stored.
+
+nsctl model inspect never writes to the inspected repositories. NERD032.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model inspect [path|noun]... [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model inspect
+     nsctl model inspect ../hmd-config-transform-reporting ../hmd-lang-transform
+     nsctl model inspect ~/src --refresh
+     nsctl model inspect ~/src ntc_instances_export --sources
+     nsctl model inspect ~/src ntc_instances_export --hms --out /tmp/model
+
+Local flags
+~~~~~~~~~~~
+
+* ``--context`` — Print each selected noun as a generator context: .hms plus extensions.<perspective>
+* ``--hms`` — Print the selected nouns as .hms documents and perspective sidecars
+* ``--json`` — Print the model as JSON
+* ``--lossy`` — With --hms, write attributes of unknown type as string instead of refusing
+* ``--out`` — With --hms or --context, write the documents under this directory instead of printing them
+* ``--refresh`` — Inspect again and store a new snapshot
+* ``--sources`` — Show where every noun, attribute and link came from, and informational notes
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective
+-----------------------
+
+A perspective is the data a generator needs beside the core .hms schema to
+produce one technology's manifestation of a noun: a table's storage format, a
+column's physical type. nsctl embeds none. A repository declares one under
+src/perspectives/<name>.perspective.json; otherwise nsctl derives it from the
+files that realise the model (Trino DDL in transforms, dbt projects), with the
+evidence for each piece, and keeps it with the inspection under HMD_HOME until
+it is edited and materialised into a repository. NERD033.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl model perspective list ~/src
+     nsctl model perspective derive ~/src --evidence
+     nsctl model perspective show trino ~/src
+     nsctl model perspective edit trino rename-key format storage_format --path ~/src
+     nsctl model perspective materialise trino ~/src --to ~/src/hmd-lang-reporting
+
+Aliases: ``perspectives``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective derive
+------------------------------
+
+Inspects the directories again and derives a definition for every perspective
+no inspected repository declares: its keys, each key's kind, enum values, the
+core .hms type of each physical type, the binding key and name pattern. Each
+piece carries the rule that produced it and the objects that support it; a
+piece marked for review is one the files could not decide. Edits recorded with
+`nsctl model perspective edit` are replayed. NERD033 SPEC003.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective derive [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--evidence`` — Show the rule and support behind every piece
+* ``--json`` — Print the derivations as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective edit
+----------------------------
+
+Records an edit to a derived perspective, replayed every time it is derived
+again, so it survives changes to the files:
+
+  rename <new-name>             rename the perspective
+  rename-key <key> <new-key>    rename a key (its values follow)
+  drop-key <key>                drop a key (its values go)
+  hms-type <enum-value> <type>  set the core .hms type of a data type value
+
+Edits are kept under HMD_HOME for the inspected directories. An edit that
+does not apply to the current derivation is refused. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective edit <perspective> <op> <arg>... [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--path`` — The inspected directories the edit belongs to (default: the current one) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective list
+----------------------------
+
+List the perspectives in effect, declared or derived
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective list [path...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the definitions as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective materialise
+-----------------------------------
+
+Writes src/perspectives/<perspective>.perspective.json and one
+<noun>.<perspective>.hms sidecar per noun (under src/schemas/<namespace>/) into
+the repository named by --to, and nowhere else. From then on that repository
+declares the perspective: inspecting it reads the sidecars as declared values,
+and a file that later disagrees with them is reported. NERD033 SPEC005.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective materialise <perspective> [path...] --to <repository> [flags]
+
+Aliases: ``materialize``.
+
+Local flags
+~~~~~~~~~~~
+
+* ``--to`` — The repository to write into
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl model perspective show
+----------------------------
+
+Print a perspective's definition
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl model perspective show <perspective> [path...]
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1940,165 +2789,6 @@ Local flags
 * ``--repo`` — A repository to offer adopting, instead of asking for one
 * ``--stack`` — Deploy this stack into the new environment; bare --stack means analytics
 * ``--yes`` — Take the default answer to every question
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo
-----------
-
-Edits the environment manifest at $HMD_HOME/environments/<env>.yaml.
-
-These verbs are wrappers: they change that file and nothing else. Editing it
-by hand is equivalent, and either way `nsctl env apply` is what deploys the
-result -- so nothing here touches a running environment on its own.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo add
---------------
-
-Adds a repo class to the environment's manifest.
-
-The instance is named after the repo class with its hmd- prefix dropped unless
---name says otherwise, so `nsctl repo add hmd-ms-transform` declares an
-instance called ms-transform.
-
-Declaring is not deploying. Run `nsctl env apply` to deploy the result.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo add <repo-class>[@<version>] [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl repo add hmd-ms-transform
-     nsctl repo add hmd-ms-transform@0.3 --name transform
-     nsctl repo add hmd-inf-trino --depends eks-cluster=eks-cluster --depends database-instance=environment-db
-     nsctl repo add hmd-ms-myapi --path ~/work/hmd-ms-myapi --config replicas=2
-
-Local flags
-~~~~~~~~~~~
-
-* ``--config`` — An instance configuration value as key=value; repeatable (default: ``[]``)
-* ``--depends`` — A dependency as role=instance; repeatable (default: ``[]``)
-* ``--env`` — Environment to declare it in (default: the default environment)
-* ``--name`` — Instance name (default: the repo class without its hmd- prefix)
-* ``--path`` — Working tree to deploy from (default: $HMD_REPO_HOME/<repo-class>)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo import
------------------
-
-Reads what the deployment graph has for this environment and declares it.
-
-This is the migration path from the Python CLI. An environment brought up by
-`hmd neuronsphere up` gets its workloads from installed plugin packages, which
-nsctl does not read -- so those instances show as "undeclared" until they are
-written into a manifest. This writes them.
-
-Substrate instances are skipped: nsctl deploys those whether or not a manifest
-names them, and declaring one would make it removable by deleting a line.
-
-Instances the manifest already declares are left exactly as they are, so
-running this twice changes nothing the second time and a hand-edited
-declaration is never overwritten.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo import [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--all`` — Import instances that are not currently deployed too
-* ``--dry-run`` — Show what would be declared without writing
-* ``--env`` — Environment to import from (default: the default environment)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo list
----------------
-
-Lists the environment manifest's declarations beside the deployment graph.
-
-The substrate is listed too, marked as such: nsctl deploys it whether or not a
-manifest exists, so seeing it here explains instances you never declared.
-
-An instance shown as undeclared is deployed but named by no manifest -- what a
-deleted line leaves behind.
-
-DECLARED and FROM answer two different questions. DECLARED is where the
-declaration came from; FROM is where the version came from, which the
-declaration cannot say -- an instance deploying 0.1.4 out of an artifact and one
-deploying 0.1.4 out of a checkout are both declared in the manifest.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo list [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to list (default: the default environment)
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl repo remove
------------------
-
-Removes an instance from the environment's manifest.
-
-This edits the manifest only. What is already deployed stays deployed: nsctl
-does not tear an instance down on your behalf.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl repo remove <instance> [flags]
-
-Aliases: ``rm``.
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to edit (default: the default environment)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -2521,7 +3211,7 @@ nsctl repoclass deploy set-config
 ---------------------------------
 
 Writes a dotted key under deploy.default_configuration. The value is typed
-the way nsctl repo add --config types it: valid JSON is taken as JSON
+the way nsctl instance add --config types it: valid JSON is taken as JSON
 (2 is a number, true a boolean, {"a":1} an object), anything else as the
 literal string.
 
@@ -2790,6 +3480,35 @@ Local flags
 * ``--at`` — Where to put it: meta-data (root not implemented yet) (default: ``meta-data``)
 * ``--description`` — The repo class's one-line description
 * ``--format`` — Manifest format: json (toml not implemented yet) (default: ``json``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass inspect
+-----------------------
+
+Describes and validates the repo class manifest under --path, or for a
+repository without one, prints what detection can and cannot tell about it.
+A --path that is not itself a repository stands for the repositories in it.
+Findings are those of validate (error, warning; a note is info) and of detect
+(an undecided question is a warning, a refusal info). Exits 1 on an error.
+This is the repoclass section of `nsctl inspect`. NERD032 SPEC009.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass inspect [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--info`` — List info findings too, not only count them
+* ``--json`` — Print the section as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -3214,7 +3933,9 @@ Local flags
 * ``--all-profiles`` — Activate every profile the stack's lock mentions
 * ``--apply`` — Run `nsctl env apply` afterwards
 * ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--local-url`` — the control plane's Artifact Librarian
 * ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
 * ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
@@ -3448,6 +4169,8 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
 * ``--prune-cache`` — Also delete the stack's artifacts from the cache
 
 Inherited flags
@@ -3474,6 +4197,144 @@ Local flags
 
 * ``--offline`` — read the cache only
 * ``--spec`` — report which version a BACON version spec would choose
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template
+--------------
+
+A template is an environment manifest kept under a name in
+$HMD_HOME/templates: the instances, stacks and profiles an environment for some
+kind of work starts with -- "analytics" for Trino and Airflow, "telemetry" for
+the OpenTelemetry collector and ClickHouse.
+
+nsctl ships no templates. Make one from a manifest file, from a published stack,
+or from an environment that already has the right shape.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml
+     nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template add
+------------------
+
+Stores a template under <name> from exactly one source:
+
+  <file>            an environment manifest, copied in and renamed <name>
+  --stack <ref>     a published stack, planned as "nsctl stack add" plans it
+                    but into an empty manifest: the stack's instances at their
+                    pinned versions, from their artifacts, and its record.
+                    --profile, --all-profiles, --lean and --name mean what they
+                    mean there. The stack is fetched now, so a session later
+                    started from the template needs no network.
+  --from-env <env>  an environment's manifest, minus the instances it deploys
+                    from a working tree (source: {type: local}), which belong
+                    to whoever was editing them
+
+An existing template is replaced only with --force.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template add <name> [<file> | --stack <ref> | --from-env <env>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl template add telemetry --stack observability --profile full
+     nsctl template add analytics --from-env dev
+     nsctl template add warehouse ./warehouse.yaml --force
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — with --stack, activate every profile the stack's lock mentions
+* ``--force`` — replace an existing template of the same name
+* ``--from-env`` — an environment whose manifest the template copies, minus its working trees
+* ``--lean`` — with --stack, activate no profiles
+* ``--local-url`` — with --stack, the control plane's Artifact Librarian
+* ``--name`` — with --stack, name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--profile`` — with --stack, local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--spec`` — with --stack, a BACON version spec to choose the version by (e.g. "~= 0.1")
+* ``--stack`` — a published stack to plan the template from
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template list
+-------------------
+
+List the stored templates
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template list
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template remove
+---------------------
+
+Deletes the template file. Environments started from it keep their own manifests.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template remove <name>
+
+Aliases: ``rm``.
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl template show
+-------------------
+
+Print a template
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl template show <name>
 
 Inherited flags
 ~~~~~~~~~~~~~~~

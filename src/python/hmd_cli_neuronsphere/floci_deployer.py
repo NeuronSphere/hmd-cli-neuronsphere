@@ -1963,8 +1963,7 @@ def start_neptune_container(
         return False
     if not _gremlin_port_open(name):
         logger.warning(
-            f"Started graph container {name} but Gremlin Server never came up "
-            "on 8182"
+            f"Started graph container {name} but Gremlin Server never came up on 8182"
         )
         return False
     logger.debug(f"Started graph container {name}")
@@ -2093,8 +2092,7 @@ def wait_for_rds_instance(
                 return container
         time.sleep(3)
     logger.warning(
-        f"RDS instance {identifier} not ready after {timeout}s "
-        f"(container={container})"
+        f"RDS instance {identifier} not ready after {timeout}s (container={container})"
     )
     return container
 

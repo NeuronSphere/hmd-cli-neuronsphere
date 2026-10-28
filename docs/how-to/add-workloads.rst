@@ -9,7 +9,7 @@ repository.
 
 If your repository has no BACON manifest yet, start with
 :doc:`../tutorials/create-repository-manifest`. It provides a complete working
-example; ``repo add`` alone does not create deployment metadata or a script.
+example; ``instance add`` alone does not create deployment metadata or a script.
 
 .. include:: ../_includes/paid-cloud.txt
 
@@ -27,7 +27,7 @@ Inspect its metadata::
 
 Declare an instance::
 
-   nsctl repo add hmd-ms-myapi --env local --name my-api \
+   nsctl instance add hmd-ms-myapi --env local --name my-api \
        --path /work/hmd-ms-myapi \
        --depends eks-cluster=eks-cluster \
        --depends database-instance=environment-db \
@@ -38,6 +38,20 @@ environment. A role name and an instance name need not be equal. The
 configuration value ``2`` is parsed as JSON and stays a number; values that
 do not parse as JSON stay strings.
 
+You do not have to name a role the control plane can fill on its own. When the
+class manifest declares a **required** role by resource type, ``env plan`` and
+``env apply`` bind it for you if exactly one instance can satisfy it: one the
+control plane already knows is deployed, or an instance in the plan (the
+substrate included) whose class produces that resource type, or whose class is
+the ``repo_class_name`` the dependency also names. ``env plan``
+lists what it bound. If more than one instance fits, the role is left unbound
+and the plan names the choices; pass ``--depends role=instance`` to pick one.
+Optional roles, roles a ``--depends`` already names, and roles that carry a tag
+selector (only the control plane's own candidates count) are never bound for
+you. A role declared only by repo class name is bound the same way, from the class
+manifest: the one instance of that class in the environment. When there is
+none, the plan prints the ``nsctl instance add`` command that declares one.
+
 ``--path`` selects the checkout explicitly. Otherwise, a local source looks
 under ``$HMD_REPO_HOME/<repo-class>``. Without ``--name``, the instance name
 is the class name with the ``hmd-`` prefix removed. Choose another name to run
@@ -45,10 +59,10 @@ two instances of one class; adding a duplicate name is refused.
 
 Review and deploy::
 
-   nsctl repo list --env local
+   nsctl instance list --env local
    nsctl env plan local
    nsctl env apply local
-   nsctl repo list --env local
+   nsctl instance list --env local
 
 The add command writes ``$HMD_HOME/environments/local.yaml`` and prints its
 location. Applying performs the deployment. A dependency validation error
@@ -106,7 +120,7 @@ looks like::
          database-instance: environment-db
 
 Merge the entry into the existing ``repos`` list rather than replacing other
-declarations. A ``version`` on a ``repo add`` command alone does not select
+declarations. A ``version`` on a ``instance add`` command alone does not select
 ``source.type: artifact``; specify the source in the manifest or use the
 repository-adoption or BOM-import workflow, which writes it for you.
 
@@ -116,7 +130,7 @@ Update and remove a declaration
 Edit configuration, dependencies, or a version in the environment manifest,
 then plan and apply again. To stop asking for an instance::
 
-   nsctl repo remove my-api --env local
+   nsctl instance remove my-api --env local
    nsctl env plan local
 
 Removal edits the declaration; it does not tear down the deployed instance.
@@ -129,9 +143,9 @@ Import workloads created by the Python CLI
 For an environment already populated through ``hmd neuronsphere``, inspect
 what would be copied from the deployment graph::
 
-   nsctl repo import --env local --dry-run
-   nsctl repo import --env local
-   nsctl repo list --env local
+   nsctl instance import --env local --dry-run
+   nsctl instance import --env local
+   nsctl instance list --env local
 
 This imports deployed instances into the local manifest. It does not import
 arbitrary repository directories. ``--all`` also includes instances that
@@ -142,6 +156,6 @@ Shared control-plane workloads
 
 A package registry or another service that must outlive individual
 environments belongs in the control-plane manifest. Use
-``nsctl control-plane repo add`` and ``nsctl control-plane apply``.
+``nsctl control-plane instance add`` and ``nsctl control-plane apply``.
 See :doc:`../plugins/development` for the Compose extension contract and
 :doc:`../reference/manifests` for both manifest locations.

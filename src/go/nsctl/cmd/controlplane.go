@@ -37,7 +37,7 @@ for it at all; it is only ever stopped as a side effect of a bare
 		newControlPlaneStopCommand(opts),
 		newControlPlaneStatusCommand(opts),
 		newControlPlaneApplyCommand(opts),
-		newControlPlaneRepoCommand(opts),
+		newControlPlaneInstanceCommand(opts),
 		newControlPlaneResetCommand(opts),
 	)
 	return cp
@@ -115,7 +115,7 @@ declared extensions without the Floci health wait, the bootstrap or the route
 rewrite a full start does.
 
 Editing the manifest by hand and running this is the same operation as using
-` + "`nsctl control-plane repo`" + `.
+` + "`nsctl control-plane instance`" + `.
 
 An extension that fails is reported and skipped; nothing else is affected. The
 exit status is non-zero when any did, so a script notices.`,

@@ -42,6 +42,31 @@ How the local path works
 4. Runs ``helm upgrade --install --atomic`` into namespace
    ``<instance_name>-<deployment_id>``.
 
+``config_local.json`` under ``nsctl env apply``
+-----------------------------------------------
+
+``nsctl env apply`` (and ``nsctl env plan``) lays each local-source repo's
+``meta-data/config_local.json`` beneath the instance's own configuration, so a
+repo's local settings apply without being repeated in the environment manifest.
+The precedence, lowest first, is the class's ``default_configuration``, then
+``config_local.json``, then ``instance_configuration`` from the environment
+manifest. Maps merge key by key; any other value (including a list) replaces the
+one below it.
+
+Four top-level keys are **dropped before the merge**: ``instance_name``,
+``deployment_id``, ``dependencies`` and ``details``. They exist for a direct
+``hmd helm deploy --local -cf ...``, where nothing else says who the instance is
+or what it depends on. Under nsctl the environment manifest does, and merging
+them would rename the instance and replace the dependencies nsctl bound.
+
+A repo deployed from an artifact has no working tree and is left as declared. A
+missing file is normal; one that does not parse is reported as a warning and
+ignored.
+
+Typical use: a chart whose database-credential ``ExternalSecret`` must read
+Parameter Store on a freshly created environment sets
+``"platformSecretStore": "parameterStoreSecretStore"`` here.
+
 Kubernetes version parity
 -------------------------
 

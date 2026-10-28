@@ -1,0 +1,35 @@
+type: provider
+query_config:
+  query_name: by_ntc_export
+  query_string: "g.V().hasLabel('hmd_lang_librarian.content_item').as('a').where(__.out('hmd_lang_librarian.content_item_has_content_item_type').has('short_name', '{item_type}')).select('a').not(inE('hmd_lang_transform.transform_instance_depends_on_entity').outV().not(has('status', 'scheduling_failed')).inE('hmd_lang_transform.transform_version_has_transform_instance').outV().inE('hmd_lang_transform.transform_has_transform_version').outV().has('name', '{tf_name}')).select('a').id().as('b').select('a').label().as('c').select('a').out('hmd_lang_librarian.content_item_has_ns_day').values('iso_date').as('iso_date').select('a').out('hmd_lang_nsreporting.content_item_has_environment').values('type').as('environment').select('b','c', 'iso_date', 'environment').limit(10)"
+  query_value:
+    item_type: ntc_export_parquet
+    tf_name: nsreporting_01_create_ntc_source_table
+config:
+  provider_package: hmd_operators.trino
+  provider_class: TrinoOperator
+  params:
+    sql: |
+      CREATE TABLE IF NOT EXISTS {{ ns_context['schema_name' ]}}_source.ntc_instances_export_{{ ns_context['iso_date'].replace('-', '_') }}_{{ ns_context['environment'] }} (
+        nid VARCHAR,
+        transform_name VARCHAR,
+        transform_version VARCHAR,
+        created_at VARCHAR,
+        scheduled_at VARCHAR,
+        started_at VARCHAR,
+        completed_at VARCHAR,
+        status VARCHAR,
+        _created VARCHAR,
+        _updated VARCHAR
+      )
+      WITH (
+        format = 'PARQUET',
+        external_location = '{{ ns_context['bucket_name'] }}/ntc/date={{ ns_context['iso_date'] }}/env={{ ns_context['environment'] }}/'
+      )
+    trino_conn_id: trino_conn
+    autocommit: true
+  run_params:
+    schema_name: ntc
+    bucket_name: NSREPORTING_BUCKET
+    iso_date: context.iso_date
+    environment: context.environment

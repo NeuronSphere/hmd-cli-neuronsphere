@@ -27,6 +27,10 @@ type PlanResult struct {
 	// validate when nothing would deploy.
 	Validation *msdeploy.ValidateResult
 	Warnings   []bom.CandidateWarning
+	// Bindings are the required roles the plan filled because exactly one
+	// instance satisfies them; Ambiguities are those with several, left unbound.
+	Bindings    []bom.Binding
+	Ambiguities []bom.Ambiguity
 }
 
 // ComputePlan is the dry run behind `nsctl env plan`: it builds exactly what
@@ -69,20 +73,13 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 		mode = manifest.SubstrateFull
 	}
 
-	substrate := bom.SubstrateFor(bomEnv, mode, k3sEnabled(opts))
 	var declaredRepos []manifest.Repo
 	if declared != nil {
 		declaredRepos = declared.Repos
 	}
-	entries := append(substrate, bom.Declared(bomEnv, declaredRepos)...)
-	// The same demand-driven graph Apply appends, so a plan does not omit an
-	// instance the apply it is predicting would deploy.
-	if graphEnabled(opts) {
-		if bom.RequiresGraph(entries) && !bom.DeclaresGraph(entries) {
-			entries = append(entries, bom.Graph(bomEnv))
-		}
-		bom.RepointGraphDatabase(entries)
-	}
+	// Apply's own desired state, so a plan neither omits an instance the apply
+	// it is predicting would deploy nor fails to bind a role to one.
+	entries := desiredEntries(opts, bomEnv, mode, declaredRepos)
 
 	resolver := repoclass.NewWithHome(opts.lookup("HMD_REPO_HOME"), opts.Home, opts.Lookup)
 	repoclass.Seed(resolver, declaredRepos)
@@ -113,15 +110,25 @@ func ComputePlan(ctx context.Context, opts *Options, name string) (*PlanResult, 
 		}
 	}
 	result.Reconcile = reconcile.Compute(entries, status, snapshot, redeploy)
+	result.Reconcile.MarkTreesChanged(reconcile.LoadSnapshotTrees(env.StateDir),
+		workingTreeDigests(opts, deployRepoPaths(opts, declaredRepos), entries))
 	if result.Reconcile.Empty() {
 		return result, nil
 	}
 
 	toDeploy := result.Reconcile.Deploy()
-	seeder := &bom.Seeder{Client: client, Versions: resolver, Warn: opts.warn}
+	seeder := &bom.Seeder{Client: client, Versions: resolver, Warn: opts.warn, Step: opts.step}
 	if err := seeder.RegisterCatalog(ctx, bomEnv, toDeploy); err != nil {
 		return nil, nserr.Wrap(nserr.Fail, fmt.Errorf("registering the catalog: %w", err))
 	}
+
+	// The same binding Apply performs, so the plan predicts the changeset the
+	// apply will build instead of reporting roles apply would fill.
+	bindings, ambiguities, err := seeder.BindSuggested(ctx, env.Slug, toDeploy, entries)
+	if err != nil {
+		opts.warn("binding suggested dependencies: %v", err)
+	}
+	result.Bindings, result.Ambiguities = bindings, ambiguities
 
 	sorted, err := bom.TopoSort(toDeploy)
 	if err != nil {

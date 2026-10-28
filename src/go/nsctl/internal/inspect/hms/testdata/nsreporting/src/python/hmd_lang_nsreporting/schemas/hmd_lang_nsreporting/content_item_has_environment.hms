@@ -1,0 +1,1 @@
+{"attributes": {}, "metatype": "relationship", "name": "content_item_has_environment", "namespace": "hmd_lang_nsreporting", "ref_from": "hmd_lang_librarian.content_item", "ref_to": "hmd_lang_nsreporting.environment"}

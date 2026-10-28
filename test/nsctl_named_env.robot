@@ -154,7 +154,7 @@ A Database Account Deploys In It
     ...                environment's ms-dbaccount service finds the admin secret
     ...                under the environment's name and writes the new user's
     ...                secret beside it.
-    ${added}=    Run nsctl    repo    add    ${DB ACCOUNT CLASS}    --env    ${ENV}
+    ${added}=    Run nsctl    instance    add    ${DB ACCOUNT CLASS}    --env    ${ENV}
     ...    --name    named-env-db-account
     ...    --config    db_name=${DB NAME}    --config    username=${DB NAME}
     ...    --depends    database-instance=environment-db

@@ -457,7 +457,7 @@ func TestBOMImportLeavesNothingDeclaredWhenTheFetchFails(t *testing.T) {
 }
 
 // TestBOMImportLeavesExistingDeclarationsAlone: a hand-edited declaration is
-// never overwritten, which is the rule `nsctl repo import` already follows.
+// never overwritten, which is the rule `nsctl instance import` already follows.
 func TestBOMImportLeavesExistingDeclarationsAlone(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,11 @@
+{
+  "name": "environment",
+  "namespace": "hmd_lang_nsreporting",
+  "metatype": "noun",
+  "attributes": {
+    "type": {
+      "type": "string",
+      "description": ""
+    }
+  }
+}

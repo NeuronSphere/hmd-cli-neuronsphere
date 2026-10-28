@@ -336,7 +336,7 @@ func (f *flow) offerStack(ctx context.Context, slug string) {
 
 	if !f.stackResolves(ctx, name) {
 		fmt.Fprintf(f.Out, "\n  No stack is published as %q on this machine's registries, so there is\n", name)
-		fmt.Fprintln(f.Out, "  nothing to offer here. `nsctl stack add <ref>` takes any reference.")
+		fmt.Fprintln(f.Out, "  nothing to offer here. `nsctl bundle add <ref>` takes any reference.")
 		return
 	}
 	if !f.confirm(fmt.Sprintf("\n  Add and deploy the %q stack?", name), asked) {

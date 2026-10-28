@@ -99,7 +99,7 @@ Import, plan, and deploy
 Perform the import and inspect the local result::
 
    nsctl bom import dev --selection selection.toml --env scratch --profile acme
-   nsctl repo list --env scratch
+   nsctl instance list --env scratch
    nsctl env plan scratch
    nsctl env apply scratch
 

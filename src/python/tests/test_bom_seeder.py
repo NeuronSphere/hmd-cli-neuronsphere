@@ -371,8 +371,9 @@ class SubmitLocalResourcesTests(unittest.TestCase):
         with mock.patch.object(
             b,
             "_post_apiop",
-            side_effect=lambda url, op, payload=None, **k: calls.append((op, payload))
-            or {},
+            side_effect=lambda url, op, payload=None, **k: (
+                calls.append((op, payload)) or {}
+            ),
         ):
             n = b.submit_local_resources("http://x", resources, nodes)
         self.assertEqual(n, len(resources))
@@ -518,9 +519,7 @@ class ResyncLocalResourcesTests(unittest.TestCase):
             return_value=[
                 {"instance_name": b.CORE_INSTANCE_NAME, "rid_nid": "rid-core"}
             ],
-        ), mock.patch.object(
-            b, "submit_local_resources", return_value=4
-        ) as submit:
+        ), mock.patch.object(b, "submit_local_resources", return_value=4) as submit:
             n = b.resync_local_resources("http://x", "neuronsphere")
         self.assertEqual(n, 4)
         seed.assert_called_once()
@@ -542,9 +541,7 @@ class ResyncLocalResourcesTests(unittest.TestCase):
             b, "declare_core_produces"
         ), mock.patch.object(
             b, "find_core_deployment_node", return_value=[]
-        ), mock.patch.object(
-            b, "submit_local_resources"
-        ) as submit:
+        ), mock.patch.object(b, "submit_local_resources") as submit:
             n = b.resync_local_resources("http://x", "neuronsphere")
         self.assertEqual(n, 0)
         submit.assert_not_called()
@@ -840,13 +837,9 @@ class SeedBomIdempotencyTests(unittest.TestCase):
             b, "_get_repo_deploy_config", return_value={}
         ), mock.patch.object(
             b, "_get_repo_discovery", return_value=discovery
-        ), mock.patch.object(
-            b, "declare_core_produces"
-        ), mock.patch.object(
+        ), mock.patch.object(b, "declare_core_produces"), mock.patch.object(
             b, "ensure_environment"
-        ), mock.patch.object(
-            b, "upsert_repo_resource_definitions"
-        ):
+        ), mock.patch.object(b, "upsert_repo_resource_definitions"):
             return b.seed_bom("http://x", bom=bom)
 
     def test_deployment_set_created_once(self):

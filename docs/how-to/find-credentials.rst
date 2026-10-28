@@ -65,7 +65,7 @@ a declaration in the class's own BACON manifest, not a setting here — see
        --secret-property password
 
 The declaration belongs to the workload's class, so it applies however that
-instance arrived — ``nsctl stack add``, ``env add --from-repo`` or ``repo add``.
+instance arrived — ``nsctl stack add``, ``env add --from-repo`` or ``instance add``.
 
 Where an endpoint is not a login
 --------------------------------

@@ -1,0 +1,55 @@
+{
+  "name": "service_profile",
+  "namespace": "hmd_lang_telemetry_debug",
+  "metatype": "noun",
+  "description": "A monitored service representing any NeuronSphere RepoClass instance. Defines what spans/metrics to watch and alert thresholds.",
+  "attributes": {
+    "service_name": {
+      "type": "string",
+      "description": "Name of the monitored service (e.g., trino, ms-transform, ms-librarian, airflow).",
+      "required": true,
+      "business_id": true
+    },
+    "repo_class_name": {
+      "type": "string",
+      "description": "NeuronSphere RepoClass name (e.g., hmd-inf-trino, hmd-ms-transform)."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this service does."
+    },
+    "otel_service_names": {
+      "type": "collection",
+      "description": "OTEL ServiceName values to match in ClickHouse. A service may emit traces under multiple names."
+    },
+    "monitored_span_names": {
+      "type": "collection",
+      "description": "Span names of interest for this service."
+    },
+    "default_thresholds": {
+      "type": "mapping",
+      "description": "Default alert thresholds (e.g., slow_duration_ms, error_rate_pct, p95_duration_ms)."
+    },
+    "tags": {
+      "type": "collection",
+      "description": "Freeform tags for categorization."
+    },
+    "profile_type": {
+      "type": "enum",
+      "enum_def": ["observability", "data_quality"],
+      "description": "Type of profile: observability for service health metrics, data_quality for data quality metrics from transforms/DAGs/dbt."
+    },
+    "category": {
+      "type": "string",
+      "description": "Sub-category for the profile (e.g., transform, airflow, dbt). Used to group and filter profiles."
+    },
+    "active": {
+      "type": "boolean",
+      "description": "Whether monitoring is enabled for this service."
+    },
+    "last_profiled_at": {
+      "type": "timestamp",
+      "description": "Timestamp of the last profiling run."
+    }
+  }
+}

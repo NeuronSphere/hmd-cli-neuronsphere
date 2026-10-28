@@ -54,11 +54,11 @@ func TestRecordSubstrateRoundTrips(t *testing.T) {
 	}
 
 	// Declaring an instance afterwards keeps the mode.
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatal(err)
 	}
 	if m := readManifest(t, env, "local"); m.SubstrateMode() != manifest.SubstrateNone {
-		t.Errorf("repo add dropped the mode: %+v", m)
+		t.Errorf("instance add dropped the mode: %+v", m)
 	}
 
 	if err := recordSubstrate(opts, home, "local", manifest.SubstrateFull); err != nil {
@@ -71,13 +71,13 @@ func TestRecordSubstrateRoundTrips(t *testing.T) {
 
 // NERD014 SPEC007: repo list prints as substrate rows only what the mode
 // deploys.
-func TestRepoListSubstrateRowsFollowTheMode(t *testing.T) {
+func TestInstanceListSubstrateRowsFollowTheMode(t *testing.T) {
 	t.Parallel()
 
 	home, env := repoEnv(t, "hmd-ms-myapi")
 	opts := &Options{Version: "test"}
 	opts.resolve(home, fakeEnv(env), func(string) {})
-	if _, _, err := run(t, fakeEnv(env), "repo", "add", "hmd-ms-myapi"); err != nil {
+	if _, _, err := run(t, fakeEnv(env), "instance", "add", "hmd-ms-myapi"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -93,7 +93,7 @@ func TestRepoListSubstrateRowsFollowTheMode(t *testing.T) {
 		if err := recordSubstrate(opts, home, "local", c.mode); err != nil {
 			t.Fatal(err)
 		}
-		out, _, err := run(t, fakeEnv(env), "repo", "list")
+		out, _, err := run(t, fakeEnv(env), "instance", "list")
 		if err != nil {
 			t.Fatalf("%s: repo list: %v", c.mode, err)
 		}

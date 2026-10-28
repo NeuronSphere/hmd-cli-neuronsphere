@@ -1,0 +1,6 @@
+{
+  "short_name": "ntc_export_parquet",
+  "description": "Parquet file from NTC Graph query export",
+  "match_regex": "ntc_.*\\.parquet",
+  "mime_type": "text/plain"
+}

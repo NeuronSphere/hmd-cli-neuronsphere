@@ -30,6 +30,14 @@ deployed and not before, and the deployed services and Ingress-exposed UIs are
 named individually. An environment that reports no route for something you
 expected has not deployed it — ``nsctl env plan <name>`` says what is declared.
 
+For scripts and tools, ``env list --json`` prints an array with one object per
+environment (``name``, ``default``, ``account_id``, ``port_slot``,
+``k3s_cluster``, ``substrate``, ``bootstrapped``, ``layout``; an empty registry
+is ``[]``), and ``env status <name> --json`` prints one object with the same
+facts as the table, the ``containers`` (``role``, ``name``, ``state``: running,
+stopped or absent), the ``routes`` in table order, and ``running``, true when
+every container the environment owns is up.
+
 A command without an explicit name selects ``HMD_LOCAL_ENV``, then the
 registry's default, then ``local``. You can make a newly registered environment
 the default with ``nsctl env add review --default``. Explicit names are useful
@@ -104,7 +112,7 @@ After editing its manifest or adding a repository::
 
    nsctl env plan review
    nsctl env apply review
-   nsctl repo list --env review
+   nsctl instance list --env review
 
 There is no need to restart the environment for each declaration change.
 ``nsctl stack add <name> --env review`` and ``stack remove`` change the
@@ -112,7 +120,9 @@ declarations the same way -- several instances at a time, from a published
 stack (:doc:`use-stacks`) -- and are followed by the same plan and apply.
 ``env start review --no-deploy`` starts infrastructure without reconciling
 workloads. ``env apply review --force-full-redeploy`` forces declared entries
-through deployment even when reconciliation considers them current.
+through deployment even when reconciliation considers them current. It is
+not needed to ship an edit to a chart, a deploy script or a manifest default
+in your own checkout: apply notices those edits by itself.
 
 See :doc:`../explanation/reconciliation` before using force to diagnose an
 unexpectedly empty plan.

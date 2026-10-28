@@ -3,6 +3,13 @@
 NERD017 Stacks
 ==============
 
+.. note::
+
+   Superseded in part by ``NERD0019_HMD_MS_DEPLOYMENT`` (hmd-ms-deployment, *Bundle Unifies
+   Stack*, proposed 2026-10-26): a stack becomes a repo class shipping ``meta-data/bundles/*.json``,
+   its lock a ``release_version`` of that bundle, ``nsctl stack`` becomes ``nsctl bundle`` (with
+   ``stack`` kept as an alias), and the ``stacks:`` environment record becomes ``bundles:``.
+
 .. req:: Install a published set of RepoClasses into a local environment with one command
     :id: HMD_CLI_NEURONSPHERE_NERD017
     :status: implemented

@@ -201,7 +201,7 @@ func newSetConfigCommand(path *repoClassPath) *cobra.Command {
 		Use:   "set-config <dotted.key> <value>",
 		Short: "Set a default configuration value",
 		Long: `Writes a dotted key under deploy.default_configuration. The value is typed
-the way nsctl repo add --config types it: valid JSON is taken as JSON
+the way nsctl instance add --config types it: valid JSON is taken as JSON
 (2 is a number, true a boolean, {"a":1} an object), anything else as the
 literal string.`,
 		Args:          cobra.ExactArgs(2),

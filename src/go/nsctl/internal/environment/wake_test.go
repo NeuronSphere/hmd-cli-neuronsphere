@@ -65,7 +65,7 @@ func TestStartSweepsClustersFlociWokeForOtherEnvironments(t *testing.T) {
 		"floci-rds-db-scratch": true, // and this
 	})
 
-	sweepWokenEnvironments(context.Background(), testOptions("", nil), d, wakeRegistry(), "local", map[string]bool{})
+	sweepWokenEnvironments(context.Background(), testOptions("", nil), d, wakeRegistry(), func(s string) bool { return s == "local" }, map[string]bool{})
 
 	sort.Strings(d.stopped)
 	if got := strings.Join(d.stopped, ","); got != "floci-eks-scratch,floci-rds-db-scratch" {
@@ -84,7 +84,7 @@ func TestStartLeavesAnotherRunningEnvironmentAlone(t *testing.T) {
 		"floci-rds-db-scratch": true,
 	})
 
-	sweepWokenEnvironments(context.Background(), testOptions("", nil), d, wakeRegistry(), "local", before)
+	sweepWokenEnvironments(context.Background(), testOptions("", nil), d, wakeRegistry(), func(s string) bool { return s == "local" }, before)
 
 	if len(d.stopped) != 0 {
 		t.Fatalf("stopped %v, but every container was already running before the start", d.stopped)

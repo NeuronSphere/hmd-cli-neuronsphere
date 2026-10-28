@@ -97,6 +97,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 		newEnvAddCommand(opts),
 		newEnvDeleteCommand(opts),
 		newEnvPurgeCommand(opts),
+		newEnvLeaseCommand(opts),
 	)
 	return env
 }
@@ -104,6 +105,7 @@ func newEnvCommand(opts *Options) *cobra.Command {
 func newEnvStartCommand(opts *Options) *cobra.Command {
 	var noDeploy, verbose, force, hostWorkspace bool
 	var substrate string
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Start an environment's infrastructure",
@@ -157,6 +159,9 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 			if err != nil {
 				return err
 			}
+			if err := guard.check(cmd, opts, home, slug); err != nil {
+				return err
+			}
 			// The mode, recorded before anything starts: a bad value costs a
 			// line, and a good one is what every later command reads.
 			if cmd.Flags().Changed("substrate") {
@@ -176,29 +181,17 @@ is a typo rather than a first run; use ` + "`nsctl env add`" + ` to add another.
 				fmt.Fprintf(cmd.OutOrStdout(), "Recorded host workspace %t for %s. A cluster keeps the mounts it was created with: "+
 					"an existing one changes only when it is recreated (nsctl env purge %s, then start).\n", hostWorkspace, slug, slug)
 			}
-			// `env start` starts the control plane implicitly if it is down,
-			// and then leaves it running.
-			if err := controlplane.Start(cmd.Context(), &controlplane.Options{
-				Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: verbose,
-				// This environment is about to be started, so the control
-				// plane must not stop the containers Floci woke for it only
-				// for the next call to start them again.
-				StartingEnv: slug,
-				Out:         cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
-			}); err != nil {
-				return err
-			}
-			return environment.Start(cmd.Context(), &environment.Options{
-				Home: home, Lookup: opts.Lookup, NoDeploy: noDeploy, Verbose: verbose,
-				ForceRedeploy: force,
-				Out:           cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
-			}, name)
+			return startWithControlPlane(cmd.Context(), opts, home, slug, startOptions{
+				NoDeploy: noDeploy, Verbose: verbose, Force: force,
+				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&noDeploy, "no-deploy", false, "Bring up the infrastructure without reconciling the BOM")
 	cmd.Flags().BoolVar(&force, "force-full-redeploy", false,
 		"Deploy everything declared, ignoring what the graph says is already deployed")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "V", false, "Show the underlying command output")
+	guard.bind(cmd)
 	cmd.Flags().StringVar(&substrate, "substrate", "",
 		"How much substrate to run: none, core or full (default: what the environment recorded, else full)")
 	cmd.Flags().BoolVar(&hostWorkspace, "host-workspace", false,
@@ -220,9 +213,37 @@ func recordHostWorkspace(opts *Options, home, slug string, on bool) error {
 	return nil
 }
 
+// startOptions are env start's flags and streams.
+type startOptions struct {
+	NoDeploy, Verbose, Force bool
+	Out, Err                 io.Writer
+}
+
+// startWithControlPlane is everything `env start` does once it knows which
+// environment: start the control plane if it is down -- and leave it running
+// -- then the environment. A session acquire's bring-up runs exactly this,
+// so the two cannot drift: calling environment.Start alone waits on a Floci
+// nothing started.
+func startWithControlPlane(ctx context.Context, opts *Options, home, slug string, s startOptions) error {
+	if err := controlplane.Start(ctx, &controlplane.Options{
+		Home: home, Lookup: opts.Lookup, Version: opts.Version, Verbose: s.Verbose,
+		// This environment is about to be started, so the control plane
+		// must not stop the containers Floci woke for it only for the next
+		// call to start them again.
+		StartingEnv: slug,
+		Out:         s.Out, Err: s.Err,
+	}); err != nil {
+		return err
+	}
+	return environment.Start(ctx, &environment.Options{
+		Home: home, Lookup: opts.Lookup, NoDeploy: s.NoDeploy, Verbose: s.Verbose,
+		ForceRedeploy: s.Force, Out: s.Out, Err: s.Err,
+	}, slug)
+}
+
 // recordSubstrate writes the mode into the environment manifest (NERD014
 // SPEC002), creating the file with no instances when there is none -- the way
-// the first `nsctl repo add` does.
+// the first `nsctl instance add` does.
 func recordSubstrate(opts *Options, home, slug string, mode manifest.Substrate) error {
 	m, err := openManifest(opts, home, slug)
 	if err != nil {
@@ -245,6 +266,7 @@ func newEnvApplyCommand(opts *Options) *cobra.Command {
 	var verbose, force, pull, prune bool
 	var repo fromRepo
 	var libs librarians
+	var guard leaseGuard
 
 	cmd := &cobra.Command{
 		Use:   "apply [name]",
@@ -252,7 +274,7 @@ func newEnvApplyCommand(opts *Options) *cobra.Command {
 		Long: `Deploys the environment substrate and everything the manifest declares.
 
 The manifest at $HMD_HOME/environments/<name>.yaml is the desired state.
-Editing it by hand and running this is the same operation as ` + "`nsctl repo add`" + `,
+Editing it by hand and running this is the same operation as ` + "`nsctl instance add`" + `,
 which edits that file and reconciles for you.
 
 This is what ` + "`env start`" + ` runs at the end, so applying after an edit does not
@@ -284,6 +306,9 @@ unless --prune; nothing is ever torn down on your behalf.`,
 			if len(args) == 1 {
 				name = args[0]
 			}
+			if err := guard.checkName(cmd, opts, home, name); err != nil {
+				return err
+			}
 			if repo.requested() {
 				if err := applyFromRepo(cmd, opts, &repo, &libs, home, name, pull, prune); err != nil {
 					return err
@@ -304,6 +329,7 @@ unless --prune; nothing is ever torn down on your behalf.`,
 		"Undeclare instances this repository no longer asks for. Does not tear them down")
 	repo.bind(cmd)
 	libs.bind(cmd)
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -355,7 +381,7 @@ func applyFromRepo(cmd *cobra.Command, opts *Options, repo *fromRepo, libs *libr
 	plan.render(cmd, slug)
 	if len(kept) > 0 {
 		// These verbs edit a manifest; nothing tears an instance down on the
-		// user's behalf, which is the promise `nsctl repo remove` already makes.
+		// user's behalf, which is the promise `nsctl instance remove` already makes.
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"note: %s %s no longer asked for, left declared. Pass --prune to undeclare them\n",
 			strings.Join(kept, ", "), plural(len(kept), "is", "are"))
@@ -373,7 +399,8 @@ func plural(n int, one, many string) string {
 }
 
 func newEnvStopCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var guard leaseGuard
+	cmd := &cobra.Command{
 		Use:   "stop [name]",
 		Short: "Stop an environment, leaving its state in place",
 		Long: `Stops one environment. This is a stop, not a teardown: the k3s cluster is
@@ -393,16 +420,22 @@ The control plane keeps running.`,
 			if len(args) == 1 {
 				name = args[0]
 			}
+			if err := guard.checkName(cmd, opts, home, name); err != nil {
+				return err
+			}
 			return environment.Stop(cmd.Context(), &environment.Options{
 				Home: home, Lookup: opts.Lookup,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}, name)
 		},
 	}
+	guard.bind(cmd)
+	return cmd
 }
 
 func newEnvListCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:           "list",
 		Short:         "List the registered environments",
 		Args:          noArgs,
@@ -413,10 +446,51 @@ func newEnvListCommand(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if asJSON {
+				return printJSON(cmd, envListDocument(reg, substrateOf(opts)))
+			}
 			renderEnvList(cmd.OutOrStdout(), cmd.ErrOrStderr(), reg, substrateOf(opts))
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
+	return cmd
+}
+
+// envListItem is one row of `env list --json`: the table's columns, with the
+// default environment as a flag rather than a suffix on its name.
+type envListItem struct {
+	Name         string `json:"name"`
+	Default      bool   `json:"default"`
+	AccountID    string `json:"account_id"`
+	PortSlot     int    `json:"port_slot"`
+	K3sCluster   string `json:"k3s_cluster"`
+	Substrate    string `json:"substrate"`
+	Bootstrapped bool   `json:"bootstrapped"`
+	Layout       string `json:"layout"`
+}
+
+// envListDocument is never nil, so an empty registry prints [] and not null.
+func envListDocument(reg *registry.Registry, substrate func(string) manifest.Substrate) []envListItem {
+	items := []envListItem{}
+	for _, name := range reg.Names() {
+		e := reg.Environments[name]
+		layout := "current"
+		if e.LegacyLayout {
+			layout = "legacy"
+		}
+		items = append(items, envListItem{
+			Name:         name,
+			Default:      name == reg.DefaultEnv,
+			AccountID:    e.AccountID,
+			PortSlot:     e.PortSlot,
+			K3sCluster:   e.K3sCluster,
+			Substrate:    string(substrate(e.Slug)),
+			Bootstrapped: e.Bootstrapped(),
+			Layout:       layout,
+		})
+	}
+	return items
 }
 
 func renderEnvList(out, errOut io.Writer, reg *registry.Registry, substrate func(string) manifest.Substrate) {
@@ -450,7 +524,8 @@ func renderEnvList(out, errOut io.Writer, reg *registry.Registry, substrate func
 }
 
 func newEnvStatusCommand(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:           "status [name]",
 		Short:         "Report one environment's containers and routes",
 		Args:          cobra.MaximumNArgs(1),
@@ -470,10 +545,62 @@ func newEnvStatusCommand(opts *Options) *cobra.Command {
 				return nserr.Wrap(nserr.Usage, err)
 			}
 			snap := reporter(opts, reg).EnvironmentStatus(cmd.Context(), e)
+			if asJSON {
+				return printJSON(cmd, envStatusDocument(snap))
+			}
 			renderEnvStatus(cmd.OutOrStdout(), snap)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
+	return cmd
+}
+
+// envStatusDoc is the `env status --json` shape. Running is
+// status.Environment.Running -- every container the environment owns is up --
+// so a reader does not re-derive it from the rows. Routes is a list, not a
+// map, because the table's order is part of what it says.
+type envStatusDoc struct {
+	Name           string               `json:"name"`
+	AccountID      string               `json:"account_id"`
+	DeploymentID   string               `json:"deployment_id"`
+	Substrate      string               `json:"substrate"`
+	K3sCluster     string               `json:"k3s_cluster"`
+	ComposeProject string               `json:"compose_project"`
+	StateDir       string               `json:"state_dir"`
+	Bootstrapped   bool                 `json:"bootstrapped"`
+	LegacyLayout   bool                 `json:"legacy_layout"`
+	Running        bool                 `json:"running"`
+	Containers     []envStatusContainer `json:"containers"`
+	Routes         []envStatusRoute     `json:"routes"`
+}
+
+type envStatusContainer struct {
+	Role  string `json:"role"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type envStatusRoute struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+}
+
+func envStatusDocument(s status.Environment) envStatusDoc {
+	doc := envStatusDoc{
+		Name: s.Name, AccountID: s.AccountID, DeploymentID: s.DeploymentID,
+		Substrate: string(s.Substrate), K3sCluster: s.K3sCluster,
+		ComposeProject: s.ComposeProject, StateDir: s.StateDir,
+		Bootstrapped: s.Bootstrapped, LegacyLayout: s.LegacyLayout, Running: s.Running(),
+		Containers: []envStatusContainer{}, Routes: []envStatusRoute{},
+	}
+	for _, c := range s.Containers {
+		doc.Containers = append(doc.Containers, envStatusContainer{Role: c.Role, Name: c.Name, State: state(c)})
+	}
+	for _, key := range s.RouteOrder {
+		doc.Routes = append(doc.Routes, envStatusRoute{Name: key, Address: s.Routes[key]})
+	}
+	return doc
 }
 
 func renderEnvStatus(out io.Writer, s status.Environment) {
@@ -537,6 +664,7 @@ func newEnvAddCommand(opts *Options) *cobra.Command {
 	var makeDefault, noPull, adopt bool
 	var repo fromRepo
 	var libs librarians
+	shape := sessionShape{shared: &repo}
 
 	cmd := &cobra.Command{
 		Use:   "add <name>",
@@ -547,12 +675,19 @@ This only writes the registry. The environment's database, cluster and routes
 are created by ` + "`nsctl env start <name>`" + `, which is also what makes it usable.
 
 A new environment is empty: it gets the substrate and nothing else. Declare
-what should run on it with ` + "`nsctl repo add --env <name> <repo-class>`" + `.
+what should run on it with ` + "`nsctl instance add --env <name> <repo-class>`" + `.
 
 With --from-repo it is not empty. The repository's ` + "`local`" + ` section and its
 checked-in neuronsphere.lock say what to stand up alongside it, every activated
 entry is declared at its pinned version, and the repository itself is declared
 from its working tree -- which is what makes it the thing under test.
+
+With --template and --repo it is composed (NERD035 SPEC004): the template's
+instances, then each repository being edited from its working tree with what
+its lock pins. What the composition already provides is shared rather than
+declared twice, and a repository being edited replaces the one instance of its
+class the template or another repository declares. --profile and --name apply
+to every --repo.
 
 This is the one command that fetches an artifact without being asked, because
 this is first start: there is no environment yet, so there is no offline
@@ -560,7 +695,8 @@ expectation to violate. --no-pull suppresses it.`,
 		Example: `  nsctl env add dev
   nsctl env add dev --from-repo .
   nsctl env add dev --from-repo . --profile transforms
-  nsctl env add dev --from-repo . --lean --name neptune-db=my-graph`,
+  nsctl env add dev --from-repo . --lean --name neptune-db=my-graph
+  nsctl env add work --template telemetry --repo ~/src/hmd-inf-clickhouse --repo ~/src/hmd-inf-otel-collector`,
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -568,6 +704,25 @@ expectation to violate. --no-pull suppresses it.`,
 			// Read before the registry is written, so a broken declaration or a
 			// missing lock costs nothing: an environment registered against a
 			// repository that cannot be read is a slot allocated for nothing.
+			if shape.requested() && repo.requested() {
+				return nserr.New(nserr.Usage, "--from-repo builds from one repository; with --template or --repo, name it as --repo instead")
+			}
+			var composed *composition
+			if shape.requested() {
+				home, err := opts.RequireHome()
+				if err != nil {
+					return err
+				}
+				slug, err := registry.ValidateSlug(args[0])
+				if err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				c, err := composeSession(opts, home, slug, &shape)
+				if err != nil {
+					return err
+				}
+				composed = c
+			}
 			var plan *repoPlan
 			if repo.requested() {
 				p, err := planFromRepo(&repo, nil)
@@ -580,25 +735,35 @@ expectation to violate. --no-pull suppresses it.`,
 				plan = p
 			}
 
-			reg, home, err := loadRegistry(opts)
+			home, err := opts.RequireHome()
 			if err != nil {
 				return err
 			}
-			if err := refuseOrphanedManifest(reg, home, args[0], adopt); err != nil {
+			// Under the registry lock, so the slot and account are allocated
+			// against what is on disk now, not against a copy another `env add`
+			// is about to overwrite.
+			var env *registry.Environment
+			if _, err := registry.Update(home, opts.Lookup, "env add "+args[0], func(reg *registry.Registry) error {
+				if err := refuseOrphanedManifest(reg, home, args[0], adopt); err != nil {
+					return err
+				}
+				e, err := reg.NewEnvironment(home, args[0], opts.Lookup)
+				if err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				if makeDefault {
+					reg.DefaultEnv = e.Slug
+				}
+				env = e
+				return nil
+			}); err != nil {
 				return err
-			}
-			env, err := reg.NewEnvironment(home, args[0], opts.Lookup)
-			if err != nil {
-				return nserr.Wrap(nserr.Usage, err)
-			}
-			if makeDefault {
-				reg.DefaultEnv = env.Slug
-			}
-			if err := reg.Save(home); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
 			}
 
 			renderNewEnvironment(cmd, env, opts.Lookup)
+			if composed != nil {
+				return saveComposition(cmd, opts, &libs, home, env.Slug, composed, noPull)
+			}
 			if plan == nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "\nStart it with `nsctl env start %s`.\n", env.Slug)
 				return nil
@@ -642,8 +807,44 @@ expectation to violate. --no-pull suppresses it.`,
 	cmd.Flags().BoolVar(&adopt, "adopt", false,
 		"Take over an environment manifest left under this name by a delete or purge")
 	repo.bind(cmd)
+	shape.bind(cmd)
 	libs.bind(cmd)
 	return cmd
+}
+
+// saveComposition fetches what a composition needs and writes it as the
+// environment's manifest.
+func saveComposition(cmd *cobra.Command, opts *Options, libs *librarians, home, slug string,
+	c *composition, noPull bool) error {
+
+	missing := c.missingArtifacts(home)
+	switch {
+	case noPull && len(missing) > 0:
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: %d artifact(s) are not cached and --no-pull was given;"+
+				" `nsctl env start %s` will refuse until they are\n", len(missing), slug)
+	case !noPull:
+		if err := pullMissing(cmd, opts, libs, home, missing); err != nil {
+			return err
+		}
+	}
+	if err := c.Manifest.Save(manifest.DefaultPath(home, slug)); err != nil {
+		return nserr.Wrap(nserr.Fail, err)
+	}
+	for _, p := range c.Plans {
+		fmt.Fprintln(cmd.OutOrStdout())
+		p.render(cmd, slug)
+	}
+	for _, note := range c.Notes {
+		fmt.Fprintf(cmd.ErrOrStderr(), "note: %s\n", note)
+	}
+	if c.Manifest.Template != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nComposed from template %s and %d repositor%s\n",
+			c.Manifest.Template, len(c.Plans), plural(len(c.Plans), "y", "ies"))
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nDeclared in %s\n", c.Manifest.Path)
+	fmt.Fprintf(cmd.OutOrStdout(), "Start it with `nsctl env start %s`.\n", slug)
+	return nil
 }
 
 // refuseOrphanedManifest stops `env add` silently adopting a manifest no
@@ -674,6 +875,7 @@ func refuseOrphanedManifest(reg *registry.Registry, home, name string, adopt boo
 
 func newEnvDeleteCommand(opts *Options) *cobra.Command {
 	var yes, keepManifest bool
+	var guard leaseGuard
 	cmd := &cobra.Command{
 		Use:     "delete <name>",
 		Aliases: []string{"rm"},
@@ -698,6 +900,9 @@ either state alone, because nothing left knows how to address them.`,
 			if err != nil {
 				return nserr.Wrap(nserr.Usage, err)
 			}
+			if err := guard.check(cmd, opts, home, env.Slug); err != nil {
+				return err
+			}
 
 			// Refusing while it is running is the whole point of the check;
 			// --yes does not override it, because the objection is not
@@ -713,14 +918,16 @@ either state alone, because nothing left knows how to address them.`,
 					env.Slug, env.AccountID, env.PortSlot)
 			}
 
-			if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
-				return nserr.Wrap(nserr.Usage, err)
-			}
-			// Delete is a registry edit: the account's Floci resources stay,
-			// so the account must never be handed to another environment.
-			reg.RetireAccount(env.AccountID)
-			if err := reg.Save(home); err != nil {
-				return nserr.Wrap(nserr.Fail, err)
+			if _, err := registry.Update(home, opts.Lookup, "env delete "+env.Slug, func(reg *registry.Registry) error {
+				if err := reg.RemoveEnvironment(env.Slug, opts.Lookup); err != nil {
+					return nserr.Wrap(nserr.Usage, err)
+				}
+				// Delete is a registry edit: the account's Floci resources stay,
+				// so the account must never be handed to another environment.
+				reg.RetireAccount(env.AccountID)
+				return nil
+			}); err != nil {
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Unregistered %s\n", env.Slug)
 			// The manifest goes with the registration (NERD010 SPEC009, D3):
@@ -749,6 +956,7 @@ either state alone, because nothing left knows how to address them.`,
 	cmd.Flags().BoolVar(&yes, "yes", false, "Confirm the removal")
 	cmd.Flags().BoolVar(&keepManifest, "keep-manifest", false,
 		"Keep the environment manifest under $HMD_HOME/environments")
+	guard.bind(cmd)
 	return cmd
 }
 
@@ -794,6 +1002,8 @@ func runningContainers(ctx context.Context, env *registry.Environment) []string 
 // nothing of the sort.
 func newEnvPurgeCommand(opts *Options) *cobra.Command {
 	var yes bool
+	var guard leaseGuard
+	var sel purgeSelectors
 	cmd := &cobra.Command{
 		Use:   "purge [name]",
 		Short: "Destroy an environment: its cluster, database, graph and state",
@@ -803,6 +1013,14 @@ nginx routes and the state directory all go, and none of it comes back.
 
 With no name it purges every environment and the control plane with them,
 leaving an HMD_HOME a fresh bootstrap can start from.
+
+--idle and --keep select instead (NERD035 SPEC007): pool-created environments
+(cc-N) that hold no lease, released longer ago than --idle, or all but the
+--keep most recently released; both together select what both select. They
+never select a configured [pool] member, a leased environment or the control
+plane, and never fall through to purging everything. --dry-run lists the
+selection; without --yes the list is printed and nothing is purged. Nothing
+runs this for you: a session's end only ever stops its environment.
 
 Resources Floci spawned are deleted through Floci before the control plane
 stops, because a delete asked of a stopped Floci is a delete that did not
@@ -821,14 +1039,30 @@ naming them.`,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}
 
+			if sel.requested(cmd) {
+				if len(args) == 1 {
+					return nserr.New(nserr.Usage, "name an environment or select with --idle/--keep, not both")
+				}
+				return sel.run(cmd, opts, home, envOpts, yes)
+			}
+			if sel.dryRun {
+				return nserr.New(nserr.Usage, "--dry-run lists what --idle or --keep would select; pass one of them")
+			}
 			if len(args) == 1 {
+				if err := guard.checkName(cmd, opts, home, args[0]); err != nil {
+					return err
+				}
 				if !yes {
 					return nserr.New(nserr.Usage,
 						"this permanently destroys %q -- its cluster, database, graph and state. Pass --yes to confirm.", args[0])
 				}
-				return environment.Purge(cmd.Context(), envOpts, args[0])
+				return purgeEnvironment(cmd.Context(), envOpts, args[0])
 			}
 
+			// Purging everything destroys every leased environment with it.
+			if err := guard.checkAll(cmd, opts, home); err != nil {
+				return err
+			}
 			if !yes && !confirmFullPurge(cmd, opts) {
 				return nserr.New(nserr.Usage, "purge cancelled")
 			}
@@ -837,7 +1071,7 @@ naming them.`,
 				Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(),
 			}
 			names := floci.NamesFrom(opts.Lookup, "", "local")
-			return environment.PurgeAll(cmd.Context(), envOpts, environment.ControlPlaneTeardown{
+			return purgeAllEnvironments(cmd.Context(), envOpts, environment.ControlPlaneTeardown{
 				// The control plane's graph, not an environment's: a different
 				// instance under a different deployment id, and asking the
 				// wrong helper finds nothing and reports no error.
@@ -849,6 +1083,8 @@ naming them.`,
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip the confirmation")
+	guard.bind(cmd)
+	sel.bind(cmd)
 	return cmd
 }
 
