@@ -126,16 +126,14 @@ services:
       # volume, so changing the postgres major version fails the container with
       # "database files are incompatible" and needs a purge.
       #
-      # 0.3.12 rather than `stable`: it is the first hmd-postgres-base build to
-      # carry the postgres 14 its Dockerfile has specified since the bump was
-      # committed and never released, and the first published for arm64 at all.
-      # hmdlabs has no `stable` tag and the pipeline cuts no floating `0.3`, so
-      # an exact patch is the only pin available -- the same reason the k3s
-      # wrapper is pinned to 0.3.2. That is a major bump from the 12.9 every
-      # earlier tag shipped, so an existing data directory needs
-      # `hmd neuronsphere db upgrade` or this pinned back; nsctl checks for
-      # exactly that before Floci starts.
-      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-0.3.12}
+      # 0.4.15 rather than `stable`: hmdlabs has no `stable` tag and the
+      # pipeline cuts no floating `0.4`, so an exact patch is the only pin
+      # available -- the same reason the k3s wrapper is pinned to 0.3.2. 0.4.x
+      # is the first hmd-postgres-base line on postgres 17 (with pgvector);
+      # 0.3.x shipped 14. That is a major bump, so an existing data directory
+      # needs `nsctl db upgrade` or this pinned back to 0.3.12; nsctl checks
+      # for exactly that before Floci starts.
+      FLOCI_SERVICES_RDS_DEFAULT_POSTGRES_IMAGE: ${HMD_LOCAL_NS_CONTAINER_REGISTRY:-ghcr.io/hmdlabs}/hmd-postgres-base:${HMD_POSTGRES_BASE_VERSION:-0.4.15}
       FLOCI_SERVICES_RDS_DOCKER_NETWORK: ${NEURONSPHERE_DOCKER_NETWORK:-neuronsphere_default}
       # Floci emulates a Neptune cluster by spawning a real gremlin-server
       # container, and this is the image it spawns. The stock TinkerPop image is

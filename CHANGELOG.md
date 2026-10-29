@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-29
+
+- feat: the local RDS image moves to `hmd-postgres-base` 0.4.15, which ships PostgreSQL 17 with pgvector 0.8.1 in place of 14. An existing local environment holds a 14 data directory that the 17 binary will not start on, so `nsctl env start` refuses until `nsctl db upgrade` (run it with `--dry-run` first) has migrated it, or `HMD_POSTGRES_BASE_VERSION=0.3.12` pins the old image back
+- test: the live `pgupgrade` migration test also covers 14 to 17, alongside 12 to 14
+
 ## 2026-10-26
 
 - fix: `repoclass validate` treats a repository that ships `meta-data/bundles/*.json` and has no `local` section as a stack: it needs no `deploy.commands`, and its `access` entries may name instances
