@@ -22,17 +22,29 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/container"
 )
 
-const (
-	oldImage = "postgres:12-alpine"
-	newImage = "postgres:14-alpine"
-	// The password is the point: pg_dumpall carries role passwords as hashes
-	// in its globals, and a migration that loses them leaves every service
-	// authenticating against the database broken in a way the data itself
-	// does not show.
-	rolePassword = "hunter2"
-)
+// The password is the point: pg_dumpall carries role passwords as hashes in its
+// globals, and a migration that loses them leaves every service authenticating
+// against the database broken in a way the data itself does not show.
+const rolePassword = "hunter2"
+
+// 12 to 14 is the first major hmd-postgres-base crossed; 14 to 17 is the one
+// that ships postgres 17 with pgvector (0.4.x).
+var liveMigrations = []struct{ from, to string }{
+	{"12", "14"},
+	{"14", "17"},
+}
 
 func TestLiveMigrationPreservesATableAndARolePassword(t *testing.T) {
+	for _, m := range liveMigrations {
+		t.Run(m.from+" to "+m.to, func(t *testing.T) {
+			liveMigration(t, m.from, m.to)
+		})
+	}
+}
+
+func liveMigration(t *testing.T, from, to string) {
+	oldImage := "postgres:" + from + "-alpine"
+	newImage := "postgres:" + to + "-alpine"
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
@@ -44,10 +56,10 @@ func TestLiveMigrationPreservesATableAndARolePassword(t *testing.T) {
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	volume := "hmd-pgupgrade-live-" + suffix
 	v := VolumePlan{
-		Volume: volume, From: "12", To: "14",
+		Volume: volume, From: from, To: to,
 		Image: newImage, DumpImage: oldImage,
-		Backup: BackupVolume(volume, "12"),
-		Dump:   DumpVolume(volume, "12"),
+		Backup: BackupVolume(volume, from),
+		Dump:   DumpVolume(volume, from),
 		Helper: HelperContainer(volume),
 	}
 	v.Steps = steps(v, false)
@@ -63,7 +75,7 @@ func TestLiveMigrationPreservesATableAndARolePassword(t *testing.T) {
 		}
 	})
 
-	// A PostgreSQL 12 cluster with something in it worth keeping.
+	// A cluster on the old major with something in it worth keeping.
 	startAndWait(ctx, t, d, seed, oldImage, volume)
 	sql(ctx, t, d, seed, fmt.Sprintf("CREATE ROLE app LOGIN PASSWORD '%s'", rolePassword))
 	// One statement per call: psql -c wraps everything it is handed in a
@@ -101,8 +113,8 @@ func TestLiveMigrationPreservesATableAndARolePassword(t *testing.T) {
 	})
 	startAndWait(ctx, t, d, check, newImage, volume)
 
-	if got := strings.TrimSpace(query(ctx, t, d, check, "postgres", "SHOW server_version_num")); !strings.HasPrefix(got, "14") {
-		t.Fatalf("the cluster reports server_version_num %q, so it is not running PostgreSQL 14", got)
+	if got := strings.TrimSpace(query(ctx, t, d, check, "postgres", "SHOW server_version_num")); !strings.HasPrefix(got, to) {
+		t.Fatalf("the cluster reports server_version_num %q, so it is not running PostgreSQL %s", got, to)
 	}
 	if got := strings.TrimSpace(query(ctx, t, d, check, "appdb", "SELECT count(*) FROM widget")); got != "2" {
 		t.Errorf("the table came back with %q rows, want 2", got)
