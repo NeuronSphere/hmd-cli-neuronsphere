@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-10
+
+- fix: bundle `hmd-ms-dbaccount` 0.1.52 in the control plane. A database account's role now gets `GRANT ALL ON SCHEMA public`, which PostgreSQL 15+ no longer gives by default, so services such as the Hive metastore can create tables in a fresh environment
+
 ## 2026-10-26
 
 - fix: `repoclass validate` treats a repository that ships `meta-data/bundles/*.json` and has no `local` section as a stack: it needs no `deploy.commands`, and its `access` entries may name instances
