@@ -265,6 +265,13 @@ func (r *Runner) RunNode(ctx context.Context, node msdeploy.DeploymentNode) Resu
 			node.RepoClassName, r.Config.RepoHome)}
 	}
 
+	// Floci runs a local Lambda from the host image cache, and nothing inside
+	// projectbuilder can put the image there. Failing here names the image; left
+	// alone, it surfaces as a 502 at the first request.
+	if err := r.stageLambdaImage(ctx, repoPath); err != nil {
+		return Result{Node: node, Failed: true, Err: err}
+	}
+
 	// A cached tree -- bundled or unpacked from an artifact -- is shared by
 	// every environment on this HMD_HOME and vouched for by the token in its
 	// directory name, so it is never the thing a deploy writes into.

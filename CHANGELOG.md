@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-11
+
+- fix: `nsctl` stages a Lambda's image on the host before deploying its node. Floci runs a local Lambda from the host image cache by a bare `<repo>:<version>` tag, and the `hmd docker deploy` that runs inside projectbuilder has no Docker CLI, so for a pinned artifact nothing ever cached it and the first request returned 502 (`pull access denied`). For a repo whose `deploy.commands` include `docker`, the runner reads the image the build recorded in `meta-data/docker.ext_artifact.hmdentity`, pulls it unless it is cached, and tags it under the bare ref; a locally built tag wins, and a tree with no record is left alone. A pull that fails fails the node, naming the image
+
 ## 2026-11-10
 
 - fix: bundle `hmd-ms-dbaccount` 0.1.52 in the control plane. A database account's role now gets `GRANT ALL ON SCHEMA public`, which PostgreSQL 15+ no longer gives by default, so services such as the Hive metastore can create tables in a fresh environment
