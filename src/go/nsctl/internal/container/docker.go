@@ -966,3 +966,52 @@ func envMap(out string) map[string]string {
 	}
 	return env
 }
+
+// ImportToNode streams a host image into a k3s node's containerd, where a pod
+// in the k8s.io namespace finds it without any registry.
+//
+// Deliberately not d.capture: an image is hundreds of megabytes, so the call
+// takes the caller's context rather than d.Timeout. The save is piped straight
+// into the node's `ctr`; nothing is written to disk.
+func (d *Docker) ImportToNode(ctx context.Context, node, ref string) error {
+	if node == "" || ref == "" {
+		return errors.New("a node container and an image reference are both required")
+	}
+	save := exec.CommandContext(ctx, d.bin(), "save", ref)
+	imp := exec.CommandContext(ctx, d.bin(), "exec", "-i", node, "ctr", "-n", "k8s.io", "images", "import", "-")
+
+	var saveErr, impOut bytes.Buffer
+	save.Stderr = &saveErr
+	imp.Stdout, imp.Stderr = &impOut, &impOut
+	pipe, err := save.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	imp.Stdin = pipe
+
+	if err := imp.Start(); err != nil {
+		return fmt.Errorf("docker exec %s ctr images import: %w", node, err)
+	}
+	if err := save.Start(); err != nil {
+		_ = imp.Process.Kill()
+		_ = imp.Wait()
+		return fmt.Errorf("docker save %s: %w", ref, err)
+	}
+	saveRes := save.Wait()
+	impRes := imp.Wait()
+	if saveRes != nil {
+		return fmt.Errorf("docker save %s: %s", ref, firstLine(saveErr.String(), saveRes.Error()))
+	}
+	if impRes != nil {
+		return fmt.Errorf("importing %s into %s: %s", ref, node, firstLine(impOut.String(), impRes.Error()))
+	}
+	return nil
+}
+
+func firstLine(s, fallback string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return fallback
+	}
+	return s
+}

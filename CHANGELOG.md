@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-13
+
+- feat: `nsctl image load <image>... [--env <name>]` copies images from the host's Docker into an environment's cluster. A transform step runs an image the author built, usually on this machine and nowhere else, and the cluster node has its own image store; a registry credential in the cluster is the wrong answer because a local build was never pushed and the credential would outlive the session. An image already on the host is used as it is (a local build wins), one that is not is pulled with the host's own `docker login`, and it is then streamed into the node's containerd (`docker save | ctr -n k8s.io images import`). Pods that name the same reference and do not force a pull start without any registry access
+
 ## 2026-11-11
 
 - fix: `nsctl` stages a Lambda's image on the host before deploying its node. Floci runs a local Lambda from the host image cache by a bare `<repo>:<version>` tag, and the `hmd docker deploy` that runs inside projectbuilder has no Docker CLI, so for a pinned artifact nothing ever cached it and the first request returned 502 (`pull access denied`). For a repo whose `deploy.commands` include `docker`, the runner reads the image the build recorded in `meta-data/docker.ext_artifact.hmdentity`, pulls it unless it is cached, and tags it under the bare ref; a locally built tag wins, and a tree with no record is left alone. A pull that fails fails the node, naming the image
