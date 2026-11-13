@@ -18,7 +18,11 @@ func fakeDocker(t *testing.T, saveExit, execExit string) (bin, received string) 
 	script := `#!/bin/sh
 case "$1" in
 save) echo "image-bytes:$2"; echo "save said no" >&2; exit ` + saveExit + ` ;;
-exec) echo "$@" > "` + received + `.args"; cat > "` + received + `"; echo "ctr said no"; exit ` + execExit + ` ;;
+exec) case "$*" in
+  *"images ls"*) echo "docker.io/my/img:dev"; exit 0 ;;
+  *"images label"*) echo "$@" >> "` + received + `.labels"; exit 0 ;;
+  esac
+  echo "$@" > "` + received + `.args"; cat > "` + received + `"; echo "ctr said no"; exit ` + execExit + ` ;;
 esac
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -37,6 +41,10 @@ func TestImportToNodePipesTheSavedImageIntoCtr(t *testing.T) {
 	got, _ := os.ReadFile(received)
 	if strings.TrimSpace(string(got)) != "image-bytes:my/img:dev" {
 		t.Fatalf("node received %q", got)
+	}
+	labels, _ := os.ReadFile(received + ".labels")
+	if want := "exec node-1 ctr -n k8s.io images label docker.io/my/img:dev io.cri-containerd.pinned=pinned"; strings.TrimSpace(string(labels)) != want {
+		t.Fatalf("pin call = %q, want %q", labels, want)
 	}
 	args, _ := os.ReadFile(received + ".args")
 	if want := "exec -i node-1 ctr -n k8s.io images import -"; strings.TrimSpace(string(args)) != want {

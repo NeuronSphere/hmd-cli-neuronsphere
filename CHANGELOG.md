@@ -2,7 +2,7 @@
 
 ## 2026-11-13
 
-- feat: `nsctl image load <image>... [--env <name>]` copies images from the host's Docker into an environment's cluster. A transform step runs an image the author built, usually on this machine and nowhere else, and the cluster node has its own image store; a registry credential in the cluster is the wrong answer because a local build was never pushed and the credential would outlive the session. An image already on the host is used as it is (a local build wins), one that is not is pulled with the host's own `docker login`, and it is then streamed into the node's containerd (`docker save | ctr -n k8s.io images import`). Pods that name the same reference and do not force a pull start without any registry access
+- feat: `nsctl image load <image>... [--env <name>]` copies images from the host's Docker into an environment's cluster. A transform step runs an image the author built, usually on this machine and nowhere else, and the cluster node has its own image store; a registry credential in the cluster is the wrong answer because a local build was never pushed and the credential would outlive the session. An image already on the host is used as it is (a local build wins), one that is not is pulled with the host's own `docker login`, and it is then streamed into the node's containerd (`docker save | ctr -n k8s.io images import`). Pods that name the same reference and do not force a pull start without any registry access. Each loaded image is pinned (`io.cri-containerd.pinned`) so the kubelet's image garbage collector, which removes unused images once the disk passes 85%, cannot remove it before a pod uses it
 
 ## 2026-11-11
 

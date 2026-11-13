@@ -1005,6 +1005,37 @@ func (d *Docker) ImportToNode(ctx context.Context, node, ref string) error {
 	if impRes != nil {
 		return fmt.Errorf("importing %s into %s: %s", ref, node, firstLine(impOut.String(), impRes.Error()))
 	}
+	return d.pinInNode(ctx, node, ref)
+}
+
+// pinInNode marks an imported image so the kubelet's image garbage collector
+// leaves it alone.
+//
+// An image no pod is using yet is exactly what a pre-loaded one is, and the
+// collector removes unused images once the disk passes its high threshold
+// (85%) -- which a Docker VM routinely does, so a loaded image would vanish
+// and the pod would fall back to a registry pull it cannot make. containerd's
+// pinned label is the supported way to opt an image out.
+func (d *Docker) pinInNode(ctx context.Context, node, ref string) error {
+	out, err := d.Exec(ctx, node, "ctr", "-n", "k8s.io", "images", "ls", "-q")
+	if err != nil {
+		return fmt.Errorf("listing images in %s to pin %s: %w", node, ref, err)
+	}
+	// ctr records a short name under its fully qualified form.
+	names := map[string]bool{ref: true, "docker.io/" + ref: true, "docker.io/library/" + ref: true}
+	pinned := false
+	for _, name := range strings.Fields(string(out)) {
+		if !names[name] {
+			continue
+		}
+		if _, err := d.Exec(ctx, node, "ctr", "-n", "k8s.io", "images", "label", name, "io.cri-containerd.pinned=pinned"); err != nil {
+			return fmt.Errorf("pinning %s in %s: %w", name, node, err)
+		}
+		pinned = true
+	}
+	if !pinned {
+		return fmt.Errorf("%s imported into %s but is not listed there to pin", ref, node)
+	}
 	return nil
 }
 
