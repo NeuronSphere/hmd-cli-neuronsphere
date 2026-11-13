@@ -1,4 +1,6 @@
+import functools
 import os
+import sys
 from importlib.metadata import version
 
 from cement import Controller, ex
@@ -38,6 +40,28 @@ ENV_ARG = (
 
 def _env_name(pargs):
     return getattr(pargs, "env_name", None)
+
+
+def _deprecated(old, new):
+    """Warn on stderr that `old` is deprecated in favour of the nsctl verb `new`.
+
+    Apply beneath `@ex` so Cement still sees the original method name. The
+    command still runs; `__deprecated_by__` records the replacement.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            print(
+                f"warning: `{old}` is deprecated, use `{new}` (nsctl)",
+                file=sys.stderr,
+            )
+            return fn(*args, **kwargs)
+
+        wrapper.__deprecated_by__ = new
+        return wrapper
+
+    return decorator
 
 
 class LocalController(Controller):
@@ -106,6 +130,7 @@ class LocalController(Controller):
             ENV_ARG,
         ],
     )
+    @_deprecated("hmd neuronsphere up", "nsctl env start")
     def up(self):
         from .hmd_cli_neuronsphere import start_neuronsphere
 
@@ -154,6 +179,7 @@ class LocalController(Controller):
             ENV_ARG,
         ],
     )
+    @_deprecated("hmd neuronsphere down", "nsctl env stop")
     def down(self):
         from .hmd_cli_neuronsphere import stop_neuronsphere
 
@@ -208,6 +234,7 @@ class LocalController(Controller):
             )
         ],
     )
+    @_deprecated("hmd neuronsphere restart", "nsctl env apply")
     def restart(self):
         from .hmd_cli_neuronsphere import restart_service
 
@@ -247,6 +274,7 @@ class LocalController(Controller):
         )
 
     @ex(help="pulls latest versions of required images")
+    @_deprecated("hmd neuronsphere update-images", "nsctl env apply --pull")
     def update_images(self):
         from .hmd_cli_neuronsphere import update_images
 
@@ -320,6 +348,7 @@ class LocalController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere pull-artifact", "nsctl artifact pull")
     def pull_artifact(self):
         from .hmd_cli_neuronsphere import pull_artifact
 
@@ -396,6 +425,7 @@ class LocalController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere push-artifact", "nsctl artifact register")
     def push_artifact(self):
         from .hmd_cli_neuronsphere import push_artifact
 
@@ -422,6 +452,7 @@ class LocalController(Controller):
             ENV_ARG,
         ],
     )
+    @_deprecated("hmd neuronsphere status", "nsctl env status")
     def status(self):
         from .hmd_cli_neuronsphere import print_status
 
@@ -858,6 +889,7 @@ networks:
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere db-upgrade", "nsctl db upgrade")
     def db_upgrade(self):
         from .pg_upgrade import configured_postgres_image, find_mismatches, upgrade_all
 
@@ -1066,6 +1098,7 @@ class EnvController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere env create", "nsctl env add")
     def create(self):
         from .environments import create_environment
 
@@ -1100,6 +1133,7 @@ class EnvController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere env plan", "nsctl env plan")
     def plan(self):
         import json
 
@@ -1247,6 +1281,7 @@ class EnvController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere env list", "nsctl env list")
     def list(self):
         import json
 
@@ -1323,6 +1358,7 @@ class EnvController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere env delete", "nsctl env delete")
     def delete(self):
         from .environments import delete_environment
 
@@ -1356,6 +1392,7 @@ class EnvController(Controller):
             ),
         ],
     )
+    @_deprecated("hmd neuronsphere env status", "nsctl env status")
     def status(self):
         import json
 
