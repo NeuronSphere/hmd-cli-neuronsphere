@@ -741,6 +741,370 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl bundle
+------------
+
+A bundle -- a stack, in earlier releases -- is a set of RepoClasses a repository
+declares in meta-data/bundles/<name>.json (or, before NERD0019, a "local" section
+marked stack), pinned by a neuronsphere.lock and published as one artifact in an
+OCI registry, holding the build zip of every RepoClass the lock pins. "bundle add"
+fetches it -- anonymously from a public namespace, no tenant needed -- unpacks
+every zip into the artifact cache, and declares the instances in an
+environment manifest the way "env add --from-repo" would from a checkout.
+
+Declaring is not deploying: run "nsctl env apply" afterwards, or pass --apply.
+nsctl carries no list of stacks; a bare name expands to
+ghcr.io/neuronsphere/stacks/<name> and the expansion is printed.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle add
+----------------
+
+Fetch a stack from an OCI registry, verify and cache every RepoClass it
+pins, and declare them -- and the stack itself -- in the environment manifest
+with the same rules "env add --from-repo" applies to a checkout: --profile,
+--all-profiles, --lean and --name mean what they mean there. The stack keeps
+its own bindings in the manifest's "stacks" record, so it can share an
+environment with a --from-repo repository or another stack.
+
+<ref> is <host>/<repository>[:<version>]; a bare name expands to
+ghcr.io/neuronsphere/stacks/<name>. No version means the newest, which is
+printed. A public namespace needs no credential.
+
+Nothing is deployed until "nsctl env apply <env>"; --apply runs it.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle add <ref> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl bundle add observability
+     nsctl bundle add observability --env dev --apply
+     nsctl bundle add ghcr.io/acme/stacks/warehouse:0.4.0 --profile full --name warehouse-db=db
+
+Local flags
+~~~~~~~~~~~
+
+* ``--all-profiles`` — Activate every profile the stack's lock mentions
+* ``--apply`` — Run `nsctl env apply` afterwards
+* ``--env`` — Environment to declare it in (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+* ``--local-url`` — the control plane's Artifact Librarian
+* ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
+* ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
+* ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 0.1")
+* ``-V, --verbose`` — With --apply, show the underlying command output
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle build
+------------------
+
+Read the repository's "local" section and neuronsphere.lock, obtain every
+pinned build zip, and write the stack artifact as an OCI image layout under
+--out (default build/stack). The same lock and bytes produce the same layout,
+so a build in CI reproduces a build on a laptop, and nothing is pushed.
+
+Each pinned zip comes from the first of: --artifacts <dir>; the artifact
+cache (what an environment this stack was derived from deployed from); the
+lock entry's "source", an OCI reference published with "nsctl artifact push"
+(no tenant needed); your organisation's cloud Artifact Librarian (only
+with a tenant credential). The tier that served each entry is printed, and
+so is the licence each layer's manifest declares (NERD017 SPEC011): nsctl
+records what an author declared and refuses nothing on its account.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle build [<repo-dir>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl bundle build
+     nsctl bundle build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release
+
+Local flags
+~~~~~~~~~~~
+
+* ``--artifacts`` — directory holding <class>_<version>_build.zip for pinned companions
+* ``--out`` — where to write the OCI image layout (relative to the repository) (default: ``build/stack``)
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--tag`` — the stack version to record (default: meta-data/VERSION)
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle init
+-----------------
+
+Write a stack RepoClass: meta-data/manifest.json with a no-op deploy and a
+"local" section, meta-data/VERSION, and the CI workflow that builds and
+publishes it (.github/workflows/stack.yml).
+
+With --from-env <env> or --from-bom <file> (a "nsctl bom show --json" export),
+the "local" section is derived: the walk starts at the --select instances and
+follows their dependencies, classifying each instance reached. The substrate
+becomes a bound role; an instance another stack declared becomes an external
+role with a suggestion (unless --include-provided); everything else is
+bundled as a companion pinned to its running version, each selected root in
+its own profile. An instance deployed from a working tree has no published
+artifact and is refused unless --bundle-local names it. Configuration is
+copied from the environment manifest's declarations only, and values that
+look tied to this machine are listed for review.
+
+--dry-run prints the classification and writes nothing. --update rewrites the
+"local" section and dependencies of an existing manifest (the refresh job);
+--diff only reports whether they would change, exiting 1 when they would.
+--from-env also writes meta-data/reference-bom.json so CI can re-derive.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle init <name> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl bundle init hmd-stack-analytics
+     nsctl bundle init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
+     nsctl bundle init hmd-stack-analytics --from-env local --select superset,trino,airflow
+     nsctl bundle init hmd-stack-analytics --from-bom meta-data/reference-bom.json --select trino --update
+
+Local flags
+~~~~~~~~~~~
+
+* ``--bundle-local`` — working-tree instances to bundle rather than refuse (default: ``[]``)
+* ``--description`` — manifest description
+* ``--diff`` — report whether an existing manifest's local section would change; exit 1 when it would
+* ``--dry-run`` — print the classification and write nothing
+* ``--env`` — with --from-bom, the environment whose manifest supplies sources, configuration and stack records
+* ``--from-bom`` — derive from a BOM export (nsctl bom show --json)
+* ``--from-env`` — derive from a running environment's graph (writes the reference BOM)
+* ``--include-provided`` — bundle instances other stacks declared rather than referencing those stacks
+* ``--path`` — directory to write into (default: ./<name>)
+* ``--select`` — instances to derive from; their dependencies follow. Repeatable, or comma-separated (default: ``[]``)
+* ``--update`` — rewrite an existing manifest's local section and dependencies
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle list
+-----------------
+
+Read the "stacks" records of the environment manifest: name, version, reference, digest and the instances each bound.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to list (default: the default environment)
+* ``--json`` — Print JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle migrate
+--------------------
+
+Writes the manifest's "local" section as a bundle file and removes it, with
+deploy.dependencies, from meta-data/manifest.json: the bundle's roles say what both
+said. Everything else in the manifest is kept, and neuronsphere.lock is untouched
+-- the bundle activates the same wants for every profile set, so the lock still
+pins them.
+
+The bundle is named after the repository with any "hmd-stack-" prefix removed,
+or --name.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle migrate [repo-dir] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--name`` — the bundle's name (default: the repository name without hmd-stack-)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle pull
+-----------------
+
+The fetch half of "stack add": verify and cache every RepoClass the stack
+pins, and nothing else. For preparing a machine that will be offline, or a CI
+job warming a cache.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle pull <ref> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--local-url`` — the control plane's Artifact Librarian
+* ``--spec`` — a BACON version spec to choose the version by
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle push
+-----------------
+
+Push a stack artifact to an OCI registry. With --from, push the OCI image
+layout "nsctl bundle build" wrote -- the CI path: build, inspect, then push.
+Without it, build from the repository first (the laptop path), taking pinned
+zips from --artifacts, the artifact cache, each lock entry's "source", or the
+cloud Artifact Librarian, in that order.
+
+The tag is the reference's, or --tag, or with --bump the next patch of the
+newest version the registry already holds (meta-data/VERSION.0 when it holds
+none or VERSION is a newer major.minor). A tag the registry already has is
+refused: a published version is immutable. A credential is required:
+--token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
+repository's owner), or a profile's registry_url after "nsctl login".
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle push [<repo-dir>] <ref> [--from build/stack] [--bump] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl bundle build && nsctl bundle push ghcr.io/acme/stacks/obs --from build/stack --bump
+     nsctl bundle push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
+     nsctl bundle push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock
+
+Local flags
+~~~~~~~~~~~
+
+* ``--artifacts`` — directory holding <class>_<version>_build.zip for every pinned companion
+* ``--bump`` — tag with the next patch of the newest published version
+* ``--from`` — push the OCI image layout `nsctl bundle build` wrote at this path
+* ``--profile`` — profile in nsctl.toml whose endpoints to use
+* ``--tag`` — tag to publish under
+* ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
+* ``--update-lock`` — write the zips' digests back into the repository's lock
+* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle remove
+-------------------
+
+Remove the instances a stack bound -- and only those; an instance provided
+by the substrate, or declared by another stack or by hand, is not the stack's
+to remove -- and delete its record from the environment manifest. Nothing is
+torn down: the next "nsctl env apply" reconciles. The artifact cache is kept
+unless --prune-cache.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle remove <name> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to edit (default: the default environment)
+* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
+* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+* ``--prune-cache`` — Also delete the stack's artifacts from the cache
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl bundle versions
+---------------------
+
+List the version-shaped tags a registry holds for a stack, newest first, and
+with --spec the one a BACON version spec would choose. Results are cached
+under $HMD_HOME/.cache/neuronsphere/versions/; --offline reads the cache only.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl bundle versions <ref> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--offline`` — read the cache only
+* ``--spec`` — report which version a BACON version spec would choose
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
 nsctl control-plane
 -------------------
 
@@ -1871,6 +2235,62 @@ Local flags
 
 * ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
 * ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl image
+-----------
+
+Put container images where an environment's pods can run them
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl image
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl image load
+----------------
+
+Make each image runnable by pods in the environment's cluster with no registry
+pull and no pull secret.
+
+An image already in the host's Docker is used as it is, so a local build wins
+over a published image of the same name. One that is not is pulled first, with
+whatever the host is signed in as (docker login). Pods then find it in the node
+as long as they name the same reference and do not force a pull: Kubernetes
+pulls only when the tag is "latest" or the policy says Always.
+
+Loading is idempotent; running it again replaces the node's copy.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl image load <image>... [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl image load ghcr.io/hmdlabs/hmd-tf-pdf-generation:0.1.2
+     nsctl image load my-transform:dev --env tx
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Environment to load into (default: the default environment)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -3513,8 +3933,8 @@ nsctl repoclass license
 
 Write or remove the manifest's "license": the SPDX expression of what nsctl
 publishes from this tree, and the root-relative paths that stay out of every
-zip it makes from it ("nsctl artifact push <dir>", "nsctl stack build/push",
-"nsctl stack init --bundle-local", "nsctl artifact register <dir>"). Every
+zip it makes from it ("nsctl artifact push <dir>", "nsctl bundle build/push",
+"nsctl bundle init --bundle-local", "nsctl artifact register <dir>"). Every
 published layer is annotated org.opencontainers.image.licenses with the
 expression. A repo class that declares nothing is published whole and
 unannotated; nsctl never infers a licence and never refuses one.
@@ -3710,7 +4130,7 @@ nsctl repoclass local require
 -----------------------------
 
 Writes local.dependencies.<role> with external: true. Nothing is pinned or
-bundled for the role; "nsctl stack add" binds it to an instance in the
+bundled for the role; "nsctl bundle add" binds it to an instance in the
 environment that produces the role's resource type, or refuses naming
 --suggest. Declare the role first with "deploy add-dependency", with a
 resource type, so the match is by what is needed rather than by name.
@@ -3861,340 +4281,6 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--path`` — The repo class's root directory (default: ``.``)
 
-nsctl stack
------------
-
-A stack is a RepoClass whose repository declares the companions it needs (a
-"local" section and a neuronsphere.lock) published as one artifact in an OCI
-registry, holding the build zip of every RepoClass the lock pins. "stack add"
-fetches it -- anonymously from a public namespace, no tenant needed -- unpacks
-every zip into the artifact cache, and declares the instances in an
-environment manifest the way "env add --from-repo" would from a checkout.
-
-Declaring is not deploying: run "nsctl env apply" afterwards, or pass --apply.
-nsctl carries no list of stacks; a bare name expands to
-ghcr.io/neuronsphere/stacks/<name> and the expansion is printed.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack add
----------------
-
-Fetch a stack from an OCI registry, verify and cache every RepoClass it
-pins, and declare them -- and the stack itself -- in the environment manifest
-with the same rules "env add --from-repo" applies to a checkout: --profile,
---all-profiles, --lean and --name mean what they mean there. The stack keeps
-its own bindings in the manifest's "stacks" record, so it can share an
-environment with a --from-repo repository or another stack.
-
-<ref> is <host>/<repository>[:<version>]; a bare name expands to
-ghcr.io/neuronsphere/stacks/<name>. No version means the newest, which is
-printed. A public namespace needs no credential.
-
-Nothing is deployed until "nsctl env apply <env>"; --apply runs it.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack add <ref> [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl stack add observability
-     nsctl stack add observability --env dev --apply
-     nsctl stack add ghcr.io/acme/stacks/warehouse:0.4.0 --profile full --name warehouse-db=db
-
-Local flags
-~~~~~~~~~~~
-
-* ``--all-profiles`` — Activate every profile the stack's lock mentions
-* ``--apply`` — Run `nsctl env apply` afterwards
-* ``--env`` — Environment to declare it in (default: the default environment)
-* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
-* ``--lean`` — Activate no profiles: the stack and its unconditional entries alone
-* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
-* ``--local-url`` — the control plane's Artifact Librarian
-* ``--name`` — Name one instance, as <role-or-declared-name>=<instance>. Repeatable (default: ``[]``)
-* ``--profile`` — Local profiles to activate. Repeatable, or comma-separated (default: ``[]``)
-* ``--spec`` — a BACON version spec to choose the version by (e.g. "~= 0.1")
-* ``-V, --verbose`` — With --apply, show the underlying command output
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack build
------------------
-
-Read the repository's "local" section and neuronsphere.lock, obtain every
-pinned build zip, and write the stack artifact as an OCI image layout under
---out (default build/stack). The same lock and bytes produce the same layout,
-so a build in CI reproduces a build on a laptop, and nothing is pushed.
-
-Each pinned zip comes from the first of: --artifacts <dir>; the artifact
-cache (what an environment this stack was derived from deployed from); the
-lock entry's "source", an OCI reference published with "nsctl artifact push"
-(no tenant needed); your organisation's cloud Artifact Librarian (only
-with a tenant credential). The tier that served each entry is printed, and
-so is the licence each layer's manifest declares (NERD017 SPEC011): nsctl
-records what an author declared and refuses nothing on its account.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack build [<repo-dir>] [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl stack build
-     nsctl stack build ~/src/hmd-stack-obs --out dist/stack --artifacts ./release
-
-Local flags
-~~~~~~~~~~~
-
-* ``--artifacts`` — directory holding <class>_<version>_build.zip for pinned companions
-* ``--out`` — where to write the OCI image layout (relative to the repository) (default: ``build/stack``)
-* ``--profile`` — profile in nsctl.toml whose endpoints to use
-* ``--tag`` — the stack version to record (default: meta-data/VERSION)
-* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack init
-----------------
-
-Write a stack RepoClass: meta-data/manifest.json with a no-op deploy and a
-"local" section, meta-data/VERSION, and the CI workflow that builds and
-publishes it (.github/workflows/stack.yml).
-
-With --from-env <env> or --from-bom <file> (a "nsctl bom show --json" export),
-the "local" section is derived: the walk starts at the --select instances and
-follows their dependencies, classifying each instance reached. The substrate
-becomes a bound role; an instance another stack declared becomes an external
-role with a suggestion (unless --include-provided); everything else is
-bundled as a companion pinned to its running version, each selected root in
-its own profile. An instance deployed from a working tree has no published
-artifact and is refused unless --bundle-local names it. Configuration is
-copied from the environment manifest's declarations only, and values that
-look tied to this machine are listed for review.
-
---dry-run prints the classification and writes nothing. --update rewrites the
-"local" section and dependencies of an existing manifest (the refresh job);
---diff only reports whether they would change, exiting 1 when they would.
---from-env also writes meta-data/reference-bom.json so CI can re-derive.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack init <name> [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl stack init hmd-stack-analytics
-     nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow --dry-run
-     nsctl stack init hmd-stack-analytics --from-env local --select superset,trino,airflow
-     nsctl stack init hmd-stack-analytics --from-bom meta-data/reference-bom.json --select trino --update
-
-Local flags
-~~~~~~~~~~~
-
-* ``--bundle-local`` — working-tree instances to bundle rather than refuse (default: ``[]``)
-* ``--description`` — manifest description
-* ``--diff`` — report whether an existing manifest's local section would change; exit 1 when it would
-* ``--dry-run`` — print the classification and write nothing
-* ``--env`` — with --from-bom, the environment whose manifest supplies sources, configuration and stack records
-* ``--from-bom`` — derive from a BOM export (nsctl bom show --json)
-* ``--from-env`` — derive from a running environment's graph (writes the reference BOM)
-* ``--include-provided`` — bundle instances other stacks declared rather than referencing those stacks
-* ``--path`` — directory to write into (default: ./<name>)
-* ``--select`` — instances to derive from; their dependencies follow. Repeatable, or comma-separated (default: ``[]``)
-* ``--update`` — rewrite an existing manifest's local section and dependencies
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack list
-----------------
-
-Read the "stacks" records of the environment manifest: name, version, reference, digest and the instances each bound.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack list [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to list (default: the default environment)
-* ``--json`` — Print JSON
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack pull
-----------------
-
-The fetch half of "stack add": verify and cache every RepoClass the stack
-pins, and nothing else. For preparing a machine that will be offline, or a CI
-job warming a cache.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack pull <ref> [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--local-url`` — the control plane's Artifact Librarian
-* ``--spec`` — a BACON version spec to choose the version by
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack push
-----------------
-
-Push a stack artifact to an OCI registry. With --from, push the OCI image
-layout "nsctl stack build" wrote -- the CI path: build, inspect, then push.
-Without it, build from the repository first (the laptop path), taking pinned
-zips from --artifacts, the artifact cache, each lock entry's "source", or the
-cloud Artifact Librarian, in that order.
-
-The tag is the reference's, or --tag, or with --bump the next patch of the
-newest version the registry already holds (meta-data/VERSION.0 when it holds
-none or VERSION is a newer major.minor). A tag the registry already has is
-refused: a published version is immutable. A credential is required:
---token, HMD_REGISTRY_TOKEN (GITHUB_TOKEN works for ghcr.io within the
-repository's owner), or a profile's registry_url after "nsctl login".
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack push [<repo-dir>] <ref> [--from build/stack] [--bump] [flags]
-
-Examples
-~~~~~~~~
-
-.. code-block:: shell
-
-   nsctl stack build && nsctl stack push ghcr.io/acme/stacks/obs --from build/stack --bump
-     nsctl stack push . ghcr.io/neuronsphere/stacks/observability:0.1.0 --token $GHCR_PAT
-     nsctl stack push ~/src/hmd-stack-obs ghcr.io/acme/stacks/obs --artifacts ./dist --update-lock
-
-Local flags
-~~~~~~~~~~~
-
-* ``--artifacts`` — directory holding <class>_<version>_build.zip for every pinned companion
-* ``--bump`` — tag with the next patch of the newest published version
-* ``--from`` — push the OCI image layout `nsctl stack build` wrote at this path
-* ``--profile`` — profile in nsctl.toml whose endpoints to use
-* ``--tag`` — tag to publish under
-* ``--token`` — registry token or PAT (overrides HMD_REGISTRY_TOKEN)
-* ``--update-lock`` — write the zips' digests back into the repository's lock
-* ``--url`` — cloud Artifact Librarian URL, overriding HMD_ARTIFACT_LIBRARIAN_URL
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack remove
-------------------
-
-Remove the instances a stack bound -- and only those; an instance provided
-by the substrate, or declared by another stack or by hand, is not the stack's
-to remove -- and delete its record from the environment manifest. Nothing is
-torn down: the next "nsctl env apply" reconciles. The artifact cache is kept
-unless --prune-cache.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack remove <name> [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--env`` — Environment to edit (default: the default environment)
-* ``--ignore-lease`` — Proceed even though someone else holds the environment's lease
-* ``--lease-token`` — The token of the lease held on the environment (default: NSCTL_LEASE_TOKEN)
-* ``--prune-cache`` — Also delete the stack's artifacts from the cache
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
-nsctl stack versions
---------------------
-
-List the version-shaped tags a registry holds for a stack, newest first, and
-with --spec the one a BACON version spec would choose. Results are cached
-under $HMD_HOME/.cache/neuronsphere/versions/; --offline reads the cache only.
-
-Usage
-~~~~~
-
-.. code-block:: text
-
-   nsctl stack versions <ref> [flags]
-
-Local flags
-~~~~~~~~~~~
-
-* ``--offline`` — read the cache only
-* ``--spec`` — report which version a BACON version spec would choose
-
-Inherited flags
-~~~~~~~~~~~~~~~
-
-* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
-
 nsctl template
 --------------
 
@@ -4234,7 +4320,7 @@ nsctl template add
 Stores a template under <name> from exactly one source:
 
   <file>            an environment manifest, copied in and renamed <name>
-  --stack <ref>     a published stack, planned as "nsctl stack add" plans it
+  --stack <ref>     a published stack, planned as "nsctl bundle add" plans it
                     but into an empty manifest: the stack's instances at their
                     pinned versions, from their artifacts, and its record.
                     --profile, --all-profiles, --lean and --name mean what they
