@@ -2,6 +2,7 @@
 
 ## 2026-11-16
 
+- fix: raise dependency floors for the security fixes (hmd-cli-app ~=1.2 -> ~=1.2.634); the build keeps existing pins (`--no-upgrade`), so a floor is what moves the lock
 - fix: raise dependency floors for the security fixes (PyYAML==6.0.1 -> PyYAML>=6.0.3,<7); the build keeps existing pins (`--no-upgrade`), so a floor is what moves the lock
 
 ## 2026-11-13

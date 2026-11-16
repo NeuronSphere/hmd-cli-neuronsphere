@@ -1,4 +1,4 @@
-hmd-cli-app~=1.2
+hmd-cli-app~=1.2.634
 python-dotenv==1.1.1
 PyYAML>=6.0.3,<7
 Jinja2>=3.0
