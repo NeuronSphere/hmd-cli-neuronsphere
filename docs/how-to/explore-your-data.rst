@@ -10,6 +10,21 @@ machine. The design is :doc:`/proposals/NERD039_Data_Onboarding`.
 DuckDB runs from a pinned container image, so the first command that needs it
 pulls the image once.
 
+With an agent
+-------------
+
+nsctl bundles skills that walk you through the steps below in conversation.
+You say what you want to know and where the files are; the agent runs the
+commands, puts each decision to you as a question about your data, and
+answers with the SQL shown. Install them into the folder you work from::
+
+   nsctl agent skills install ns-data-start ns-data-inventory ns-data-profile \
+       ns-data-register ns-data-query --host all --path .
+
+Then ask your agent to explore your data, or to use ``ns-data-start``. Every
+skill begins from ``nsctl data status``, so a later session carries on where
+the last one stopped. The rest of this guide is the same path by hand.
+
 Start a workspace
 -----------------
 

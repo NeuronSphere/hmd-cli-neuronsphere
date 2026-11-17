@@ -231,15 +231,18 @@ func TestAnalyzeFlagsWhatNeedsADecision(t *testing.T) {
 func TestSniffIssues(t *testing.T) {
 	t.Parallel()
 
-	got := sniffIssues(&sniff{HasHeader: false, SkipRows: 2})
+	got := sniffIssues(&sniff{HasHeader: false, SkipRows: 2}, nil)
 	if len(got) != 2 || got[0].Kind != IssueHeaderJunk || got[1].Kind != IssueNoHeader {
 		t.Fatalf("sniffIssues = %+v", got)
 	}
 	if skip := got[0].Suggest["reader_options"].(map[string]any)["skip"]; skip != int64(2) {
 		t.Errorf("skip suggestion = %v, want 2", skip)
 	}
-	if len(sniffIssues(&sniff{HasHeader: true})) != 0 || sniffIssues(nil) != nil {
+	if len(sniffIssues(&sniff{HasHeader: true}, nil)) != 0 || sniffIssues(nil, nil) != nil {
 		t.Error("a clean sniff, or none, has no issues")
+	}
+	if got := sniffIssues(&sniff{HasHeader: false, SkipRows: 2}, map[string]any{"skip": 2, "header": false}); len(got) != 0 {
+		t.Errorf("reader options the table already sets are decisions, not issues: %+v", got)
 	}
 }
 
@@ -419,5 +422,55 @@ func TestOpenRefusesUnknownVersion(t *testing.T) {
 	}
 	if _, err := Open(home, "w"); err == nil || !strings.Contains(err.Error(), "version 99") {
 		t.Errorf("Open = %v; an unknown version is refused, not partially read", err)
+	}
+}
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD039_SPEC006, HMD_CLI_NEURONSPHERE_NERD039_SPEC010
+func TestStatusNextFollowsTheLadder(t *testing.T) {
+	t.Parallel()
+
+	ws, err := Init(t.TempDir(), "shop", []string{t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := func() string {
+		st, err := ws.Status()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.Next
+	}
+	if got := next(); got != "nsctl data scan --apply" {
+		t.Errorf("no tables: next = %q", got)
+	}
+	for _, name := range []string{"customers", "orders"} {
+		if err := ws.SaveTable(&Table{Table: name, Source: ws.Config.Sources[0].Name, Paths: []string{name + ".csv"}, Format: "csv", SchemaMode: "infer"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := next(); got != "nsctl data profile customers" {
+		t.Errorf("unprofiled: next = %q", got)
+	}
+	ws.Mark("customers", StepProfiled)
+	ws.Mark("orders", StepProfiled)
+	if got := next(); got != "nsctl data register" {
+		t.Errorf("profiled: next = %q", got)
+	}
+	// A table registered without a profile is a choice; status must not send
+	// an agent back to profile it.
+	ws2, err := Init(t.TempDir(), "skip", []string{t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ws2.SaveTable(&Table{Table: "orders", Source: ws2.Config.Sources[0].Name, Paths: []string{"orders.csv"}, Format: "csv", SchemaMode: "infer"}); err != nil {
+		t.Fatal(err)
+	}
+	ws2.Mark("orders", StepRegistered)
+	st, err := ws2.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(st.Next, "nsctl data sql") {
+		t.Errorf("registered without a profile: next = %q, want a query", st.Next)
 	}
 }

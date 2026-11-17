@@ -464,6 +464,17 @@ scheduling and refresh pipelines; a user-facing modeling language.
     ``nsctl-onboard`` shall route a person who says they have data to explore
     to ``ns-data-start`` before anything about repositories.
 
+    .. warning::
+
+       **Partly implemented.** ``ns-data-start``, ``ns-data-inventory``,
+       ``ns-data-profile``, ``ns-data-register`` and ``ns-data-query`` are
+       bundled, and ``nsctl-onboard`` routes to ``ns-data-start``.
+       ``ns-data-understand``, ``ns-data-store`` and ``ns-data-next`` wait for
+       the verbs they orchestrate. With no ``--split``/``--merge`` (SPEC003),
+       ``ns-data-inventory`` splits or merges a group by editing ``paths`` in
+       the table definitions, and ``ns-data-profile`` records a fix by merging
+       the profile's suggestion into ``casts`` or ``reader_options``.
+
 .. spec:: export turns a workspace into a repository
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC011
     :links: HMD_CLI_NEURONSPHERE_NERD039

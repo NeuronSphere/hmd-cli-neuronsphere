@@ -13,6 +13,10 @@ account.
 0. Everything local is free and needs no account, tenant or token. Do not send
    a newcomer to `nsctl login`; it is for a hosted tenant or a private registry.
 1. Start with the user's goal. Explain only the terms needed for that goal.
+   If the goal is to explore, query or understand data files they already
+   have (exports, CSV, Parquet, JSON, spreadsheets), use `ns-data-start`
+   before anything about environments or repositories: `nsctl data` needs
+   only a container engine.
 2. Inspect rather than assume. Run `nsctl version`; if a local home is needed,
    ask for or locate `HMD_HOME` before commands that require it.
 3. Use help and read-only environment views to identify the next step. Explain
@@ -33,3 +37,4 @@ account.
 # nsctl-command: env
 # nsctl-command: env credentials
 # nsctl-command: quickstart
+# nsctl-command: data

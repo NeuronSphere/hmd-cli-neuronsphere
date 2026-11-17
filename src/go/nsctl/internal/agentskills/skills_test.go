@@ -3,6 +3,7 @@ package agentskills
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,5 +73,33 @@ func TestDryRunDoesNotCreateDirectories(t *testing.T) {
 	}
 	if _, err := os.Stat(dests[0].Path); !os.IsNotExist(err) {
 		t.Errorf("dry run wrote %s: %v", dests[0].Path, err)
+	}
+}
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD039_SPEC010
+func TestDataSkillsStartFromStatusAndOnboardRoutesToThem(t *testing.T) {
+	t.Parallel()
+	ladder := []string{"ns-data-start", "ns-data-inventory", "ns-data-profile", "ns-data-register", "ns-data-query"}
+	for _, name := range ladder {
+		if !Known(name) {
+			t.Errorf("%s is not bundled", name)
+			continue
+		}
+		paths, err := CommandPaths(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(paths) == 0 || paths[0] != "data status" {
+			t.Errorf("%s must start from `nsctl data status` so it can resume; commands %v", name, paths)
+		}
+	}
+	md, err := bundled.ReadFile("skills/nsctl-onboard/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(md)
+	data, repo := strings.Index(body, "ns-data-start"), strings.Index(body, "nsctl-repoclass-adopt")
+	if data < 0 || repo < 0 || data > repo {
+		t.Error("nsctl-onboard must route a person with data to ns-data-start before anything about repositories")
 	}
 }

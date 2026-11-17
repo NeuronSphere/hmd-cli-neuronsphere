@@ -773,6 +773,25 @@ Adopt Skill Is Bundled Now That Detect Exists
     Should Contain    ${body}    --json
     Should Contain    ${body}    explicit confirmation
 
+Data Skills Are Bundled And Onboard Routes To Them
+    [Documentation]    NERD039 SPEC010: the first five data skills ship with
+    ...                nsctl, each starts from `nsctl data status`, and
+    ...                nsctl-onboard sends a person with data to ns-data-start.
+    [Tags]    contract    nerd039
+    ${dir}=       Create Scratch Repo
+    ${l}=         Run nsctl    agent    skills    list    --path    ${dir}
+    Should Be Equal As Integers    ${l.rc}    0
+    FOR    ${skill}    IN    ns-data-start    ns-data-inventory    ns-data-profile    ns-data-register    ns-data-query
+        Should Contain    ${l.stdout}    ${skill}
+    END
+    ${i}=         Run nsctl    agent    skills    install    ns-data-start    ns-data-query    nsctl-onboard    --host    claude    --path    ${dir}
+    Should Be Equal As Integers    ${i.rc}    0
+    ${start}=     Get File    ${dir}${/}.claude${/}skills${/}ns-data-start${/}SKILL.md
+    Should Contain    ${start}    nsctl data status --json
+    Should Contain    ${start}    nsctl data init
+    ${onboard}=   Get File    ${dir}${/}.claude${/}skills${/}nsctl-onboard${/}SKILL.md
+    Should Contain    ${onboard}    ns-data-start
+
 Dns Install Prints A Sudo Line And Runs Nothing
     [Documentation]    nsctl prints the one privileged step and does not take
     ...                it. It needs root, and it changes a file that belongs to

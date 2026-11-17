@@ -300,13 +300,13 @@ func (w *Workspace) next(tables []*Table) string {
 	if len(tables) == 0 {
 		return "nsctl data scan --apply"
 	}
-	for _, t := range tables {
-		if !w.Has(t.Table, StepProfiled) {
-			return "nsctl data profile " + t.Table
-		}
-	}
+	// Profiling is suggested only on the way to a first register; once a
+	// table is queryable, skipping its profile was a choice.
 	for _, t := range tables {
 		if !w.Has(t.Table, StepRegistered) {
+			if !w.Has(t.Table, StepProfiled) {
+				return "nsctl data profile " + t.Table
+			}
 			return "nsctl data register"
 		}
 	}

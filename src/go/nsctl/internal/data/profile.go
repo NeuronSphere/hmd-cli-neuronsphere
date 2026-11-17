@@ -68,7 +68,7 @@ type Profile struct {
 	Sampled    bool            `json:"sampled"`
 	Files      int             `json:"files"`
 	Columns    []ColumnProfile `json:"columns"`
-	Issues     []Issue         `json:"issues,omitempty"`
+	Issues     []Issue         `json:"issues"`
 	Drift      []Drift         `json:"drift,omitempty"`
 }
 
@@ -128,17 +128,20 @@ type sniff struct {
 	SkipRows  int64
 }
 
-func sniffIssues(s *sniff) []Issue {
+// A reader option the table already sets is a decision made, not an issue.
+func sniffIssues(s *sniff, opts map[string]any) []Issue {
 	if s == nil {
 		return nil
 	}
+	_, skipSet := opts["skip"]
+	_, headerSet := opts["header"]
 	var out []Issue
-	if s.SkipRows > 0 {
+	if s.SkipRows > 0 && !skipSet {
 		out = append(out, Issue{Kind: IssueHeaderJunk,
 			Message: fmt.Sprintf("the first %d line(s) are not data (a title or notes above the header)", s.SkipRows),
 			Suggest: map[string]any{"reader_options": map[string]any{"skip": s.SkipRows}}})
 	}
-	if !s.HasHeader {
+	if !s.HasHeader && !headerSet {
 		out = append(out, Issue{Kind: IssueNoHeader,
 			Message: "the file has no header row; columns are named column0, column1, ...",
 			Suggest: map[string]any{"reader_options": map[string]any{"header": false}}})
@@ -266,7 +269,8 @@ func (w *Workspace) ProfileTable(ctx context.Context, eng Engine, name string, f
 	for i := range p.Columns {
 		p.Columns[i].CandidateKey = keys[p.Columns[i].Name]
 	}
-	p.Issues = append(sniffIssues(sn), analyze(p.Columns, text)...)
+	// Always a list, so a clean profile reads as no issues, not a missing key.
+	p.Issues = append(append([]Issue{}, sniffIssues(sn, t.ReaderOptions)...), analyze(p.Columns, text)...)
 	for i := range p.Columns {
 		if p.Columns[i].PII {
 			for j := range p.Columns[i].Sample {

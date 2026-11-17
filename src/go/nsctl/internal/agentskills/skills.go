@@ -69,6 +69,11 @@ type marker struct {
 }
 
 var skills = []Skill{
+	{"ns-data-inventory", "Group a person's data files into tables and agree the groups and names."},
+	{"ns-data-profile", "Profile tables, put the flagged decisions to the person, and record their fixes."},
+	{"ns-data-query", "Answer questions about the person's own data with visible SQL, and connect their tools."},
+	{"ns-data-register", "Make a data workspace's tables queryable, pinning or snapshotting as chosen."},
+	{"ns-data-start", "Start exploring a person's own data files with SQL on their machine, and route the next step."},
 	{"nsctl-auth-and-profiles", "Guide safe login, profile selection, credential checks, and logout."},
 	{"nsctl-debug", "Diagnose a local NeuronSphere problem from status, plans, and logs without destructive repair."},
 	{"nsctl-deploy-plan", "Inspect local deployment inputs and effects before starting work."},
