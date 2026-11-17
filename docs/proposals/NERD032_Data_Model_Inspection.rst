@@ -117,13 +117,14 @@ LLM or statistical inference; a user-facing schema language; generating
 downstream artifacts; querying live Trino, Hive or Postgres; a general SQL
 parser.
 
-NERD039 narrows three of these for one case: data files a person points
+NERD039 narrows two of these for one case: data files a person points
 ``nsctl data`` at. Profiling those files (types, nulls, value overlap
 between columns) is statistical inference over *data*, and it enters this
 model only as observations at ``inferred`` authority (SPEC002). ``nsctl
 data`` reads those files with DuckDB, which is not querying a live
-platform engine. ``nsctl data docs`` generates a fixed, small set of outputs
-for that person (SPEC015). Inference over *code* stays out of scope.
+platform engine. The outputs it gives that person are rendered by Mickey, a
+generator under SPEC015, so generation stays out of ``nsctl``. Inference
+over *code* stays out of scope.
 
 .. spec:: Inspectors emit observations through one small interface
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC001
@@ -1036,15 +1037,6 @@ catalog the model, through an export no consumer is baked into.
 
     The first generator is a separate deliverable from this NERD. ``nsctl``
     is done when the export carries everything the mapping above needs.
-
-    There is one exception, and it is closed. ``nsctl data docs`` (NERD039
-    SPEC008) writes a data dictionary, a relationship diagram, ``CREATE
-    VIEW`` statements in DuckDB SQL, and a list of questions with SQL. These
-    four outputs are part of a newcomer's first hour, and that path must not
-    need Python, a template repository or a network. They are rendered by Go
-    code from the export, targeting no catalog. Anything else (a dbt
-    project, Trino DDL, a catalog's entities, any perspective pack's output)
-    is a generator under this SPEC.
 
 .. spec:: The workspace model can also take observations from outside
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC016

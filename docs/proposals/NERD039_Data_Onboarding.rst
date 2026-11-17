@@ -10,20 +10,23 @@ NERD039 Data Onboarding
     ``nsctl data`` shall take a person who has never seen NeuronSphere from a
     folder of their own files (CSV, TSV, Parquet, JSON, NDJSON, Excel, or a zip
     of those) to answers in SQL. They need only ``nsctl`` and a container
-    engine: no Python, no environment, no bucket, no account.
+    engine: no Python, no environment, no bucket, no account, and no
+    repository.
 
     Every step that decides something (which files form a table, what type a
     column is, which columns join) shall be done by a verb that emits JSON, so
     that a person, a bundled agent skill, and a test all get the same answer.
 
-    The NeuronSphere model (``.hms`` per NEP051) shall be ``nsctl``'s internal
-    representation of what it learned. The person shall never need to read or
-    write it. They approve proposals in plain language and receive outputs they
-    already understand: named views, a data dictionary, a relationship diagram
-    and portable SQL.
+    What ``nsctl`` learns is kept in a workspace under ``HMD_HOME``. The
+    NeuronSphere model (``.hms`` per NEP051) is part of that internal state.
+    The person shall never need to read or write it. They approve proposals in
+    plain language and receive only rendered outputs, in a folder they choose:
+    a data dictionary, a relationship diagram, ``CREATE VIEW`` DDL, and
+    questions with working SQL. Those outputs are rendered by Mickey.
 
-    Storage, a NeuronSphere environment, Trino and the Librarian shall be
-    opt-in steps taken after the first answer, never prerequisites for it.
+    Turning a workspace into a repository, storage, a NeuronSphere
+    environment, Trino and the Librarian shall be opt-in steps taken after the
+    first answer, never prerequisites for it.
 
 Motivation
 ----------
@@ -36,8 +39,10 @@ data file. The bundled ``nsctl-onboard`` skill is entirely about repositories
 and deploys.
 
 The first thing a newcomer should see is their own data becoming easy to
-explore. Platform concepts can follow, one at a time, as each starts to pay
-for itself.
+explore. Someone who is not using NeuronSphere needs the rendered results (the
+DDL, the documentation), not model files, table definitions or a repository.
+Platform concepts can follow, one at a time, as each starts to pay for
+itself.
 
 How this fits the other proposals
 ---------------------------------
@@ -46,11 +51,14 @@ How this fits the other proposals
   the same model. Its profiles enter as ``inferred`` observations through a
   new ``nsdata`` inspector, and a person's approvals as declared NEP051
   sources through a new ``modelsource`` inspector (SPEC007). NERD032 is
-  amended in three places: an out-of-scope carve-out for profiling data
-  files, two rows in its authority table, and one closed exception to its
-  "generators live outside nsctl" rule (SPEC008).
+  amended in two places: an out-of-scope carve-out for profiling data files,
+  and two rows in its authority table.
+* **NERD032 SPEC015 and Mickey.** Rendering the outputs is a generator in
+  NERD032's sense: a Mickey template set (``hmd-lib-mickey``) run over
+  the NERD032 export. ``nsctl`` runs the ``hmd-tf-mickey`` transform image
+  (SPEC002, SPEC008) and contains no renderer of its own.
 * **NERD033 (perspective derivation).** Untouched. Perspectives appear only
-  after ``nsctl data export``, through generators outside ``nsctl``.
+  after a workspace is exported to a repository (SPEC011).
 * **NEP051 (model sources and perspective packs).** The internal model is
   NEP051 files. NEP051 gains a ``group:`` source kind for file groups.
 * **NEP048 (query first) and NEP049 (adoption tiers).** ``nsctl data`` is
@@ -60,7 +68,7 @@ How this fits the other proposals
   NERD012's field names, so a group becomes a content item type by
   translation. A pinned group also supplies the column list the
   ``content_item_to_trino_table`` transform template needs.
-* **NEP050 (data products).** ``queries/*.sql`` is the natural input to
+* **NEP050 (data products).** Saved queries are the natural input to
   promotion. Not in scope here.
 
 Open questions
@@ -68,23 +76,34 @@ Open questions
 
 * **Semantic layer overlap.** The proposed semantic layer's portable core
   plans its own DuckDB-backed MCP server and manifest. That overlaps with
-  ``data connect`` and ``out/``, and one of them should own it.
+  ``data connect`` and the rendered outputs, and one of them should own it.
 * **Type vocabulary.** ``table.yaml`` uses Arrow type names (NERD012), and
   NEP051 ``columns`` uses Trino types. NEP051 lists this as open.
 * **Proposal quality.** Rules over profile evidence may propose poorly on
   real exports. The agent evaluation in Verification is the gate before
   ``understand`` ships.
+* **The Mickey image.** ``hmd-tf-mickey`` builds from ``python:3.9``, which is
+  past end of life, and needs a supported base. Whether its image is
+  published to the public namespace, and whether it renders local templates
+  with no network given ``MICKEY_SKIP_DEPS``, must be confirmed by a spike
+  before SPEC008 is built.
 
 Scope and terminology
 ---------------------
 
-*Project*
-    A folder the person owns, ideally in git, holding what ``nsctl data``
-    learned and generated. It is not a repo class.
+*Workspace*
+    The state ``nsctl data`` keeps for one body of data, under
+    ``$HMD_HOME/data/<workspace>/``. It is ``nsctl``'s, not the person's: it
+    is not a repository and not a repo class. SPEC011 turns one into a
+    repository on request.
 
 *Source*
     A file or directory the person pointed ``nsctl data`` at. Sources are
     read in place and never modified.
+
+*Outputs*
+    The rendered files a person reads (SPEC008), written to a folder they
+    choose. Outputs contain no NeuronSphere files.
 
 *Group*
     A set of files that form one table: one format, a compatible schema, and a
@@ -100,72 +119,80 @@ Scope and terminology
     DuckDB, run from a pinned container image (SPEC002).
 
 *Internal model*
-    NEP051 concepts and sources (``.hms``, ``.source.yaml``) written under the
-    project's ``.ns/model/``, with each source's provenance ``inferred`` (a
+    NEP051 concepts and sources (``.hms``, ``.source.yaml``) in the
+    workspace's ``model/``, with each source's provenance ``inferred`` (a
     proposal) or ``declared`` (a person approved it), as NEP051 defines them.
 
 Out of scope: database dumps and live database connections (reported as
 unsupported by ``scan``); cloud buckets; creating any cloud resource;
 scheduling and refresh pipelines; a user-facing modeling language.
 
-.. spec:: The project folder
+.. spec:: The workspace lives in HMD_HOME
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD039
     :status: proposed
 
-    ``nsctl data init [dir]`` shall create, or adopt, this layout and nothing
-    else::
+    ``nsctl data init <workspace> [<source>...]`` shall create
+    ``$HMD_HOME/data/<workspace>/`` with this layout and nothing else::
 
-        data.yaml                   # sources, optional storage target, progress
-        tables/<table>.table.yaml   # group: path pattern, format, reader options, pinned schema
-        queries/*.sql               # saved answers
-        out/                        # generated outputs (SPEC008)
-        .ns/model/                  # internal model (SPEC007); committed
-        .ns/profile/<table>.json    # saved profiles (SPEC004); committed
-        .ns/snapshot/               # optional Parquet copies (SPEC005); ignored by git
-        .ns/catalog.duckdb          # generated views; ignored by git
+        data.yaml                 # sources, outputs folder, storage target, progress
+        tables/<table>.table.yaml # group: path pattern, format, reader options, pinned schema
+        profile/<table>.json      # saved profiles (SPEC004)
+        model/                    # internal model (SPEC007)
+        queries/*.sql             # saved answers
+        snapshot/                 # optional Parquet copies (SPEC005)
+        catalog.duckdb            # generated views (SPEC005)
 
-    Everything under ``out/`` and ``.ns/catalog.duckdb`` is derived from
-    ``tables/``, ``.ns/profile/`` and ``.ns/model/``, and can be deleted and
-    regenerated. A
-    project shall be usable on another machine from a clone plus the sources.
+    Every other ``nsctl data`` verb acts on the current workspace, which is
+    the one most recently initialised or selected with ``nsctl data use
+    <workspace>``. ``--workspace`` overrides it for one command. ``nsctl data
+    list`` shows the workspaces, and ``nsctl data delete <workspace>`` removes
+    one. It never touches sources or outputs.
 
-    ``data.yaml`` records how far each table has come
-    (grouped, profiled, pinned, registered, understood, landed), so that
+    ``catalog.duckdb`` and ``snapshot/`` are derived and can be deleted and
+    regenerated. ``data.yaml`` records how far each table has come (grouped,
+    profiled, pinned, registered, understood, rendered, landed), so that
     ``nsctl data status`` and every bundled skill can resume where the last
     session stopped.
 
-.. spec:: DuckDB runs in a pinned container, not in the binary
+    A workspace is local to one ``HMD_HOME``. Sharing the work means sharing
+    the outputs (SPEC008) or exporting a repository (SPEC011).
+
+.. spec:: The engines run in pinned containers, not in the binary
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD039
     :status: proposed
 
     ``nsctl`` is built with ``CGO_ENABLED=0`` and keeps its 50 MB size
-    budget (NERD002 SPEC013). DuckDB is a C++ library, so it shall not be
-    linked into ``nsctl``. ``nsctl`` shall instead run the DuckDB CLI from an image
-    (``hmd-img-duckdb``) pinned by digest (NERD030), with the extensions it
-    needs (``httpfs``, ``excel``, ``ui``) installed in the image, so that no
-    step downloads an extension at run time.
+    budget (NERD002 SPEC013). It shall link neither DuckDB, a C++ library, nor
+    a template engine. It runs two images, each pinned by digest (NERD030):
 
-    ``nsctl`` generates every SQL statement in Go, runs it with ``duckdb
-    -json``, and parses the result. Sources are mounted read-only and the
-    project read-write, both at the same absolute paths they have on the host
-    (as the deploy runner binds ``$HMD_HOME``, NERD002 SPEC010), so that views
-    written into
-    ``.ns/catalog.duckdb`` resolve unchanged from a DuckDB client on the host.
+    * ``hmd-img-duckdb``: the DuckDB CLI with the extensions it needs
+      (``httpfs``, ``excel``, ``ui``) installed, so that no step downloads an
+      extension at run time. ``nsctl`` generates every SQL statement in Go,
+      runs it with ``duckdb -json``, and parses the result.
+    * The Mickey image (SPEC008): ``hmd-tf-mickey`` with the outputs'
+      template set installed, run with ``MICKEY_SKIP_DEPS`` so that rendering
+      needs no network.
 
-    Until storage is configured (SPEC009) the container has no network.
+    Sources are mounted read-only, the workspace read-write, and the outputs
+    folder read-write, each at the same absolute path it has on the host (as
+    the deploy runner binds ``$HMD_HOME``, NERD002 SPEC010). Views written
+    into ``catalog.duckdb`` therefore resolve unchanged from a DuckDB client on
+    the host. Until storage is configured (SPEC009) neither container has a
+    network.
 
 .. spec:: scan proposes groups
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD039
     :status: proposed
 
-    ``nsctl data scan <path>...`` shall walk the sources, detect each file's
-    format (by content, not only by extension), and propose groups: files
-    whose schemas are compatible and whose paths share a pattern. Hive-style
-    ``key=value`` directories become partition columns. Each sheet of an Excel
-    workbook and each member of a zip is a candidate file of its own.
+    ``nsctl data scan [<path>...]`` shall walk the workspace's sources (and
+    any paths given, which it adds to them), detect each file's format (by
+    content, not only by extension), and propose groups: files whose schemas
+    are compatible and whose paths share a pattern. Hive-style ``key=value``
+    directories become partition columns. Each sheet of an Excel workbook and
+    each member of a zip is a candidate file of its own.
 
     A file it cannot read, or a format it does not support (for example an
     SQL dump), is listed with a reason. It is not an error.
@@ -187,11 +214,10 @@ scheduling and refresh pipelines; a user-facing modeling language.
     Column types use Apache Arrow logical type names, as NERD012 does.
     ``xlsx`` is local only: Librarian NERD012 has no such format, so ``land``
     (SPEC009) always writes Parquet. A zip member is addressed as
-    ``<zip>!<member>``. ``paths`` are relative to a source root named in
-    ``data.yaml``, so a project is portable. A group can be renamed,
-    split or merged by editing that file, or with ``--name``, ``--split`` and
-    ``--merge``. A rescan reports new, changed and missing files against the
-    existing groups instead of proposing them again.
+    ``<zip>!<member>``. ``paths`` are relative to a source root recorded in
+    ``data.yaml``. A group can be renamed, split or merged with ``--name``,
+    ``--split`` and ``--merge``. A rescan reports new, changed and missing
+    files against the existing groups instead of proposing them again.
 
 .. spec:: profile reports what a person needs to decide
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC004
@@ -218,29 +244,29 @@ scheduling and refresh pipelines; a user-facing modeling language.
     the evidence into proposals.
 
     ``profile`` reads samples only by default; ``--full`` scans everything.
-    Every profile is saved to ``.ns/profile/<table>.json``, with
-    relationship evidence in ``.ns/profile/_relationships.json``. These files
-    are what the ``nsdata`` inspector reads (SPEC007). A profile is evidence
-    and never a decision.
+    Every profile is saved to ``profile/<table>.json``, with relationship
+    evidence in ``profile/_relationships.json``. These files are what the
+    ``nsdata`` inspector reads (SPEC007). A profile is evidence and never a
+    decision.
 
 .. spec:: register makes tables queryable in place
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD039
     :status: proposed
 
-    ``nsctl data register`` shall (re)build ``.ns/catalog.duckdb`` with one
-    view per table, reading the files in place with the reader options and
-    casts in its ``table.yaml``. ``--pin`` writes the current inferred schema
-    into ``schema``. As with NERD012's ``infer`` mode, a recorded schema never
+    ``nsctl data register`` shall (re)build ``catalog.duckdb`` with one view
+    per table, reading the files in place with the reader options and casts in
+    its ``table.yaml``. ``--pin`` writes the current inferred schema into
+    ``schema``. As with NERD012's ``infer`` mode, a recorded schema never
     changes on its own after that: a file that no longer matches is reported
     by ``status`` and ``register`` instead of changing the view's type.
     ``schema_mode: declared`` means a person wrote or edited the schema, and
     ``register`` refuses a file that does not match it.
 
     ``nsctl data snapshot [<table>]`` copies a table to Parquet under
-    ``.ns/snapshot/`` and points its view there, so later edits to the sources
-    do not change answers. The snapshot records the content hash of every
-    source file it was taken from.
+    ``snapshot/`` and points its view there, so later edits to the sources do
+    not change answers. The snapshot records the content hash of every source
+    file it was taken from.
 
 .. spec:: sql, connect and status
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC006
@@ -250,15 +276,16 @@ scheduling and refresh pipelines; a user-facing modeling language.
     ``nsctl data sql [<statement>]`` runs one statement against the catalog
     and prints the result, or opens an interactive DuckDB shell when given
     none. ``--json`` returns rows as JSON. The catalog is read-only to
-    ``sql`` unless ``--write`` is given.
+    ``sql`` unless ``--write`` is given. ``--save <name>`` keeps the statement
+    in ``queries/``, where ``docs`` includes it.
 
-    ``nsctl data connect`` prints, for this project, how to open the catalog
-    from the DuckDB CLI, the DuckDB UI, DBeaver, and an agent through an MCP
-    server configuration. It prints instructions only and installs nothing.
+    ``nsctl data connect`` prints the catalog's path and how to open it from
+    the DuckDB CLI, the DuckDB UI, DBeaver, and an agent through an MCP server
+    configuration. It prints instructions only and installs nothing.
 
     ``nsctl data status`` reports each table's progress (SPEC001), drift
-    since its pin, sources changed since its snapshot, and the next suggested
-    command.
+    since its pin, sources changed since its snapshot, whether the outputs are
+    older than the model, and the next suggested command.
 
 .. spec:: understand proposes meaning; a person approves it
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC007
@@ -269,7 +296,7 @@ scheduling and refresh pipelines; a user-facing modeling language.
     and consolidating observations. ``nsctl data`` writes no model element
     except through that path. Two inspectors are added to NERD032 SPEC001:
 
-    * ``nsdata`` reads the project's ``tables/`` and ``.ns/profile/``. Groups
+    * ``nsdata`` reads a workspace's ``tables/`` and ``profile/``. Groups
       become bindings, pinned schemas become attributes at the authority of
       a pinned table, and everything else (inferred types, candidate keys,
       value overlap) is ``inferred`` observations with ``evidence``
@@ -280,15 +307,14 @@ scheduling and refresh pipelines; a user-facing modeling language.
       model repository's sources are read the same way.
 
     ``nsctl data understand`` shall run ``nsctl model inspect`` over the
-    project and turn each element whose best authority is ``inferred`` into a
-    proposal: an entity (one or more groups standing for one business thing),
-    its name and description, a key, or a relationship. It writes each
-    proposal as NEP051 files under ``.ns/model/`` with ``provenance:
-    inferred``: a concept ``.hms`` and a source whose ``from`` is ``group:
-    <table>`` (the source kind NEP051 gains for this case) and whose
-    ``evidence`` holds the profile figures. Nothing uses machine learning. An
-    agent skill may suggest better names, and ``nsctl`` records whatever a
-    person approves.
+    workspace and turn each element whose best authority is ``inferred`` into
+    a proposal: an entity (one or more groups standing for one business
+    thing), its name and description, a key, or a relationship. It writes each
+    proposal as NEP051 files under ``model/`` with ``provenance: inferred``: a
+    concept ``.hms`` and a source whose ``from`` is ``group: <table>`` (the
+    source kind NEP051 gains for this case) and whose ``evidence`` holds the
+    profile figures. Nothing uses machine learning. An agent skill may suggest
+    better names, and ``nsctl`` records whatever a person approves.
 
     Each proposal in the JSON output carries an identifier, the evidence
     behind it, and a yes/no question phrased without modeling vocabulary, for
@@ -300,46 +326,51 @@ scheduling and refresh pipelines; a user-facing modeling language.
     them at NEP051-declared authority, above everything but ``.hms``.
     ``nsctl data reject <id>`` deletes the files and records the rejection in
     ``data.yaml``, so ``understand`` does not ask again. After each decision
-    the project is inspected again. A disagreement NERD032 reports (for
+    the workspace is inspected again. A disagreement NERD032 reports (for
     example, an approved key that the data contradicts) is shown to the
     person, never resolved silently.
 
     Because the internal model is ordinary NEP051 files read by ordinary
-    inspection, ``nsctl model diff``, ``impact`` and ``export`` work on a data
-    project with no extra code. No new ``nsctl model`` verb is introduced.
+    inspection, ``nsctl model diff``, ``impact`` and ``export`` work on a
+    workspace with no extra code. No new ``nsctl model`` verb is introduced.
 
-.. spec:: docs generates the outputs a person reads
+.. spec:: docs renders the outputs with Mickey
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD039
     :status: proposed
 
-    ``nsctl data docs`` shall regenerate, from the project's NERD032 export
-    and its profiles:
+    ``nsctl data docs [--out <dir>]`` shall render the outputs into ``<dir>``,
+    by default ``./ns-data-out/`` under the directory it is run from. The
+    folder is remembered in ``data.yaml`` for the next run. The outputs are:
 
-    * ``out/DATA.md``: a data dictionary. Every table and named view, its
-      columns with type, meaning and quality notes, and where it came from.
-    * ``out/relationships.md``: a relationship diagram (PlantUML) and a table
-      of joins with their evidence.
-    * ``out/views.sql``: ``CREATE VIEW`` statements for every declared entity.
+    * ``DATA.md``: a data dictionary. Every table and named view, its columns
+      with type, meaning and quality notes, and the files it came from.
+    * ``relationships.md`` and ``relationships.puml``: a relationship diagram
+      and a table of joins with their evidence.
+    * ``views.sql``: ``CREATE VIEW`` statements for every declared entity.
       They are plain SQL that runs unchanged in any DuckDB, and they name no
       NeuronSphere concept.
-    * ``out/questions.md``: questions the data can answer, each with SQL that
-      runs.
+    * ``questions.md``: the saved queries and questions the data can answer,
+      each with SQL that runs.
 
-    It also creates the same named views in ``.ns/catalog.duckdb``.
     Proposals that are still only ``inferred`` appear marked as unconfirmed;
     rejected ones do not appear.
 
-    These four outputs are the one closed exception to NERD032 SPEC015
-    (generators live outside ``nsctl``). They are rendered in Go, need no
-    template repository, no Python and no network, and target no catalog. No
-    other output format is added to ``nsctl data``.
+    ``nsctl`` renders nothing itself. It writes a Mickey context (the
+    workspace's NERD032 export, its profiles and its saved queries) and runs
+    the Mickey image (SPEC002) with that context and the template set. The
+    template set lives in its own repository, ``hmd-tmpl-data-docs``, and is
+    installed in the image, which is pinned by digest. This is a generator
+    under NERD032 SPEC015, and a new output format is a template, not a
+    change to ``nsctl``.
 
-    ``nsctl data export <dir>`` hands the internal model to a team that wants
-    it. It copies ``.ns/model/`` as a NEP051 model repository and writes the
-    NERD032 export document beside it. A dbt project, Trino DDL, or the output
-    of a perspective pack (NERD033) is produced from there by a generator
-    under NERD032 SPEC015, never by ``nsctl data``.
+    ``docs`` then runs ``views.sql`` against ``catalog.duckdb``, so the named
+    views a person queries are the ones the outputs document.
+
+    ``docs`` writes only the files above, and it overwrites only files it
+    wrote before: it records their content hashes in ``data.yaml`` and refuses
+    to replace a file that has since been edited, unless ``--force`` is given.
+    It never deletes anything in the folder.
 
 .. spec:: Storage is opt-in and local
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC009
@@ -371,8 +402,8 @@ scheduling and refresh pipelines; a user-facing modeling language.
     repository whose ``meta-data/bundles/storage.json`` and lock name only
     that class, published with ``nsctl bundle build`` and ``nsctl bundle
     push`` to the default namespace, so ``nsctl bundle add storage --env
-    <name>`` resolves it anonymously. ``nsctl data``
-    never deploys anything itself.
+    <name>`` resolves it anonymously. ``nsctl data`` never deploys anything
+    itself.
 
     While a target is configured, the engine container joins that
     environment's network.
@@ -401,19 +432,44 @@ scheduling and refresh pipelines; a user-facing modeling language.
         ``register`` and, if the sources are still changing, ``snapshot``.
         Checks row counts.
     ``ns-data-query``
-        ``connect``; answers the first question with visible SQL; saves it to
-        ``queries/``.
+        ``connect``; answers the first question with visible SQL; saves it
+        with ``sql --save``.
     ``ns-data-understand``
         ``profile --relationships``, ``understand``, ``approve``/``reject``,
-        ``docs``. Uses no modeling vocabulary unless asked.
+        then ``docs``, asking where the outputs should go. Uses no modeling
+        vocabulary unless asked.
     ``ns-data-store``
         Opt-in. An environment, then the person's choice: their own bucket via
         ``storage``, or ``bundle add storage``; then ``land``.
     ``ns-data-next``
-        Pointers to export, refresh, Trino and the Librarian.
+        Pointers to ``export --repo``, refresh, Trino and the Librarian.
 
     ``nsctl-onboard`` shall route a person who says they have data to explore
     to ``ns-data-start`` before anything about repositories.
+
+.. spec:: export turns a workspace into a repository
+    :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC011
+    :links: HMD_CLI_NEURONSPHERE_NERD039
+    :status: proposed
+
+    ``nsctl data export --repo <dir>`` is the one step that makes a
+    repository, for a person or team that wants the work in git and in
+    NeuronSphere. It writes a repo class:
+
+    * a BACON manifest created as ``nsctl repoclass init`` creates one, with
+      ``build.commands`` empty, since nothing in it is built;
+    * the internal model as a NEP051 model repository: concepts, and sources
+      under ``src/sources/``;
+    * the table definitions and saved queries;
+    * the NERD032 export document, for generators;
+    * the outputs, rendered into the repository.
+
+    It refuses a non-empty directory it did not create. It records the
+    repository in ``data.yaml`` and re-exports into it on request, so a person
+    can keep exploring in the workspace and export again. Perspectives
+    (NERD033), dbt projects and other manifestations are generated from the
+    exported repository by generators under NERD032 SPEC015. ``nsctl data``
+    does not produce them.
 
 Verification
 ------------
@@ -423,11 +479,21 @@ Verification
   with drift; a two-sheet workbook; a zip. Golden JSON for groups, types,
   issues and relationships. The engine runner is faked in unit tests and real
   in one integration test.
+* A spike, before SPEC008 is built: the Mickey image on a supported base
+  renders a template set baked into the image from a context file, with
+  ``MICKEY_SKIP_DEPS`` and the network disabled.
 * A Robot Framework suite with only a container engine present runs ``init``
   → ``scan`` → ``profile`` → ``register`` → ``sql`` → ``understand`` →
-  ``approve`` → ``docs``. It checks row counts against the sources, that the
-  internal model passes ``nsctl model inspect``, and that ``out/views.sql``
-  runs unchanged in a plain DuckDB.
+  ``approve`` → ``docs``. It checks:
+
+  * row counts match the sources;
+  * the internal model passes ``nsctl model inspect``;
+  * the outputs folder holds only the rendered files;
+  * ``views.sql`` runs unchanged in a plain DuckDB;
+  * no source file changed.
+* ``export --repo`` produces a repository that ``nsctl repoclass validate``
+  accepts and whose model ``nsctl model inspect`` reads with no
+  disagreements.
 * A second suite creates an environment and runs ``land`` twice: into a
   bucket created with the AWS CLI from ``storage`` output, and into a bucket
   from ``bundle add storage``, starting from an empty ``HMD_HOME`` with no
