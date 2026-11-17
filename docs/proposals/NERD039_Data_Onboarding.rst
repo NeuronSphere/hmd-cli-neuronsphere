@@ -496,6 +496,37 @@ scheduling and refresh pipelines; a user-facing modeling language.
     While a target is configured, the engine container joins that
     environment's network.
 
+    .. warning::
+
+       **Implemented, with these specifics.**
+
+       * Every local environment is an account of the one Floci, chosen by
+         the access key (the environment's account id; the secret is fixed).
+         ``storage`` therefore shows the host endpoint, the in-network
+         endpoint ``http://neuronsphere:4566`` and the control plane's
+         network, and lists buckets with nsctl's own S3 client, so no AWS CLI
+         is needed. The secret is shown only with ``--reveal``.
+       * ``land`` writes ``<target>/raw/<table>/data.parquet``, one object per
+         table, and records the source hashes in ``data.yaml`` under
+         ``landed``. ``--force`` writes it anyway. The target is remembered
+         under ``storage``. A landed table's view reads the bucket, so the
+         environment must be running to query the workspace, and ``status``
+         reports a landed table's changed source files as it does a
+         snapshot's.
+       * The engine gets the credentials as a session-scoped DuckDB secret on
+         stdin, never on a command line and never in the catalog; ``connect``
+         prints the same secret for a DuckDB on the host.
+       * ``instance:<name>`` reads ``bucket_name`` from the instance's
+         recorded resource output. ``hmd-inf-s3bucket`` emits it from 0.1.23,
+         so the ``storage`` bundle (repository ``hmd-stack-storage``) pins
+         ``== 0.1.23``, as one instance named ``storage``.
+       * Verified end to end on an environment started with
+         ``--substrate none``: the bundle pulled anonymously from an OCI
+         registry, ``env apply`` deployed the bucket from the bundled
+         artifact, and ``land --to instance:storage`` wrote into it. The
+         bundle is not published to ``ghcr.io/neuronsphere/stacks/storage``
+         yet, and the run used an existing ``HMD_HOME``, not an empty one.
+
 .. spec:: Bundled skills guide the ladder
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC010
     :links: HMD_CLI_NEURONSPHERE_NERD039
@@ -540,9 +571,9 @@ scheduling and refresh pipelines; a user-facing modeling language.
        **Partly implemented.** ``ns-data-start``, ``ns-data-inventory``,
        ``ns-data-profile``, ``ns-data-register`` and ``ns-data-query`` are
        bundled, and ``nsctl-onboard`` routes to ``ns-data-start``.
-       ``ns-data-understand`` is bundled with SPEC007 and SPEC008;
-       ``ns-data-store`` and ``ns-data-next`` wait for the verbs they
-       orchestrate. With no ``--split``/``--merge`` (SPEC003),
+       ``ns-data-understand`` is bundled with SPEC007 and SPEC008, and
+       ``ns-data-store`` with SPEC009; ``ns-data-next`` waits for the verbs it
+       orchestrates. With no ``--split``/``--merge`` (SPEC003),
        ``ns-data-inventory`` splits or merges a group by editing ``paths`` in
        the table definitions, and ``ns-data-profile`` records a fix by merging
        the profile's suggestion into ``casts`` or ``reader_options``.

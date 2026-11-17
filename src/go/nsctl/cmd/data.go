@@ -45,6 +45,7 @@ nsctl learns is kept in a workspace under $HMD_HOME/data/<workspace>.
 		newDataScanCommand(d), newDataProfileCommand(d), newDataRegisterCommand(d),
 		newDataSnapshotCommand(d), newDataSQLCommand(d), newDataConnectCommand(d), newDataStatusCommand(d),
 		newDataUnderstandCommand(d), newDataApproveCommand(d), newDataRejectCommand(d), newDataDocsCommand(d),
+		newDataStorageCommand(d), newDataLandCommand(d),
 	)
 	return cmd
 }
@@ -73,8 +74,17 @@ func (d *dataCtx) image() string {
 	return data.DefaultImage
 }
 
-// engine returns the DuckDB engine, pulling its image the first time.
-func (d *dataCtx) engine(ctx context.Context) (data.DockerEngine, error) {
+// engine returns the DuckDB engine, pulling its image the first time. A
+// workspace with storage configured is attached to its environment first, so
+// every session can read the tables landed there.
+func (d *dataCtx) engine(ctx context.Context, ws *data.Workspace) (data.DockerEngine, error) {
+	if ws != nil && ws.Config.Storage != nil && ws.Remote == nil {
+		s, err := d.storageOf(ctx, ws.Config.Storage.Env)
+		if err != nil {
+			return data.DockerEngine{}, err
+		}
+		ws.Remote = s.remote()
+	}
 	ref := d.image()
 	dk := container.New()
 	if err := dk.Available(ctx); err != nil {
@@ -240,7 +250,7 @@ already reads are not proposed again.`,
 				}
 				renames[from] = to
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}
@@ -327,7 +337,7 @@ asks about the likely joins.`,
 			if err != nil {
 				return err
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}
@@ -438,7 +448,7 @@ view. A table whose schema_mode is declared refuses files that do not match.`,
 			if err != nil {
 				return err
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}
@@ -499,7 +509,7 @@ catalog; snapshot again to refresh.`,
 			if err != nil {
 				return err
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}
@@ -542,12 +552,12 @@ saved queries.`,
 			if err != nil {
 				return err
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}
 			if len(args) == 0 {
-				return eng.Interactive(cmd.Context(), data.Request{DB: ws.Path(data.CatalogFile), ReadOnly: !write, Mounts: ws.Mounts()})
+				return eng.Interactive(cmd.Context(), ws.Session(data.Request{DB: ws.Path(data.CatalogFile), ReadOnly: !write}))
 			}
 			rows, cols, err := ws.Query(cmd.Context(), eng, args[0], write)
 			if err != nil {
@@ -611,12 +621,25 @@ func newDataConnectCommand(d *dataCtx) *cobra.Command {
 				return err
 			}
 			catalog := ws.Path(data.CatalogFile)
+			// Landed tables read the environment's bucket: a DuckDB on this
+			// machine needs a secret for the endpoint as seen from here.
+			secret, storageNote := "", ""
+			if st := ws.Config.Storage; st != nil {
+				if s, err := d.storageOf(cmd.Context(), st.Env); err == nil {
+					r := s.remote()
+					r.Endpoint = strings.TrimPrefix(strings.TrimPrefix(s.Target.Endpoint, "http://"), "https://")
+					secret = strings.TrimSpace(r.SecretStatement())
+				} else {
+					storageNote = err.Error()
+				}
+			}
 			if asJSON {
 				return printJSON(cmd, map[string]any{
 					"catalog": catalog, "duckdb_version": data.DuckDBVersion,
 					"duckdb_cli": "duckdb -readonly " + catalog,
 					"duckdb_ui":  "duckdb -readonly -ui " + catalog,
 					"agent":      "nsctl data sql --json \"<statement>\"",
+					"s3_secret":  secret,
 				})
 			}
 			out := cmd.OutOrStdout()
@@ -633,6 +656,18 @@ this machine can open it. Open it read-only, so nsctl can keep updating it.
   An agent:    nsctl data sql --json "<statement>"
   Here:        nsctl data sql
 `, ws.Name, catalog, data.DuckDBVersion, catalog, catalog, catalog)
+			if secret != "" {
+				fmt.Fprintf(out, `
+Tables landed in environment %s read its bucket. Run this first in a DuckDB on
+this machine (it needs the httpfs extension, which DuckDB installs on first
+use):
+
+  %s
+`, ws.Config.Storage.Env, secret)
+			} else if storageNote != "" {
+				fmt.Fprintf(out, "\nTables landed in environment %s read its bucket, which cannot be reached now: %s\n",
+					ws.Config.Storage.Env, storageNote)
+			}
 			return nil
 		},
 	}

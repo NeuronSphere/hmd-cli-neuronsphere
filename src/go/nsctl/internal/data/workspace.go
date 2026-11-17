@@ -48,6 +48,7 @@ const (
 	StepProfiled   = "profiled"
 	StepPinned     = "pinned"
 	StepRegistered = "registered"
+	StepLanded     = "landed"
 )
 
 // Source is one root a person pointed nsctl data at. Table paths are relative
@@ -62,6 +63,8 @@ type Source struct {
 type Snapshot struct {
 	Path   string            `yaml:"path" json:"path"`
 	Hashes map[string]string `yaml:"hashes" json:"hashes"`
+	Rows   int64             `yaml:"rows,omitempty" json:"rows,omitempty"`
+	At     string            `yaml:"at,omitempty" json:"at,omitempty"`
 }
 
 // Config is data.yaml.
@@ -70,6 +73,11 @@ type Config struct {
 	Sources   []Source            `yaml:"sources"`
 	Progress  map[string][]string `yaml:"progress,omitempty"`
 	Snapshots map[string]Snapshot `yaml:"snapshots,omitempty"`
+	// Storage is where tables land, once a person opts in (SPEC009).
+	Storage *Storage `yaml:"storage,omitempty"`
+	// Landed records, per table, where it landed and the source hashes it
+	// was written from (SPEC009).
+	Landed map[string]Snapshot `yaml:"landed,omitempty"`
 	// Rejected lists the proposals a person turned down, so understand does
 	// not ask again (SPEC007).
 	Rejected []string `yaml:"rejected,omitempty"`
@@ -89,6 +97,9 @@ type Workspace struct {
 	Name   string
 	Root   string
 	Config Config
+	// Remote, set by the caller from Config.Storage's environment, is how
+	// the engine reaches that environment's S3. Nil means no network.
+	Remote *Remote
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)

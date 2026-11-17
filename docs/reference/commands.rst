@@ -1545,6 +1545,52 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--workspace`` — Workspace to act on (default: the current one)
 
+nsctl data land
+---------------
+
+Writes each table (default: all of them) as Parquet under
+<target>/raw/<table>/ in a local environment's S3, then points its view there.
+The target is either a bucket that exists in that environment,
+s3://<bucket>[/<prefix>], or instance:<name>, an hmd-inf-s3bucket instance
+(such as the one `nsctl bundle add storage` adds), whose bucket is read from
+what it produced.
+
+--env and --to are needed the first time; the workspace remembers them. A
+table whose files have not changed since it was landed is not written again
+(--force writes it anyway).
+From then on the engine joins the environment's network, so the environment
+must be running to query the workspace. Your files are still only read.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data land [<table>...] [--env <name> --to <target>] [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl data land --env local --to s3://my-data
+     nsctl data land --env local --to instance:storage
+     nsctl data land orders
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Local environment (remembered)
+* ``--force`` — Write every table again, even if its files have not changed
+* ``--json`` — Print the result as JSON
+* ``--to`` — s3://<bucket>[/<prefix>] or instance:<name> (remembered)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
 nsctl data list
 ---------------
 
@@ -1763,6 +1809,39 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data storage
+------------------
+
+Storage is optional, and always the S3 service of a local NeuronSphere
+environment. This prints that environment's S3 endpoint, from this machine and
+from inside the environment, its region and access key, the buckets it has,
+and ready-to-run AWS CLI and Terraform snippets for creating a bucket with
+your own tools. The secret access key is withheld unless --reveal.
+
+Or have a bucket set up for you: `nsctl bundle add storage --env <name>` and
+`nsctl env apply <name>` deploy one, which `nsctl data land --to instance:storage`
+then uses. nsctl data itself never deploys anything.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data storage --env <name> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--env`` — Local environment
+* ``--json`` — Print the result as JSON
+* ``--reveal`` — Print the secret access key
 
 Inherited flags
 ~~~~~~~~~~~~~~~

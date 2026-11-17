@@ -74,6 +74,7 @@ var skills = []Skill{
 	{"ns-data-query", "Answer questions about the person's own data with visible SQL, and connect their tools."},
 	{"ns-data-register", "Make a data workspace's tables queryable, pinning or snapshotting as chosen."},
 	{"ns-data-start", "Start exploring a person's own data files with SQL on their machine, and route the next step."},
+	{"ns-data-store", "Optionally land a workspace's tables in a local environment's S3, in a bucket of the person's or the storage bundle's."},
 	{"ns-data-understand", "Ask what tables mean and how they join, record the answers, and render plain documentation."},
 	{"nsctl-auth-and-profiles", "Guide safe login, profile selection, credential checks, and logout."},
 	{"nsctl-debug", "Diagnose a local NeuronSphere problem from status, plans, and logs without destructive repair."},

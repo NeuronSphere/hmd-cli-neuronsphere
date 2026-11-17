@@ -234,7 +234,7 @@ func (w *Workspace) ProfileTable(ctx context.Context, eng Engine, name string, f
 	script := fmt.Sprintf("SELECT count(*) AS n FROM (%s);\n", sel) +
 		fmt.Sprintf("SELECT column_name, column_type, min, max, approx_unique, null_percentage FROM (SUMMARIZE SELECT * FROM %s);\n", sampled) +
 		fmt.Sprintf("SELECT * FROM (%s) USING SAMPLE reservoir(5 ROWS) REPEATABLE (42);\n", sel)
-	out, err := eng.Run(ctx, Request{Script: script, Mounts: w.Mounts()})
+	out, err := eng.Run(ctx, w.session(Request{Script: script}))
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +385,7 @@ func (w *Workspace) textChecks(ctx context.Context, eng Engine, t *Table, abs []
 	if script == "" {
 		return nil, nil, nil, nil
 	}
-	out, err := eng.Run(ctx, Request{Script: script, Mounts: w.Mounts()})
+	out, err := eng.Run(ctx, w.session(Request{Script: script}))
 	if err != nil {
 		return nil, nil, nil, err
 	}

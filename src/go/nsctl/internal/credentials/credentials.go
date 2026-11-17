@@ -308,7 +308,7 @@ func resolveOne(ctx context.Context, o Options, repo manifest.Repo, d bacon.Acce
 // that wrote it.
 func secretName(o Options, repo manifest.Repo, d bacon.AccessEntry, values map[string]string) (string, error) {
 	if d.Secret.Output != "" {
-		name, err := outputValue(o.OutputDir, repo.InstanceName, d.Secret.Output)
+		name, err := OutputValue(o.OutputDir, repo.InstanceName, d.Secret.Output)
 		if err != nil {
 			return "", err
 		}
@@ -361,13 +361,13 @@ func pick(raw, property string) (string, error) {
 	return s, nil
 }
 
-// outputValue reads one key out of an instance's recorded resource outputs.
+// OutputValue reads one key out of an instance's recorded resource outputs.
 //
 // The file is the list submit_resources was given: one document per Resource,
 // each with its own `output` object. The key is looked for in every Resource
 // rather than in a named one, because a RepoClass that produces one Resource --
 // which is the common case -- should not have to name it again here.
-func outputValue(dir, instance, key string) (string, error) {
+func OutputValue(dir, instance, key string) (string, error) {
 	if dir == "" || instance == "" {
 		return "", fmt.Errorf("no recorded resource output for %s, so %q cannot be read", instance, key)
 	}

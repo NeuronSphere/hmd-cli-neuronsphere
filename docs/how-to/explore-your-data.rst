@@ -19,7 +19,8 @@ commands, puts each decision to you as a question about your data, and
 answers with the SQL shown. Install them into the folder you work from::
 
    nsctl agent skills install ns-data-start ns-data-inventory ns-data-profile \
-       ns-data-register ns-data-query ns-data-understand --host all --path .
+       ns-data-register ns-data-query ns-data-understand ns-data-store \
+       --host all --path .
 
 Then ask your agent to explore your data, or to use ``ns-data-start``. Every
 skill begins from ``nsctl data status``, so a later session carries on where
@@ -182,6 +183,37 @@ The rendering runs in a second pinned image with no network.
 What nsctl learned is kept in the workspace's ``model/`` folder as NeuronSphere
 model files. You never need to open them, but ``nsctl model inspect
 $HMD_HOME/data/<workspace>`` shows them.
+
+Keep the tables in local storage (optional)
+------------------------------------------
+
+Nothing above needed an environment. If you want the data somewhere other
+than your folder -- to share it, or to use it from other NeuronSphere
+services -- land it in the S3 of a local environment::
+
+   nsctl env add dev && nsctl env start dev
+   nsctl data storage --env dev
+
+``storage`` prints the environment's S3 endpoint (from this machine and from
+inside the environment), its access key, the buckets it has, and AWS CLI and
+Terraform snippets to create one with your own tools. The secret is withheld
+unless ``--reveal``. Then::
+
+   nsctl data land --env dev --to s3://my-data
+
+Or have a bucket set up for you, and name it by its instance instead of
+typing its name::
+
+   nsctl bundle add storage --env dev
+   nsctl env apply dev
+   nsctl data land --env dev --to instance:storage
+
+``land`` writes each table as Parquet under ``<target>/raw/<table>/`` and
+points its view there. The workspace remembers the target: ``nsctl data
+land`` alone lands what changed since, and ``--force`` writes everything
+again. From then on the views read the bucket, so the environment must be
+running to query the workspace; ``nsctl data connect`` prints the secret a
+DuckDB on this machine needs.
 
 Start over
 ----------

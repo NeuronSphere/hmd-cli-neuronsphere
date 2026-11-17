@@ -41,6 +41,12 @@ type Mount struct {
 
 // Request is one engine session.
 type Request struct {
+	// Network is the Docker network the engine joins; empty is none. Only a
+	// workspace with storage configured sets it (SPEC009).
+	Network string
+	// Setup runs after the prelude and before Script, on stdin, so what it
+	// holds (an S3 secret) never appears on a command line.
+	Setup string
 	// DB is the database file; empty is in-memory.
 	DB       string
 	ReadOnly bool
@@ -88,7 +94,11 @@ func (d DockerEngine) bin() string {
 // args is the docker command line for a request. The engine has no network:
 // nothing it does in this release needs one (SPEC002).
 func (d DockerEngine) args(req Request) []string {
-	a := []string{"run", "--rm", "-i", "--network", "none"}
+	network := req.Network
+	if network == "" {
+		network = "none"
+	}
+	a := []string{"run", "--rm", "-i", "--network", network}
 	if runtime.GOOS == "linux" {
 		// Files the engine writes into the workspace belong to the person, not
 		// to root. Docker Desktop maps ownership itself.
@@ -122,7 +132,7 @@ func (d DockerEngine) args(req Request) []string {
 // Run sends the script on stdin and decodes each result set.
 func (d DockerEngine) Run(ctx context.Context, req Request) (Output, error) {
 	c := exec.CommandContext(ctx, d.bin(), d.args(req)...)
-	c.Stdin = strings.NewReader(prelude + req.Script)
+	c.Stdin = strings.NewReader(prelude + req.Setup + req.Script)
 	var out, errb bytes.Buffer
 	c.Stdout, c.Stderr = &out, &errb
 	runErr := c.Run()
@@ -159,7 +169,12 @@ func (d DockerEngine) Interactive(ctx context.Context, req Request) error {
 			a[i] = "-it"
 		}
 	}
-	for _, stmt := range strings.Split(strings.TrimSpace(prelude), "\n") {
+	// The setup (a storage secret for a local environment's emulator, whose
+	// credentials are fixed and not secret) goes the same way.
+	for _, stmt := range strings.Split(strings.TrimSpace(prelude+req.Setup), "\n") {
+		if strings.HasPrefix(stmt, ".output") {
+			continue
+		}
 		a = append(a, "-cmd", stmt)
 	}
 	// -json is for machine output; a person wants the default table mode.

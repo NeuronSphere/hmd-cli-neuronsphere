@@ -366,8 +366,12 @@ func Context(ctx context.Context, w *data.Workspace) (*DocsContext, error) {
 		if err != nil {
 			return nil, err
 		}
-		dc.Views = append(dc.Views, DocView{Name: t.Table, SQL: v,
-			Description: fmt.Sprintf("%s: %s files, read in place.", t.Table, t.Format)})
+		desc := fmt.Sprintf("%s: %s files, read in place.", t.Table, t.Format)
+		if l, ok := w.Config.Landed[t.Table]; ok {
+			desc = fmt.Sprintf("%s: landed in environment %s at %s; `nsctl data connect` prints the secret a DuckDB needs to read it.",
+				t.Table, w.Config.Storage.Env, l.Path)
+		}
+		dc.Views = append(dc.Views, DocView{Name: t.Table, SQL: v, Description: desc})
 	}
 	// Named views, after the table views they read.
 	for _, dt := range dc.Tables {

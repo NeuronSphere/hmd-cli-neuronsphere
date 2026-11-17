@@ -186,7 +186,7 @@ network. docs replaces only files it wrote and nobody has edited since; pass
 			if err != nil {
 				return err
 			}
-			eng, err := d.engine(cmd.Context())
+			eng, err := d.engine(cmd.Context(), ws)
 			if err != nil {
 				return err
 			}

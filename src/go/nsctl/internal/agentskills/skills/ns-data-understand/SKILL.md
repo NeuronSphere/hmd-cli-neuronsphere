@@ -46,7 +46,8 @@ person asks how it works underneath.
    `views.sql` recreates everything in any DuckDB.
 
 Run understand again after new files are scanned or tables change; it asks
-only about what is new.
+only about what is new. If the person wants the data kept somewhere other
+than their folder, hand off to `ns-data-store`.
 
 # nsctl-command: data status
 # nsctl-command: data profile

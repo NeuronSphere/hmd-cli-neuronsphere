@@ -26,7 +26,9 @@ type TableStatus struct {
 	Steps    []string `json:"steps"`
 	// Drift lists how the files differ from the pinned schema.
 	Drift []string `json:"drift,omitempty"`
-	// Stale lists sources changed since the snapshot was taken.
+	// Landed is where the table's view reads from once landed (SPEC009).
+	Landed string `json:"landed,omitempty"`
+	// Stale lists sources changed since the snapshot or landing was taken.
 	Stale []string `json:"stale,omitempty"`
 	Error string   `json:"error,omitempty"`
 }
@@ -41,9 +43,17 @@ type RegisterReport struct {
 
 // viewSource is the SELECT a table's view runs.
 func (w *Workspace) viewSource(t *Table) (string, error) {
+	if l, ok := w.Config.Landed[t.Table]; ok {
+		return "SELECT * FROM read_parquet(" + lit(l.Path) + ")", nil
+	}
 	if snap, ok := w.Config.Snapshots[t.Table]; ok {
 		return "SELECT * FROM read_parquet(" + lit(snap.Path) + ")", nil
 	}
+	return w.fileSource(t)
+}
+
+// fileSource reads a table from its files, ignoring any snapshot or landing.
+func (w *Workspace) fileSource(t *Table) (string, error) {
 	abs, err := w.AbsPaths(t)
 	if err != nil {
 		return "", err
@@ -96,8 +106,8 @@ func (w *Workspace) Register(ctx context.Context, eng Engine, pin bool) (*Regist
 	rep := &RegisterReport{Workspace: w.Name, Catalog: w.Path(CatalogFile)}
 
 	// Existing views, so a table that no longer exists loses its view.
-	out, err := eng.Run(ctx, Request{DB: rep.Catalog, Mounts: w.Mounts(),
-		Script: "SELECT view_name FROM duckdb_views() WHERE NOT internal AND schema_name = 'main';\n"})
+	out, err := eng.Run(ctx, w.session(Request{DB: rep.Catalog,
+		Script: "SELECT view_name FROM duckdb_views() WHERE NOT internal AND schema_name = 'main';\n"}))
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +136,7 @@ func (w *Workspace) Register(ctx context.Context, eng Engine, pin bool) (*Regist
 		fmt.Fprintf(&script, "SELECT %d AS t, column_name, column_type, \"null\" AS nullable FROM (DESCRIBE %s);\n", i, ident(t.Table))
 		fmt.Fprintf(&script, "SELECT %d AS t, count(*) AS n FROM %s;\n", i, ident(t.Table))
 	}
-	res, err := eng.Run(ctx, Request{DB: rep.Catalog, Mounts: w.Mounts(), Script: script.String()})
+	res, err := eng.Run(ctx, w.session(Request{DB: rep.Catalog, Script: script.String()}))
 	if err != nil {
 		return nil, err
 	}
@@ -189,28 +199,18 @@ func (w *Workspace) SnapshotTable(ctx context.Context, eng Engine, name string) 
 	if err != nil {
 		return nil, err
 	}
-	files, err := w.tableFiles(t)
+	hashes, err := w.sourceHashes(t)
 	if err != nil {
 		return nil, err
 	}
-	hashes := map[string]string{}
-	for _, f := range files {
-		root, _ := w.SourcePath(f.Source)
-		h, err := fileHash(filepath.Join(root, filepath.FromSlash(f.Rel)))
-		if err != nil {
-			return nil, nserr.Wrap(nserr.Fail, err)
-		}
-		hashes[f.Rel] = h
-	}
-	// Read from the files, not an earlier snapshot.
-	delete(w.Config.Snapshots, name)
-	src, err := w.viewSource(t)
+	// Read from the files, not an earlier snapshot or landing.
+	src, err := w.fileSource(t)
 	if err != nil {
 		return nil, err
 	}
 	dest := w.Path(SnapshotDir, name+".parquet")
 	script := fmt.Sprintf("COPY (%s) TO %s (FORMAT parquet);\nSELECT count(*) AS n FROM read_parquet(%s);\n", src, lit(dest), lit(dest))
-	out, err := eng.Run(ctx, Request{Mounts: w.Mounts(), Script: script})
+	out, err := eng.Run(ctx, w.session(Request{Script: script}))
 	if err != nil {
 		return nil, err
 	}
@@ -249,6 +249,7 @@ type StatusReport struct {
 	Catalog   string        `json:"catalog,omitempty"`
 	Tables    []TableStatus `json:"tables"`
 	Next      string        `json:"next"`
+	Storage   *Storage      `json:"storage,omitempty"`
 }
 
 // Status reports progress without running the engine: it reads the
@@ -265,31 +266,51 @@ func (w *Workspace) Status() (*StatusReport, error) {
 	}
 	for _, t := range tables {
 		st := TableStatus{Table: t.Table, Pinned: len(t.Schema) > 0, Steps: w.Config.Progress[t.Table]}
-		if snap, ok := w.Config.Snapshots[t.Table]; ok {
+		copyOf, isCopy := w.Config.Snapshots[t.Table]
+		if isCopy {
 			st.Snapshot = true
-			files, err := w.tableFiles(t)
+		}
+		// A landed table reads the bucket, so its staleness is the landing's.
+		if l, ok := w.Config.Landed[t.Table]; ok {
+			st.Landed, copyOf, isCopy = l.Path, l, true
+		}
+		if isCopy {
+			stale, err := w.staleFiles(t, copyOf.Hashes)
 			if err != nil {
 				return nil, err
 			}
-			seen := map[string]bool{}
-			for _, f := range files {
-				seen[f.Rel] = true
-				root, _ := w.SourcePath(f.Source)
-				h, err := fileHash(filepath.Join(root, filepath.FromSlash(f.Rel)))
-				if err != nil || h != snap.Hashes[f.Rel] {
-					st.Stale = append(st.Stale, f.Rel)
-				}
-			}
-			for _, f := range sortedKeys(snap.Hashes) {
-				if !seen[f] {
-					st.Stale = append(st.Stale, f+" (gone)")
-				}
-			}
+			st.Stale = stale
 		}
 		rep.Tables = append(rep.Tables, st)
 	}
 	rep.Next = w.next(tables)
+	rep.Storage = w.Config.Storage
 	return rep, nil
+}
+
+// staleFiles lists the source files that changed, appeared or went since
+// hashes were taken.
+func (w *Workspace) staleFiles(t *Table, hashes map[string]string) ([]string, error) {
+	files, err := w.tableFiles(t)
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	seen := map[string]bool{}
+	for _, f := range files {
+		seen[f.Rel] = true
+		root, _ := w.SourcePath(f.Source)
+		h, err := fileHash(filepath.Join(root, filepath.FromSlash(f.Rel)))
+		if err != nil || h != hashes[f.Rel] {
+			stale = append(stale, f.Rel)
+		}
+	}
+	for _, f := range sortedKeys(hashes) {
+		if !seen[f] {
+			stale = append(stale, f+" (gone)")
+		}
+	}
+	return stale, nil
 }
 
 // next is the command a person most likely wants now.
@@ -323,7 +344,7 @@ func (w *Workspace) Query(ctx context.Context, eng Engine, stmt string, write bo
 	if !strings.HasSuffix(stmt, ";") {
 		stmt += ";"
 	}
-	out, err := eng.Run(ctx, Request{DB: w.Path(CatalogFile), ReadOnly: !write, Mounts: w.Mounts(), Script: stmt + "\n"})
+	out, err := eng.Run(ctx, w.session(Request{DB: w.Path(CatalogFile), ReadOnly: !write, Script: stmt + "\n"}))
 	if err != nil {
 		return nil, nil, err
 	}

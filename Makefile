@@ -233,6 +233,17 @@ test-cli: build
 test-data: build
 	$(ROBOT) $(ROBOT_FLAGS) --variable DUCKDB_IMAGE:$(DUCKDB_IMAGE) --variable DOCS_IMAGE:$(DOCS_IMAGE) test/nsctl_data.robot
 
+## test-data-storage: `nsctl data storage` and `land` (NERD039 SPEC009) against a
+## running local environment -- opt-in
+#
+# STORAGE_ENV names the environment, in the HMD_HOME of the shell, and the
+# suite creates one bucket in it with the AWS CLI. STORAGE_INSTANCE optionally
+# names an applied hmd-inf-s3bucket instance (the storage bundle's `storage`).
+test-data-storage: build
+	$(ROBOT) $(ROBOT_FLAGS) --variable DUCKDB_IMAGE:$(DUCKDB_IMAGE) \
+	  --variable STORAGE_ENV:$(STORAGE_ENV) --variable STORAGE_INSTANCE:$(STORAGE_INSTANCE) \
+	  test/nsctl_data_storage.robot
+
 ## test-parity: SPEC012's parity suite -- needs Docker, a platform and an HMD_HOME
 #
 # Deliberately not part of `check`, CI or test-cli: it performs an operation

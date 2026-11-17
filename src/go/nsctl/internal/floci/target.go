@@ -40,6 +40,9 @@ const (
 	Alias = "neuronsphere"
 	// DefaultRegion is the AWS region Floci is configured for.
 	DefaultRegion = "us-west-2"
+	// SecretAccessKey is what every account signs with. Floci does not check
+	// it; the access key id is what selects the account.
+	SecretAccessKey = "dummykey"
 )
 
 // Target is one Floci account.
@@ -144,7 +147,7 @@ func (t Target) Config(ctx context.Context) (aws.Config, error) {
 		config.WithRegion(t.Region),
 		config.WithBaseEndpoint(t.Endpoint),
 		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(key, "dummykey", ""),
+			credentials.NewStaticCredentialsProvider(key, SecretAccessKey, ""),
 		),
 		// Nothing here should consult ~/.aws or the environment: the account is
 		// the access key, and an inherited profile would silently retarget it.

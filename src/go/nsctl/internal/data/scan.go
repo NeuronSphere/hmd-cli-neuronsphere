@@ -294,7 +294,7 @@ func (w *Workspace) describe(ctx context.Context, eng Engine, files []FileInfo) 
 		}
 		fmt.Fprintf(&script, "SELECT %d AS f, column_name, column_type FROM (DESCRIBE SELECT * FROM %s);\n", i, reader)
 	}
-	out, err := eng.Run(ctx, Request{Script: script.String(), Mounts: w.Mounts(), ContinueOnError: true})
+	out, err := eng.Run(ctx, w.session(Request{Script: script.String(), ContinueOnError: true}))
 	if err != nil {
 		return nil, nil, err
 	}
