@@ -117,6 +117,14 @@ LLM or statistical inference; a user-facing schema language; generating
 downstream artifacts; querying live Trino, Hive or Postgres; a general SQL
 parser.
 
+NERD039 narrows three of these for one case: data files a person points
+``nsctl data`` at. Profiling those files (types, nulls, value overlap
+between columns) is statistical inference over *data*, and it enters this
+model only as observations at ``inferred`` authority (SPEC002). ``nsctl
+data`` reads those files with DuckDB, which is not querying a live
+platform engine. ``nsctl data docs`` generates a fixed, small set of outputs
+for that person (SPEC015). Inference over *code* stays out of scope.
+
 .. spec:: Inspectors emit observations through one small interface
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD032
@@ -149,6 +157,18 @@ parser.
       the transform that reads its export. Everything it reports is
       evidence, not a decision: it does not parse Python.
 
+    NERD039 SPEC007 adds two:
+
+    * ``modelsource``: NEP051 source files (``*.source.yaml``). A source's
+      ``yields`` becomes bindings from a physical table or file group to
+      nouns and attributes. Its authority follows its ``provenance``
+      (SPEC002).
+    * ``nsdata``: an ``nsctl data`` project. Each group in
+      ``tables/*.table.yaml`` becomes a binding with its columns, and each
+      saved profile becomes observations: column types, candidate keys, and
+      value-overlap evidence between columns as candidate relationships.
+      Everything it reports is ``evidence``.
+
     A source is named by its directory, which is what a person opens. A BACON
     manifest whose ``name`` differs is reported, not used.
 
@@ -172,12 +192,21 @@ parser.
     Source                      Authority
     ==========================  =========
     ``.hms``                    100
+    NEP051 source, declared     90
     ``CREATE TABLE``/``VIEW``   80
     ``INSERT … SELECT`` target  60
     dbt ``schema.yml``          50
     dbt model SQL               40
+    pinned ``nsctl data`` table 30
     inferred                    10
     ==========================  =========
+
+    A NEP051 source with ``provenance: inferred`` is ``inferred``. A person
+    approving it in ``nsctl data`` rewrites it as ``declared`` (NERD039
+    SPEC007), which is how a decision outranks everything but ``.hms``. A
+    pinned group's schema (NERD039 SPEC005) was inferred once and then
+    accepted, so it ranks above a fresh inference and below anything a
+    person wrote as code.
 
     Confidence reuses the ``repoclass detect`` vocabulary: ``decided`` when
     the artifact states it, ``evidence`` when it was inferred.
@@ -1007,6 +1036,15 @@ catalog the model, through an export no consumer is baked into.
 
     The first generator is a separate deliverable from this NERD. ``nsctl``
     is done when the export carries everything the mapping above needs.
+
+    There is one exception, and it is closed. ``nsctl data docs`` (NERD039
+    SPEC008) writes a data dictionary, a relationship diagram, ``CREATE
+    VIEW`` statements in DuckDB SQL, and a list of questions with SQL. These
+    four outputs are part of a newcomer's first hour, and that path must not
+    need Python, a template repository or a network. They are rendered by Go
+    code from the export, targeting no catalog. Anything else (a dbt
+    project, Trino DDL, a catalog's entities, any perspective pack's output)
+    is a generator under this SPEC.
 
 .. spec:: The workspace model can also take observations from outside
     :id: HMD_CLI_NEURONSPHERE_NERD032_SPEC016
