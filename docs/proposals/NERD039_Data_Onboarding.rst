@@ -30,7 +30,7 @@ Motivation
 
 ``nsctl`` makes the local platform easy to start for people who already know
 what a repo class is. A newcomer arrives with data, not repositories. Today
-the guided first run deploys the ``analytics`` stack, roughly thirty instances,
+the guided first run deploys the ``analytics`` bundle, roughly thirty instances,
 before it can show anything, and no ``nsctl`` verb reads, loads or queries a
 data file. The bundled ``nsctl-onboard`` skill is entirely about repositories
 and deploys.
@@ -367,8 +367,11 @@ scheduling and refresh pipelines; a user-facing modeling language.
       Its bucket name is read from the instance's outputs, never typed.
 
     For the second form, ``hmd-inf-s3bucket`` reaches a person with no
-    checkout and no tenant as a published stack, ``storage``, whose lock pins
-    only that class (``nsctl stack add storage --env <name>``). ``nsctl data``
+    checkout and no tenant as a published bundle, ``storage``. That is a bundle
+    repository whose ``meta-data/bundles/storage.json`` and lock name only
+    that class, published with ``nsctl bundle build`` and ``nsctl bundle
+    push`` to the default namespace, so ``nsctl bundle add storage --env
+    <name>`` resolves it anonymously. ``nsctl data``
     never deploys anything itself.
 
     While a target is configured, the engine container joins that
@@ -405,7 +408,7 @@ scheduling and refresh pipelines; a user-facing modeling language.
         ``docs``. Uses no modeling vocabulary unless asked.
     ``ns-data-store``
         Opt-in. An environment, then the person's choice: their own bucket via
-        ``storage``, or ``stack add storage``; then ``land``.
+        ``storage``, or ``bundle add storage``; then ``land``.
     ``ns-data-next``
         Pointers to export, refresh, Trino and the Librarian.
 
@@ -427,7 +430,7 @@ Verification
   runs unchanged in a plain DuckDB.
 * A second suite creates an environment and runs ``land`` twice: into a
   bucket created with the AWS CLI from ``storage`` output, and into a bucket
-  from ``stack add storage``, starting from an empty ``HMD_HOME`` with no
+  from ``bundle add storage``, starting from an empty ``HMD_HOME`` with no
   repository checkouts.
 * The bundled skills pass ``TestBundledSkillCommandPathsExist``, and an agent
   evaluation compares skills plus verbs, verbs alone, and neither, on
