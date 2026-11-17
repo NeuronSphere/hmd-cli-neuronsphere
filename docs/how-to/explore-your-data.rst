@@ -20,7 +20,7 @@ answers with the SQL shown. Install them into the folder you work from::
 
    nsctl agent skills install ns-data-start ns-data-inventory ns-data-profile \
        ns-data-register ns-data-query ns-data-understand ns-data-store \
-       --host all --path .
+       ns-data-next --host all --path .
 
 Then ask your agent to explore your data, or to use ``ns-data-start``. Every
 skill begins from ``nsctl data status``, so a later session carries on where
@@ -214,6 +214,45 @@ land`` alone lands what changed since, and ``--force`` writes everything
 again. From then on the views read the bucket, so the environment must be
 running to query the workspace; ``nsctl data connect`` prints the secret a
 DuckDB on this machine needs.
+
+Keep the work in a repository
+-----------------------------
+
+When you or a team want the work in git, export it::
+
+   nsctl data export --repo ~/src/shop-data
+
+This is the one step that makes a repository. It holds:
+
+``docs/data/``
+    The documents ``nsctl data docs`` writes.
+``src/schemas/`` and ``src/sources/``
+    What you approved and what is still a proposal, as NeuronSphere model
+    files.
+``src/data/tables/`` and ``src/data/queries/``
+    The table definitions and your saved queries.
+``src/model/export.json``
+    The model as one JSON document, for tools that generate other forms from
+    it (dbt, a catalog, a warehouse model). Those tools live outside nsctl.
+``meta-data/manifest.json``
+    A NeuronSphere repository manifest with nothing to build;
+    ``nsctl repoclass validate`` accepts it.
+
+``export`` refuses a folder with anything in it (except ``.git``) that it did
+not export. Keep exploring in the workspace and run ``nsctl data export``
+again to refresh the repository: the manifest is never rewritten, a file you
+edited is not replaced unless ``--force``, and nothing is deleted.
+Committing and pushing is up to you.
+
+When files change
+-----------------
+
+``nsctl data status`` lists source files that changed since a snapshot or a
+landing. For new files, scan again (files a table already reads are not
+proposed twice), profile and register the new tables, and run ``nsctl data
+understand``: it asks only about what is new. ``nsctl data land`` copies only
+the tables whose files changed, and ``nsctl data docs`` and ``nsctl data
+export`` refresh the documents and the repository.
 
 Start over
 ----------

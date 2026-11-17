@@ -568,12 +568,12 @@ scheduling and refresh pipelines; a user-facing modeling language.
 
     .. warning::
 
-       **Partly implemented.** ``ns-data-start``, ``ns-data-inventory``,
+       **Implemented.** ``ns-data-start``, ``ns-data-inventory``,
        ``ns-data-profile``, ``ns-data-register`` and ``ns-data-query`` are
        bundled, and ``nsctl-onboard`` routes to ``ns-data-start``.
-       ``ns-data-understand`` is bundled with SPEC007 and SPEC008, and
-       ``ns-data-store`` with SPEC009; ``ns-data-next`` waits for the verbs it
-       orchestrates. With no ``--split``/``--merge`` (SPEC003),
+       ``ns-data-understand`` came with SPEC007 and SPEC008, ``ns-data-store``
+       with SPEC009 and ``ns-data-next`` with SPEC011; all eight are now
+       bundled. With no ``--split``/``--merge`` (SPEC003),
        ``ns-data-inventory`` splits or merges a group by editing ``paths`` in
        the table definitions, and ``ns-data-profile`` records a fix by merging
        the profile's suggestion into ``casts`` or ``reader_options``.
@@ -601,6 +601,35 @@ scheduling and refresh pipelines; a user-facing modeling language.
     (NERD033), dbt projects and other manifestations are generated from the
     exported repository by generators under NERD032 SPEC015. ``nsctl data``
     does not produce them.
+
+    .. warning::
+
+       **Implemented, with these specifics.** The repository's layout:
+
+       * ``meta-data/manifest.json``: written once, by ``bacon.Init`` with
+         ``build.commands`` set to ``[]``, and never rewritten, so what a
+         person adds to it stays.
+       * ``src/schemas/``, ``src/sources/``: the workspace's ``model/``
+         folder as it is.
+       * ``src/data/tables/``, ``src/data/queries/``: the table definitions
+         and saved queries, plus ``src/data/sources.yaml``, which records
+         where each source folder was on the exporting machine.
+       * ``src/model/export.json``: the consolidated NERD032 model.
+         ``nsctl model export`` (NERD032 SPEC014) is not built yet, so this
+         is the model ``nsctl model inspect --json`` reports, not the
+         SPEC014 document.
+       * ``docs/data/``: the outputs, and ``README.md``.
+
+       ``export`` refuses a folder holding anything but ``.git`` that the
+       workspace did not export. It refuses to replace a file edited since
+       the last export unless ``--force``, and reports a file it no longer
+       produces without deleting it.
+
+       An unqualified concept in a source resolves to the one namespace the
+       repository's ``.hms`` concepts are in, so an exported model keeps the
+       workspace's namespace under any folder name. The outputs are stamped
+       with the date rather than the time, so an unchanged re-export changes
+       nothing.
 
 Verification
 ------------

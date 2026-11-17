@@ -47,7 +47,8 @@ person asks how it works underneath.
 
 Run understand again after new files are scanned or tables change; it asks
 only about what is new. If the person wants the data kept somewhere other
-than their folder, hand off to `ns-data-store`.
+than their folder, hand off to `ns-data-store`; for anything else
+afterwards, `ns-data-next`.
 
 # nsctl-command: data status
 # nsctl-command: data profile

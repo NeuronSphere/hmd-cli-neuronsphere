@@ -111,43 +111,9 @@ func Docs(ctx context.Context, w *data.Workspace, eng data.Engine, r Renderer, o
 	if _, err := os.Stat(w.Path(data.CatalogFile)); err != nil {
 		return nil, nserr.New(nserr.Usage, "workspace %s has no catalog yet. Run `nsctl data register` first", w.Name)
 	}
-	dc, err := Context(ctx, w)
+	rendered, dc, err := Render(ctx, w, r)
 	if err != nil {
 		return nil, err
-	}
-	// A new folder for every run: a bind mount of a folder deleted and made
-	// again at the same path can reach the container as the old, deleted
-	// one (seen under colima's virtiofs), and the render then has nowhere to
-	// write.
-	if err := os.MkdirAll(w.Path(renderDir), 0o755); err != nil {
-		return nil, nserr.Wrap(nserr.Fail, err)
-	}
-	stage, err := os.MkdirTemp(w.Path(renderDir), "run-")
-	if err != nil {
-		return nil, nserr.Wrap(nserr.Fail, err)
-	}
-	defer os.RemoveAll(stage)
-	input, output := filepath.Join(stage, "input"), filepath.Join(stage, "output")
-	b, err := json.MarshalIndent(dc, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	if err := write(filepath.Join(input, "data", "workspace.json"), b); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(output, 0o755); err != nil {
-		return nil, nserr.Wrap(nserr.Fail, err)
-	}
-	if err := r.Render(ctx, input, output); err != nil {
-		return nil, err
-	}
-	rendered := map[string][]byte{}
-	for _, name := range Outputs {
-		b, err := os.ReadFile(filepath.Join(output, name))
-		if err != nil {
-			return nil, nserr.New(nserr.Fail, "the renderer did not write %s; is %s the data docs image?", name, DocsImageEnv)
-		}
-		rendered[name] = b
 	}
 	rep, err := place(w, out, rendered, force)
 	if err != nil {
@@ -160,6 +126,50 @@ func Docs(ctx context.Context, w *data.Workspace, eng data.Engine, r Renderer, o
 		rep.Views = append(rep.Views, v.Name)
 	}
 	return rep, nil
+}
+
+// Render runs the renderer over the workspace's context and returns each
+// output's content, writing nothing outside the workspace's staging folder.
+func Render(ctx context.Context, w *data.Workspace, r Renderer) (map[string][]byte, *DocsContext, error) {
+	dc, err := Context(ctx, w)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A new folder for every run: a bind mount of a folder deleted and made
+	// again at the same path can reach the container as the old, deleted
+	// one (seen under colima's virtiofs), and the render then has nowhere to
+	// write.
+	if err := os.MkdirAll(w.Path(renderDir), 0o755); err != nil {
+		return nil, nil, nserr.Wrap(nserr.Fail, err)
+	}
+	stage, err := os.MkdirTemp(w.Path(renderDir), "run-")
+	if err != nil {
+		return nil, nil, nserr.Wrap(nserr.Fail, err)
+	}
+	defer os.RemoveAll(stage)
+	input, output := filepath.Join(stage, "input"), filepath.Join(stage, "output")
+	b, err := json.MarshalIndent(dc, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := write(filepath.Join(input, "data", "workspace.json"), b); err != nil {
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(output, 0o755); err != nil {
+		return nil, nil, nserr.Wrap(nserr.Fail, err)
+	}
+	if err := r.Render(ctx, input, output); err != nil {
+		return nil, nil, err
+	}
+	rendered := map[string][]byte{}
+	for _, name := range Outputs {
+		b, err := os.ReadFile(filepath.Join(output, name))
+		if err != nil {
+			return nil, nil, nserr.New(nserr.Fail, "the renderer did not write %s; is %s the data docs image?", name, DocsImageEnv)
+		}
+		rendered[name] = b
+	}
+	return rendered, dc, nil
 }
 
 // place copies the rendered files into out. A file docs wrote before and
@@ -311,7 +321,7 @@ func Context(ctx context.Context, w *data.Workspace) (*DocsContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	dc := &DocsContext{Workspace: w.Name, GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
+	dc := &DocsContext{Workspace: w.Name, GeneratedAt: time.Now().UTC().Format("2006-01-02"),
 		Tables: []DocTable{}, Relationships: []DocRelationship{}, Views: []DocView{}, Queries: []DocQuery{},
 		Model: m, Profiles: map[string]*data.Profile{}}
 

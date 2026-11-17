@@ -84,6 +84,9 @@ type Config struct {
 	// Docs records where docs last rendered and each file's content hash,
 	// so a file edited since is never overwritten silently (SPEC008).
 	Docs *DocsRecord `yaml:"docs,omitempty"`
+	// Export records the repository export --repo made, in the same shape
+	// (SPEC011).
+	Export *DocsRecord `yaml:"export,omitempty"`
 }
 
 // DocsRecord is the last docs render.

@@ -58,9 +58,9 @@ func (Inspector) CanInspect(_ context.Context, src inspect.Source) bool {
 
 var identRE = regexp.MustCompile(`[^a-z0-9_]+`)
 
-// Namespace is the namespace an unqualified concept falls back to: the
-// repository's name as an identifier. A workspace's model is inspected under
-// the workspace's name.
+// Namespace is a repository's name as an identifier: the namespace an
+// unqualified concept falls back to when the repository's concepts do not
+// settle it. A workspace's model is inspected under the workspace's name.
 func Namespace(repo string) string {
 	return strings.Trim(identRE.ReplaceAllString(strings.ToLower(repo), "_"), "_")
 }
@@ -74,7 +74,7 @@ func (Inspector) Inspect(_ context.Context, src inspect.Source) ([]model.Observa
 	if err != nil {
 		return nil, err
 	}
-	ns := Namespace(src.Repo)
+	ns := defaultNamespace(src, concepts)
 	var obs []model.Observation
 	for _, file := range files {
 		b, err := fs.ReadFile(src.FS, file)
@@ -164,6 +164,25 @@ func inspectFile(file, text string, f *File, ns string, concepts map[string][]mo
 		}
 	}
 	return obs
+}
+
+// defaultNamespace is where an unqualified concept that no .hms defines
+// goes: the one namespace the repository's concepts are in, else the
+// repository's name. A model exported from a workspace keeps the workspace's
+// namespace under any folder name.
+func defaultNamespace(src inspect.Source, concepts map[string][]model.ID) string {
+	seen := map[string]bool{}
+	for _, ids := range concepts {
+		for _, id := range ids {
+			seen[id.Namespace] = true
+		}
+	}
+	if len(seen) == 1 {
+		for ns := range seen {
+			return ns
+		}
+	}
+	return Namespace(src.Repo)
 }
 
 // conceptIndex maps each concept name in the repository's .hms schemas to

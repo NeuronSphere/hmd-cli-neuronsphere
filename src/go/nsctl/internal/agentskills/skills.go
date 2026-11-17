@@ -70,6 +70,7 @@ type marker struct {
 
 var skills = []Skill{
 	{"ns-data-inventory", "Group a person's data files into tables and agree the groups and names."},
+	{"ns-data-next", "Suggest what to do next with an explored workspace: refresh, export to a repository, share, or grow."},
 	{"ns-data-profile", "Profile tables, put the flagged decisions to the person, and record their fixes."},
 	{"ns-data-query", "Answer questions about the person's own data with visible SQL, and connect their tools."},
 	{"ns-data-register", "Make a data workspace's tables queryable, pinning or snapshotting as chosen."},

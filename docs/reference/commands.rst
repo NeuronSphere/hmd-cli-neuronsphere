@@ -1520,6 +1520,56 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--workspace`` — Workspace to act on (default: the current one)
 
+nsctl data export
+-----------------
+
+The one step that makes a repository, for a person or team that wants the
+work in git and in NeuronSphere. It writes a repo class with nothing to build:
+
+  meta-data/manifest.json        written once, as `nsctl repoclass init` would
+  src/schemas/, src/sources/     the model: NEP051 concepts and sources
+  src/data/tables/, queries/     the table definitions and saved queries
+  src/model/export.json          the model as one JSON document, for generators
+  docs/data/                     the rendered outputs (as `nsctl data docs`)
+  README.md
+
+It refuses a folder with anything in it (but .git) that it did not export.
+The workspace remembers the repository: run export again (--repo can be left
+out) to refresh it. A file edited since the last export is not replaced
+unless --force, the manifest is never rewritten, and nothing is deleted.
+
+Perspectives, dbt projects and other forms are generated from the exported
+repository by generators outside nsctl (NERD032 SPEC015).
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data export --repo <dir> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl data export --repo ~/src/shop-data
+     nsctl data export
+
+Local flags
+~~~~~~~~~~~
+
+* ``--force`` — Replace files edited since the last export
+* ``--json`` — Print the result as JSON
+* ``--name`` — Repo class name (default: the folder's name)
+* ``--repo`` — Folder to export into (remembered)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
 nsctl data init
 ---------------
 

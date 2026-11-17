@@ -248,3 +248,78 @@ func (d *dataCtx) renderer(ctx context.Context) (datamodel.Renderer, error) {
 	}
 	return datamodel.MickeyRenderer{Image: ref}, nil
 }
+
+func newDataExportCommand(d *dataCtx) *cobra.Command {
+	var asJSON, force bool
+	var repo, name string
+	cmd := &cobra.Command{
+		Use:   "export --repo <dir>",
+		Short: "Make a repository of the workspace's model, tables, queries and docs",
+		Long: `The one step that makes a repository, for a person or team that wants the
+work in git and in NeuronSphere. It writes a repo class with nothing to build:
+
+  meta-data/manifest.json        written once, as ` + "`nsctl repoclass init`" + ` would
+  src/schemas/, src/sources/     the model: NEP051 concepts and sources
+  src/data/tables/, queries/     the table definitions and saved queries
+  src/model/export.json          the model as one JSON document, for generators
+  docs/data/                     the rendered outputs (as ` + "`nsctl data docs`" + `)
+  README.md
+
+It refuses a folder with anything in it (but .git) that it did not export.
+The workspace remembers the repository: run export again (--repo can be left
+out) to refresh it. A file edited since the last export is not replaced
+unless --force, the manifest is never rewritten, and nothing is deleted.
+
+Perspectives, dbt projects and other forms are generated from the exported
+repository by generators outside nsctl (NERD032 SPEC015).`,
+		Example: `  nsctl data export --repo ~/src/shop-data
+  nsctl data export`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ws, err := d.open()
+			if err != nil {
+				return err
+			}
+			if repo == "" && ws.Config.Export != nil {
+				repo = ws.Config.Export.Out
+			}
+			if repo == "" {
+				return nserr.New(nserr.Usage, "--repo <dir> is required the first time")
+			}
+			r, err := d.renderer(cmd.Context())
+			if err != nil {
+				return err
+			}
+			// Landed tables are read through the environment; attach it so
+			// the model and docs describe what the catalog reads.
+			if _, err := d.engine(cmd.Context(), ws); err != nil {
+				return err
+			}
+			rep, err := datamodel.Export(cmd.Context(), ws, r, datamodel.ExportOptions{Repo: repo, Name: name, Force: force})
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				return printJSON(cmd, rep)
+			}
+			out := cmd.OutOrStdout()
+			verb := "Refreshed"
+			if rep.Created {
+				verb = "Created"
+			}
+			fmt.Fprintf(out, "%s %s (repo class %s): %d file(s) written, %d unchanged.\n", verb, rep.Repo, rep.Name, len(rep.Written), len(rep.Unchanged))
+			for _, k := range rep.Kept {
+				fmt.Fprintf(out, "  kept %s: the workspace no longer has it; delete it yourself if it should go\n", k)
+			}
+			for _, f := range rep.Findings {
+				fmt.Fprintf(out, "  %s\n", f)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&repo, "repo", "", "Folder to export into (remembered)")
+	cmd.Flags().StringVar(&name, "name", "", "Repo class name (default: the folder's name)")
+	cmd.Flags().BoolVar(&force, "force", false, "Replace files edited since the last export")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
+	return cmd
+}

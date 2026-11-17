@@ -371,3 +371,76 @@ func TestTrinoTypes(t *testing.T) {
 		}
 	}
 }
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD039_SPEC011
+func TestExportWritesARepoClassAndRefreshesOnlyWhatItWrote(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	ws := shop(t)
+	if _, err := Understand(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"orders", "customers"} {
+		if _, err := Approve(ctx, ws, id, Decision{Name: singular(id)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := ws.SaveQuery("big_orders", "SELECT * FROM orders WHERE amount > 10"); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(t.TempDir(), "shop-data")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Export(ctx, ws, &fakeRenderer{}, ExportOptions{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Created || rep.Name != "shop-data" || len(rep.Findings) != 0 {
+		t.Errorf("export = %+v", rep)
+	}
+	for _, rel := range []string{"meta-data/manifest.json", "meta-data/VERSION", "README.md", "src/schemas/shop/order.hms",
+		"src/sources/orders.source.yaml", "src/sources/orders__customer_id__customers.source.yaml",
+		"src/data/tables/orders.table.yaml", "src/data/queries/big_orders.sql", "src/data/sources.yaml",
+		"src/model/export.json", "docs/data/DATA.md", "docs/data/views.sql"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s: %v", rel, err)
+		}
+	}
+	man, _ := os.ReadFile(filepath.Join(repo, "meta-data", "manifest.json"))
+	if !strings.Contains(string(man), `"commands": []`) {
+		t.Errorf("nothing is built, and the manifest says so: %s", man)
+	}
+
+	// The manifest is the person's from now on; other files are protected.
+	if err := os.WriteFile(filepath.Join(repo, "meta-data", "manifest.json"), []byte(`{"name":"shop-data","description":"mine","build":{"commands":[]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Export(ctx, ws, &fakeRenderer{}, ExportOptions{Repo: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Created || len(again.Written) != 0 {
+		t.Errorf("an unchanged export writes nothing: %+v", again.Written)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "meta-data", "manifest.json")); !strings.Contains(string(b), "mine") {
+		t.Error("export rewrote the person's manifest")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Export(ctx, ws, &fakeRenderer{}, ExportOptions{Repo: repo}); err == nil || !strings.Contains(err.Error(), "README.md") {
+		t.Errorf("an edited file was replaced: %v", err)
+	}
+	if _, err := Export(ctx, ws, &fakeRenderer{}, ExportOptions{Repo: repo, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "notes.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Export(ctx, ws, &fakeRenderer{}, ExportOptions{Repo: other}); err == nil {
+		t.Error("a folder export did not create was written into")
+	}
+}

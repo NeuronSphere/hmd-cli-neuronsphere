@@ -138,3 +138,26 @@ Questions, Answers And Plain Outputs
     Should Contain    ${refused.stderr}    DATA.md
     ${kept}=      Get File    ${out}${/}DATA.md
     Should Contain    ${kept}    my own note
+
+The Workspace Exports As A Repo Class
+    [Documentation]    NERD039 SPEC011: export --repo writes a repository that
+    ...                `nsctl repoclass validate` accepts and whose model
+    ...                `nsctl model inspect` reads with no disagreements. Runs
+    ...                after the questions case.
+    [Tags]    nerd039    docker
+    ${repo}=      Set Variable    ${HOME_DIR}${/}shop-data
+    ${exp}=       Data JSON    export    --repo    ${repo}
+    Should Be True    ${exp}[created]
+    File Should Exist    ${repo}${/}src${/}schemas${/}shop${/}order.hms
+    File Should Exist    ${repo}${/}docs${/}data${/}DATA.md
+    ${val}=       Run Process    ${BINARY}    repoclass    validate    cwd=${repo}    env:HMD_HOME=${HOME_DIR}
+    Should Be Equal As Integers    ${val.rc}    0    msg=${val.stdout}\n${val.stderr}
+    Should Contain    ${val.stdout}    0 errors
+    ${ins}=       Run Process    ${BINARY}    model    inspect    ${repo}    --refresh    --json    env:HMD_HOME=${HOME_DIR}
+    Should Be Equal As Integers    ${ins.rc}    0    msg=${ins.stderr}
+    ${model}=     Evaluate    json.loads($ins.stdout)    modules=json
+    ${m}=         Evaluate    $model.get('model', $model)
+    ${dis}=       Evaluate    $m.get('disagreements') or []
+    Should Be Empty    ${dis}
+    ${again}=     Data JSON    export
+    Should Be Empty    ${again}[written]

@@ -250,6 +250,8 @@ type StatusReport struct {
 	Tables    []TableStatus `json:"tables"`
 	Next      string        `json:"next"`
 	Storage   *Storage      `json:"storage,omitempty"`
+	// Export is the repository export --repo last wrote, if any.
+	Export string `json:"export,omitempty"`
 }
 
 // Status reports progress without running the engine: it reads the
@@ -285,6 +287,9 @@ func (w *Workspace) Status() (*StatusReport, error) {
 	}
 	rep.Next = w.next(tables)
 	rep.Storage = w.Config.Storage
+	if w.Config.Export != nil {
+		rep.Export = w.Config.Export.Out
+	}
 	return rep, nil
 }
 

@@ -45,7 +45,7 @@ nsctl learns is kept in a workspace under $HMD_HOME/data/<workspace>.
 		newDataScanCommand(d), newDataProfileCommand(d), newDataRegisterCommand(d),
 		newDataSnapshotCommand(d), newDataSQLCommand(d), newDataConnectCommand(d), newDataStatusCommand(d),
 		newDataUnderstandCommand(d), newDataApproveCommand(d), newDataRejectCommand(d), newDataDocsCommand(d),
-		newDataStorageCommand(d), newDataLandCommand(d),
+		newDataStorageCommand(d), newDataLandCommand(d), newDataExportCommand(d),
 	)
 	return cmd
 }
@@ -700,9 +700,19 @@ func newDataStatusCommand(d *dataCtx) *cobra.Command {
 			}
 			for _, t := range rep.Tables {
 				fmt.Fprintf(out, "  table %s: %s\n", t.Table, strings.Join(t.Steps, ", "))
-				for _, s := range t.Stale {
-					fmt.Fprintf(out, "    changed since snapshot: %s\n", s)
+				since := "snapshot"
+				if t.Landed != "" {
+					since = "landing"
 				}
+				for _, s := range t.Stale {
+					fmt.Fprintf(out, "    changed since %s: %s\n", since, s)
+				}
+			}
+			if rep.Storage != nil {
+				fmt.Fprintf(out, "  storage: %s in environment %s\n", rep.Storage.Target, rep.Storage.Env)
+			}
+			if rep.Export != "" {
+				fmt.Fprintf(out, "  exported to: %s\n", rep.Export)
 			}
 			fmt.Fprintf(out, "Next: %s\n", rep.Next)
 			return nil
