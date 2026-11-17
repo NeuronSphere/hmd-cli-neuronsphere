@@ -19,7 +19,7 @@ commands, puts each decision to you as a question about your data, and
 answers with the SQL shown. Install them into the folder you work from::
 
    nsctl agent skills install ns-data-start ns-data-inventory ns-data-profile \
-       ns-data-register ns-data-query --host all --path .
+       ns-data-register ns-data-query ns-data-understand --host all --path .
 
 Then ask your agent to explore your data, or to use ``ns-data-start``. Every
 skill begins from ``nsctl data status``, so a later session carries on where
@@ -119,6 +119,69 @@ prints the catalog's path and how to open it from the DuckDB CLI or UI,
 DBeaver, or an agent. The views read your files at their real paths, so any
 DuckDB of the version ``connect`` names, or newer, opens the catalog
 directly. Open it read-only so nsctl can keep updating it.
+
+Say what the data means
+-----------------------
+
+nsctl can propose what each table is and how the tables join, and ask you
+about it::
+
+   nsctl data profile --relationships
+   nsctl data understand
+
+``profile --relationships`` measures, for every column that could refer to
+another table's key, how many of its values that key holds.
+``understand`` turns the profiles into questions, each with an id and its
+evidence::
+
+   orders
+     Is each row of orders one order, identified by order_id?
+   orders.customer_id=customers.customer_id
+     100% of orders.customer_id values (4 of 4) appear in customers.customer_id.
+     Does each order row belong to one customer?
+
+Answer each one::
+
+   nsctl data approve orders --name order --description "One order a customer placed."
+   nsctl data approve customers --name customer
+   nsctl data approve orders.customer_id=customers.customer_id
+   nsctl data reject budget_actuals.region=budget_plan.region
+
+A join is approved after both of its tables. A rejected proposal is not asked
+again, and running ``understand`` later asks only about what is new.
+
+Get plain documents
+-------------------
+
+::
+
+   nsctl data docs --out ./shop-docs
+
+writes five files you can read and share without nsctl:
+
+``DATA.md``
+    Every table and its columns, with what they mean, their ranges and the
+    quality notes from the profiles. Likely personal data is marked and its
+    values are left out.
+``relationships.md`` and ``relationships.puml``
+    How the tables join, with the evidence, as a table and as a PlantUML
+    diagram.
+``views.sql``
+    ``CREATE VIEW`` statements for every table and every name you approved.
+    They run in any DuckDB.
+``questions.md``
+    Your saved queries and suggested ones, each runnable.
+
+Anything you have not confirmed is marked *unconfirmed*. ``docs`` also creates
+the named views in the catalog, so ``nsctl data sql 'SELECT * FROM "order"'``
+works. It replaces only files it wrote and nobody has edited since, and never
+deletes anything; ``--force`` replaces edited ones.
+
+The rendering runs in a second pinned image with no network.
+
+What nsctl learned is kept in the workspace's ``model/`` folder as NeuronSphere
+model files. You never need to open them, but ``nsctl model inspect
+$HMD_HOME/data/<workspace>`` shows them.
 
 Start over
 ----------

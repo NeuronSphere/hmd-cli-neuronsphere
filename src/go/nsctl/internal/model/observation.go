@@ -10,12 +10,18 @@ import (
 type Authority int
 
 const (
-	AuthInferred     Authority = 10
+	AuthInferred Authority = 10
+	// AuthPinned is an nsctl data table's pinned schema: inferred once, then
+	// accepted (NERD039 SPEC005).
+	AuthPinned       Authority = 30
 	AuthDbtSQL       Authority = 40
 	AuthDbtYAML      Authority = 50
 	AuthInsertSelect Authority = 60
 	AuthDDL          Authority = 80
-	AuthHMS          Authority = 100
+	// AuthSourceDeclared is a NEP051 source a person declared (NERD039
+	// SPEC007).
+	AuthSourceDeclared Authority = 90
+	AuthHMS            Authority = 100
 )
 
 // Confidence reuses the repoclass detect vocabulary (NERD009 SPEC009).

@@ -1,0 +1,13 @@
+{
+  "name": "customer",
+  "namespace": "example_retail",
+  "metatype": "noun",
+  "description": "A person or business that buys from us.",
+  "attributes": {
+    "customer_id": {"type": "string", "description": "Our customer number.", "required": true, "business_id": true},
+    "name": {"type": "string", "description": "Display name."},
+    "email": {"type": "string", "description": "Contact email."},
+    "segment": {"type": "enum", "enum_def": ["consumer", "small_business", "enterprise"], "description": "Sales segment."},
+    "country": {"type": "string", "description": "ISO 3166 alpha-2 country code."}
+  }
+}

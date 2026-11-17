@@ -227,9 +227,11 @@ test-cli: build
 #
 # DUCKDB_IMAGE names the engine image; until hmd-img-duckdb is published, build
 # it there with `docker build -t hmd-img-duckdb:dev src/docker` and pass
-# DUCKDB_IMAGE=hmd-img-duckdb:dev.
+# DUCKDB_IMAGE=hmd-img-duckdb:dev. DOCS_IMAGE likewise names the data docs
+# renderer (hmd-tmpl-data-docs: `docker build -f src/docker/Dockerfile -t
+# hmd-tmpl-data-docs:dev .`).
 test-data: build
-	$(ROBOT) $(ROBOT_FLAGS) --variable DUCKDB_IMAGE:$(DUCKDB_IMAGE) test/nsctl_data.robot
+	$(ROBOT) $(ROBOT_FLAGS) --variable DUCKDB_IMAGE:$(DUCKDB_IMAGE) --variable DOCS_IMAGE:$(DOCS_IMAGE) test/nsctl_data.robot
 
 ## test-parity: SPEC012's parity suite -- needs Docker, a platform and an HMD_HOME
 #

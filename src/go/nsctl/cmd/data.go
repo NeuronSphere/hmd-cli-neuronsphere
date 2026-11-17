@@ -44,6 +44,7 @@ nsctl learns is kept in a workspace under $HMD_HOME/data/<workspace>.
 		newDataInitCommand(d), newDataUseCommand(d), newDataListCommand(d), newDataDeleteCommand(d),
 		newDataScanCommand(d), newDataProfileCommand(d), newDataRegisterCommand(d),
 		newDataSnapshotCommand(d), newDataSQLCommand(d), newDataConnectCommand(d), newDataStatusCommand(d),
+		newDataUnderstandCommand(d), newDataApproveCommand(d), newDataRejectCommand(d), newDataDocsCommand(d),
 	)
 	return cmd
 }
@@ -298,9 +299,9 @@ func printScan(out io.Writer, rep *data.ScanReport, applied bool) {
 }
 
 func newDataProfileCommand(d *dataCtx) *cobra.Command {
-	var asJSON, full bool
+	var asJSON, full, relationships bool
 	cmd := &cobra.Command{
-		Use:   "profile <table>...",
+		Use:   "profile <table>... | --relationships",
 		Short: "Report what a table's data looks like and what needs a decision",
 		Long: `Reports, per column, the inferred type, null fraction, distinct values, range
 and a small sample, and flags what is worth a decision, each with a suggested
@@ -309,8 +310,18 @@ junk lines above the header, columns that differ across files, candidate keys,
 and likely personal data (whose samples are redacted).
 
 Statistics come from a sample of up to 100,000 rows unless --full. The profile
-is saved in the workspace. It is evidence; nothing is changed.`,
-		Args: cobra.MinimumNArgs(1),
+is saved in the workspace. It is evidence; nothing is changed.
+
+--relationships measures every registered table together instead: for each
+column that could refer to another table's key, how many of its distinct
+values the key holds. It is evidence for ` + "`nsctl data understand`" + `, which
+asks about the likely joins.`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if relationships {
+				return cobra.NoArgs(cmd, args)
+			}
+			return cobra.MinimumNArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ws, err := d.open()
 			if err != nil {
@@ -319,6 +330,17 @@ is saved in the workspace. It is evidence; nothing is changed.`,
 			eng, err := d.engine(cmd.Context())
 			if err != nil {
 				return err
+			}
+			if relationships {
+				rel, err := ws.ProfileRelationships(cmd.Context(), eng)
+				if err != nil {
+					return err
+				}
+				if asJSON {
+					return printJSON(cmd, rel)
+				}
+				printRelationships(cmd.OutOrStdout(), rel)
+				return nil
 			}
 			var profiles []*data.Profile
 			for _, name := range args {
@@ -342,7 +364,25 @@ is saved in the workspace. It is evidence; nothing is changed.`,
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Print the result as JSON")
 	cmd.Flags().BoolVar(&full, "full", false, "Read every row instead of a sample")
+	cmd.Flags().BoolVar(&relationships, "relationships", false, "Measure which columns refer to other tables' keys")
 	return cmd
+}
+
+func printRelationships(out io.Writer, r *data.Relationships) {
+	if len(r.Joins) == 0 {
+		fmt.Fprintf(out, "No column in %d table(s) refers to another table's key.\n", len(r.Tables))
+		return
+	}
+	tw := tabwriter.NewWriter(out, 2, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "FROM\tTO\tMATCHED\tCARDINALITY\t")
+	for _, j := range r.Joins {
+		fmt.Fprintf(tw, "%s.%s\t%s.%s\t%d of %d (%.0f%%)\t%s\t\n", j.FromTable, j.FromColumn, j.ToTable, j.ToColumn,
+			j.Matched, j.FromDistinct, j.Inclusion*100, strings.ReplaceAll(j.Cardinality, "_", " "))
+	}
+	_ = tw.Flush()
+	if r.Truncated {
+		fmt.Fprintln(out, "Only the first 2000 column pairs were measured.")
+	}
 }
 
 func printProfile(out io.Writer, p *data.Profile) {

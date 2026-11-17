@@ -1,0 +1,13 @@
+{
+  "name": "customer_places_order",
+  "namespace": "example_retail",
+  "metatype": "relationship",
+  "description": "The customer who placed the order.",
+  "ref_from": "example_retail.customer",
+  "ref_to": "example_retail.order",
+  "attributes": {},
+  "adornments": {
+    "ref_from": {"arrow": false, "cardinality": "1"},
+    "ref_to": {"arrow": true, "cardinality": "M"}
+  }
+}

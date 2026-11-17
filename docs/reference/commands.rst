@@ -1398,6 +1398,43 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl data approve
+------------------
+
+Records a yes to one proposal. --name renames the thing (a table of orders
+becomes "order"); --description says what it is in a sentence, and appears in
+the data dictionary. For a table, --key chooses the column that identifies a
+row, or "-" for none. A join is approved after both of its tables.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data approve <id> [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl data approve orders --name order --description "One order a customer placed."
+     nsctl data approve orders.customer_id=customers.customer_id
+
+Local flags
+~~~~~~~~~~~
+
+* ``--description`` — What it is, in a sentence
+* ``--json`` — Print the result as JSON
+* ``--key`` — Column that identifies a row of a table ("-" for none)
+* ``--name`` — Name for the table's rows or the join
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
 nsctl data connect
 ------------------
 
@@ -1437,6 +1474,45 @@ Local flags
 ~~~~~~~~~~~
 
 * ``--yes`` — Confirm the deletion
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data docs
+---------------
+
+Renders what the workspace knows into plain files you can read, share and
+reuse, in --out (default ./ns-data-out, then wherever the last run wrote):
+
+  DATA.md              every table and its columns, with meaning and quality notes
+  relationships.md     how the tables join, with the evidence
+  relationships.puml   the same as a PlantUML diagram
+  views.sql            CREATE VIEW statements that run in any DuckDB
+  questions.md         saved and suggested queries, each one runnable
+
+Anything not yet confirmed with `nsctl data approve` is marked unconfirmed.
+The named views in views.sql are also created in the workspace catalog.
+
+Rendering runs the data docs image (Mickey with its templates) with no
+network. docs replaces only files it wrote and nobody has edited since; pass
+--force to replace them anyway. It never deletes anything.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data docs [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--force`` — Replace output files even if they were edited
+* ``--json`` — Print the result as JSON
+* ``--out`` — Folder to write into (default ./ns-data-out, or the last one used)
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1504,18 +1580,24 @@ and likely personal data (whose samples are redacted).
 Statistics come from a sample of up to 100,000 rows unless --full. The profile
 is saved in the workspace. It is evidence; nothing is changed.
 
+--relationships measures every registered table together instead: for each
+column that could refer to another table's key, how many of its distinct
+values the key holds. It is evidence for `nsctl data understand`, which
+asks about the likely joins.
+
 Usage
 ~~~~~
 
 .. code-block:: text
 
-   nsctl data profile <table>... [flags]
+   nsctl data profile <table>... | --relationships [flags]
 
 Local flags
 ~~~~~~~~~~~
 
 * ``--full`` — Read every row instead of a sample
 * ``--json`` — Print the result as JSON
+* ``--relationships`` — Measure which columns refer to other tables' keys
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1546,6 +1628,30 @@ Local flags
 
 * ``--json`` — Print the result as JSON
 * ``--pin`` — Record each table's current schema in its definition
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data reject
+-----------------
+
+Records a no: the proposal is removed and understand does not ask again.
+Rejecting something approved earlier withdraws the approval.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data reject <id> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
 
 Inherited flags
 ~~~~~~~~~~~~~~~
@@ -1652,6 +1758,38 @@ Usage
 .. code-block:: text
 
    nsctl data status [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data understand
+---------------------
+
+Turns the profiles into questions: is each row of a table one thing,
+identified by which column, and does a column refer to another table? Each
+proposal has an id, the evidence behind it, and a question. Answer with
+`nsctl data approve <id>` or `nsctl data reject <id>`; a rejected proposal is
+not asked again. Nothing here uses machine learning: proposals come from the
+profiles (`nsctl data profile`, and `--relationships` for joins).
+
+What is learned is kept in the workspace's model/ folder as NEP051 files, so
+`nsctl model inspect` reads it like any model. Running understand again
+proposes only what is new.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data understand [flags]
 
 Local flags
 ~~~~~~~~~~~

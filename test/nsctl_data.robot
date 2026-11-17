@@ -20,6 +20,7 @@ Suite Teardown    Remove Directory    ${HOME_DIR}    recursive=True
 *** Variables ***
 ${BINARY}         ${EMPTY}
 ${DUCKDB_IMAGE}   ${EMPTY}
+${DOCS_IMAGE}     ${EMPTY}
 ${CORPUS}         ${CURDIR}${/}..${/}src${/}go${/}nsctl${/}internal${/}data${/}testdata${/}corpus
 ${HOME_DIR}       ${EMPTY}
 
@@ -36,9 +37,11 @@ Data
     [Arguments]    @{args}    ${rc}=0
     Should Not Be Empty    ${BINARY}    msg=Pass --variable BINARY:<path>; `make test-data` does.
     ${env_image}=    Set Variable If    '${DUCKDB_IMAGE}' != ''    ${DUCKDB_IMAGE}    ${EMPTY}
+    ${docs_image}=   Set Variable If    '${DOCS_IMAGE}' != ''    ${DOCS_IMAGE}    ${EMPTY}
     ${result}=    Run Process    ${BINARY}    data    @{args}
     ...    env:HMD_HOME=${HOME_DIR}
     ...    env:HMD_DUCKDB_IMAGE=${env_image}
+    ...    env:HMD_DATA_DOCS_IMAGE=${docs_image}
     Should Be Equal As Integers    ${result.rc}    ${rc}    msg=${result.stdout}\n${result.stderr}
     RETURN    ${result}
 
@@ -95,3 +98,43 @@ Writes Need --write
     [Tags]    nerd039    docker
     ${res}=    Data    sql    CREATE TABLE x AS SELECT 1    rc=1
     Should Contain    ${res.stderr}    read-only
+
+Questions, Answers And Plain Outputs
+    [Documentation]    NERD039 SPEC004, SPEC007, SPEC008: relationship
+    ...                evidence, proposals asked as questions, approvals
+    ...                recorded, and the outputs rendered by the data docs
+    ...                image into a folder the person chose, with the named
+    ...                views created in the catalog. Runs after the first case.
+    [Tags]    nerd039    docker
+    ${rel}=       Data JSON    profile    --relationships
+    ${joins}=     Evaluate    [j['from_table'] + '.' + j['from_column'] + '=' + j['to_table'] + '.' + j['to_column'] for j in $rel['joins']]
+    Should Contain    ${joins}    orders.customer_id=customers.customer_id
+    ${u}=         Data JSON    understand
+    ${ids}=       Evaluate    [p['id'] for p in $u['proposals']]
+    Should Contain    ${ids}    orders.customer_id=customers.customer_id
+    ${early}=     Data    approve    orders.customer_id\=customers.customer_id    rc=2
+    Should Contain    ${early.stderr}    approve orders first
+    Data    approve    orders    --name    order    --description    One order a customer placed.
+    Data    approve    customers    --name    customer
+    Data    approve    orders.customer_id\=customers.customer_id    --name    customer_places_order
+    Data    reject    budget_actuals.region\=budget_plan.region
+    ${again}=     Data JSON    understand
+    ${left}=      Evaluate    [p['id'] for p in $again['proposals']]
+    Should Not Contain    ${left}    budget_actuals.region=budget_plan.region
+    ${out}=       Set Variable    ${HOME_DIR}${/}outputs
+    ${docs}=      Data JSON    docs    --out    ${out}
+    Should Contain    ${docs}[views]    order
+    FOR    ${f}    IN    DATA.md    relationships.md    relationships.puml    views.sql    questions.md
+        File Should Exist    ${out}${/}${f}
+    END
+    ${dict}=      Get File    ${out}${/}DATA.md
+    Should Contain    ${dict}    One order a customer placed.
+    ${views}=     Get File    ${out}${/}views.sql
+    Should Contain    ${views}    CREATE OR REPLACE VIEW "order"
+    ${named}=     Data JSON    sql    SELECT count(*) AS n FROM "order" JOIN customer USING (customer_id)
+    Should Be Equal As Integers    ${named}[0][n]    5
+    Append To File    ${out}${/}DATA.md    my own note
+    ${refused}=   Data    docs    rc=2
+    Should Contain    ${refused.stderr}    DATA.md
+    ${kept}=      Get File    ${out}${/}DATA.md
+    Should Contain    ${kept}    my own note

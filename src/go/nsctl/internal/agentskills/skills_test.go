@@ -79,7 +79,7 @@ func TestDryRunDoesNotCreateDirectories(t *testing.T) {
 // Requirements: HMD_CLI_NEURONSPHERE_NERD039_SPEC010
 func TestDataSkillsStartFromStatusAndOnboardRoutesToThem(t *testing.T) {
 	t.Parallel()
-	ladder := []string{"ns-data-start", "ns-data-inventory", "ns-data-profile", "ns-data-register", "ns-data-query"}
+	ladder := []string{"ns-data-start", "ns-data-inventory", "ns-data-profile", "ns-data-register", "ns-data-query", "ns-data-understand"}
 	for _, name := range ladder {
 		if !Known(name) {
 			t.Errorf("%s is not bundled", name)

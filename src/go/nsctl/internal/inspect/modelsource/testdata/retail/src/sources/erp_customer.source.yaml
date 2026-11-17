@@ -1,0 +1,29 @@
+# The ERP's customer master, already a table in the warehouse.
+# Proposed by the Trino proposer from src/snapshots/erp.sales.json. A person
+# reviewed it, fixed the segment mapping, and approved it by changing
+# provenance from "inferred" to "declared". The evidence stays for reviewers.
+source: erp_customer
+from:
+  table: erp.sales.cust_mstr      # Trino catalog.schema.table
+provenance: declared
+evidence:
+  snapshot: src/snapshots/erp.sales.json
+  notes:
+    - "cst_id is unique and not null in 100% of 48,210 rows; matches customer.customer_id (business_id)"
+    - "eml values match orders_export.cust_email for 97% of shared customer_ids"
+    - "seg_cd values {C, S, E} mapped to customer.segment enum by first letter"
+columns:                          # copied from the snapshot so the file reads on its own
+  cst_id: varchar
+  cst_nm: varchar
+  eml: varchar
+  seg_cd: varchar(1)
+  ctry: varchar(2)
+  upd_ts: timestamp
+yields:
+  customer:
+    customer_id: cst_id
+    name: cst_nm
+    email: eml
+    segment: {sql: "case seg_cd when 'C' then 'consumer' when 'S' then 'small_business' when 'E' then 'enterprise' end"}
+    country: ctry
+changed_at: upd_ts                # when a row last changed; lets a history (SCD2) generator detect changes

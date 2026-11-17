@@ -346,3 +346,42 @@ func (w *Workspace) SaveQuery(name, stmt string) (string, error) {
 	p := w.Path(QueriesDir, name+".sql")
 	return p, writeFile(p, []byte(strings.TrimSpace(stmt)+"\n"))
 }
+
+// ViewSQL is the statement register uses for a table's view: plain DuckDB,
+// reading the files (or the snapshot) at their absolute paths.
+func (w *Workspace) ViewSQL(t *Table) (string, error) {
+	src, err := w.viewSource(t)
+	if err != nil {
+		return "", err
+	}
+	return "CREATE OR REPLACE VIEW " + ident(t.Table) + " AS " + src + ";", nil
+}
+
+// SavedQuery is one queries/<name>.sql.
+type SavedQuery struct {
+	Name string `json:"name"`
+	SQL  string `json:"sql"`
+}
+
+// SavedQueries lists the workspace's saved queries by name.
+func (w *Workspace) SavedQueries() ([]SavedQuery, error) {
+	entries, err := os.ReadDir(w.Path(QueriesDir))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	var out []SavedQuery
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		b, err := os.ReadFile(w.Path(QueriesDir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, SavedQuery{Name: strings.TrimSuffix(e.Name(), ".sql"), SQL: strings.TrimSpace(string(b))})
+	}
+	return out, nil
+}
+
+// Ident quotes an SQL identifier for DuckDB.
+func Ident(s string) string { return ident(s) }

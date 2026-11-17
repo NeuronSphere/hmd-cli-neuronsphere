@@ -1,0 +1,17 @@
+{
+  "name": "order_contains_product",
+  "namespace": "example_retail",
+  "metatype": "relationship",
+  "description": "One line of an order: a product, how many, and at what price.",
+  "ref_from": "example_retail.order",
+  "ref_to": "example_retail.product",
+  "attributes": {
+    "quantity": {"type": "integer", "description": "Units bought.", "required": true},
+    "unit_price": {"type": "float", "description": "Price per unit actually charged.", "required": true},
+    "discount": {"type": "float", "description": "Total discount on the line."}
+  },
+  "adornments": {
+    "ref_from": {"arrow": false, "cardinality": "M"},
+    "ref_to": {"arrow": true, "cardinality": "M"}
+  }
+}

@@ -33,7 +33,8 @@ Say these four things early, once, in plain words:
 5. Hand off in order, one step at a time, each with its own skill:
    `ns-data-inventory` (group files into tables), `ns-data-profile` (what
    needs a decision), `ns-data-register` (make them queryable), `ns-data-query`
-   (answer the question). Skip ahead only when `status` says a step is done.
+   (answer the question), then, if they want it documented or shared,
+   `ns-data-understand`. Skip ahead only when `status` says a step is done.
 
 Do not start an environment, add a bucket, or mention repo classes, manifests,
 Trino or the Librarian at this stage. They come later, and only if asked.

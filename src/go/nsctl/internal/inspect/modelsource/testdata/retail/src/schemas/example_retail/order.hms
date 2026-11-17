@@ -1,0 +1,11 @@
+{
+  "name": "order",
+  "namespace": "example_retail",
+  "metatype": "noun",
+  "description": "One purchase by one customer.",
+  "attributes": {
+    "order_number": {"type": "string", "description": "Order number printed on the receipt.", "required": true, "business_id": true},
+    "ordered_at": {"type": "timestamp", "description": "When the order was placed.", "required": true},
+    "channel": {"type": "enum", "enum_def": ["web", "store", "phone"], "description": "Where the order was placed."}
+  }
+}

@@ -23,8 +23,9 @@ The bundled skills cover these tasks:
      - Getting oriented in nsctl and a repository
    * - ``ns-data-start``
      - Exploring your own data files with SQL; it hands on to
-       ``ns-data-inventory``, ``ns-data-profile``, ``ns-data-register`` and
-       ``ns-data-query`` (see :doc:`explore-your-data`)
+       ``ns-data-inventory``, ``ns-data-profile``, ``ns-data-register``,
+       ``ns-data-query`` and ``ns-data-understand`` (see
+       :doc:`explore-your-data`)
    * - ``nsctl-local-environment``
      - Creating and operating local environments
    * - ``nsctl-repoclass-adopt``

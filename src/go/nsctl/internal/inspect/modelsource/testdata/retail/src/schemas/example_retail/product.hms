@@ -1,0 +1,12 @@
+{
+  "name": "product",
+  "namespace": "example_retail",
+  "metatype": "noun",
+  "description": "Something we sell.",
+  "attributes": {
+    "sku": {"type": "string", "description": "Stock keeping unit.", "required": true, "business_id": true},
+    "name": {"type": "string", "description": "Product name."},
+    "category": {"type": "string", "description": "Merchandising category."},
+    "list_price": {"type": "float", "description": "Current list price."}
+  }
+}

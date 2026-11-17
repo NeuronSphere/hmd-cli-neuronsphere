@@ -1,0 +1,25 @@
+# The nightly orders export from the shop system, dropped into the Librarian.
+# One row is one order line.
+source: orders_export
+from:
+  cit: orders_export_csv          # Librarian content item type (its short_name)
+  format: csv
+columns:                          # leave out when the content item type declares a schema
+  order_no: varchar
+  order_ts: timestamp
+  channel: varchar
+  cust_id: varchar
+  cust_name: varchar
+  cust_email: varchar
+  sku: varchar
+  product_name: varchar
+  qty: integer
+  price: decimal(12,2)
+  discount: decimal(12,2)
+yields:                           # concept: {attribute: column}
+  customer: {customer_id: cust_id, name: cust_name, email: cust_email}
+  order: {order_number: order_no, ordered_at: order_ts, channel: channel}
+  product: {sku: sku, name: product_name}
+  customer_places_order: {from: customer, to: order}
+  order_contains_product: {from: order, to: product, quantity: qty, unit_price: price, discount: discount}
+changed_at: order_ts              # the newest row wins when one export repeats a customer

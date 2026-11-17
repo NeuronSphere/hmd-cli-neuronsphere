@@ -30,6 +30,9 @@ description: Answer a person's questions about their own data with visible SQL o
 Return only the rows needed to answer. Use `LIMIT` and aggregates; never dump
 a whole table into the conversation.
 
+When the person wants to name things, document the data, or share it with
+someone, hand off to `ns-data-understand`.
+
 # nsctl-command: data status
 # nsctl-command: data sql
 # nsctl-command: data connect

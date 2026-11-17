@@ -266,6 +266,17 @@ scheduling and refresh pipelines; a user-facing modeling language.
     ``nsdata`` inspector reads (SPEC007). A profile is evidence and never a
     decision.
 
+    .. warning::
+
+       **Implemented, with these choices.** Candidate pairs are every column
+       of another table whose type can hold the key: text or integer columns
+       against a text or integer candidate key, except an integer column
+       against a text key (``7`` is never ``C007``). Values are compared as
+       text. A table's own columns are not compared with its key. A run
+       measures at most 2,000 pairs and says when it stopped. Each join also
+       records ``name_match``: the column names agree, or the column is named
+       after the key's table.
+
 .. spec:: register makes tables queryable in place
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD039
@@ -347,6 +358,42 @@ scheduling and refresh pipelines; a user-facing modeling language.
     example, an approved key that the data contradicts) is shown to the
     person, never resolved silently.
 
+    .. warning::
+
+       **Implemented, with these choices.**
+
+       * The workspace's ``model/`` folder is laid out as a NEP051 model
+         repository (``src/sources``, ``src/schemas/<workspace>``). The
+         ``nsdata`` inspector also inspects that folder with the ``hms`` and
+         ``modelsource`` inspectors, so ``nsctl model inspect <workspace>`` is
+         the whole model. Concepts are in a namespace named after the
+         workspace.
+       * A table proposal is ``src/sources/<table>.source.yaml``, yielding one
+         concept named after the table with every column. A join proposal is
+         its own source, ``<from>__<column>__<to>.source.yaml``, so it can be
+         approved or rejected on its own. Approving writes the concept's
+         ``.hms`` (the key as ``business_id``) and turns the source
+         ``declared``. A join is approved only after both of its tables, and
+         renaming a table rewrites the joins still waiting to use the new
+         name.
+       * A source that yields exactly one noun binds it to its group's
+         location, which is how consolidation links an approved concept to
+         the ``nsdata`` table it came from, under any name. A source that
+         yields several nouns from one row binds none of them by location.
+       * What ``understand`` asks about is decided from these files and the
+         evidence (a table or likely join with no source is new; a source
+         that is ``inferred`` is still open; ``rejected`` in ``data.yaml`` is
+         never asked again). The NERD032 inspection runs after each decision
+         for its disagreements, together with one check of its own:
+         ``key-contradicted``, an approved key the latest profile finds
+         repeated or empty.
+       * A join is proposed when at least 90% of the column's distinct values
+         (and at least two) are in the key, and either the names agree or
+         there are at least three distinct values.
+       * Columns use Trino type names (NEP051), mapped from the Arrow types
+         of the table definition. An Arrow type with no Trino equivalent is
+         kept as it is.
+
     Because the internal model is ordinary NEP051 files read by ordinary
     inspection, ``nsctl model diff``, ``impact`` and ``export`` work on a
     workspace with no extra code. No new ``nsctl model`` verb is introduced.
@@ -388,6 +435,30 @@ scheduling and refresh pipelines; a user-facing modeling language.
     wrote before: it records their content hashes in ``data.yaml`` and refuses
     to replace a file that has since been edited, unless ``--force`` is given.
     It never deletes anything in the folder.
+
+    .. warning::
+
+       **Implemented, with these differences.**
+
+       * The renderer image is ``hmd-tmpl-data-docs``, built ``FROM`` the
+         published ``hmd-tf-mickey:1.0.91`` with the template set at
+         ``/opt/hmd-tmpl-data-docs``. It is not published yet, and so not yet
+         pinned by digest. ``HMD_DATA_DOCS_IMAGE`` names a local build.
+         ``hmd-tf-mickey`` is built on ``python:3.9``, which is past end of
+         life, and is about 1.9 GB on disk; both need fixing before this
+         ships to newcomers.
+       * The outputs folder is not mounted into the container. Mickey renders
+         into a staging folder inside the workspace (a new one for every run,
+         removed afterwards: a bind mount of a folder deleted and re-created
+         at the same path can reach the container stale), and nsctl copies the
+         results across after the edit check. A refused run therefore changes
+         nothing in the outputs folder.
+       * ``views.sql`` holds a view per table, reading the files where they
+         are, then a view per approved table renamed by the person. It runs
+         in any DuckDB. A table approved under its own name needs no second
+         view.
+       * ``questions.md`` holds the saved queries, then one suggested query
+         per approved join.
 
 .. spec:: Storage is opt-in and local
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC009
@@ -469,8 +540,9 @@ scheduling and refresh pipelines; a user-facing modeling language.
        **Partly implemented.** ``ns-data-start``, ``ns-data-inventory``,
        ``ns-data-profile``, ``ns-data-register`` and ``ns-data-query`` are
        bundled, and ``nsctl-onboard`` routes to ``ns-data-start``.
-       ``ns-data-understand``, ``ns-data-store`` and ``ns-data-next`` wait for
-       the verbs they orchestrate. With no ``--split``/``--merge`` (SPEC003),
+       ``ns-data-understand`` is bundled with SPEC007 and SPEC008;
+       ``ns-data-store`` and ``ns-data-next`` wait for the verbs they
+       orchestrate. With no ``--split``/``--merge`` (SPEC003),
        ``ns-data-inventory`` splits or merges a group by editing ``paths`` in
        the table definitions, and ``ns-data-profile`` records a fix by merging
        the profile's suggestion into ``casts`` or ``reader_options``.

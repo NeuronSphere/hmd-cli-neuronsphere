@@ -70,6 +70,18 @@ type Config struct {
 	Sources   []Source            `yaml:"sources"`
 	Progress  map[string][]string `yaml:"progress,omitempty"`
 	Snapshots map[string]Snapshot `yaml:"snapshots,omitempty"`
+	// Rejected lists the proposals a person turned down, so understand does
+	// not ask again (SPEC007).
+	Rejected []string `yaml:"rejected,omitempty"`
+	// Docs records where docs last rendered and each file's content hash,
+	// so a file edited since is never overwritten silently (SPEC008).
+	Docs *DocsRecord `yaml:"docs,omitempty"`
+}
+
+// DocsRecord is the last docs render.
+type DocsRecord struct {
+	Out    string            `yaml:"out"`
+	Hashes map[string]string `yaml:"hashes,omitempty"`
 }
 
 // Workspace is one workspace on disk.

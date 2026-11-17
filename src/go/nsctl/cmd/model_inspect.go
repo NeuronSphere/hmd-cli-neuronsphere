@@ -19,6 +19,8 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/dbt"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/hms"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/modelsource"
+	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nsdata"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nsexport"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/inspect/nstransform"
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/model"
@@ -35,6 +37,8 @@ func inspectors() []inspect.Inspector {
 		nstransform.Inspector{},
 		dbt.Inspector{},
 		nsexport.Inspector{},
+		modelsource.Inspector{},
+		nsdata.Inspector{},
 	}
 }
 
