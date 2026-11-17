@@ -1,0 +1,24 @@
+Regional sales report
+Generated 2026-03-01 by finance
+region,quantity,week_start
+North,12,2026-01-05
+South,N/A,2026-01-12
+East,31,2026-01-19
+West,8,2026-01-26
+North,15,2026-02-02
+South,20,2026-02-09
+East,27,2026-02-16
+West,11,2026-02-23
+North,14,2026-03-02
+South,19,2026-03-09
+East,25,2026-03-16
+West,9,2026-03-23
+North,13,2026-03-30
+South,22,2026-04-06
+East,29,2026-04-13
+West,10,2026-04-20
+North,16,2026-04-27
+South,18,2026-05-04
+East,26,2026-05-11
+West,12,2026-05-18
+North,17,2026-05-25

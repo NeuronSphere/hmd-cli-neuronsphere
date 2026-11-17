@@ -136,6 +136,8 @@ yarn-debug.log*
 yarn-error.log*
 src/python/build/
 target/bartleby/
+# scratch HMD_HOMEs of the nsctl data tests (NERD039)
+target/data-*/
 
 # Test artifacts
 test/hmd_home/

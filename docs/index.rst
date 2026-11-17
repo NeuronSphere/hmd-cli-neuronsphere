@@ -25,6 +25,7 @@ resolved and why; see :doc:`how-to/choose-a-container-engine`.
    :maxdepth: 1
    :caption: How-to guides
 
+   how-to/explore-your-data
    how-to/choose-a-container-engine
    how-to/resolve-local-hostnames
    how-to/manage-environments

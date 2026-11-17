@@ -182,6 +182,14 @@ scheduling and refresh pipelines; a user-facing modeling language.
     the host. Until storage is configured (SPEC009) neither container has a
     network.
 
+    .. warning::
+
+       **Implemented, with one extension dropped.** ``ui`` is not in the
+       image: DuckDB's UI extension fetches its web assets from the internet
+       when it starts, so it cannot work offline from a baked image.
+       ``nsctl data connect`` points to ``duckdb -ui`` on the host instead.
+       The image carries ``httpfs``, ``excel``, ``json`` and ``parquet``.
+
 .. spec:: scan proposes groups
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD039
@@ -218,6 +226,15 @@ scheduling and refresh pipelines; a user-facing modeling language.
     ``data.yaml``. A group can be renamed, split or merged with ``--name``,
     ``--split`` and ``--merge``. A rescan reports new, changed and missing
     files against the existing groups instead of proposing them again.
+
+    .. warning::
+
+       **Implemented in part.** Zip archives are listed as unsupported, with
+       "extract it and scan the folder", rather than read member by member.
+       ``--split`` and ``--merge`` are not built; a group is split or merged by
+       editing its ``table.yaml``. A rescan reports files no table reads and
+       tables that match no file, but not changed files; snapshots report
+       those (SPEC005).
 
 .. spec:: profile reports what a person needs to decide
     :id: HMD_CLI_NEURONSPHERE_NERD039_SPEC004

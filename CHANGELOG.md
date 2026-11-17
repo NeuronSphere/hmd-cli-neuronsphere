@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-17
+
+- feat: `nsctl data` (NERD039 stage 1): explore your own CSV, Parquet, JSON and Excel files with SQL, with a container engine and nothing else. `data init` starts a workspace under `$HMD_HOME/data/<workspace>` over one or more folders (read in place, never written); `data scan` decides formats by content and proposes tables (hive `key=value` folders become columns, each workbook sheet is a table, zips and database dumps are listed with a reason) and `--apply` writes them; `data profile` reports per-column statistics and what needs a decision, each with a suggested fix (dates or numbers read as text, leading zeros a numeric read would drop, junk lines above the header, drift across files, candidate keys, likely personal data with redacted samples); `data register` builds a DuckDB catalog of views over the files, `--pin` records schemas and reports drift; `data snapshot` copies a table to Parquet and `data status` reports when its sources change; `data sql` runs read-only SQL or opens a shell, `--save` keeps a query; `data connect` shows how to open the catalog from the DuckDB CLI or UI, DBeaver, or an agent; `data use`, `list` and `delete` manage workspaces. DuckDB runs from the `hmd-img-duckdb` image (`HMD_DUCKDB_IMAGE` overrides it) with no network, mounting sources and workspace at their host paths so a host DuckDB opens the same catalog
+- test: unit tests for format detection, grouping, reader SQL, issue rules, drift and the workspace lifecycle; a `docker`-tagged live test over `internal/data/testdata/corpus`; `test/nsctl_data.robot` (`make test-data`) end to end, and two no-engine contract cases in `test/nsctl_cli.robot`
+
 ## 2026-11-16
 
 - fix: raise dependency floors for the security fixes (hmd-cli-app ~=1.2 -> ~=1.2.634); the build keeps existing pins (`--no-upgrade`), so a floor is what moves the lock

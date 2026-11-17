@@ -1029,3 +1029,38 @@ Max Running Refuses A Session That Would Start One More
     ${b}=         Run nsctl In Home Without An Engine    ${home}    env    lease    acquire    --session    --pool    --pid    0    --template    lite    --no-pull
     Should Be Equal As Integers    ${b.rc}    3    msg=${b.stderr}
     Should Contain    ${b.stderr}    max_running
+
+Data Workspaces Need No Container Engine
+    [Documentation]    NERD039 SPEC001: a workspace is files under HMD_HOME,
+    ...                so init, list, use and status work with no engine, and
+    ...                deleting one never touches its sources.
+    [Tags]    contract    nerd039
+    ${home}=      Create Scratch Home
+    ${src}=       Create Scratch Repo
+    Create File    ${src}${/}orders.csv    id,amount\n1,2\n
+    ${init}=      Run nsctl In Home Without An Engine    ${home}    data    init    shop    ${src}
+    Should Be Equal As Integers    ${init.rc}    0    msg=${init.stderr}
+    Directory Should Exist    ${home}${/}data${/}shop${/}tables
+    ${list}=      Run nsctl In Home Without An Engine    ${home}    data    list
+    Should Contain    ${list.stdout}    * shop
+    ${status}=    Run nsctl In Home Without An Engine    ${home}    data    status
+    Should Be Equal As Integers    ${status.rc}    0    msg=${status.stderr}
+    Should Contain    ${status.stdout}    Next: nsctl data scan --apply
+    ${refused}=   Run nsctl In Home Without An Engine    ${home}    data    delete    shop
+    Should Be Equal As Integers    ${refused.rc}    2
+    ${del}=       Run nsctl In Home Without An Engine    ${home}    data    delete    shop    --yes
+    Should Be Equal As Integers    ${del.rc}    0    msg=${del.stderr}
+    File Should Exist    ${src}${/}orders.csv
+
+Data Scan Without An Engine Names The Check
+    [Documentation]    NERD039 SPEC002: DuckDB runs in a container. With no
+    ...                engine reachable, scan fails and names `nsctl doctor`
+    ...                rather than a docker error.
+    [Tags]    contract    nerd039
+    ${home}=      Create Scratch Home
+    ${src}=       Create Scratch Repo
+    Create File    ${src}${/}orders.csv    id,amount\n1,2\n
+    Run nsctl In Home Without An Engine    ${home}    data    init    shop    ${src}
+    ${scan}=      Run nsctl In Home Without An Engine    ${home}    data    scan
+    Should Be Equal As Integers    ${scan.rc}    1
+    Should Contain    ${scan.stderr}    nsctl doctor

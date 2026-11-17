@@ -88,7 +88,7 @@ PREFIX    ?= $(HOME)/.local/bin
 # published to any registry, so every tag that names it is one built here.
 NSCTL_IMAGE ?= hmd-img-nsctl:$(VERSION)
 
-.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli test-named-env docs-reference docs-reference-check ensure-repos-embed test-pgupgrade help
+.PHONY: test-parity all build generate generate-local generate-verbose image install uninstall test test-verbose test-race cover vet fmt fmt-check check tidy clean clean-artifacts run test-cli test-data test-named-env docs-reference docs-reference-check ensure-repos-embed test-pgupgrade help
 
 all: build
 
@@ -222,6 +222,14 @@ run: build
 ## test-cli: build, then run the fast contract suite (no Docker)
 test-cli: build
 	$(ROBOT) $(ROBOT_FLAGS) test/nsctl_cli.robot
+
+## test-data: `nsctl data` end to end (NERD039) -- needs a container engine
+#
+# DUCKDB_IMAGE names the engine image; until hmd-img-duckdb is published, build
+# it there with `docker build -t hmd-img-duckdb:dev src/docker` and pass
+# DUCKDB_IMAGE=hmd-img-duckdb:dev.
+test-data: build
+	$(ROBOT) $(ROBOT_FLAGS) --variable DUCKDB_IMAGE:$(DUCKDB_IMAGE) test/nsctl_data.robot
 
 ## test-parity: SPEC012's parity suite -- needs Docker, a platform and an HMD_HOME
 #

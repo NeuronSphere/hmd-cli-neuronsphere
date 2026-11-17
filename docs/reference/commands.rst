@@ -1365,6 +1365,323 @@ Inherited flags
 
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 
+nsctl data
+----------
+
+Explore your own data files (CSV, Parquet, JSON, Excel) with SQL.
+
+Needs only a container engine: DuckDB runs from a pinned image, your files are
+read where they are and never changed, and nothing leaves this machine. What
+nsctl learns is kept in a workspace under $HMD_HOME/data/<workspace>.
+
+  nsctl data init sales ~/Downloads/exports   # start a workspace
+  nsctl data scan --apply                      # group files into tables
+  nsctl data profile orders                    # what needs a decision
+  nsctl data register                          # make the tables queryable
+  nsctl data sql "SELECT count(*) FROM orders"
+  nsctl data connect                           # open it from your own tool
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data
+
+Local flags
+~~~~~~~~~~~
+
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+
+nsctl data connect
+------------------
+
+Show how to open the workspace catalog from your own tools
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data connect [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data delete
+-----------------
+
+Delete a workspace (your files are not touched)
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data delete <workspace> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--yes`` — Confirm the deletion
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data init
+---------------
+
+Creates $HMD_HOME/data/<workspace> and makes it the current workspace.
+Each folder becomes a source: it is read in place and never written. Running
+init again on an existing workspace adds the folders it does not have yet.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data init <workspace> [<folder>...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data list
+---------------
+
+List workspaces
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data list [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data profile
+------------------
+
+Reports, per column, the inferred type, null fraction, distinct values, range
+and a small sample, and flags what is worth a decision, each with a suggested
+fix: dates or numbers read as text, identifiers that would lose leading zeros,
+junk lines above the header, columns that differ across files, candidate keys,
+and likely personal data (whose samples are redacted).
+
+Statistics come from a sample of up to 100,000 rows unless --full. The profile
+is saved in the workspace. It is evidence; nothing is changed.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data profile <table>... [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--full`` — Read every row instead of a sample
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data register
+-------------------
+
+(Re)builds the workspace's DuckDB catalog with one view per table, reading
+the files in place (or the table's snapshot). Views of tables that no longer
+exist are dropped.
+
+--pin records each table's current schema in its definition. After that, files
+that no longer match are reported as drift instead of silently changing the
+view. A table whose schema_mode is declared refuses files that do not match.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data register [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+* ``--pin`` — Record each table's current schema in its definition
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data scan
+---------------
+
+Walks the workspace's sources (and any folders given, which are added as
+sources), decides each file's format from its content, and proposes groups:
+files that share a format, a folder pattern and most of their columns form one
+table. Hive-style key=value folders become partition columns, and each sheet of
+an Excel workbook is a table of its own. Files it cannot read are listed with
+the reason.
+
+Nothing is written without --apply, which creates one table definition per
+proposal. Rename a proposal with --name proposed=new. Files an existing table
+already reads are not proposed again.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data scan [<folder>...] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--apply`` — Create a table for each proposal
+* ``--json`` — Print the result as JSON
+* ``--name`` — Rename a proposal: proposed=new (repeatable) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data snapshot
+-------------------
+
+Copies each table to Parquet in the workspace and points its view there,
+recording a hash of every source file. `nsctl data status` then reports
+when the files have changed since. Run register afterwards to update the
+catalog; snapshot again to refresh.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data snapshot <table>... [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data sql
+--------------
+
+Runs one statement against the workspace catalog and prints the result. With
+no statement, opens an interactive DuckDB shell on it. The catalog is opened
+read-only unless --write. --save <name> keeps the statement in the workspace's
+saved queries.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data sql [<statement>] [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print rows as JSON
+* ``--save`` — Keep the statement as a saved query with this name
+* ``--write`` — Open the catalog read-write
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data status
+-----------------
+
+Show how far each table has come, and what to run next
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data status [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the result as JSON
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
+nsctl data use
+--------------
+
+Make a workspace the current one
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl data use <workspace>
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--workspace`` — Workspace to act on (default: the current one)
+
 nsctl db
 --------
 

@@ -1,0 +1,112 @@
+Explore your own data
+=====================
+
+Use this guide to query a folder of your own files (CSV, Parquet, JSON or
+NDJSON, Excel) with SQL. You need ``nsctl`` and a running container engine,
+and nothing else: no environment, no bucket, no account and no repository.
+Your files are read where they are and never changed, and nothing leaves this
+machine. The design is :doc:`/proposals/NERD039_Data_Onboarding`.
+
+DuckDB runs from a pinned container image, so the first command that needs it
+pulls the image once.
+
+Start a workspace
+-----------------
+
+A workspace is where nsctl keeps what it learns about your data, under
+``$HMD_HOME/data/<workspace>/``. Name it and point it at one or more
+folders::
+
+   nsctl data init shop ~/Downloads/shop-exports
+
+The folder becomes a *source*. ``nsctl data list`` shows your workspaces and
+``nsctl data use <workspace>`` switches between them; every other ``data``
+command acts on the current one, or the one ``--workspace`` names.
+
+Group files into tables
+-----------------------
+
+::
+
+   nsctl data scan
+
+``scan`` decides each file's format from its content and proposes tables:
+files that share a format, a folder pattern and most of their columns form
+one table. Hive-style ``key=value`` folders (``orders/month=2026-01/``) become
+a column, and each sheet of an Excel workbook is a table of its own. Files it
+cannot read are listed with the reason; zip archives and database dumps are
+among them in this release.
+
+Nothing is written until you accept the proposals::
+
+   nsctl data scan --apply
+   nsctl data scan --apply --name messy=regional_report   # rename one
+
+Each table is a small definition in the workspace's ``tables/`` folder. Its
+fields are the ones a Librarian content item type has, so the same table can
+later move into a Librarian unchanged.
+
+See what needs a decision
+-------------------------
+
+::
+
+   nsctl data profile orders
+
+``profile`` reports each column's type, nulls, distinct values and range, and
+flags what is worth deciding, each with a suggested fix:
+
+* dates or numbers that were read as text;
+* identifiers that would lose their leading zeros if read as numbers;
+* lines above the header (a report title, notes);
+* columns that differ between files;
+* columns that look like keys;
+* columns that look like personal data. Their samples are redacted.
+
+To apply a fix, edit the table definition (``casts`` or ``reader_options``).
+Statistics come from a sample of up to 100,000 rows unless you pass
+``--full``.
+
+Make the tables queryable
+-------------------------
+
+::
+
+   nsctl data register
+
+``register`` builds the workspace catalog, a DuckDB database with one view per
+table over your files. Ask it questions::
+
+   nsctl data sql "SELECT customer_id, sum(amount) FROM orders GROUP BY ALL"
+   nsctl data sql --save top_customers "SELECT ..."   # keep a query
+   nsctl data sql                                      # interactive shell
+
+``nsctl data register --pin`` records each table's current columns and types.
+After that, a file that no longer matches is reported as drift instead of
+silently changing the table.
+
+If your files are still changing and you want answers to stay put, take a
+snapshot. It copies the table to Parquet in the workspace, and ``status``
+tells you when the files have moved on::
+
+   nsctl data snapshot orders
+   nsctl data register
+   nsctl data status
+
+Open it from your own tools
+---------------------------
+
+::
+
+   nsctl data connect
+
+prints the catalog's path and how to open it from the DuckDB CLI or UI,
+DBeaver, or an agent. The views read your files at their real paths, so any
+DuckDB of the version ``connect`` names, or newer, opens the catalog
+directly. Open it read-only so nsctl can keep updating it.
+
+Start over
+----------
+
+``nsctl data delete <workspace> --yes`` removes everything nsctl learned.
+Your files are not touched.

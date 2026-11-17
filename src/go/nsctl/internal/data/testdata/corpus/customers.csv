@@ -1,0 +1,5 @@
+customer_id,name,email,signup_date,phone
+C001,Ada Lovelace,ada@example.com,2025-11-02,+44 20 7946 0001
+C002,Grace Hopper,grace@example.com,2025-12-14,+1 202 555 0102
+C003,Katherine Johnson,kj@example.com,2026-01-09,+1 757 555 0103
+C004,Alan Turing,alan@example.com,2026-01-20,+44 161 496 0004
