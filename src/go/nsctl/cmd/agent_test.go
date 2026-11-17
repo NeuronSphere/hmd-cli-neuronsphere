@@ -10,6 +10,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/agentskills"
 )
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015, HMD_CLI_NEURONSPHERE_NERD015_SPEC002, HMD_CLI_NEURONSPHERE_NERD015_SPEC003
 func TestAgentSkillsInstallListAndRemoveAtBothProjectTargets(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
@@ -54,6 +55,7 @@ func TestAgentSkillsInstallListAndRemoveAtBothProjectTargets(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC003
 func TestAgentSkillsRefuseExistingSkillBeforeWritingOtherHost(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
@@ -73,6 +75,7 @@ func TestAgentSkillsRefuseExistingSkillBeforeWritingOtherHost(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC001
 func TestBundledSkillCommandPathsExist(t *testing.T) {
 	t.Parallel()
 	root := NewRootCommand("9.9.9", fakeEnv(nil))

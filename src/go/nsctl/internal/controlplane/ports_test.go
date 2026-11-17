@@ -21,6 +21,8 @@ func free() compose.Prober { return func(compose.HostBinding) bool { return fals
 
 // The common case: nothing is in the way, nothing moves, and nothing is
 // written. An install that works today must stay byte-identical.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC008
 func TestChoosePortsRecordsNothingWhenTheDefaultsAreFree(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +42,8 @@ func TestChoosePortsRecordsNothingWhenTheDefaultsAreFree(t *testing.T) {
 
 // The case this exists for: something else holds the port and the user does
 // nothing about it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC008
 func TestChoosePortsMovesOffATakenPort(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +73,8 @@ func TestChoosePortsMovesOffATakenPort(t *testing.T) {
 // else holds it (NERD027 SPEC005). The old test asserted that one busy port
 // inside the window moved all eighty; it is replaced rather than fixed, because
 // the behaviour it pinned is the behaviour being removed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC008
 func TestOneBusyPortMovesOnlyItself(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +117,8 @@ func TestChoosePortsTreatsOurOwnPortsAsFree(t *testing.T) {
 
 // A chosen port must not land on another chosen port, or the band and a single
 // port would fight.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC008
 func TestChosenPortsDoNotCollideWithEachOther(t *testing.T) {
 	t.Parallel()
 

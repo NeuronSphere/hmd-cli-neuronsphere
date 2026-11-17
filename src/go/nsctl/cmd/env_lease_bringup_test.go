@@ -48,6 +48,7 @@ func markReleased(t *testing.T, home, env string, at time.Time) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005, HMD_CLI_NEURONSPHERE_NERD035
 func TestSessionAcquireWritesTheCompositionAndRecordsItOnTheLease(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -72,6 +73,7 @@ func TestSessionAcquireWritesTheCompositionAndRecordsItOnTheLease(t *testing.T) 
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestACompositionThatFailsTakesNoLease(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -87,6 +89,7 @@ func TestACompositionThatFailsTakesNoLease(t *testing.T) {
 	_ = home
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestTemplateAndRepoNeedSession(t *testing.T) {
 	t.Parallel()
 	_, env := fromRepoEnv(t)
@@ -97,6 +100,7 @@ func TestTemplateAndRepoNeedSession(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestSessionManifestKeepsTheEnvironmentsSubstrate(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -112,6 +116,7 @@ func TestSessionManifestKeepsTheEnvironmentsSubstrate(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestPoolPrefersAnEnvironmentOfTheSameTemplate(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -134,6 +139,7 @@ func TestPoolPrefersAnEnvironmentOfTheSameTemplate(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestPoolAvoidsAnotherSessionsWorkingTrees(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -157,6 +163,7 @@ func TestPoolAvoidsAnotherSessionsWorkingTrees(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestBringUpStartsTheLeasedEnvironmentAfterWritingItsManifest(t *testing.T) {
 	home, env := fromRepoEnv(t)
 	saveTemplate(t, home, "base", artifactInstance("trino", "hmd-inf-trino", "0.1.4"))
@@ -186,6 +193,7 @@ func TestBringUpStartsTheLeasedEnvironmentAfterWritingItsManifest(t *testing.T) 
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC005
 func TestAFailedBringUpKeepsTheLease(t *testing.T) {
 	home, env := fromRepoEnv(t)
 	saveTemplate(t, home, "base", artifactInstance("trino", "hmd-inf-trino", "0.1.4"))

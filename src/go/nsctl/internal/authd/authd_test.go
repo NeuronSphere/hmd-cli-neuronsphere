@@ -51,6 +51,8 @@ func TestTheSigningKeySurvivesARestart(t *testing.T) {
 // it. okta_jwt_verifier fetches /v1/keys, matches on kid and checks the
 // signature; this does the same thing, so a mistake in either the JWK encoding
 // or the signing input fails here rather than inside Python.
+//
+// Requirements: HMD_CLI_NERD002_SPEC016
 func TestAPublishedKeyVerifiesATokenThisServerSigned(t *testing.T) {
 	t.Parallel()
 
@@ -191,6 +193,8 @@ func TestCustomClaimsOverrideTheDefaults(t *testing.T) {
 // A discovery document is a promise about four URLs, and Authlib and Trino both
 // take it literally. Advertising an endpoint that 404s is worse than not
 // advertising it, so every URL the document names is fetched here.
+//
+// Requirements: HMD_CLI_NERD002_SPEC016
 func TestEveryAdvertisedEndpointResolves(t *testing.T) {
 	t.Parallel()
 
@@ -242,6 +246,8 @@ func TestEveryAdvertisedEndpointResolves(t *testing.T) {
 // consulted: the client's secret is its id, which is the same convention local
 // Postgres users follow, and inventing a registration protocol to guard nothing
 // would only mean every deploy had to call it first.
+//
+// Requirements: HMD_CLI_NERD002_SPEC016
 func TestClientCredentialsMintsAServiceToken(t *testing.T) {
 	t.Parallel()
 
@@ -286,6 +292,8 @@ func TestClientCredentialsMintsAServiceToken(t *testing.T) {
 }
 
 // The browser flow, end to end, and the single-use property of the code.
+//
+// Requirements: HMD_CLI_NERD002_SPEC016
 func TestTheAuthorizationCodeFlowRoundTripsAndTheCodeIsSingleUse(t *testing.T) {
 	t.Parallel()
 

@@ -30,6 +30,8 @@ func pinned(versions map[string]string) func(localspec.Want) string {
 // string in this package. BACON's pre_build_artifacts grammar and the
 // librarian's content paths are one vocabulary; a private copy is how they
 // become two, and this repository has already paid for that once.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
 func TestContentPathComesFromTheLibrarianGrammar(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +52,7 @@ func TestContentPathComesFromTheLibrarianGrammar(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
 func TestWriteReadRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -91,6 +94,8 @@ func TestWriteReadRoundTrip(t *testing.T) {
 // version found and the versions supported -- and never partially honoured,
 // because a silently-ignored `resolved` entry is a missing instance nobody goes
 // looking for.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
 func TestUnknownSchemaVersionIsRefusedNotPartiallyRead(t *testing.T) {
 	t.Parallel()
 
@@ -121,6 +126,8 @@ content_path = "repository:/hmd-inf-trino/0.3.12/hmd-inf-trino_0.3.12_build.zip"
 // Activation is a read-time filter. A lock that covered only the profile in use
 // when it was generated would force a re-resolve -- a network trip, and
 // therefore a different answer -- the first time anybody switched.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC002
 func TestBuildPinsEveryProfileNotOnlyTheActive(t *testing.T) {
 	t.Parallel()
 
@@ -225,6 +232,8 @@ func TestBuildReportsWhatItCouldNotResolve(t *testing.T) {
 }
 
 // The two directions have different fixes, so Check reports them separately.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
 func TestCheckFindsBothDirections(t *testing.T) {
 	t.Parallel()
 
@@ -248,6 +257,7 @@ func TestCheckFindsBothDirections(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
 func TestCheckOnACurrentLockFindsNothing(t *testing.T) {
 	t.Parallel()
 

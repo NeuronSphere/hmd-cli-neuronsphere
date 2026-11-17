@@ -232,7 +232,7 @@ Design
 .. spec:: Ports are checked per environment, not as a window
     :id: HMD_CLI_NEURONSPHERE_NERD027_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD027
-    :status: implemented
+    :status: partial
 
     ``ChoosePorts`` (NERD025 SPEC008) shall stop looking for a contiguous run
     for the band, because there is no longer a band to place. An environment's

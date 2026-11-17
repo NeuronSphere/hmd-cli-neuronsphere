@@ -29,6 +29,8 @@ var allowed = map[string]bool{
 // whether asking "does this version satisfy this range" made an HTTP request.
 // internal/artifact states the same kind of guarantee in prose; this one is
 // enforced.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC005
 func TestImportsCannotReachTheNetwork(t *testing.T) {
 	t.Parallel()
 

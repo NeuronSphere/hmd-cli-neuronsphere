@@ -82,6 +82,7 @@ func (k *kitEnv) run(t *testing.T, args ...string) (string, string, error) {
 	return runFor(t, fakeEnv(k.vars), append([]string{"--home", k.home}, args...)...)
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC002, HMD_CLI_NEURONSPHERE_NERD031_SPEC003, HMD_CLI_NEURONSPHERE_NERD031_SPEC007, HMD_CLI_NEURONSPHERE_NERD031_SPEC012, HMD_CLI_NEURONSPHERE_NERD031_SPEC014, HMD_CLI_NEURONSPHERE_NERD018_SPEC008
 func TestPluginInstallFromTheLibrarianPlacesEveryItem(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -170,6 +171,7 @@ func TestPluginInstallFromTheLibrarianPlacesEveryItem(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC004, HMD_CLI_NEURONSPHERE_NERD031_SPEC014, HMD_CLI_NEURONSPHERE_NERD018_SPEC008
 func TestPluginUpdateFromTheLibrarianReplacesTheVersion(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -194,6 +196,7 @@ func TestPluginUpdateFromTheLibrarianReplacesTheVersion(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC002
 func TestPluginInstallRefusesAnArtifactWithNothingToInstall(t *testing.T) {
 	t.Parallel()
 	k := newKitEnv(t)
@@ -207,6 +210,7 @@ func TestPluginInstallRefusesAnArtifactWithNothingToInstall(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC003
 func TestPluginInstallRefusesANounAnotherPluginOwns(t *testing.T) {
 	t.Parallel()
 	k := newKitEnv(t)
@@ -221,6 +225,7 @@ func TestPluginInstallRefusesANounAnotherPluginOwns(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC003
 func TestPluginInstallRefusesABuiltinNoun(t *testing.T) {
 	t.Parallel()
 	k := newKitEnv(t)
@@ -235,6 +240,8 @@ func TestPluginInstallRefusesABuiltinNoun(t *testing.T) {
 
 // A python item end to end against a fake uv: the environment it makes is
 // what `nsctl hmd` runs, through the launcher, with no console script.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC005, HMD_CLI_NEURONSPHERE_NERD031_SPEC013
 func TestPluginPythonItemRunsThroughTheLauncher(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -276,6 +283,8 @@ esac
 
 // NERD031 SPEC001: an author finds an install section's mistakes with
 // `repoclass validate`, before a user finds them with `plugin install`.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestRepoClassValidateChecksTheInstallSection(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

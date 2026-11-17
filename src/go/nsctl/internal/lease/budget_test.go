@@ -34,6 +34,7 @@ func budgeted(t *testing.T, s *Store, registered []string, size, max int, up map
 	return p, created
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestAtTheBudgetOnlyARunningEnvironmentIsGranted(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -50,6 +51,7 @@ func TestAtTheBudgetOnlyARunningEnvironmentIsGranted(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestASessionLeaseCountsAsRunningAndTheNextIsRefused(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -71,6 +73,7 @@ func TestASessionLeaseCountsAsRunningAndTheNextIsRefused(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestUnderTheBudgetThePoolGrowsAsBefore(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -85,6 +88,7 @@ func TestUnderTheBudgetThePoolGrowsAsBefore(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestAWaiterOverTheBudgetIsServedWhenASessionEnds(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -113,6 +117,7 @@ func TestAWaiterOverTheBudgetIsServedWhenASessionEnds(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestNoBudgetMeansNoLimit(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -126,6 +131,7 @@ func TestNoBudgetMeansNoLimit(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestANamedEnvironmentCountsTheWholePool(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)

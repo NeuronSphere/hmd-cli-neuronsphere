@@ -49,6 +49,8 @@ func noWait(ctx context.Context, _ time.Duration) error {
 // The whole flow, end to end, with the real client: discover, authorize, poll
 // past a pending response, approve in the "browser", and get a token carrying
 // the claims that were typed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008, HMD_CLI_NEURONSPHERE_NERD008_SPEC008
 func TestTheDeviceFlowRoundTripsWithTheRealClient(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +113,8 @@ func TestTheDeviceFlowRoundTripsWithTheRealClient(t *testing.T) {
 }
 
 // A device code is single use: a replay must not mint a second token.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestADeviceCodeIsSingleUse(t *testing.T) {
 	t.Parallel()
 
@@ -176,6 +180,8 @@ func TestApprovingAnUnknownUserCodeReportsIt(t *testing.T) {
 // Both discovery documents on both authorization servers must advertise the
 // device endpoint and the grant, since consumers disagree about which name to
 // ask for and the client tries both.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestBothDiscoveryDocumentsAdvertiseTheDeviceGrant(t *testing.T) {
 	t.Parallel()
 
@@ -253,6 +259,8 @@ func TestNormalizeUserCodeAcceptsWhatAPersonTypes(t *testing.T) {
 
 // RFC 8628 section 6.1 asks that a user code be readable off one screen and
 // typable into another.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestGeneratedUserCodesAvoidAmbiguousGlyphs(t *testing.T) {
 	t.Parallel()
 
@@ -360,6 +368,8 @@ func approve(t *testing.T, verificationURI, userCode, username, groups string) {
 // offline_access must produce a refresh token, and that token must renew the
 // session without a second visit to a browser. This is SPEC005's behaviour,
 // and the mock has to implement it or the local platform cannot exercise it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestOfflineAccessIssuesARefreshTokenThatRenews(t *testing.T) {
 	t.Parallel()
 
@@ -419,6 +429,8 @@ func TestOfflineAccessIssuesARefreshTokenThatRenews(t *testing.T) {
 }
 
 // Without offline_access there is no refresh token to leave lying around.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestNoOfflineAccessMeansNoRefreshToken(t *testing.T) {
 	t.Parallel()
 
@@ -449,6 +461,8 @@ func TestNoOfflineAccessMeansNoRefreshToken(t *testing.T) {
 // The discovery document advertised this grant from the first version of this
 // server and the token endpoint rejected it. Now that nsctl login depends on
 // it, the advertisement has to be true.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC006
 func TestTheAdvertisedRefreshGrantIsImplemented(t *testing.T) {
 	t.Parallel()
 

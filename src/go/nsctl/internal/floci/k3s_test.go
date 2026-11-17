@@ -586,6 +586,7 @@ func (k *kubeconfigExecer) Exec(_ context.Context, _ string, _ ...string) ([]byt
 	return k.out, nil
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC006
 func TestAnUnfilteredBridgeIsDiagnosed(t *testing.T) {
 	t.Parallel()
 	log := `time="2026-09-25T15:11:17Z" level=fatal msg="the kernel behind this container engine has no br_netfilter loaded: ` +
@@ -599,6 +600,8 @@ func TestAnUnfilteredBridgeIsDiagnosed(t *testing.T) {
 // The token must not be "br_netfilter": k3s logs a harmless warning about it on
 // every boot, including every healthy one, so a looser match would attach this
 // remedy to every unrelated death.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC006
 func TestK3sOwnHarmlessModuleWarningIsNotDiagnosed(t *testing.T) {
 	t.Parallel()
 	log := `time="2026-09-25T15:11:17Z" level=warning msg="Failed to load kernel module br_netfilter with modprobe"
@@ -633,5 +636,23 @@ func TestKubeconfigStaleComparesAgainstTheRunningCluster(t *testing.T) {
 	}
 	if KubeconfigStale(ctx, &kubeconfigExecer{out: []byte("")}, "k3s", path, 19072) {
 		t.Error("an unreadable cluster made the kubeconfig stale")
+	}
+}
+
+// The repoint names a published port on host loopback, whatever the engine.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC012
+func TestPointKubeconfigAtHostNamesPublishedLoopbackPort(t *testing.T) {
+	raw := []byte("apiVersion: v1\nclusters:\n- name: default\n  cluster:\n    server: https://127.0.0.1:6443\n    certificate-authority-data: AAAA\n")
+	out, err := PointKubeconfigAtHost(raw, 36443)
+	if err != nil {
+		t.Fatalf("PointKubeconfigAtHost: %v", err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "server: https://127.0.0.1:36443") {
+		t.Errorf("server not repointed at the published loopback port:\n%s", got)
+	}
+	if !strings.Contains(got, "insecure-skip-tls-verify: true") || strings.Contains(got, "certificate-authority-data") {
+		t.Errorf("TLS handling changed:\n%s", got)
 	}
 }

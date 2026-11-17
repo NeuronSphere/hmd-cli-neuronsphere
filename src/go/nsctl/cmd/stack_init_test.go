@@ -80,6 +80,7 @@ func analyticsHome(t *testing.T) (home string, env map[string]string, bomFile, s
 	return home, env, bomFile, supersetTree
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC004, HMD_CLI_NEURONSPHERE_NERD019_SPEC007
 func TestStackInitScaffoldsARepoClassWithItsWorkflow(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "hmd-stack-x")
@@ -115,6 +116,7 @@ func TestStackInitScaffoldsARepoClassWithItsWorkflow(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019, HMD_CLI_NEURONSPHERE_NERD019_SPEC004
 func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	t.Parallel()
 	home, env, bomFile, _ := analyticsHome(t)
@@ -242,6 +244,7 @@ func TestStackInitFromBOMDerivesBuildsAndRefreshes(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC004
 func TestStackInitRefusesAWorkingTreeUnlessBundled(t *testing.T) {
 	t.Parallel()
 	home, env, bomFile, _ := analyticsHome(t)
@@ -264,6 +267,7 @@ func TestStackInitRefusesAWorkingTreeUnlessBundled(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC004
 func TestStackInitIncludeProvidedBundlesTheOtherStacksInstance(t *testing.T) {
 	t.Parallel()
 	_, env, bomFile, _ := analyticsHome(t)
@@ -317,6 +321,7 @@ func graphFixture(t *testing.T) string {
 	return srv.URL
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC004
 func TestStackInitFromEnvWritesTheReferenceBOM(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)

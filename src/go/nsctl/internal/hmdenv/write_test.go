@@ -158,6 +158,7 @@ func TestUpsertRemovesTheBlockWhenNothingIsDeclared(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010
 func TestUpsertScalarYieldsToAUserValue(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +180,7 @@ func TestUpsertScalarYieldsToAUserValue(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010
 func TestUpsertJSONMapMergesBesideTheUsersEntries(t *testing.T) {
 	t.Parallel()
 
@@ -292,6 +294,7 @@ func TestUpsertJSONMapRefusesToClobberMalformedUserJSON(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010
 func TestUpsertListAppendsAfterTheUsersEntries(t *testing.T) {
 	t.Parallel()
 
@@ -425,6 +428,7 @@ func TestUpsertRefusesAnEmptyHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010
 func TestUpsertRelocatesTheBlockToTheEnd(t *testing.T) {
 	t.Parallel()
 

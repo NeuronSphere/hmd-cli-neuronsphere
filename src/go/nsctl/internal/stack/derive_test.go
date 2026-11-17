@@ -60,6 +60,7 @@ func kinds(d *Derivation) map[string]Kind {
 	return out
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC004
 func TestDeriveClassifiesEveryRow(t *testing.T) {
 	t.Parallel()
 	g := GraphFromBOM(fixtureBOM(), fixtureManifest())

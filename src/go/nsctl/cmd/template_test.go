@@ -29,6 +29,7 @@ func loadTemplate(t *testing.T, home, name string) *manifest.Manifest {
 	return m
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddFromAFileThenListShowRemove(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -63,6 +64,7 @@ func TestTemplateAddFromAFileThenListShowRemove(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateListWithNoneSaysHowToAddOne(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -73,6 +75,7 @@ func TestTemplateListWithNoneSaysHowToAddOne(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddRefusesToOverwriteWithoutForce(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -92,6 +95,7 @@ func TestTemplateAddRefusesToOverwriteWithoutForce(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddNeedsExactlyOneSource(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -110,6 +114,7 @@ func TestTemplateAddNeedsExactlyOneSource(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddRefusesABadName(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -122,6 +127,7 @@ func TestTemplateAddRefusesABadName(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddFromEnvDropsWorkingTrees(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -150,6 +156,7 @@ func TestTemplateAddFromEnvDropsWorkingTrees(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestTemplateAddFromAStackStoresItsInstancesAndRecord(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)

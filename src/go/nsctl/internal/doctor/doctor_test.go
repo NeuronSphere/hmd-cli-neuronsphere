@@ -62,6 +62,8 @@ func passingOptions() Options {
 
 // The exact shape of the original bug: the CLI answers, so the old preflight
 // passed, and the engine the work needs is unreachable.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC003
 func TestGateFailsWhenTheEngineIsUnreachableThoughTheCLIAnswers(t *testing.T) {
 	ep := dockerhost.Endpoint{Host: "unix:///var/run/docker.sock", Source: dockerhost.SourceDefaultSocket}
 	_, checks, err := Gate(context.Background(), Options{
@@ -100,6 +102,7 @@ func TestGateFailsFastWithoutTheCLI(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC003
 func TestGatePassesOnAHealthyEngine(t *testing.T) {
 	ep := dockerhost.Endpoint{Host: "unix:///x.sock", Context: "colima", Source: dockerhost.SourceContext}
 	got, checks, err := Gate(context.Background(), Options{
@@ -120,6 +123,8 @@ func TestGatePassesOnAHealthyEngine(t *testing.T) {
 }
 
 // Warn, never refuse: the thresholds are a proposal, not a measurement.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC008
 func TestSmallEngineWarnsAndDoesNotRefuse(t *testing.T) {
 	small := healthy()
 	small.NCPU, small.MemTotal = 2, 2<<30
@@ -142,6 +147,8 @@ func TestSmallEngineWarnsAndDoesNotRefuse(t *testing.T) {
 }
 
 // A native Linux daemon shares the host filesystem, so there is nothing to say.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC007
 func TestNativeEngineHasNoMountWarning(t *testing.T) {
 	native := healthy()
 	native.OperatingSystem = "Ubuntu 24.04"
@@ -158,6 +165,8 @@ func TestNativeEngineHasNoMountWarning(t *testing.T) {
 }
 
 // The path that would silently bind-mount as an empty directory.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC007
 func TestVMEngineWarnsAboutPathsOutsideHome(t *testing.T) {
 	env := map[string]string{"HOME": "/Users/x", "HMD_REPO_HOME": "/opt/hmd/repos"}
 	_, checks, _ := Gate(context.Background(), Options{
@@ -179,6 +188,8 @@ func TestVMEngineWarnsAboutPathsOutsideHome(t *testing.T) {
 }
 
 // The canary: after this change the two can only disagree through a bug.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC009
 func TestDisagreementBetweenCLIAndAPIWarns(t *testing.T) {
 	checks := Run(context.Background(), Options{
 		Docker:   okCLI{},
@@ -197,6 +208,7 @@ func TestDisagreementBetweenCLIAndAPIWarns(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC004, HMD_CLI_NEURONSPHERE_NERD021_SPEC009
 func TestRunReportsHostNames(t *testing.T) {
 	checks := Run(context.Background(), Options{
 		Docker:   okCLI{},
@@ -235,6 +247,8 @@ func TestReportPrintsEveryLineOfDetailAndRemedy(t *testing.T) {
 // is what every start calls before it does anything, so an environment check
 // there would ask Floci whether a start may proceed -- and fail in exactly the
 // case where running the start is what would have fixed it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC006
 func TestEnvironmentChecksRunInRunAndNotInGate(t *testing.T) {
 	ep := dockerhost.Endpoint{Host: "unix:///x.sock", Context: "colima", Source: dockerhost.SourceContext}
 	var asked int
@@ -297,6 +311,8 @@ func TestEnvironmentChecksMayBeSilent(t *testing.T) {
 // rather than a gate (NERD026 SPEC003). It is a separate row from "host names",
 // which is the two bare single-label names that no suffix-scoped resolver can
 // claim (NERD026 SPEC004) -- they fail independently and are fixed differently.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
 func TestRunReportsTheLocalSuffix(t *testing.T) {
 	base := Options{
 		Docker:   okCLI{},
@@ -397,6 +413,8 @@ func TestNilNetworkChecksAreSkipped(t *testing.T) {
 // the one that does belong in the preflight, because a start heading for a
 // cluster that cannot route to its own Services is exactly when it is worth
 // saying so (NERD028 SPEC004).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC002, HMD_CLI_NEURONSPHERE_NERD028_SPEC004
 func TestTheBridgeCheckRunsFromGate(t *testing.T) {
 	t.Parallel()
 

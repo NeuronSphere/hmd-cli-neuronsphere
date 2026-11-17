@@ -11,6 +11,7 @@ import (
 // NERD035 SPEC008: max_running is a budget a starting session acquire waits
 // on and never evicts for.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestASessionThatWouldExceedMaxRunningIsRefused(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -38,6 +39,7 @@ func TestASessionThatWouldExceedMaxRunningIsRefused(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestTheBudgetIgnoresAcquiresThatStartNothing(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -57,6 +59,7 @@ func TestTheBudgetIgnoresAcquiresThatStartNothing(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC008
 func TestUnderMaxRunningASessionStartsAsBefore(t *testing.T) {
 	home, env := fromRepoEnv(t)
 	writePool(t, home, "[pool]\nsize = 3\nmembers = [\"local\"]\nmax_running = 2\n")

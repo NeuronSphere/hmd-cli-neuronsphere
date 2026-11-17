@@ -101,6 +101,7 @@ func TestPluginVerbsNeedAHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC014, HMD_CLI_NEURONSPHERE_NERD018_SPEC003, HMD_CLI_NEURONSPHERE_NERD018_SPEC007
 func TestPluginInstallListUpdateRemove(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -187,6 +188,7 @@ func TestPluginInstallListUpdateRemove(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC003, HMD_CLI_NEURONSPHERE_NERD018_SPEC004
 func TestPluginInstallRefusesAReservedNoun(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -235,6 +237,7 @@ func TestPluginPushRefusesAnonymousBeforeAnyRequest(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
 func TestPluginPushThenInstallRoundTrip(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -276,6 +279,7 @@ func TestPluginPushThenInstallRoundTrip(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC004, HMD_CLI_NEURONSPHERE_NERD018_SPEC007
 func TestDevPathPluginDispatch(t *testing.T) {
 	t.Parallel()
 	skipOnWindows(t)
@@ -326,6 +330,7 @@ func TestDevPathPluginDispatch(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC004
 func TestDeclaredPluginWithoutBinaryNamesTheInstallCommand(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -340,6 +345,7 @@ func TestDeclaredPluginWithoutBinaryNamesTheInstallCommand(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC004
 func TestReservedPluginNameWarnsAndTheBuiltinWins(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -385,6 +391,8 @@ func TestMalformedConfigWarnsAndKeepsBuiltins(t *testing.T) {
 
 // TestBuiltinNounsListMatchesTheTree keeps nsconfig's copy of the reserved
 // nouns honest against the live cobra tree.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC004
 func TestBuiltinNounsListMatchesTheTree(t *testing.T) {
 	t.Parallel()
 	root := NewRootCommand("9.9.9", fakeEnv(nil))

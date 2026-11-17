@@ -33,6 +33,7 @@ const lockable = `{
   ]}
 }`
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC007
 func TestLockWritesEveryProfilesEntries(t *testing.T) {
 	t.Parallel()
 
@@ -155,6 +156,8 @@ func TestLockPinRefusals(t *testing.T) {
 // --check writes nothing, in every outcome. That is not a style preference: a
 // validate verb that rewrites a file cannot be run on a dirty tree, which is
 // exactly when it is wanted.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
 func TestLockCheckWritesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +192,7 @@ func TestLockCheckWritesNothing(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
 func TestLockCheckFindings(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +243,8 @@ func TestLockCheckOnARepoWithNoLock(t *testing.T) {
 
 // A lock nsctl cannot read is refused whole, and --check is where a CI job meets
 // that first.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC004
 func TestLockCheckRefusesAnUnknownSchemaVersion(t *testing.T) {
 	t.Parallel()
 

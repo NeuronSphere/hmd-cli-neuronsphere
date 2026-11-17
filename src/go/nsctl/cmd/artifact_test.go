@@ -161,6 +161,8 @@ func registryPath(version string) string {
 // TestArtifactPullFillsTheControlPlaneAndTheCache is SPEC004's acceptance
 // criterion: the artifact is retrievable from the local librarian afterwards,
 // and an apply -- which never reaches the network -- can resolve it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC004
 func TestArtifactPullFillsTheControlPlaneAndTheCache(t *testing.T) {
 	t.Parallel()
 
@@ -190,6 +192,8 @@ func TestArtifactPullFillsTheControlPlaneAndTheCache(t *testing.T) {
 }
 
 // A version that was never published fails as that, not as a bare HTTP error.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC004
 func TestArtifactPullUnpublishedVersion(t *testing.T) {
 	t.Parallel()
 
@@ -209,6 +213,8 @@ func TestArtifactPullUnpublishedVersion(t *testing.T) {
 // register a build, re-register it after a change, and the second register must
 // be what resolves. A register that left the previous unpacked tree in place
 // would deploy the old build under the new build's version.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
 func TestArtifactRegisterRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -256,6 +262,8 @@ func TestArtifactRegisterReadsTheIdentityFromInsideTheZip(t *testing.T) {
 
 // A directory is zipped on the fly, which is what makes a checkout registrable
 // without the Python CLI installed -- the environment nsctl exists to serve.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
 func TestArtifactRegisterZipsADirectory(t *testing.T) {
 	t.Parallel()
 
@@ -284,6 +292,8 @@ func TestArtifactRegisterZipsADirectory(t *testing.T) {
 
 // With no input at all, register names all three and the invocation that
 // produces the last -- rather than failing with whichever it happened to try.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
 func TestArtifactRegisterWithNothingNamesAllThreeInputs(t *testing.T) {
 	t.Parallel()
 
@@ -301,6 +311,8 @@ func TestArtifactRegisterWithNothingNamesAllThreeInputs(t *testing.T) {
 // register with no argument reads the zip `hmd build` writes, resolving the repo
 // and version from meta-data/ in the working directory -- the second half of the
 // fork in hmd-cli-build's controller, made available after the fact.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC005
 func TestArtifactRegisterFindsTheBuildOutput(t *testing.T) {
 	t.Parallel()
 
@@ -333,6 +345,8 @@ func TestArtifactRegisterFindsTheBuildOutput(t *testing.T) {
 
 // unpack is the repair path: it refills a cache that was deleted, from the
 // control plane alone, with no cloud round trip and nothing rebuilt.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC004
 func TestArtifactUnpackRefillsADeletedCache(t *testing.T) {
 	t.Parallel()
 
@@ -351,6 +365,8 @@ func TestArtifactUnpackRefillsADeletedCache(t *testing.T) {
 
 // A version the control plane does not hold fails with the shape SPEC007 asks
 // for, naming every place that was looked -- not a bare 404.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
 func TestArtifactUnpackMissingVersionNamesEveryPlaceLooked(t *testing.T) {
 	t.Parallel()
 

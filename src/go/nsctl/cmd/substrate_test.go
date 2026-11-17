@@ -15,6 +15,8 @@ import (
 // starts. Driving the real `env start` would start one, so the test asserts
 // the refusal arrives from flag handling -- with nothing recorded -- by
 // checking the manifest is untouched afterwards.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC003
 func TestEnvStartRefusesABadSubstrateBeforeStartingAnything(t *testing.T) {
 	t.Parallel()
 
@@ -38,6 +40,8 @@ func TestEnvStartRefusesABadSubstrateBeforeStartingAnything(t *testing.T) {
 
 // NERD014 SPEC002: the mode is recorded in the environment manifest, creating
 // the file when there is none, and full is recorded as absence.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC002
 func TestRecordSubstrateRoundTrips(t *testing.T) {
 	t.Parallel()
 
@@ -71,6 +75,8 @@ func TestRecordSubstrateRoundTrips(t *testing.T) {
 
 // NERD014 SPEC007: repo list prints as substrate rows only what the mode
 // deploys.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC007
 func TestInstanceListSubstrateRowsFollowTheMode(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +119,7 @@ func TestInstanceListSubstrateRowsFollowTheMode(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC007
 func TestEnvStatusNamesTheSubstrateAndDropsTheClusterLine(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +140,7 @@ func TestEnvStatusNamesTheSubstrateAndDropsTheClusterLine(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC007
 func TestEnvListHasASubstrateColumn(t *testing.T) {
 	t.Parallel()
 
@@ -166,5 +174,45 @@ func statusSnapshot(mode manifest.Substrate) status.Environment {
 		Name: "local", AccountID: "000000000001", DeploymentID: "local",
 		K3sCluster: "ns-local-abc", ComposeProject: "p", StateDir: "/s", Substrate: mode,
 		Routes: map[string]string{}, RouteOrder: nil,
+	}
+}
+
+// env apply and bom apply take no mode flag of their own: the one place the
+// mode is set is env start, and every other command reads what it recorded,
+// including a start that is told not to deploy.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC009
+func TestOnlyEnvStartSetsTheSubstrateAndOthersReadTheRecordedMode(t *testing.T) {
+	t.Parallel()
+
+	opts := &Options{Version: "test"}
+	if newEnvApplyCommand(opts).Flags().Lookup("substrate") != nil {
+		t.Error("env apply has its own --substrate flag")
+	}
+	start := newEnvStartCommand(opts)
+	if start.Flags().Lookup("substrate") == nil {
+		t.Error("env start lost --substrate, the one place the mode is set")
+	}
+	if start.Flags().Lookup("no-deploy") == nil {
+		t.Error("env start lost --no-deploy")
+	}
+	for _, c := range newBOMCommand(opts).Commands() {
+		if c.Flags().Lookup("substrate") != nil {
+			t.Errorf("bom %s has its own --substrate flag", c.Name())
+		}
+	}
+
+	// What env start records is what env apply (declared.SubstrateMode) and
+	// start --no-deploy (substrateMode) read back.
+	home, env := repoEnv(t)
+	opts.resolve(home, fakeEnv(env), func(string) {})
+	if err := recordSubstrate(opts, home, "local", manifest.SubstrateCore); err != nil {
+		t.Fatal(err)
+	}
+	if got := substrateOf(opts)("local"); got != manifest.SubstrateCore {
+		t.Errorf("recorded core, read back %s", got)
+	}
+	if got := readManifest(t, env, "local").SubstrateMode(); got != manifest.SubstrateCore {
+		t.Errorf("apply's reading of the manifest = %s, want core", got)
 	}
 }

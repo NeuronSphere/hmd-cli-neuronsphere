@@ -42,6 +42,7 @@ func foreignRepo(t *testing.T, body string) string {
 	return dir
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestLockAcceptsAResourceOnlyRole(t *testing.T) {
 	t.Parallel()
 
@@ -55,6 +56,7 @@ func TestLockAcceptsAResourceOnlyRole(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestEnvAddLeavesAnOptionalResourceRoleUnfilled(t *testing.T) {
 	t.Parallel()
 
@@ -79,6 +81,7 @@ func TestEnvAddLeavesAnOptionalResourceRoleUnfilled(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestEnvAddRefusesARequiredResourceRoleNothingProvides(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +102,7 @@ func TestEnvAddRefusesARequiredResourceRoleNothingProvides(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestEnvAddBindsAResourceRoleByName(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +122,7 @@ func TestEnvAddBindsAResourceRoleByName(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestEnvApplyFillsAResourceRoleFromAProducer(t *testing.T) {
 	t.Parallel()
 

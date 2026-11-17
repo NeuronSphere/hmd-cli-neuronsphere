@@ -20,6 +20,8 @@ func leaseLocal(t *testing.T, home string) string {
 
 // NERD035 SPEC001: every command that changes a leased environment refuses
 // anyone but the holder, before it touches anything.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestLeaseRefusesOtherHoldersOnEveryMutatingCommand(t *testing.T) {
 	t.Parallel()
 	// Only verbs that cannot reach Docker. env start/apply/stop/purge/delete
@@ -56,6 +58,8 @@ var deadPortsRegistry = strings.Replace(twoEnvRegistry,
 // The verbs that would reach Docker and Floci without the guard. Each is
 // expected to stop at the guard; requireNoDocker and the dead ports make a
 // regression fail instead of acting on the machine's platform.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestLeaseRefusesOtherHoldersOnDestructiveVerbs(t *testing.T) {
 	requireNoDocker(t)
 	if !strings.Contains(deadPortsRegistry, `"floci": 1`) {
@@ -87,6 +91,7 @@ func TestLeaseRefusesOtherHoldersOnDestructiveVerbs(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestLeaseHolderMayChangeItsEnvironment(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -102,6 +107,7 @@ func TestLeaseHolderMayChangeItsEnvironment(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestLeaseOnOneEnvironmentLeavesTheOthersAlone(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -113,6 +119,7 @@ func TestLeaseOnOneEnvironmentLeavesTheOthersAlone(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestIgnoreLeaseProceedsAndSaysWhose(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -128,6 +135,7 @@ func TestIgnoreLeaseProceedsAndSaysWhose(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC001
 func TestReadOnlyCommandsIgnoreLeases(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)

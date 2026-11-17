@@ -7,6 +7,7 @@ import (
 
 // NERD018 SPEC001: [plugin.<noun>] tables in nsctl.toml, strictly parsed.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC001
 func TestPluginTablesParseUnderStrictDecoding(t *testing.T) {
 	t.Parallel()
 	cfg, err := Parse([]byte(`default_profile = "acme"
@@ -47,6 +48,7 @@ path = "/tmp/nsctl-scratch"
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC001
 func TestPluginTableRefusals(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
@@ -100,6 +102,7 @@ func TestSetAndRemovePluginRoundTrip(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC001
 func TestPluginNameGrammar(t *testing.T) {
 	t.Parallel()
 	for _, ok := range []string{"hello", "a", "my-thing", "x9"} {
@@ -117,6 +120,7 @@ func TestPluginNameGrammar(t *testing.T) {
 // NERD031 SPEC003: a plugin installed from an artifact records the items it
 // placed, and a declaration with none is one binary item named by its key.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC008
 func TestPluginItemsRoundTrip(t *testing.T) {
 	t.Parallel()
 	cfg, err := Parse([]byte(`[plugin.hmd-cli-toolchain]
@@ -171,6 +175,7 @@ digest  = "sha256:abc"
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC008
 func TestADeclarationWithoutItemsIsOneBinaryCommand(t *testing.T) {
 	t.Parallel()
 	cfg, err := Parse([]byte("[plugin.hello]\nsource = \"oci://x/hello\"\nversion = \"1.2.0\"\n"))

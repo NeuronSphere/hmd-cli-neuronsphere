@@ -21,6 +21,8 @@ func (f *fakeTags) AllTags(context.Context, oci.Ref) ([]string, error) { return 
 
 // The reported failure, asked ten seconds in instead of ten minutes in. The
 // registry answers, and simply does not publish the pinned tag.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC009
 func TestAMissingTagFailsAndNamesWhatTheRepositoryDoesPublish(t *testing.T) {
 	t.Parallel()
 
@@ -57,6 +59,8 @@ func TestATagThatExistsPasses(t *testing.T) {
 // Offline is not misconfigured. Failing here would make doctor exit non-zero
 // on a correctly configured machine with no network, which is a false negative
 // for anything scripting it -- and quickstart gates on doctor.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC009
 func TestAnUnreachableRegistryOnlyWarns(t *testing.T) {
 	t.Parallel()
 

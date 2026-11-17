@@ -26,6 +26,8 @@ func running(t *testing.T, f *fakeAPI, p *Project, key string) {
 // the failure this exists for -- a data directory deleted out from under a
 // running container -- changes no configuration, so Up correctly leaves it
 // alone and the container stays useless.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD001_SPEC014
 func TestRecreateReplacesAContainerUpWouldHaveLeftAlone(t *testing.T) {
 	t.Parallel()
 

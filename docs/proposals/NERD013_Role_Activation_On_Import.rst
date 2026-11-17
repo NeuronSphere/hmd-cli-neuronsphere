@@ -414,6 +414,7 @@ and a file format.
     :id: HMD_CLI_NEURONSPHERE_NERD013_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD013
     :status: implemented
+    :tags: trace-exempt
 
     **Not a claim that the result reproduces the cloud environment.**
     ``NERD012`` SPEC007 said an import brings versions and configuration across
@@ -432,6 +433,8 @@ and a file format.
     **Not a change to** ``nsctl env from-repo``. That path already activates
     required roles and profile-gated optional ones. This document is the other
     path catching up to it.
+
+    A scope statement with no behaviour of its own; what it leaves out is shown by the absence of those inputs in the traced specs.
 
 What writing it settled
 -----------------------

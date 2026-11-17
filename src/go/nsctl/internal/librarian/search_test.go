@@ -105,6 +105,7 @@ func trino() *fakeLibrarian {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
 func TestReposIsUnfilteredAndMemoised(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +176,8 @@ func TestContentItemIDsReadsRefFrom(t *testing.T) {
 
 // TestContentItemsByNIDChunks is the measured Lambda limit made a property of
 // the client rather than of whoever calls it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
 func TestContentItemsByNIDChunks(t *testing.T) {
 	t.Parallel()
 
@@ -256,6 +259,8 @@ func TestParseContentPath(t *testing.T) {
 
 // TestParseContentPathRoundTripsEverySpec drives the two halves against each
 // other, so a change to either one has to change both.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
 func TestParseContentPathRoundTripsEverySpec(t *testing.T) {
 	t.Parallel()
 

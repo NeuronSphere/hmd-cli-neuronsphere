@@ -58,6 +58,7 @@ func zipEntries(t *testing.T, data []byte) map[string]bool {
 var declaringStackManifest = strings.Replace(stackManifest, `"build": {},`,
 	`"build": {}, "license": {"spdx": "Apache-2.0", "exclude": ["src/python/"]},`, 1)
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestStackBuildSubjectHonoursItsDeclaredLicence(t *testing.T) {
 	t.Parallel()
 	repoDir, artifactsDir := stackRepo(t)
@@ -103,6 +104,8 @@ func TestStackBuildSubjectHonoursItsDeclaredLicence(t *testing.T) {
 
 // A companion that arrives as bytes is the author's: annotated from the
 // manifest inside, pushed whole, never re-scoped and never refused.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestStackPushAnnotatesCompanionsFromTheirOwnManifest(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -162,6 +165,7 @@ func TestStackPushAnnotatesCompanionsFromTheirOwnManifest(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestArtifactPushHonoursTheDeclaration(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)

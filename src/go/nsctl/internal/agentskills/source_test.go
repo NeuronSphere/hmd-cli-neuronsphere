@@ -55,6 +55,7 @@ func TestFromDirNamesSkillsByTheirOwnSKILLmd(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC007
 func TestFromDirRefusesABundledName(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -64,6 +65,7 @@ func TestFromDirRefusesABundledName(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC007
 func TestArtifactSkillInstallsEveryFileAndIsOwned(t *testing.T) {
 	t.Parallel()
 	root, home := t.TempDir(), t.TempDir()
@@ -122,6 +124,7 @@ func TestAnUnmodifiedSkillFromAnOlderVersionIsReplacedWithoutForce(t *testing.T)
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC007
 func TestAnEditedArtifactSkillIsNotReplacedOrRemoved(t *testing.T) {
 	t.Parallel()
 	root, home := t.TempDir(), t.TempDir()

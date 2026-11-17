@@ -16,6 +16,7 @@ import (
 
 // NERD019 SPEC001-SPEC003 and NERD016 SPEC009.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019, HMD_CLI_NEURONSPHERE_NERD019_SPEC001
 func TestStackBuildWritesADeterministicLayoutFromArtifacts(t *testing.T) {
 	t.Parallel()
 	repoDir, artifactsDir := stackRepo(t)
@@ -48,6 +49,7 @@ func TestStackBuildWritesADeterministicLayoutFromArtifacts(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC002
 func TestStackBuildTakesCompanionsFromTheCache(t *testing.T) {
 	t.Parallel()
 	repoDir, _ := stackRepo(t)
@@ -66,6 +68,7 @@ func TestStackBuildTakesCompanionsFromTheCache(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC002, HMD_CLI_NEURONSPHERE_NERD016_SPEC009
 func TestStackBuildTakesCompanionsFromAnOCISource(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -111,6 +114,7 @@ func TestStackBuildTakesCompanionsFromAnOCISource(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC002
 func TestStackBuildRefusalNamesEveryTierAndTheRemedy(t *testing.T) {
 	t.Parallel()
 	repoDir, _ := stackRepo(t)
@@ -125,6 +129,7 @@ func TestStackBuildRefusalNamesEveryTierAndTheRemedy(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC003
 func TestStackPushFromLayoutWithBump(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -197,6 +202,8 @@ func TestArtifactPushRefusals(t *testing.T) {
 
 // NERD019 SPEC005: lock --resolve settles ranges from the OCI source first,
 // then the librarian, and keeps sources across regenerates.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC005, HMD_CLI_NEURONSPHERE_NERD016_SPEC009
 func TestLockResolvePinsRangesFromTheOCISource(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -270,6 +277,8 @@ source = "oci://`+reg.Host()+`/acme/classes/hmd-inf-otel"
 }
 
 // NERD019 SPEC006: validate knows a stack.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC006
 func TestRepoclassValidateChecksAStack(t *testing.T) {
 	t.Parallel()
 	repoDir, _ := stackRepo(t)
@@ -313,6 +322,8 @@ func TestRepoclassValidateChecksAStack(t *testing.T) {
 
 // NERD019 SPEC008: the local section is authored by verbs, and what they
 // write is what stack build and stack add read.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC008
 func TestRepoclassLocalVerbsAuthorAStack(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -394,6 +405,8 @@ func TestRepoclassLocalVerbsAuthorAStack(t *testing.T) {
 }
 
 // NERD010 SPEC009: validate reads the local section the way the runtime does.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestRepoclassValidateReadsTheLocalSectionLikeTheRuntime(t *testing.T) {
 	t.Parallel()
 	validate := func(body string) (string, error) {

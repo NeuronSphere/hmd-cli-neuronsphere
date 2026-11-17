@@ -11,6 +11,7 @@ func canaryProvisioner(s3api s3API) *Provisioner {
 	return &Provisioner{Target: Target{AccountID: "000000000001", Region: "us-west-2", Endpoint: "http://neuronsphere:4566"}, S3: s3api}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD001_SPEC014, HMD_CLI_NERD002_SPEC007
 func TestCheckStorageRoundTripsAndCleansUpAfterItself(t *testing.T) {
 	t.Parallel()
 
@@ -36,6 +37,8 @@ func TestCheckStorageRoundTripsAndCleansUpAfterItself(t *testing.T) {
 // The reported failure: Floci answers, and returns 500 on the object. The error
 // has to carry the cause, because the reader has just watched the control plane
 // start without complaint.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD001_SPEC014
 func TestCheckStorageExplainsAFlociThatAnswersButCannotRead(t *testing.T) {
 	t.Parallel()
 
@@ -59,6 +62,8 @@ func TestCheckStorageExplainsAFlociThatAnswersButCannotRead(t *testing.T) {
 
 // 200 and the wrong bytes is a worse failure than an error, and it is the shape
 // a half-written directory takes -- so the bytes are compared, not the status.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD001_SPEC014
 func TestCheckStorageRejectsAnObjectThatComesBackWrong(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +74,7 @@ func TestCheckStorageRejectsAnObjectThatComesBackWrong(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD001_SPEC014
 func TestCheckStorageFailsWhenItCannotWrite(t *testing.T) {
 	t.Parallel()
 

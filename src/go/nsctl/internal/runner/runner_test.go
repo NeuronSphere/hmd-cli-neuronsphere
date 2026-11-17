@@ -379,6 +379,8 @@ func TestRepoPathOverrideDoesNotFallBack(t *testing.T) {
 // HMD_HOME, and a deploy writing meta-data/resources_output/ into it would hand
 // the next environment this one's resources. Mounting it directly is the quiet
 // version of that bug.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestAnArtifactTreeIsIsolatedLikeABundledOne(t *testing.T) {
 	t.Parallel()
 

@@ -17,6 +17,7 @@ func artifactRepo(name, class, version string) manifest.Repo {
 		Source: &manifest.Source{Type: manifest.SourceArtifact}}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestSaveThenLoadRoundTripsUnderTheTemplatesDirectory(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -39,6 +40,7 @@ func TestSaveThenLoadRoundTripsUnderTheTemplatesDirectory(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestLoadOfAnAbsentTemplateIsNotFound(t *testing.T) {
 	t.Parallel()
 	if _, err := Load(t.TempDir(), "nope", noEnv); !errors.Is(err, ErrNotFound) {
@@ -46,6 +48,7 @@ func TestLoadOfAnAbsentTemplateIsNotFound(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestListIsSortedAndIgnoresOtherFiles(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -69,6 +72,7 @@ func TestListIsSortedAndIgnoresOtherFiles(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestRemoveDeletesTheFileAndReportsAbsence(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -86,6 +90,7 @@ func TestRemoveDeletesTheFileAndReportsAbsence(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestNamesFollowEnvironmentRules(t *testing.T) {
 	t.Parallel()
 	for _, ok := range []string{"analytics", "telemetry-2", "a", "0x"} {
@@ -103,6 +108,7 @@ func TestNamesFollowEnvironmentRules(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC003
 func TestFromEnvironmentDropsWorkingTrees(t *testing.T) {
 	t.Parallel()
 	env := &manifest.Manifest{Version: manifest.Version, Name: "dev", Profiles: []string{"full"},

@@ -101,6 +101,7 @@ func TestVersionRunsWithoutAnHmdHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NERD002_SPEC004
 func TestUnknownFlagIsAUsageError(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +126,7 @@ func TestUnknownArgumentIsAUsageError(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NERD002_SPEC001
 func TestHelpListsEveryCommandAndPersistentFlag(t *testing.T) {
 	t.Parallel()
 
@@ -249,6 +251,7 @@ func TestNoArgsAcceptsNone(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NERD002_SPEC004
 func TestErrorsArePrintedOnceByExecuteNotByRunE(t *testing.T) {
 	t.Parallel()
 
@@ -277,5 +280,47 @@ func TestErrorsArePrintedOnceByExecuteNotByRunE(t *testing.T) {
 	}
 	if strings.Contains(errBuf.String(), "Usage:") {
 		t.Errorf("stderr contains usage text after a runtime error:\n%s", errBuf.String())
+	}
+}
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC002
+func TestHelpNamesQuickstartAsTheFirstCommand(t *testing.T) {
+	t.Parallel()
+
+	root := NewRootCommand("9.9.9", fakeEnv(nil))
+	if !strings.Contains(root.Long, "nsctl quickstart") {
+		t.Errorf("root Long does not name `nsctl quickstart`:\n%s", root.Long)
+	}
+
+	// The refusal for a missing HMD_HOME names the command that satisfies it.
+	if _, err := (&Options{}).RequireHome(); err == nil || !strings.Contains(err.Error(), "nsctl quickstart") {
+		t.Errorf("RequireHome refusal = %v, want it to name `nsctl quickstart`", err)
+	}
+
+	// The tree is grouped and the first group leads with quickstart.
+	groups := root.Groups()
+	if len(groups) < 2 {
+		t.Fatalf("root has %d groups, want a grouped tree", len(groups))
+	}
+	first := groups[0].ID
+	var leader string
+	for _, c := range root.Commands() {
+		if c.GroupID == first {
+			leader = c.Name()
+			break
+		}
+	}
+	if leader != "quickstart" {
+		t.Errorf("first group %q starts with %q, want quickstart", first, leader)
+	}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	help := out.String()
+	if q, a := strings.Index(help, "quickstart"), strings.Index(help, "authd"); q < 0 || (a >= 0 && q > a) {
+		t.Errorf("--help lists quickstart after authoring verbs:\n%s", help)
 	}
 }

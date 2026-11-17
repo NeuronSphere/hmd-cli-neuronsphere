@@ -84,6 +84,7 @@ func serve(t *testing.T, reg *ocitest.Registry, name, version string, platforms 
 	return ref
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC002
 func TestBuildFillsPlatformsFromTheArchives(t *testing.T) {
 	t.Parallel()
 	m, blobs, d, err := Build(pluginDir(t, "hello", "1.2.0", []string{"darwin_arm64", "linux_amd64"}, ""))
@@ -107,6 +108,7 @@ func TestBuildFillsPlatformsFromTheArchives(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC002
 func TestBuildRefusesADeclaredPlatformWithNoArchive(t *testing.T) {
 	t.Parallel()
 	dir := pluginDir(t, "hello", "1.0", []string{"linux_amd64"},
@@ -116,6 +118,7 @@ func TestBuildRefusesADeclaredPlatformWithNoArchive(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
 func TestInstallUnpacksThisPlatformAndDeclares(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -153,6 +156,7 @@ func TestInstallUnpacksThisPlatformAndDeclares(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
 func TestInstallRefusesAMissingPlatformNamingWhatExists(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -166,6 +170,7 @@ func TestInstallRefusesAMissingPlatformNamingWhatExists(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC003
 func TestMinNsctlVersion(t *testing.T) {
 	t.Parallel()
 	d := Descriptor{Name: "hello", Version: "1.0", MinNsctlVersion: "1.2"}
@@ -184,6 +189,7 @@ func TestMinNsctlVersion(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC002
 func TestInstallRefusesANonPluginArtifact(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -268,6 +274,7 @@ func TestResolvePrecedenceAndStates(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018, HMD_CLI_NEURONSPHERE_NERD018_SPEC005
 func TestRunPassesArgsEnvAndExitStatus(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -301,6 +308,7 @@ func TestRunPassesArgsEnvAndExitStatus(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC005
 func TestRunReportsASignalDeathAs128PlusN(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -323,5 +331,32 @@ func TestRunOfAMissingBinaryIsAnError(t *testing.T) {
 	t.Parallel()
 	if _, err := Run("/nowhere/nsctl-x", nil, nil, nil, nil, nil); err == nil {
 		t.Error("expected an error")
+	}
+}
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD018_SPEC006
+func TestAPresentButUndeclaredBinaryIsNotACommand(t *testing.T) {
+	home := t.TempDir()
+	// A binary in the cache under another version, and one on PATH, both
+	// present but neither declared.
+	other := Dir(home, "ghost", "1.0")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Binary(other, "ghost"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	onPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(onPath, BinaryName("ghost")), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", onPath)
+
+	decl := nsconfig.Plugin{Name: "ghost", Source: "oci://x/ghost", Version: "2.0"}
+	if bin, err := Resolve(home, decl); !errors.Is(err, ErrNotInstalled) {
+		t.Errorf("Resolve found %q (%v) from PATH or another cached version", bin, err)
+	}
+	if StateOf(home, decl) != StateMissing {
+		t.Error("an undeclared binary must not make a declaration installed")
 	}
 }

@@ -39,6 +39,7 @@ func stubStop(t *testing.T) *stopRecorder {
 	return r
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestEndingASessionStopsItsEnvironment(t *testing.T) {
 	stops := stubStop(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -57,6 +58,7 @@ func TestEndingASessionStopsItsEnvironment(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestKeepRunningOnReleaseOrAcquireSkipsTheStop(t *testing.T) {
 	stops := stubStop(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -75,6 +77,7 @@ func TestKeepRunningOnReleaseOrAcquireSkipsTheStop(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestAnExpiredSessionIsStoppedByTheNextCommandThatLooks(t *testing.T) {
 	stops := stubStop(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -99,6 +102,7 @@ func TestAnExpiredSessionIsStoppedByTheNextCommandThatLooks(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestARunLeaseEndingStopsNothingHere(t *testing.T) {
 	stops := stubStop(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -116,6 +120,7 @@ func TestARunLeaseEndingStopsNothingHere(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestKeepRunningNeedsSession(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)

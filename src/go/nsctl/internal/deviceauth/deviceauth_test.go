@@ -52,6 +52,7 @@ func discoveryServer(t *testing.T, mux *http.ServeMux, paths ...string) *httptes
 	return srv
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003
 func TestDiscoverReadsTheOIDCDocument(t *testing.T) {
 	t.Parallel()
 
@@ -73,6 +74,8 @@ func TestDiscoverReadsTheOIDCDocument(t *testing.T) {
 // Okta publishes the OIDC name and Superset/Airflow build the OAuth one, so a
 // client that knows only the first cannot talk to half the servers in the
 // platform.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003
 func TestDiscoverFallsBackToTheOAuthDocument(t *testing.T) {
 	t.Parallel()
 
@@ -93,6 +96,8 @@ func TestDiscoverFallsBackToTheOAuthDocument(t *testing.T) {
 
 // A server that answers discovery but cannot do the grant is a different
 // problem from a wrong URL, and must not be reported as a missing field.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003
 func TestDiscoverNamesTheMissingDeviceEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +127,8 @@ func TestDiscoverRejectsAnEmptyURL(t *testing.T) {
 
 // The happy path, end to end: authorize, poll past a pending response, and get
 // a token.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003
 func TestAuthorizeAndPoll(t *testing.T) {
 	t.Parallel()
 
@@ -218,6 +225,8 @@ func (r *recorder) sleep(ctx context.Context, d time.Duration) error {
 // slow_down must increase the interval, not merely be retried: a server that
 // sends it is asking the client to back off, and a client that ignores it gets
 // rate-limited into an expired code.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003, HMD_CLI_NEURONSPHERE_NERD008_SPEC008
 func TestPollHonoursSlowDown(t *testing.T) {
 	t.Parallel()
 
@@ -255,6 +264,7 @@ func TestPollHonoursSlowDown(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC003, HMD_CLI_NEURONSPHERE_NERD008_SPEC008
 func TestPollReportsTerminalErrors(t *testing.T) {
 	t.Parallel()
 
@@ -425,6 +435,7 @@ func TestAuthorizeRefusesAnIncompleteResponse(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC005
 func TestRefresh(t *testing.T) {
 	t.Parallel()
 

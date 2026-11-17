@@ -47,6 +47,7 @@ func stoppingStore(t *testing.T) (*Store, *time.Time, map[int]bool, *stops) {
 	return s, now, alive, st
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestEndingASessionStopsItsEnvironmentOutsideTheLock(t *testing.T) {
 	t.Parallel()
 	s, _, _, st := stoppingStore(t)
@@ -75,6 +76,7 @@ func TestEndingASessionStopsItsEnvironmentOutsideTheLock(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestKeepRunningEndsTheSessionWithoutAStop(t *testing.T) {
 	t.Parallel()
 	s, _, _, st := stoppingStore(t)
@@ -100,6 +102,7 @@ func TestKeepRunningEndsTheSessionWithoutAStop(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestAnExpiredSessionIsStoppedOnceByWhoeverNoticesIt(t *testing.T) {
 	t.Parallel()
 	s, now, _, st := stoppingStore(t)
@@ -119,6 +122,7 @@ func TestAnExpiredSessionIsStoppedOnceByWhoeverNoticesIt(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestADeadSessionProcessStopsItsEnvironment(t *testing.T) {
 	t.Parallel()
 	s, _, alive, st := stoppingStore(t)
@@ -138,6 +142,7 @@ func TestADeadSessionProcessStopsItsEnvironment(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestARunLeaseEndingStopsNothing(t *testing.T) {
 	t.Parallel()
 	s, now, _, st := stoppingStore(t)
@@ -159,6 +164,7 @@ func TestARunLeaseEndingStopsNothing(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestAFailedStopStillFreesTheEnvironment(t *testing.T) {
 	t.Parallel()
 	s, _, _, st := stoppingStore(t)
@@ -176,6 +182,7 @@ func TestAFailedStopStillFreesTheEnvironment(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC006
 func TestWithoutACallbackAnEndedSessionIsSimplyGone(t *testing.T) {
 	t.Parallel()
 	s, now, _ := testStore(t)

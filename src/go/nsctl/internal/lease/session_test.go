@@ -12,6 +12,7 @@ func sessionReq(holder string, pid int) Request {
 		Template: "telemetry", Repos: []string{"/w/hmd-inf-clickhouse"}}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestASessionLeaseRecordsItsScopeTemplateAndRepos(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -33,6 +34,7 @@ func TestASessionLeaseRecordsItsScopeTemplateAndRepos(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestARunLeaseHasNoScopeOnDiskAndIsNotASession(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -47,6 +49,7 @@ func TestARunLeaseHasNoScopeOnDiskAndIsNotASession(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestByTokenFindsTheLiveLeaseItHolds(t *testing.T) {
 	t.Parallel()
 	s, now, _ := testStore(t)
@@ -76,6 +79,7 @@ func TestByTokenFindsTheLiveLeaseItHolds(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestHeartbeatRenewsByTokenAlone(t *testing.T) {
 	t.Parallel()
 	s, now, _ := testStore(t)
@@ -98,6 +102,7 @@ func TestHeartbeatRenewsByTokenAlone(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestReleaseLeavesASessionLeaseUnlessToldItIsTheSession(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -120,6 +125,7 @@ func TestReleaseLeavesASessionLeaseUnlessToldItIsTheSession(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestReleaseSessionStillNeedsTheToken(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -132,6 +138,7 @@ func TestReleaseSessionStillNeedsTheToken(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestReleaseSessionAlsoEndsARunLease(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)
@@ -145,6 +152,7 @@ func TestReleaseSessionAlsoEndsARunLease(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionPIDIsTheNearestClaudeAncestor(t *testing.T) {
 	t.Parallel()
 	// 10 nsctl <- 20 zsh -c <- 30 claude <- 40 zsh <- 1 login
@@ -169,6 +177,7 @@ func TestSessionPIDIsTheNearestClaudeAncestor(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionPIDFallsBackToTheParent(t *testing.T) {
 	t.Parallel()
 	parent := func(pid int) (int, string, error) {
@@ -189,6 +198,7 @@ func TestSessionPIDFallsBackToTheParent(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionPIDMatchesClaudeByBaseName(t *testing.T) {
 	t.Parallel()
 	parent := func(pid int) (int, string, error) {
@@ -207,6 +217,7 @@ func TestSessionPIDMatchesClaudeByBaseName(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestProcParentReadsThisProcess(t *testing.T) {
 	t.Parallel()
 	ppid, name, err := ProcParent(os.Getpid())
@@ -218,6 +229,7 @@ func TestProcParentReadsThisProcess(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestBySessionPIDFindsOnlyThatProcesssSessionLease(t *testing.T) {
 	t.Parallel()
 	s, _, _ := testStore(t)

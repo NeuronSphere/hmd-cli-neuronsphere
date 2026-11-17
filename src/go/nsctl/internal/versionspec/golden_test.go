@@ -26,6 +26,8 @@ type goldenCase struct {
 // Regenerate rather than edit:
 //
 //	python3 internal/versionspec/testdata/generate_golden.py
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC002
 func TestGoldenTable(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,8 @@ import (
 // SPEC011 decided the rootless socket would be a doctor warning rather than a
 // code change. The warning was the whole of that decision, and the how-to tells
 // users to expect it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC011
 func TestRootlessSocketWarns(t *testing.T) {
 	checks := Options{}.rootlessSocket(dockerhost.Daemon{Rootless: true})
 	if len(checks) != 1 {

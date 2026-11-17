@@ -20,6 +20,8 @@ const movedResolverRegistry = `{
 // nsctl prints the privileged step and does not take it. This is the whole
 // posture of the command (NERD026 SPEC002, NERD023): it needs root, and it
 // changes a file that belongs to the user.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC002
 func TestDNSInstallPrintsTheStepAndRunsNothing(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +83,8 @@ func TestDNSInstallHonoursAnExplicitPort(t *testing.T) {
 // The resolver file is filed under the suffix itself. Filed under its parent it
 // would capture a whole subtree that is not ours -- the public marketing site
 // under neuronsphere.io, or the entire mDNS TLD under a bare `local`.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC002
 func TestDNSInstallScopesTheResolverFileToTheSuffixItself(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +122,8 @@ func stoppedResolverRegistry(t *testing.T) (body, port string) {
 //
 // The registry here puts the resolver on a port nothing listens on, which is
 // what a stopped control plane looks like from the host.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
 func TestDNSStatusNamesTheResolverWhenItIsNotRunning(t *testing.T) {
 	t.Parallel()
 
@@ -139,6 +145,8 @@ func TestDNSStatusNamesTheResolverWhenItIsNotRunning(t *testing.T) {
 // A status report that cannot fail is not a report. `dns status` exits 0 either
 // way -- it answers a question rather than asserting a precondition -- so the
 // distinction has to be visible in what it prints.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
 func TestDNSStatusReportsTheProbeNameItUsed(t *testing.T) {
 	t.Parallel()
 

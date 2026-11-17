@@ -188,6 +188,8 @@ func TestReadySummaryOmitsTheK3sPortWhenTheClusterIsDead(t *testing.T) {
 
 // NERD014 SPEC007: the summary names only what the mode runs. A trino port on
 // an environment with no cluster is the same misreport as a dead one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC007
 func TestReadySummaryPerSubstrate(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +231,8 @@ func TestReadySummaryPerSubstrate(t *testing.T) {
 // mode allows. Asserted in both directions for the Trino reason below -- the
 // summary used to print it from the mode alone, so a one-sided test would pass
 // against exactly the misreport this replaced.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC001
 func TestReadySummaryReportsDBAccountOnlyWhenDeployed(t *testing.T) {
 	t.Parallel()
 

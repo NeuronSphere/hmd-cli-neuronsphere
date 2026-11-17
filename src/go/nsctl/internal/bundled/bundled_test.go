@@ -16,6 +16,8 @@ import (
 // Source License 1.1 in hmd-ms-deployment, hmd-ms-librarian and
 // hmd-app-neuronsphere. One such file inside the binary would turn the
 // Apache-licensed nsctl into a mixed-licence artifact.
+//
+// Requirements: HMD_CLI_NERD002_SPEC006
 func TestRepoArchivesCarryNoServiceCode(t *testing.T) {
 	classes := RepoClasses()
 	if len(classes) == 0 {

@@ -30,6 +30,8 @@ func TestOpenReportsNoManifest(t *testing.T) {
 }
 
 // SPEC006's precedence: TOML under meta-data, then JSON, then the root file.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC006
 func TestOpenFollowsThePrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -59,6 +61,8 @@ func TestOpenFollowsThePrecedence(t *testing.T) {
 
 // A write returns to the file it was read from; a TOML tier refuses, naming
 // the file, rather than rewriting it without its comments.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC006
 func TestSaveReturnsToTheSameFileAndRefusesTOML(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +101,8 @@ func TestSaveReturnsToTheSameFileAndRefusesTOML(t *testing.T) {
 
 // SPEC007: init writes the three required members and VERSION, and refuses
 // when any tier exists, naming describe and validate.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC007
 func TestInitWritesTheMinimumAndRefusesASecondTime(t *testing.T) {
 	t.Parallel()
 
@@ -127,6 +133,8 @@ func TestInitWritesTheMinimumAndRefusesASecondTime(t *testing.T) {
 }
 
 // An existing VERSION is the user's and is not overwritten.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC007
 func TestInitKeepsAnExistingVersion(t *testing.T) {
 	t.Parallel()
 

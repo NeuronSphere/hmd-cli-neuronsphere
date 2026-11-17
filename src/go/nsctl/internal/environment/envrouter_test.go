@@ -13,6 +13,8 @@ import (
 // The whole point of NERD027: the ports bound are a function of what is running,
 // not of what could theoretically run. Sixteen environments times four reserved
 // slots bound 47 ports at every start that nothing could ever answer on.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027, HMD_CLI_NEURONSPHERE_NERD027_SPEC002
 func TestAnEnvironmentPublishesOnlyThePortsItUses(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +91,8 @@ func (f *fakeRouterDocker) Run(_ context.Context, args ...string) ([]byte, []byt
 
 // Recreated only when the set changes. An ordinary restart with the same ports
 // must not churn a kubectl session for nothing.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC002
 func TestTheRouterIsRecreatedOnlyWhenItsPortsChange(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +138,8 @@ func TestTheRouterIsRecreatedOnlyWhenItsPortsChange(t *testing.T) {
 // An environment with nothing to publish has no router at all, and one left over
 // from a set that is now empty is removed -- a router holding ports the next
 // start routes around is a confusing way to lose a port.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC002
 func TestARouterWithNothingToPublishIsRemoved(t *testing.T) {
 	t.Parallel()
 

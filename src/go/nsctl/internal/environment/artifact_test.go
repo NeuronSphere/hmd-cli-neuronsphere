@@ -45,6 +45,8 @@ func artifactRepo(instance, class, version string) manifest.Repo {
 // An apply that names versions nothing has fetched says so in seconds and names
 // all of them, rather than failing on the first nine hundred log lines in with a
 // message about a missing directory.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
 func TestCheckArtifactsNamesEveryUncachedVersion(t *testing.T) {
 	t.Parallel()
 
@@ -90,6 +92,8 @@ func TestCheckArtifactsNamesEveryUncachedVersion(t *testing.T) {
 // A working tree the user explicitly asked for still wins -- and nsctl says so
 // on the way past, because the substitution is otherwise invisible until it has
 // cost an afternoon.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestCheckArtifactsAnnouncesAPreemptingCheckout(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +137,8 @@ func TestCheckArtifactsIgnoresLocalSources(t *testing.T) {
 // answers "" for a non-local source. artifact.Paths is what fills the gap, and
 // without the merge the runner falls through to its own tiers and deploys
 // whatever tree it finds under the version the resolver reported.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestArtifactPathsFillTheGapBomRepoPathsLeaves(t *testing.T) {
 	t.Parallel()
 

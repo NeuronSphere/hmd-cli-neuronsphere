@@ -56,6 +56,8 @@ func TestStoreRoundTrip(t *testing.T) {
 // hmd_cli_tools.okta_tools.get_auth_token, and internal/librarian reimplements
 // the same read in Go; all of them take data["login"]["access_token"]. If this
 // test fails, every one of them stops seeing the token nsctl wrote.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC004
 func TestWrittenFileStillParsesAsLoginAccessToken(t *testing.T) {
 	t.Parallel()
 
@@ -98,6 +100,8 @@ func TestWrittenFileStillParsesAsLoginAccessToken(t *testing.T) {
 
 // The Python writer sets no mode, so the bearer token typically lands 0644.
 // This one must not.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC004
 func TestTheTokenFileIsPrivate(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +127,8 @@ func TestTheTokenFileIsPrivate(t *testing.T) {
 
 // A key written by the Python CLI, or by a later version of this one, must
 // survive a login here.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC004
 func TestUnknownKeysSurviveARewrite(t *testing.T) {
 	t.Parallel()
 

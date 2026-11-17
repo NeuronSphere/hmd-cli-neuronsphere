@@ -87,6 +87,7 @@ func fromRepoEnv(t *testing.T) (home string, env map[string]string) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010, HMD_CLI_NEURONSPHERE_NERD010_SPEC005
 func TestEnvAddFromRepoDeclaresTheActivatedEntries(t *testing.T) {
 	t.Parallel()
 
@@ -169,6 +170,7 @@ func subjectDeps(t *testing.T, m *manifest.Manifest) map[string]string {
 	return nil
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC005
 func TestEnvAddFromRepoProfileSelection(t *testing.T) {
 	t.Parallel()
 
@@ -323,6 +325,7 @@ func TestOneLockSupportsTwoNamings(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC005
 func TestEnvAddFromRepoRefusals(t *testing.T) {
 	t.Parallel()
 
@@ -461,6 +464,8 @@ func runApplyFromRepo(t *testing.T, env map[string]string, args ...string) (stri
 // NERD005 SPEC004: an apply that reaches the internet unasked is an apply that
 // behaves differently on an aeroplane. So this one refuses, in SPEC007's shape,
 // and names both remedies.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC006
 func TestEnvApplyFromRepoIsOfflineByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -494,6 +499,8 @@ func TestEnvApplyFromRepoIsOfflineByDefault(t *testing.T) {
 
 // Without this a bare apply falls back to the repository's default_profiles and
 // reconciles away instances the user explicitly asked for.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC006
 func TestEnvApplyFromRepoReadsBackTheRecordedProfiles(t *testing.T) {
 	t.Parallel()
 
@@ -575,6 +582,8 @@ func TestEnvApplyFromRepoRenameUndeclaresTheOldName(t *testing.T) {
 
 // Deactivating a profile is not a request about those instances, so they stay
 // declared until asked for otherwise.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC006
 func TestEnvApplyFromRepoProfileDeactivation(t *testing.T) {
 	t.Parallel()
 
@@ -640,6 +649,8 @@ func TestEnvApplyFromRepoLeavesHandAddedInstancesAlone(t *testing.T) {
 
 // --pull is a declared step that says what it does. The librarian is stood up
 // in-process, so this never reaches a real one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC006
 func TestEnvApplyFromRepoPullFetchesWhatIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -777,6 +788,8 @@ const stackSubjectManifest = `{
 // that has failed three separate ways -- `hmd true` from projectbuilder's
 // entrypoint, KeyError on a missing commands key, and an empty list that works
 // only by accident of the loop.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC001
 func TestEnvAddFromRepoDoesNotDeclareAStack(t *testing.T) {
 	t.Parallel()
 

@@ -33,6 +33,7 @@ var allowed = map[string]bool{
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/versionspec": true,
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC007
 func TestImportsAreTheAllowlist(t *testing.T) {
 	t.Parallel()
 

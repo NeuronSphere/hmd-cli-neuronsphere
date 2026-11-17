@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Requirements: HMD_CLI_NERD002_SPEC004
 func TestCodeOf(t *testing.T) {
 	t.Parallel()
 

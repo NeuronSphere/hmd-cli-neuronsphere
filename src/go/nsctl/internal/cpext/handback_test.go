@@ -35,6 +35,7 @@ func testLookup(vars map[string]string) compose.Lookup {
 	return func(key string) string { return vars[key] }
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010, HMD_CLI_NEURONSPHERE_NERD006_SPEC008
 func TestHandbackFromReadsTheDeclaredVariables(t *testing.T) {
 	t.Parallel()
 
@@ -63,6 +64,7 @@ func TestHandbackFromReadsTheDeclaredVariables(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD004_SPEC010
 func TestHandbackFromDefaultsToScalar(t *testing.T) {
 	t.Parallel()
 

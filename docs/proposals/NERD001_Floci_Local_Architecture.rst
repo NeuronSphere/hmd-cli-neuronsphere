@@ -411,6 +411,7 @@ Argo Workflows on Local EKS (k3s)
     :id: HMD_CLI_NEURONSPHERE_NERD001_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD001
     :status: implemented
+    :tags: trace-exempt
 
     Floci replaces MiniStack as a drop-in AWS emulator. The switch is
     straightforward because both expose port 4566 and both use the standard AWS
@@ -432,6 +433,8 @@ Argo Workflows on Local EKS (k3s)
     ``dynamodb_tables`` continue to work unchanged. Floci additionally enables
     ``secrets`` (Secrets Manager) and ``step_functions`` resource types in future
     phases.
+
+    Verified live: every local environment runs on Floci; the change itself was to the legacy Python plugin's compose file and deployer module, which no Go test reaches.
 
 Extend Mode: Infrastructure Validation for Engineers
 -----------------------------------------------------

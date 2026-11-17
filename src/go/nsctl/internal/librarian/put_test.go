@@ -304,6 +304,8 @@ func TestPutFailures(t *testing.T) {
 // failure. New refuses when neither an API key nor a token is configured, which
 // is correct for a cloud librarian and would make `register` impossible on the
 // machine nsctl exists to serve: the local librarian is anonymous.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC009
 func TestNewLocalNeedsNoCredential(t *testing.T) {
 	t.Parallel()
 

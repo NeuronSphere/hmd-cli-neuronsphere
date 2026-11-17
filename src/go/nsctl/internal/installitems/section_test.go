@@ -25,6 +25,7 @@ func tree(t *testing.T, files map[string]string) string {
 	return root
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestParseReadsTheSection(t *testing.T) {
 	t.Parallel()
 	sec, err := Parse([]byte(`{"name": "kit", "install": {
@@ -49,6 +50,7 @@ func TestParseWithoutASectionIsErrNoSection(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestParseRefusesUnknownKeys(t *testing.T) {
 	t.Parallel()
 	_, err := Parse([]byte(`{"install": {"items": [{"kind": "docs", "title": "x", "dir": "d", "exec": "rm -rf /"}]}}`))
@@ -57,6 +59,7 @@ func TestParseRefusesUnknownKeys(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	root := tree(t, map[string]string{
@@ -105,6 +108,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestValidateRefusesASymlinkOut(t *testing.T) {
 	t.Parallel()
 	root := tree(t, map[string]string{"x": "x"})
@@ -117,6 +121,7 @@ func TestValidateRefusesASymlinkOut(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC001
 func TestRequiredBinariesIncludeGitForAGitItem(t *testing.T) {
 	t.Parallel()
 	sec, _ := Parse([]byte(`{"install": {"requires": [{"binary": "uv", "install_hint": "h"}],

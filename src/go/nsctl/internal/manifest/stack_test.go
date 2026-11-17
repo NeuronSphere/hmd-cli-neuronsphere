@@ -9,6 +9,7 @@ import (
 
 // NERD017 SPEC009: the stacks record round-trips and validates.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC009
 func TestStackRecordsRoundTrip(t *testing.T) {
 	t.Parallel()
 	m := &Manifest{Version: Version, Name: "dev", Scope: ScopeEnvironment}
@@ -42,6 +43,7 @@ func TestStackRecordsRoundTrip(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC009
 func TestStackRecordValidation(t *testing.T) {
 	t.Parallel()
 	m := &Manifest{Version: Version, Name: "dev", Scope: ScopeEnvironment,

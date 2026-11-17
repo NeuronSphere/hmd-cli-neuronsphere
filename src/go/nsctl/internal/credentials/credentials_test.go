@@ -70,6 +70,8 @@ func baseOptions(t *testing.T) Options {
 
 // Every placeholder resolves from what nsctl already holds, which is what makes
 // one declaration work in any environment under any instance name.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestResolveFillsThePlaceholders(t *testing.T) {
 	t.Parallel()
 
@@ -102,6 +104,8 @@ func TestResolveFillsThePlaceholders(t *testing.T) {
 
 // --reveal reads the value, and the property is taken out of the JSON secret the
 // chart's ExternalSecret reads the same way.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC006
 func TestResolveRevealsTheDeclaredProperty(t *testing.T) {
 	t.Parallel()
 
@@ -130,6 +134,8 @@ func TestResolveRevealsTheDeclaredProperty(t *testing.T) {
 // An entry that cannot resolve is reported with its reason rather than dropped:
 // its name is otherwise shown nowhere, and a deploy in progress is the common
 // case.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC005
 func TestResolveReportsWhyAnEntryDidNotResolve(t *testing.T) {
 	t.Parallel()
 
@@ -174,6 +180,8 @@ func TestResolveReportsWhyAnEntryDidNotResolve(t *testing.T) {
 // NERD023 SPEC004: where the producer published the name, that name wins. nsctl
 // re-deriving it from a template would be nsctl disagreeing with the thing that
 // wrote the secret.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestResolvePrefersTheProducersPublishedName(t *testing.T) {
 	t.Parallel()
 
@@ -222,6 +230,8 @@ func TestResolvePrefersTheProducersPublishedName(t *testing.T) {
 
 // --instance narrows the result, and the sort makes the same environment report
 // the same bytes twice.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC006
 func TestResolveFiltersAndSorts(t *testing.T) {
 	t.Parallel()
 
@@ -262,6 +272,8 @@ func TestResolveFiltersAndSorts(t *testing.T) {
 
 // Any decides whether a deploy summary points at `env credentials`. A pointer to
 // an empty table is noise, so a class that declares nothing must answer false.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC006
 func TestAny(t *testing.T) {
 	t.Parallel()
 
@@ -306,6 +318,8 @@ func stackOptions(t *testing.T, entries ...bacon.AccessEntry) Options {
 // case: hmd-app-airflow documents the `admin` user its own default_configuration
 // creates, and a stack that replaces that users fixture leaves the class's entry
 // describing a login that does not exist.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAStackSupersedesTheClassEntryItNames(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +354,8 @@ func TestAStackSupersedesTheClassEntryItNames(t *testing.T) {
 }
 
 // An entry for an instance nothing else describes is added, not a replacement.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAStackEntryForAnUnclaimedInstanceIsAdded(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +387,8 @@ func TestAStackEntryForAnUnclaimedInstanceIsAdded(t *testing.T) {
 
 // A stack that names an instance the environment does not declare has a defect
 // in it, and the report is where its author finds out.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAStackEntryNamingAnAbsentInstanceIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -390,6 +408,8 @@ func TestAStackEntryNamingAnAbsentInstanceIsReported(t *testing.T) {
 
 // Without an instance there is nothing to template against: {ingress_host} and
 // a secret name are both derived from one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAStackEntryWithNoInstanceIsReported(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +428,8 @@ func TestAStackEntryWithNoInstanceIsReported(t *testing.T) {
 // A record written before the class was persisted cannot reach its declaration.
 // Saying so beats silence: a stack that declares a front door and is ignored
 // looks exactly like a stack that declares none.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAStackRecordWithNoClassSaysWhyItCannotBeRead(t *testing.T) {
 	t.Parallel()
 
@@ -438,6 +460,8 @@ func TestInstanceFilterAppliesToStackEntries(t *testing.T) {
 
 // The deploy summary's pointer must appear when the only declaration is a
 // stack's, or an environment deploys three interfaces and says nothing.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestAnyCountsAStacksOwnDeclaration(t *testing.T) {
 	t.Parallel()
 

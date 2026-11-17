@@ -7,6 +7,8 @@ import (
 )
 
 // TestParseRef is NERD016 SPEC001's grammar, one row per production.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC001
 func TestParseRef(t *testing.T) {
 	t.Parallel()
 
@@ -59,6 +61,7 @@ func TestParseRef(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC001
 func TestRefStringAndReference(t *testing.T) {
 	t.Parallel()
 

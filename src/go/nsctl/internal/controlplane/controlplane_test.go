@@ -31,6 +31,8 @@ func testOptions(home string, env map[string]string) *Options {
 // The notice has to say what is actually degraded and name both remedies. An
 // instruction to edit /etc/hosts with no statement of what breaks without it is
 // what made this look mandatory when it never was (NERD025 SPEC004).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025, HMD_CLI_NEURONSPHERE_NERD025_SPEC004
 func TestTheHostNamesNoticeNamesBothRemedies(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +56,7 @@ func TestTheHostNamesNoticeNamesBothRemedies(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC004, HMD_CLI_NEURONSPHERE_NERD021_SPEC012
 func TestCheckHostsEntries(t *testing.T) {
 	t.Parallel()
 
@@ -517,6 +520,8 @@ func TestTheProxyCheckRefusesOnlyWhenItKnows(t *testing.T) {
 // this test spelled the names out a second time, which proves only that two
 // strings in the test file agree with each other: renaming the variable a reader
 // honours would have left it green.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC007
 func TestThePortRemedyNamesRealOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -671,6 +676,8 @@ func TestTheNsctlImageIsNeededByTheResolverToo(t *testing.T) {
 // not resolve, and told to add the line it already had. NERD025's requirement
 // forbids exactly that: no failure on this path may be reported as a missing
 // entry in a file the user was never required to edit.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC006
 func TestTheStartOnlyReportsNamesThatTrulyDoNotResolve(t *testing.T) {
 	t.Parallel()
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-17
+
+- test: Go tests name the NERD requirements they verify (`// Requirements: HMD_CLI_NEURONSPHERE_NERDxxx_SPECyyy`), so reqtrace can link every SPEC to a test. New tests cover SPECs that had none: root help and the missing-`HMD_HOME` refusal name `nsctl quickstart`, `agent skills doctor`, the container engine's context endpoint, environment currency, and substrate mode. SPECs with no nsctl behaviour to unit-test (verified live, owned by another repository, or scope statements) are tagged `trace-exempt` in NERD001, 002, 005, 006, 011, 012, 013, 027 and 028, each with the reason
+
 ## 2026-11-13
 
 - feat: the Python `hmd neuronsphere` commands that nsctl covers now print a deprecation warning on stderr naming their replacement, and still run unchanged: `up` (`nsctl env start`), `down` (`nsctl env stop`), `restart` (`nsctl env apply`), `status` (`nsctl env status`), `update-images` (`nsctl env apply --pull`), `pull-artifact` (`nsctl artifact pull`), `push-artifact` (`nsctl artifact register`), `db-upgrade` (`nsctl db upgrade`), and `env create/plan/list/delete/status` (`nsctl env add/plan/list/delete/status`). `db-provision`, `db-register`, `gen-dev-config`, `route-service`, `configure`, the plugin commands, `run`, `env show` and `env use` have no nsctl verb yet and do not warn

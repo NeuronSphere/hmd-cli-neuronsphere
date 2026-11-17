@@ -50,6 +50,7 @@ func instancesOf(m *manifest.Manifest, class string) []manifest.Repo {
 	return out
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestEnvAddFromATemplateAloneDeclaresTheTemplate(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -67,6 +68,7 @@ func TestEnvAddFromATemplateAloneDeclaresTheTemplate(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestEnvAddSharesATemplateInstanceWithTheRepository(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -91,6 +93,7 @@ func TestEnvAddSharesATemplateInstanceWithTheRepository(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestTheEditedRepositoryReplacesTheTemplatesInstanceOfItsClass(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -107,6 +110,7 @@ func TestTheEditedRepositoryReplacesTheTemplatesInstanceOfItsClass(t *testing.T)
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestTheEditedRepositoryReplacesAnotherRepositorysCompanionInEitherOrder(t *testing.T) {
 	t.Parallel()
 	for _, order := range []string{"redis first", "myapi first"} {
@@ -134,6 +138,7 @@ func TestTheEditedRepositoryReplacesAnotherRepositorysCompanionInEitherOrder(t *
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestATemplateInstanceOfAnotherClassUnderAWantedNameIsAConflict(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -154,6 +159,7 @@ func TestATemplateInstanceOfAnotherClassUnderAWantedNameIsAConflict(t *testing.T
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestTwoRepositoriesOfOneClassAreRefused(t *testing.T) {
 	t.Parallel()
 	_, env := fromRepoEnv(t)
@@ -165,6 +171,7 @@ func TestTwoRepositoriesOfOneClassAreRefused(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestANameIsUsedIfAnyRepositoryUsesIt(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)
@@ -185,6 +192,7 @@ func TestANameIsUsedIfAnyRepositoryUsesIt(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC004
 func TestEnvAddCompositionFlagsAreChecked(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)

@@ -75,6 +75,7 @@ func librarianHolding(t *testing.T, repoName string, paths map[string]string) *l
 	return c
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
 func TestEnumerateReadsVersionsOutOfContentPaths(t *testing.T) {
 	t.Parallel()
 
@@ -169,6 +170,7 @@ func TestEnumerateReportsAnAbsentRepoClass(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC004
 func TestCacheRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +246,8 @@ func TestItemTypes(t *testing.T) {
 // TestEnumerateChunksARepoClassWithHundredsOfVersions is acceptance criterion 4
 // against a fake, so the live run has something to fail against rather than
 // something to discover.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC001
 func TestEnumerateChunksARepoClassWithHundredsOfVersions(t *testing.T) {
 	t.Parallel()
 

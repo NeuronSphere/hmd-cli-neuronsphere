@@ -66,6 +66,8 @@ func TestArtifactVersionsListsWhatIsPublished(t *testing.T) {
 
 // TestArtifactVersionsResolvesASpecifier is acceptance criterion 3's shape: the
 // highest satisfying version, which for `~= 0.1` is *not* the highest 0.1.x.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC002
 func TestArtifactVersionsResolvesASpecifier(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +91,8 @@ func TestArtifactVersionsResolvesASpecifier(t *testing.T) {
 // TestArtifactVersionsRefusesAnOrderedSpecifier is acceptance criterion 2, and
 // it asserts on the remedies rather than on the refusal: an author who wrote
 // ">=0.3" needs to be told which of the two things they meant.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC002
 func TestArtifactVersionsRefusesAnOrderedSpecifier(t *testing.T) {
 	t.Parallel()
 
@@ -163,6 +167,8 @@ func TestArtifactVersionsReportsTheWrongItemType(t *testing.T) {
 // TestArtifactVersionsOfflineReadsTheCacheAndItsAge is what makes the recorded
 // query time load bearing: "this was the newest version when somebody last
 // asked" is a different claim from "this is the newest version".
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC004
 func TestArtifactVersionsOfflineReadsTheCacheAndItsAge(t *testing.T) {
 	t.Parallel()
 
@@ -233,6 +239,8 @@ func TestArtifactVersionsSummarisesALongHistory(t *testing.T) {
 
 // TestArtifactPullResolvesTheNewest: the version is optional, and what it
 // resolved to is printed rather than assumed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011
 func TestArtifactPullResolvesTheNewest(t *testing.T) {
 	t.Parallel()
 

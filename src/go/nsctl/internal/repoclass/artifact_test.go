@@ -45,6 +45,8 @@ func cacheArtifact(t *testing.T, home, class, version, manifest string) string {
 // art. The manifest asked for a version; a checkout that happens to be lying
 // around is not that version, and substituting it produces a deploy that reports
 // a version it did not use.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestAnArtifactBeatsAnUnaskedForCheckout(t *testing.T) {
 	t.Parallel()
 
@@ -74,6 +76,8 @@ func TestAnArtifactBeatsAnUnaskedForCheckout(t *testing.T) {
 // Development beats distribution. The entire purpose of $HMD_REPO_HOME is to run
 // uncommitted changes, and an artifact source that overrode it would make the
 // platform untestable by the people who build it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestACheckoutTheUserAskedForBeatsAnArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -117,6 +121,8 @@ func TestACheckoutTheUserAskedForBeatsAnArtifact(t *testing.T) {
 
 // An explicit pin still wins, and pre-empts nothing worth announcing: the user
 // named a version, which is the same kind of thing an artifact source names.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestAnExplicitPinBeatsAnArtifact(t *testing.T) {
 	t.Parallel()
 
@@ -138,6 +144,8 @@ func TestAnExplicitPinBeatsAnArtifact(t *testing.T) {
 // artifact is addressed *by* version, so that version is known either way.
 // Whether the bytes are here is a different question, asked before the deploy
 // starts.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC002
 func TestAnUncachedArtifactStillReportsItsVersion(t *testing.T) {
 	t.Parallel()
 

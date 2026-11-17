@@ -18,6 +18,8 @@ import (
 
 // The bundled file must satisfy the invariant the whole layout rests on:
 // hmd_proxy is the only container that publishes host ports.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC004
 func TestTheBundledFileHasOneExclusivePublisher(t *testing.T) {
 	t.Parallel()
 
@@ -135,6 +137,7 @@ func TestHostPortsSkipsContainerOnlyPublications(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC007
 func TestCheckInUseReportsOnlyForeignPorts(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +199,8 @@ func (f *fakeLister) ContainerList(_ context.Context, opts container.ListOptions
 
 // Reading the structured Ports field off the API removes the text parsing the
 // Python does on `docker ps`'s Ports column.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC004, HMD_CLI_NEURONSPHERE_NERD021_SPEC005
 func TestOurPortsReadsPublishedPortsStructurally(t *testing.T) {
 	t.Parallel()
 
@@ -220,6 +225,7 @@ func TestOurPortsReadsPublishedPortsStructurally(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC005
 func TestOurPortsToleratesADeadDaemon(t *testing.T) {
 	t.Parallel()
 
@@ -237,6 +243,8 @@ func TestOurPortsToleratesADeadDaemon(t *testing.T) {
 
 // A failure on one project must not discard what the others reported, and must
 // still mark the whole answer partial.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC005
 func TestOurPortsReportsAPartialAnswer(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +336,8 @@ func TestNoBundledServicePublishesItsOwnPort(t *testing.T) {
 // a different question than binding 0.0.0.0, and the two disagree exactly where
 // it matters: a listener on a real interface is invisible to the dial and still
 // fatal to the bind.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC007
 func TestBindProberSeesAListenerADialWouldMiss(t *testing.T) {
 	t.Parallel()
 
@@ -348,6 +358,8 @@ func TestBindProberSeesAListenerADialWouldMiss(t *testing.T) {
 }
 
 // A UDP squatter is invisible to a TCP probe, and 5353 is precisely that case.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC007
 func TestBindProberSeesAUDPListener(t *testing.T) {
 	t.Parallel()
 

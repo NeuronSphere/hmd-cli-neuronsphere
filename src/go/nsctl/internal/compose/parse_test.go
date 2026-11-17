@@ -77,6 +77,8 @@ func TestParseTheBundledControlPlaneFile(t *testing.T) {
 // hmd_proxy is the only container in the whole local stack that publishes host
 // ports. Everything else is reached through it, which is what lets several
 // environments coexist on one machine.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC001
 func TestTheProxyPublishesOnlyWhatIsAlwaysThere(t *testing.T) {
 	t.Parallel()
 

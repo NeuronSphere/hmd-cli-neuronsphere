@@ -18,6 +18,8 @@ func fixedInspector(out string, err error) Inspector {
 
 // DOCKER_HOST wins, and the CLI reporting it under the synthetic "default"
 // context must not be mistaken for a context the user chose.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC001
 func TestResolvePrefersDOCKERHOST(t *testing.T) {
 	r := &Resolver{
 		Inspect: fixedInspector("default\tunix:///tmp/fake.sock\tfalse", nil),
@@ -40,6 +42,8 @@ func TestResolvePrefersDOCKERHOST(t *testing.T) {
 
 // The case the whole document exists for: a context naming a socket that is
 // not /var/run/docker.sock.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC001, HMD_CLI_NEURONSPHERE_NERD021
 func TestResolveUsesContextEndpoint(t *testing.T) {
 	const sock = "unix:///Users/x/.colima/default/docker.sock"
 	r := &Resolver{
@@ -63,6 +67,8 @@ func TestResolveUsesContextEndpoint(t *testing.T) {
 
 // Nothing named an endpoint: fall back to exactly what the Engine API client
 // would have used anyway, so this can only improve on the old behaviour.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC001
 func TestResolveFallsBackToDefaultSocket(t *testing.T) {
 	r := &Resolver{
 		Inspect: fixedInspector("", errors.New("docker context inspect: boom")),
@@ -103,6 +109,7 @@ func TestResolveIgnoresUnusableOutput(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC001
 func TestResolveIsMemoized(t *testing.T) {
 	calls := 0
 	r := &Resolver{
@@ -119,6 +126,7 @@ func TestResolveIsMemoized(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC004
 func TestClientOptsRefusesSSH(t *testing.T) {
 	ep := Endpoint{Host: "ssh://build@host", Context: "remote", Source: SourceContext}
 	_, err := ep.ClientOpts(envOf(nil))
@@ -132,6 +140,7 @@ func TestClientOptsRefusesSSH(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC004
 func TestClientOptsUnixAndTCP(t *testing.T) {
 	unix := Endpoint{Host: "unix:///var/run/docker.sock", Source: SourceDefaultSocket}
 	opts, err := unix.ClientOpts(envOf(nil))
@@ -159,6 +168,7 @@ func TestClientOptsUnixAndTCP(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC004
 func TestClientOptsRefusesUnknownScheme(t *testing.T) {
 	ep := Endpoint{Host: "carrier-pigeon://nowhere", Source: SourceEnvHost}
 	if _, err := ep.ClientOpts(envOf(nil)); !errors.Is(err, ErrUnsupportedScheme) {
@@ -168,6 +178,8 @@ func TestClientOptsRefusesUnknownScheme(t *testing.T) {
 
 // Describe's strings are quoted verbatim in the preflight refusal, so they are
 // the product here.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC001
 func TestDescribeNamesHostAndSource(t *testing.T) {
 	cases := []struct {
 		ep   Endpoint

@@ -25,6 +25,8 @@ func has(list []string, want string) bool {
 }
 
 // NERD014 SPEC007: rows and routes name only what the mode runs.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC007
 func TestEnvironmentStatusListsOnlyWhatTheSubstrateRuns(t *testing.T) {
 	t.Parallel()
 

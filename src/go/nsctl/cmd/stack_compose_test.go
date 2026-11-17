@@ -96,6 +96,7 @@ func declareArtifact(t *testing.T, home string, env map[string]string, name, cla
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC010
 func TestStackAddDeclaresADependencyNobodyProvides(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -122,6 +123,7 @@ func TestStackAddDeclaresADependencyNobodyProvides(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC010
 func TestStackAddBindsToAnExistingProducerByResource(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -169,6 +171,7 @@ func TestStackAddBindsToAnExistingProducerByResource(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC010
 func TestStackAddRefusesAnUnsatisfiedRoleNamingTheSuggestion(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -221,6 +224,7 @@ content_path = "repository:/hmd-app-airflow/0.4.344/hmd-app-airflow_0.4.344_buil
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC010, HMD_CLI_NEURONSPHERE_NERD017_SPEC008
 func TestStackAddSharesACompanionAlreadyDeclaredAndRefusesAClassClash(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)

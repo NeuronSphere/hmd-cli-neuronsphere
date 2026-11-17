@@ -22,6 +22,8 @@ func cloudLookup(vars map[string]string) func(string) string {
 // TestCloudSendsTheRawToken pins the header format against hmd_rest_client's
 // _get_headers. A `Bearer ` prefix is the obvious thing to write and it fails
 // authentication against a service that works for every Python client.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC002
 func TestCloudSendsTheRawToken(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +56,8 @@ func TestCloudSendsTheRawToken(t *testing.T) {
 
 // TestCloudReadsTheCachedToken is the ordinary path: somebody ran `nsctl login`
 // and nothing else is configured.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC002
 func TestCloudReadsTheCachedToken(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +92,8 @@ func TestCloudReadsTheCachedToken(t *testing.T) {
 // TestCloudRefusesWithNoCredential fails at construction rather than at the
 // first request, so "you never set this up" and "your token expired" stay
 // distinguishable.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC002
 func TestCloudRefusesWithNoCredential(t *testing.T) {
 	t.Parallel()
 
@@ -131,6 +137,8 @@ func TestLocalClientSendsNoCredentials(t *testing.T) {
 // TestAPIOpGetUsesGET is the mechanical reason this method exists:
 // get_deployment_bom is declared GET, and a GET operation called with POST
 // answers 405.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC002, HMD_CLI_NEURONSPHERE_NERD012_SPEC003
 func TestAPIOpGetUsesGET(t *testing.T) {
 	t.Parallel()
 
@@ -171,6 +179,8 @@ func TestAPIOpGetUsesGET(t *testing.T) {
 // that the conditional keys behave as the Python's branches say: an image_only
 // entry carries no configuration and no dependencies, and a role is a bare
 // string for one target and a list for several.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC003, HMD_CLI_NERD002_SPEC009
 func TestBOMDecodesEveryShape(t *testing.T) {
 	t.Parallel()
 
@@ -225,6 +235,8 @@ func TestBOMDecodesEveryShape(t *testing.T) {
 
 // TestEnvironmentsListsTheSlugs covers the listing SPEC004 asks for, including
 // the row a graph can hold that names nothing.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC004
 func TestEnvironmentsListsTheSlugs(t *testing.T) {
 	t.Parallel()
 

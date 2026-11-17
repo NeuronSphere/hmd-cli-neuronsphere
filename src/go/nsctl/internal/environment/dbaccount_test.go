@@ -16,6 +16,8 @@ import (
 // NERD024 SPEC001. The three answers are different questions: the mode decides
 // whether the service is possible, the manifest decides whether it is wanted,
 // and an unreadable manifest decides nothing.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024, HMD_CLI_NEURONSPHERE_NERD024_SPEC001
 func TestWantsDBAccount(t *testing.T) {
 	t.Parallel()
 
@@ -51,6 +53,8 @@ func TestWantsDBAccount(t *testing.T) {
 // NERD024 SPEC004: a healthy hmd-ms-base service 404s at its route root,
 // because it registers only /api/... and /apiop/.... That is what makes a 5xx
 // diagnostic, so the probe must not treat the 404 as a failure.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC004
 func TestProbeRouteAcceptsTheHealthy404(t *testing.T) {
 	t.Parallel()
 
@@ -68,6 +72,7 @@ func TestProbeRouteAcceptsTheHealthy404(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC004
 func TestProbeRouteReportsA5xxAfterRetrying(t *testing.T) {
 	t.Parallel()
 
@@ -91,6 +96,8 @@ func TestProbeRouteReportsA5xxAfterRetrying(t *testing.T) {
 
 // The repair depends on whether a restart would change anything, which is the
 // whole point of naming both versions.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC004
 func TestBrokenRouteNamesTheRepairThatWouldWork(t *testing.T) {
 	t.Parallel()
 
@@ -141,6 +148,8 @@ func fixedLookup(base string) func(string) string {
 // point: the acceptance run for NERD024 deployed a deliberately broken 0.1.46,
 // probed in the moment between writing the fragment and nginx reloading it,
 // read the proxy's 404 as the service's, and passed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC004
 func TestProbeRouteDoesNotReadTheProxys404AsHealth(t *testing.T) {
 	t.Parallel()
 

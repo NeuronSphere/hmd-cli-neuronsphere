@@ -22,6 +22,7 @@ func acquireSession(t *testing.T, home string, extra ...string) (string, string)
 	return l.Env, l.Token
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionAcquireIsASessionLeaseWithTheSessionTTL(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -37,6 +38,7 @@ func TestSessionAcquireIsASessionLeaseWithTheSessionTTL(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionTTLComesFromNsctlToml(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -58,6 +60,7 @@ func TestSessionTTLComesFromNsctlToml(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestSessionShellPrintsTheExports(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -76,6 +79,7 @@ func TestSessionShellPrintsTheExports(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestShellAndJSONAreExclusive(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -87,6 +91,7 @@ func TestShellAndJSONAreExclusive(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestARunInsideASessionIsAnsweredWithTheSessionLease(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -109,6 +114,7 @@ func TestARunInsideASessionIsAnsweredWithTheSessionLease(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestARunInsideASessionStillContendsForAnotherEnvironment(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -124,6 +130,7 @@ func TestARunInsideASessionStillContendsForAnotherEnvironment(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestReleaseWithoutSessionLeavesTheSessionLease(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -152,6 +159,7 @@ func TestReleaseWithoutSessionLeavesTheSessionLease(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestHeartbeatTakesTheTokenAlone(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -172,6 +180,7 @@ func TestHeartbeatTakesTheTokenAlone(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestWhoamiDescribesTheSession(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)
@@ -197,6 +206,7 @@ func TestWhoamiDescribesTheSession(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestListShowsTheScope(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)

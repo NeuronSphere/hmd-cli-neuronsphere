@@ -24,6 +24,7 @@ func write(t *testing.T, body string) string {
 
 func noEnv(string) string { return "" }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC001
 func TestLoadAndResolveTheDefaultProfile(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +100,8 @@ func TestProfileDefaults(t *testing.T) {
 
 // Picking one of several alphabetically would authenticate against an endpoint
 // nobody named, so more than one profile and no default is a refusal.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC001
 func TestProfileRefusesToGuessBetweenSeveral(t *testing.T) {
 	t.Parallel()
 
@@ -204,6 +207,7 @@ func TestValidateRejectsABareHostname(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC001
 func TestSaveRoundTripsAndIsPrivate(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +247,8 @@ func TestSaveRoundTripsAndIsPrivate(t *testing.T) {
 
 // The override is what lets a test, or a one-off run, avoid depending on
 // $HMD_HOME's layout -- the same reason manifest.PathOverride exists.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC001
 func TestPathOverride(t *testing.T) {
 	t.Parallel()
 
@@ -329,6 +335,7 @@ func TestNoBuiltinByDefault(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC009
 func TestBuiltinAnswersWhenNothingIsConfigured(t *testing.T) {
 	withBuiltin(t, "https://auth.neuronsphere.test/oauth2/ns")
 

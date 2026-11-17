@@ -46,6 +46,8 @@ func has(r Result, field string, c Confidence) (Finding, bool) {
 
 // A CI step that deploys is the author's own statement of how the repository
 // deploys, and it outranks anything inferred from a chart being present.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC009
 func TestWorkflowIsAuthoritative(t *testing.T) {
 	t.Parallel()
 
@@ -90,6 +92,8 @@ jobs:
 
 // A repository that is already NeuronSphere-shaped gets the native tools, not an
 // exec wrapping them.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC009
 func TestNativeLayoutProposesTheNativeTools(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +113,8 @@ func TestNativeLayoutProposesTheNativeTools(t *testing.T) {
 
 // A task runner is the best exec candidate short of a CI step: an entry point the
 // author maintains and tests.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC009
 func TestMakefileTargetIsTheExecCandidate(t *testing.T) {
 	t.Parallel()
 
@@ -130,6 +136,8 @@ func TestMakefileTargetIsTheExecCandidate(t *testing.T) {
 
 // A PaaS manifest is reported and stopped at: there is no local equivalent of a
 // platform deploy, and saying so is the honest answer.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC010
 func TestPaaSReportsAndStops(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +168,8 @@ func TestPaaSReportsAndStops(t *testing.T) {
 // The refusals are the assertions that matter: SPEC010 draws the boundary between
 // the deterministic layer and the judgement layer, and the cost of crossing it is
 // asymmetric.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC008, HMD_CLI_NEURONSPHERE_NERD009_SPEC010
 func TestRefusalsAreAlwaysReported(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +253,8 @@ func (f *fakeWriter) SetImage(ref string) error              { f.image = ref; re
 // Apply writes exactly four members and nothing else. This is the test that
 // keeps SPEC010 true as the detector grows: the Writer interface has no method
 // that could write a dependency or a resource.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC008, HMD_CLI_NEURONSPHERE_NERD009_SPEC009, HMD_CLI_NEURONSPHERE_NERD009_SPEC010
 func TestApplyWritesOnlyWhatWasDecided(t *testing.T) {
 	t.Parallel()
 

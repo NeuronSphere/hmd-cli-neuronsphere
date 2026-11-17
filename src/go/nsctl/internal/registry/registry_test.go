@@ -39,6 +39,8 @@ func writeFixture(t *testing.T) (string, []byte) {
 // Python CLI emits -- captured from a live install, not produced by marshalling
 // Go structs. A round-trip fixture would pass however wrong the struct tags
 // were; this one fails if a tag, a field or the key ordering drifts.
+//
+// Requirements: HMD_CLI_NERD002_SPEC003, HMD_CLI_NERD002_SPEC012
 func TestSaveReproducesThePythonBytes(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +63,7 @@ func TestSaveReproducesThePythonBytes(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NERD002_SPEC003
 func TestLoadReadsEveryField(t *testing.T) {
 	t.Parallel()
 
@@ -129,6 +132,7 @@ func TestLoadReadsEveryField(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC003
 func TestDerivedPorts(t *testing.T) {
 	t.Parallel()
 
@@ -170,6 +174,8 @@ func TestDerivedPorts(t *testing.T) {
 
 // The whole published band is 19000-19079: 16 slots of 4, then 16 k3s ports.
 // A gap or an overlap here would collide two environments on one port.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC003
 func TestThePortBandIsContiguousAndDoesNotOverlap(t *testing.T) {
 	t.Parallel()
 

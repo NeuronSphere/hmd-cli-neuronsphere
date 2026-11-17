@@ -678,6 +678,7 @@ resolution learns that anything changed.
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC008
     :links: HMD_CLI_NEURONSPHERE_NERD005
     :status: implemented
+    :tags: trace-exempt
 
     Taken with ``NERD004``, this is a complete distribution story for an
     extension, and it is worth writing out end to end because neither
@@ -727,6 +728,8 @@ resolution learns that anything changed.
     ``$HMD_REPO_HOME`` pointed at an empty directory,
     ``hmd-inf-s3bucket@0.1.13`` deployed from its artifact and Floci holds the
     bucket its CDKTF stage created.
+
+    This is an end-to-end walkthrough composing other traced needs (NERD004, NERD005); it is verified live by following it with ``hmd-inf-local-registry``, and has no behaviour of its own to test.
 
 .. spec:: Credentials
     :id: HMD_CLI_NEURONSPHERE_NERD005_SPEC009

@@ -18,6 +18,7 @@ func asSession(t *testing.T) {
 	t.Cleanup(func() { sessionProcess = prev })
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestASecondSessionAcquireFromTheSameSessionReturnsItsLease(t *testing.T) {
 	asSession(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -45,6 +46,7 @@ func TestASecondSessionAcquireFromTheSameSessionReturnsItsLease(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestHeartbeatWhoamiAndReleaseFindTheSessionWithoutAToken(t *testing.T) {
 	asSession(t)
 	home := registryHome(t, twoEnvRegistry)
@@ -67,6 +69,7 @@ func TestHeartbeatWhoamiAndReleaseFindTheSessionWithoutAToken(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC002
 func TestReleaseWithoutANameStillNeedsSession(t *testing.T) {
 	t.Parallel()
 	home := registryHome(t, twoEnvRegistry)

@@ -139,6 +139,8 @@ func pendingUserCode() string {
 }
 
 // Sign in end to end against the real mock, through the real command.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008
 func TestLoginSignsInAgainstTheLocalMock(t *testing.T) {
 	issuer := authdServer(t)
 	h := newLoginHarness(t, nil)
@@ -196,6 +198,8 @@ func TestLoginSignsInAgainstTheLocalMock(t *testing.T) {
 }
 
 // A working credential is not worth a browser.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC005
 func TestLoginShortCircuitsOnAValidToken(t *testing.T) {
 	t.Parallel()
 
@@ -219,6 +223,8 @@ func TestLoginShortCircuitsOnAValidToken(t *testing.T) {
 }
 
 // Refusing, not prompting, when there is no terminal to answer.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC002
 func TestLoginWithoutConfigRefusesWithUsage(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +247,8 @@ func TestLoginWithoutConfigRefusesWithUsage(t *testing.T) {
 
 // Not a TTY is the same refusal as --no-prompt: prompting into a pipe hangs a
 // script instead of telling it what is wrong.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC002
 func TestLoginWithoutATerminalRefusesRatherThanPrompts(t *testing.T) {
 	t.Parallel()
 
@@ -254,6 +262,8 @@ func TestLoginWithoutATerminalRefusesRatherThanPrompts(t *testing.T) {
 
 // On a terminal the question is asked once and the answer is written, so it is
 // never asked again.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC002
 func TestLoginPromptsAndSavesTheEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -284,6 +294,8 @@ func TestLoginPromptsAndSavesTheEndpoint(t *testing.T) {
 
 // A file that exists and does not parse must never be prompted over: a typo
 // must not become data loss.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC002
 func TestLoginNeverOverwritesAnInvalidConfig(t *testing.T) {
 	t.Parallel()
 
@@ -358,6 +370,8 @@ func TestLoginRejectsABareHostname(t *testing.T) {
 
 // An expired token with a refresh token must renew without a browser. This is
 // what offline_access is requested for, and what the Python login cannot do.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD008_SPEC005
 func TestLoginRefreshesRatherThanReauthenticating(t *testing.T) {
 	t.Parallel()
 
@@ -440,6 +454,7 @@ func TestLoginCommandsRequireHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC007
 func TestLogoutAndWhoami(t *testing.T) {
 	t.Parallel()
 

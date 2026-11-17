@@ -450,6 +450,7 @@ repos:
 
 // -- routing ---------------------------------------------------------------
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD006_SPEC002
 func TestResolveDerivesTheHostAndUpstreamFromOneURL(t *testing.T) {
 	t.Parallel()
 

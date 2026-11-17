@@ -35,6 +35,8 @@ func equal(a, b []string) bool {
 
 // NERD014 SPEC004: none is empty, core is the three that need no cluster, full
 // is what Substrate already yields.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC001, HMD_CLI_NEURONSPHERE_NERD014_SPEC004
 func TestSubstrateForPerMode(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +63,8 @@ func TestSubstrateForPerMode(t *testing.T) {
 
 // The environment variable is ANDed with the mode, never replaced by it: full
 // with k3s disabled is a full whose cluster is elsewhere, as today.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC004
 func TestSubstrateForFullHonoursTheClusterGate(t *testing.T) {
 	t.Parallel()
 
@@ -87,6 +91,8 @@ func TestSubstrateNamesPerMode(t *testing.T) {
 }
 
 // A name stays reserved whether or not this environment deploys it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC004
 func TestIsSubstrateIgnoresTheMode(t *testing.T) {
 	t.Parallel()
 
@@ -100,6 +106,8 @@ func TestIsSubstrateIgnoresTheMode(t *testing.T) {
 // A changeset with no core instance, against a graph that has never registered
 // one, declares nothing for the core instead of failing on the missing
 // RepoClassVersion -- that is every Phase B under substrate none.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC004
 func TestSeedSkipsTheCoreDeclarationWhenNoCoreExists(t *testing.T) {
 	t.Parallel()
 

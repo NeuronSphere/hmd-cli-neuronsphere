@@ -11,6 +11,8 @@ import (
 // hmd_lib_manifest.write_manifest produces. Decoding and re-encoding it must
 // give the same bytes, or every edit by one front end is a diff under the
 // other.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC006
 func TestEncodeMatchesPythonByteForByte(t *testing.T) {
 	t.Parallel()
 

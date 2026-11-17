@@ -148,6 +148,8 @@ func TestEachEnvironmentGetsItsOwnWildcard(t *testing.T) {
 // has none -- so every hostname in the documentation keeps meaning what it
 // means. A hyphen on the instance was considered and rejected: the label reads
 // as part of the name rather than as the environment.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC005
 func TestIngressHostForNamesTheEnvironment(t *testing.T) {
 	t.Parallel()
 
@@ -295,6 +297,8 @@ func TestStreamsPortReadsTheFragment(t *testing.T) {
 // NERD024 SPEC001: the fragment is the record of what was actually routed, so
 // it answers "is that service there" for a caller that must stay cheap and must
 // work on a stopped environment -- StreamsPort's contract, for HTTP.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC001
 func TestRoutesServiceReadsTheFragment(t *testing.T) {
 	t.Parallel()
 
@@ -334,6 +338,8 @@ func TestRoutesServiceReadsTheFragment(t *testing.T) {
 // appearing or disappearing has to recreate *that* container and not hmd_proxy:
 // an engine cannot add a published port to a running container, and recreating
 // the proxy would cut the deploy that asked for the port (NERD027 SPEC002).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD027_SPEC002
 func TestAnEnvironmentRouterHasItsOwnRootAndContainer(t *testing.T) {
 	t.Parallel()
 

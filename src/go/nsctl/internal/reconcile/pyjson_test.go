@@ -68,6 +68,8 @@ func (g goldenEntry) bomEntry() bom.Entry {
 // The serialiser is checked against Python's actual output before the digest
 // is, so a mismatch says which byte differs rather than only that two hex
 // strings do not match.
+//
+// Requirements: HMD_CLI_NERD002_SPEC014
 func TestPythonJSONMatchesCPythonByteForByte(t *testing.T) {
 	t.Parallel()
 
@@ -92,6 +94,8 @@ func TestPythonJSONMatchesCPythonByteForByte(t *testing.T) {
 // The digest a user's environment already carries was written by the Python
 // front end. If these disagree, every entry reads as changed on the first
 // `nsctl env apply` and a working environment is redeployed wholesale.
+//
+// Requirements: HMD_CLI_NERD002_SPEC012, HMD_CLI_NERD002_SPEC014
 func TestEntryHashMatchesTheCPythonDigest(t *testing.T) {
 	t.Parallel()
 
@@ -106,6 +110,7 @@ func TestEntryHashMatchesTheCPythonDigest(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NERD002_SPEC014
 func TestDefinitionHashMatchesTheCPythonDigest(t *testing.T) {
 	t.Parallel()
 

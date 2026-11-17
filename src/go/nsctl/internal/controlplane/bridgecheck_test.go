@@ -63,6 +63,7 @@ func TestALoadedModuleIsOK(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028, HMD_CLI_NEURONSPHERE_NERD028_SPEC004
 func TestAnAbsentModuleWarnsAndNamesModprobe(t *testing.T) {
 	t.Parallel()
 	c := onlyCheck(t, bridgeCheck(context.Background(), probing("absent"), ""))
@@ -110,6 +111,8 @@ func TestAnUnreadableSysctlIsNotAMissingModule(t *testing.T) {
 // The cold-first-run contract, and the row most likely to regress: nothing is
 // pulled, so a machine that has not cached the probe image gets no row at all
 // rather than a warning about the probe (NERD028 SPEC003).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC003
 func TestAnAbsentProbeImageIsNoRow(t *testing.T) {
 	t.Parallel()
 	d := &fakeRunner{err: map[string]error{"image": errors.New("No such image")}}
@@ -152,6 +155,8 @@ func TestAnUnplannedAnswerIsNotReadAsWorking(t *testing.T) {
 // The property a reviewer cannot see by reading the row text: the probe must run
 // on the endpoint Gate proved, not on whatever the docker CLI defaults to. This
 // is the defect NERD021 exists to prevent, one layer down.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC002
 func TestEveryCallIsPinnedToTheGivenEndpoint(t *testing.T) {
 	t.Parallel()
 	d := probing("present:1")
@@ -184,6 +189,8 @@ func TestNoEndpointMeansNoHostFlag(t *testing.T) {
 // behaviour change. --network none gives the fresh namespace that makes the
 // reading representative of what k3s gets; --pull never keeps a preflight from
 // reaching the network.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC002, HMD_CLI_NEURONSPHERE_NERD028_SPEC003
 func TestTheProbeRunsInAFreshNamespaceAndNeverPulls(t *testing.T) {
 	t.Parallel()
 	d := probing("present:1")

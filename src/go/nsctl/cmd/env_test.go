@@ -296,6 +296,8 @@ func TestEnvStartAcceptsARegisteredName(t *testing.T) {
 
 // The empty registry is the one case that is not a typo, because there is
 // nothing to have mistyped.
+//
+// Requirements: HMD_CLI_NERD002_SPEC001
 func TestEnvStartRegistersTheFirstEnvironment(t *testing.T) {
 	t.Parallel()
 

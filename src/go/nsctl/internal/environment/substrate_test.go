@@ -11,6 +11,8 @@ import (
 )
 
 // NERD014 SPEC001, as a table: what each mode starts.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014, HMD_CLI_NEURONSPHERE_NERD014_SPEC001
 func TestPlanForPerMode(t *testing.T) {
 	t.Parallel()
 
@@ -27,6 +29,8 @@ func TestPlanForPerMode(t *testing.T) {
 }
 
 // An unreadable manifest reads as full, with a warning, never as none.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC002
 func TestSubstrateModeReadsFullWhenTheManifestIsBroken(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +54,7 @@ func TestSubstrateModeReadsFullWhenTheManifestIsBroken(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC002
 func TestSubstrateModeIsFullWithNoManifest(t *testing.T) {
 	t.Parallel()
 
@@ -60,6 +65,8 @@ func TestSubstrateModeIsFullWithNoManifest(t *testing.T) {
 
 // NERD014 SPEC008: none plus a binding to the core instance is refused before
 // anything starts, naming the binding and the fix.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC008
 func TestRefuseCoreBindingsUnderNone(t *testing.T) {
 	t.Parallel()
 

@@ -14,6 +14,8 @@ import (
 
 // ms-base types these fields as str and base64-decodes them, so a native list
 // is rejected 422 and a plain JSON string fails base64 decoding.
+//
+// Requirements: HMD_CLI_NERD002_SPEC009
 func TestEncodeCollectionIsBase64JSON(t *testing.T) {
 	t.Parallel()
 
@@ -336,6 +338,8 @@ func decodeForTest(t *testing.T, value any) []map[string]any {
 // get_deployment_resources is a GET answering a bare array, so it fits neither
 // APIOp (an object) nor APIOpRaw (a POST). NERD0006's consumer path reads it
 // exactly as hmd-cli-deploy does: GET /apiop/<op>, body as served.
+//
+// Requirements: HMD_CLI_NERD002_SPEC009
 func TestAPIOpGetIsAGetAndReturnsTheBody(t *testing.T) {
 	t.Parallel()
 

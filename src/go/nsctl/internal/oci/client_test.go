@@ -75,6 +75,7 @@ func ref(t *testing.T, reg *ocitest.Registry, s string) Ref {
 	return r
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016, HMD_CLI_NEURONSPHERE_NERD016_SPEC002
 func TestFetchAnonymousThroughTheChallenge(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -126,6 +127,7 @@ func TestFetchAnonymousThroughTheChallenge(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC001
 func TestFetchByDigestAndByAtTag(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -148,6 +150,7 @@ func TestFetchByDigestAndByAtTag(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC002, HMD_CLI_NEURONSPHERE_NERD016_SPEC006
 func TestFetchPrivateNeedsBasicAndReportsTheSource(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.RequireToken("alice", "s3cret"))
@@ -181,6 +184,7 @@ func TestFetchPrivateNeedsBasicAndReportsTheSource(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC002
 func TestStaticBearerIsSentFirstAndOfferedOnChallenge(t *testing.T) {
 	t.Parallel()
 	// The realm demands Basic with the login token as the password: what a
@@ -216,6 +220,7 @@ func TestTokenIsNeverSentToAnotherHost(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC003
 func TestBlobMismatchIsATypedFailure(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -242,6 +247,7 @@ func TestBlobMismatchIsATypedFailure(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC003
 func TestManifestDigestMismatchIsRefused(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -256,6 +262,7 @@ func TestManifestDigestMismatchIsRefused(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC003
 func TestIndexIsRefused(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -281,6 +288,7 @@ func TestNotFoundSaysPackageMayBePrivate(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC004
 func TestTagsPaginatesFiltersAndSorts(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.PageSize(2))
@@ -325,6 +333,7 @@ func TestTagsOfUnknownRepositoryIsNotFound(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC005
 func TestPushRoundTripSkipsPresentBlobs(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.RequireToken("ci", "pat"))
@@ -391,6 +400,7 @@ func TestPushRoundTripSkipsPresentBlobs(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC005
 func TestPushRetriesWithoutArtifactType(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge(), ocitest.RejectArtifactType())
@@ -422,6 +432,7 @@ func TestPushRetriesWithoutArtifactType(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC006
 func TestPushRefusesAnonymousBeforeAnyRequest(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -438,6 +449,7 @@ func TestPushRefusesAnonymousBeforeAnyRequest(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC002
 func TestBasicChallengeIsAnsweredDirectly(t *testing.T) {
 	t.Parallel()
 	// A registry that challenges with Basic instead of Bearer: the fake does

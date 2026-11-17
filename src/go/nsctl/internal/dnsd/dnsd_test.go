@@ -84,6 +84,8 @@ func decode(t *testing.T, raw []byte) reply {
 
 // The whole point: a name nobody has registered anywhere still resolves. This
 // is what /etc/hosts cannot do at any price.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026, HMD_CLI_NEURONSPHERE_NERD026_SPEC001
 func TestAnUnregisteredNameUnderTheSuffixResolves(t *testing.T) {
 	t.Parallel()
 
@@ -107,6 +109,8 @@ func TestAnUnregisteredNameUnderTheSuffixResolves(t *testing.T) {
 }
 
 // Case is not significant in DNS, and a browser may send any of it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC001
 func TestTheSuffixMatchIsCaseInsensitive(t *testing.T) {
 	t.Parallel()
 
@@ -121,6 +125,8 @@ func TestTheSuffixMatchIsCaseInsensitive(t *testing.T) {
 
 // This server is authoritative for one subtree and must never answer for
 // anything else -- most of all not for the real neuronsphere.io.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC001
 func TestANameOutsideTheSuffixIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -147,6 +153,8 @@ func TestANameOutsideTheSuffixIsRefused(t *testing.T) {
 }
 
 // The suffix itself resolves, not only names under it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC001
 func TestTheSuffixItselfResolves(t *testing.T) {
 	t.Parallel()
 
@@ -207,6 +215,8 @@ func TestGarbageIsNotFatal(t *testing.T) {
 // The resolver file must claim the narrowest subtree that works. Named for
 // neuronsphere.io it would capture the company's real public website and answer
 // 127.0.0.1 for it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC002
 func TestTheResolverFileIsScopedToTheSubtree(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +254,7 @@ func TestTheDefaultPortAvoidsMDNS(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC002
 func TestInstallStepIsPlatformSpecific(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +281,8 @@ func TestInstallStepIsPlatformSpecific(t *testing.T) {
 //
 // Answers reports the first of those: does the resolver itself answer, asked
 // directly rather than through the system resolver.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
 func TestAnswersReportsTheResolverItself(t *testing.T) {
 	addr := serve(t, New("ns.local"))
 
@@ -297,6 +310,8 @@ func TestAnswersReportsTheResolverItself(t *testing.T) {
 // which is exactly what happened: `dns status` said ok against a resolver that
 // had been stopped, reading its own answer back out of the cache. A check that
 // can report a fact that stopped being true is not a check.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD026_SPEC003
 func TestTheProbeNameIsNeverReused(t *testing.T) {
 	t.Parallel()
 

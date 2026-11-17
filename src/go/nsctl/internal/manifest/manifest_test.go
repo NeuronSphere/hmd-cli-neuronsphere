@@ -261,6 +261,7 @@ func TestValidateRejectsASubstrateName(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
 func TestValidateSourceTypes(t *testing.T) {
 	t.Parallel()
 
@@ -312,6 +313,8 @@ func TestValidateSourceTypes(t *testing.T) {
 // of the last existing tier, and it is the acceptance criterion for the whole
 // document, so it is asserted at the validation layer too: a manifest that
 // cannot be validated without a checkout can never be applied without one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
 func TestValidateAcceptsAnArtifactWithNoCheckoutAnywhere(t *testing.T) {
 	t.Parallel()
 
@@ -331,6 +334,8 @@ func TestValidateAcceptsAnArtifactWithNoCheckoutAnywhere(t *testing.T) {
 // (NERD004 SPEC006). A malformed artifact declaration is not host state
 // though -- it is a file-format error -- so it must still be reported in that
 // scope. Ordering these two checks the other way around is the subtle bug.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
 func TestValidateChecksAnArtifactInControlPlaneScopeToo(t *testing.T) {
 	t.Parallel()
 
@@ -373,6 +378,8 @@ func TestValidateSkipsAMissingTreeInControlPlaneScope(t *testing.T) {
 
 // ArtifactType defaults to build, which is what hmd build publishes and what
 // every pin in this repository's own pre_build_artifacts uses.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC001
 func TestArtifactTypeDefaults(t *testing.T) {
 	t.Parallel()
 

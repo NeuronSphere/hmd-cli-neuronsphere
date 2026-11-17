@@ -25,6 +25,8 @@ func resolvesNothing(string) ([]net.IP, error) {
 }
 
 // A machine without the /etc/hosts entry is the case this exists for.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025, HMD_CLI_NEURONSPHERE_NERD025_SPEC003, HMD_CLI_NEURONSPHERE_NERD026_SPEC004
 func TestAnUnresolvableNameIsRedirected(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +41,8 @@ func TestAnUnresolvableNameIsRedirected(t *testing.T) {
 // Inside a container the name is a Docker alias pointing at a sibling, and must
 // not be rewritten to the container's own loopback. A routable answer is how
 // that case is told apart from the host's.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC003
 func TestAResolvableNameIsLeftAlone(t *testing.T) {
 	t.Parallel()
 
@@ -49,6 +53,8 @@ func TestAResolvableNameIsLeftAlone(t *testing.T) {
 
 // The signature over a presigned URL covers the Host header, so the override
 // has to change where the connection goes without changing what is sent.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC003
 func TestTheHostHeaderSurvivesTheRedirect(t *testing.T) {
 	t.Parallel()
 
@@ -77,6 +83,8 @@ func TestTheHostHeaderSurvivesTheRedirect(t *testing.T) {
 
 // Everything else dials normally; this must not become a general-purpose
 // interceptor.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD025_SPEC003
 func TestAnUnrelatedHostIsNotRedirected(t *testing.T) {
 	t.Parallel()
 

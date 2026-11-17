@@ -391,6 +391,7 @@ appears to do.
     :id: HMD_CLI_NEURONSPHERE_NERD011_SPEC006
     :links: HMD_CLI_NEURONSPHERE_NERD011
     :status: implemented
+    :tags: trace-exempt
 
     **Not a change to how the cloud resolves anything.**
     ``hmd-ms-deployment`` keeps validating candidates exactly as it does today.
@@ -419,6 +420,8 @@ appears to do.
     **Not a package index.** Wheels are ``NERD006``.
 
     **Not on the deploy path.** See SPEC004.
+
+    A scope statement with no behaviour; the cloud resolver is untouched, which is verified in ``hmd-ms-deployment``'s own suite.
 
 Risks
 -----

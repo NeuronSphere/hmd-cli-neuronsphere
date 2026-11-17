@@ -163,6 +163,8 @@ func (w *bomWorld) read(t *testing.T, args ...string) (string, string, error) {
 // TestBOMEnvsListsInOneRequest is acceptance criterion 2. A listing that
 // fetched a BOM per environment would look identical and cost a great deal
 // more, so the request count is the assertion.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC004
 func TestBOMEnvsListsInOneRequest(t *testing.T) {
 	t.Parallel()
 
@@ -182,6 +184,8 @@ func TestBOMEnvsListsInOneRequest(t *testing.T) {
 }
 
 // TestBOMShowReportsVersionsAndWhatIsHeld is acceptance criterion 3.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC003
 func TestBOMShowReportsVersionsAndWhatIsHeld(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +219,8 @@ func TestBOMShowReportsVersionsAndWhatIsHeld(t *testing.T) {
 
 // TestBOMShowPreviewsTheSelection is the promise that a show and an import
 // agree: the same flags, the same closure, the same rows.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMShowPreviewsTheSelection(t *testing.T) {
 	t.Parallel()
 
@@ -257,6 +263,8 @@ func TestBOMShowJSONIsTheServicesOwnAnswer(t *testing.T) {
 
 // TestBOMShowRefusesAnUnknownEnvironment turns a server-side assertion into a
 // message about a typo, listing what is there.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC003
 func TestBOMShowRefusesAnUnknownEnvironment(t *testing.T) {
 	t.Parallel()
 
@@ -276,6 +284,8 @@ func TestBOMShowRefusesAnUnknownEnvironment(t *testing.T) {
 // TestBOMImportClosesOverDependencies is acceptance criterion 5, and the reason
 // the closure exists: ms-deployment fails a whole ChangeSet on a required role
 // nothing fills.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportClosesOverDependencies(t *testing.T) {
 	t.Parallel()
 
@@ -341,6 +351,8 @@ func TestBOMImportClosesOverDependencies(t *testing.T) {
 
 // TestBOMImportNoDepsTakesTheSelectionLiterally is the other half of criterion
 // 5, and shows what the closure is protecting against.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportNoDepsTakesTheSelectionLiterally(t *testing.T) {
 	t.Parallel()
 
@@ -386,6 +398,8 @@ func TestBOMImportDryRunWritesAndFetchesNothing(t *testing.T) {
 
 // TestBOMImportRefusesAnEmptySelection: importing a whole cloud environment is
 // a thing to ask for out loud.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportRefusesAnEmptySelection(t *testing.T) {
 	t.Parallel()
 
@@ -401,6 +415,8 @@ func TestBOMImportRefusesAnEmptySelection(t *testing.T) {
 
 // TestBOMImportSkipsWhatIsNotDeployed: a FAILED instance is in the BOM and is
 // not a thing to reproduce by default.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportSkipsWhatIsNotDeployed(t *testing.T) {
 	t.Parallel()
 
@@ -431,6 +447,8 @@ func TestBOMImportSkipsWhatIsNotDeployed(t *testing.T) {
 // TestBOMImportLeavesNothingDeclaredWhenTheFetchFails is acceptance criterion 6.
 // A declaration whose artifact is not here is a manifest that fails at apply
 // for a reason the manifest does not mention.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC006, HMD_CLI_NEURONSPHERE_NERD013_SPEC005
 func TestBOMImportLeavesNothingDeclaredWhenTheFetchFails(t *testing.T) {
 	t.Parallel()
 
@@ -458,6 +476,8 @@ func TestBOMImportLeavesNothingDeclaredWhenTheFetchFails(t *testing.T) {
 
 // TestBOMImportLeavesExistingDeclarationsAlone: a hand-edited declaration is
 // never overwritten, which is the rule `nsctl instance import` already follows.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportLeavesExistingDeclarationsAlone(t *testing.T) {
 	t.Parallel()
 
@@ -484,6 +504,8 @@ func TestBOMImportLeavesExistingDeclarationsAlone(t *testing.T) {
 
 // TestBOMImportRefusesToExcludeWhatTheClosureNeeds: silently unfilling a role
 // would reintroduce exactly the failure the closure exists to prevent.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportRefusesToExcludeWhatTheClosureNeeds(t *testing.T) {
 	t.Parallel()
 
@@ -500,6 +522,8 @@ func TestBOMImportRefusesToExcludeWhatTheClosureNeeds(t *testing.T) {
 
 // TestBOMImportRefusesASelectorThatMatchesNothing: finding out at the end that
 // an import was smaller than intended is much worse than finding out now.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportRefusesASelectorThatMatchesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -520,6 +544,8 @@ func TestBOMImportRefusesASelectorThatMatchesNothing(t *testing.T) {
 
 // TestBOMImportNoPullNamesThePulls: a declaration without its artifact is
 // deliberate here, so the remaining work is spelled out.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC006
 func TestBOMImportNoPullNamesThePulls(t *testing.T) {
 	t.Parallel()
 
@@ -562,6 +588,8 @@ func TestBOMImportKeepsAnImageOnlyEntryBare(t *testing.T) {
 
 // TestBOMImportUsesACachedArtifactRatherThanRefetching: these are
 // multi-megabyte zips, and one already unpacked here is the same bytes.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC006
 func TestBOMImportUsesACachedArtifactRatherThanRefetching(t *testing.T) {
 	t.Parallel()
 
@@ -594,6 +622,8 @@ func TestBOMImportUsesACachedArtifactRatherThanRefetching(t *testing.T) {
 // substrate by instance name alone treated it as a workload: selecting
 // ms-transform imported the cloud's EKS cluster, which locally would mean
 // deploying a second cluster inside the one the environment already has.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportBindsSubstrateByClassNotJustName(t *testing.T) {
 	t.Parallel()
 
@@ -615,6 +645,8 @@ func TestBOMImportBindsSubstrateByClassNotJustName(t *testing.T) {
 // with the "not answering" refusal -- and the manifest must already hold the
 // declarations by then, because an apply that ran before the declare would
 // deploy nothing new and an import that failed to save would not apply at all.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005, HMD_CLI_NEURONSPHERE_NERD012
 func TestBOMImportApplyDeclaresThenApplies(t *testing.T) {
 	t.Parallel()
 
@@ -642,6 +674,8 @@ func TestBOMImportApplyDeclaresThenApplies(t *testing.T) {
 // TestBOMImportApplyRefusesItsContradictions: a dry run deploys nothing and an
 // apply refuses an uncached artifact, so both combinations are usage errors
 // before anything is fetched.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005
 func TestBOMImportApplyRefusesItsContradictions(t *testing.T) {
 	t.Parallel()
 
@@ -670,6 +704,8 @@ func TestBOMImportApplyRefusesItsContradictions(t *testing.T) {
 // SPEC006); with --apply it additionally does not apply, and says so, because
 // deploying a knowingly incomplete import is the quiet failure that rule
 // exists to prevent.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC005, HMD_CLI_NEURONSPHERE_NERD012_SPEC006
 func TestBOMImportApplySkipsAPartialImport(t *testing.T) {
 	t.Parallel()
 
@@ -707,6 +743,8 @@ func TestBOMImportApplySkipsAPartialImport(t *testing.T) {
 // proxy_secret, account numbers, and instance names containing a person's name
 // -- and none of that belongs in a repository. What is preserved here is what
 // the response proved about the *shape*, which is all this decoder needs.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC003
 func TestBOMEntryInvariantsObservedLive(t *testing.T) {
 	t.Parallel()
 

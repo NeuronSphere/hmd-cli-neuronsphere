@@ -9,6 +9,8 @@ import (
 
 // The field existed for this and was never assigned, so every deploy
 // bind-mounted a source under the system temp dir (NERD021 SPEC006).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC006
 func TestWorkDirDefaultsUnderHome(t *testing.T) {
 	home := t.TempDir()
 	got := (Config{Home: home}).workDir()
@@ -21,6 +23,7 @@ func TestWorkDirDefaultsUnderHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC006
 func TestWorkDirHonoursAnExplicitValue(t *testing.T) {
 	explicit := t.TempDir()
 	got := (Config{Home: t.TempDir(), WorkDir: explicit}).workDir()
@@ -40,6 +43,8 @@ func TestWorkDirWithoutAHomeFallsBack(t *testing.T) {
 
 // The generated script and the overlay must land there, since both are
 // bind-mount sources.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC006
 func TestGeneratedTempMaterialLandsUnderHome(t *testing.T) {
 	home := t.TempDir()
 	dir := (Config{Home: home}).workDir()

@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC004
 func TestDestinationsUseNativeHostLocations(t *testing.T) {
 	t.Parallel()
 	project, home := t.TempDir(), t.TempDir()
@@ -28,6 +29,7 @@ func TestDestinationsUseNativeHostLocations(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC003
 func TestInstallDetectsModificationAndProtectsRemoval(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
@@ -60,6 +62,7 @@ func TestInstallDetectsModificationAndProtectsRemoval(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD015_SPEC003
 func TestDryRunDoesNotCreateDirectories(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()

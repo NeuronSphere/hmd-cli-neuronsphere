@@ -9,6 +9,7 @@ import (
 	"github.com/neuronsphere/hmd-cli-neuronsphere/internal/tokenstore"
 )
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC002
 func TestParseChallenge(t *testing.T) {
 	t.Parallel()
 
@@ -60,6 +61,8 @@ func TestParseChallenge(t *testing.T) {
 
 // TestResolveCredentialPrecedence is SPEC006's list, one case per tier, and
 // the Source each reports.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD016_SPEC006
 func TestResolveCredentialPrecedence(t *testing.T) {
 	t.Parallel()
 

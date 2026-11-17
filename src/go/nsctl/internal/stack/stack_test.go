@@ -71,6 +71,7 @@ func refTo(t *testing.T, reg *ocitest.Registry, s string) oci.Ref {
 	return r
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC002, HMD_CLI_NEURONSPHERE_NERD017_SPEC007
 func TestBuildIsDeterministicAndFillsDigests(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
@@ -110,6 +111,7 @@ func TestBuildIsDeterministicAndFillsDigests(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC002
 func TestBuildRefusals(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
@@ -131,6 +133,7 @@ func TestBuildRefusals(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC002
 func TestReadPairsLayersWithTheLock(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -181,6 +184,7 @@ func TestReadPairsLayersWithTheLock(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC003
 func TestInstallFillsTheCacheAndWritesTheLock(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -228,6 +232,7 @@ func TestInstallFillsTheCacheAndWritesTheLock(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC006
 func TestPushThenInstallRoundTrip(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.RequireToken("ci", "pat"))
@@ -250,6 +255,7 @@ func TestPushThenInstallRoundTrip(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC005
 func TestVersionsKeyAndShortName(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")

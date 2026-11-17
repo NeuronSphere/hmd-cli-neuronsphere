@@ -42,6 +42,8 @@ func TestNewResolvesThroughTheSharedRule(t *testing.T) {
 
 // TestNewTakesTheProfilesURL proves the profile tier is reachable from here,
 // which is the whole point of Config carrying one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestNewTakesTheProfilesURL(t *testing.T) {
 	t.Parallel()
 

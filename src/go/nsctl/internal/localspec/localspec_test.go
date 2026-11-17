@@ -54,6 +54,7 @@ const fixture = `{
   }
 }`
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
 func TestLoadReadsBothHalves(t *testing.T) {
 	t.Parallel()
 
@@ -120,6 +121,8 @@ func TestLoadWithoutALocalSection(t *testing.T) {
 // over a second grouping concept: an entry with no `profiles` key always starts,
 // one with a `profiles` key starts only when one of them is activated, and lean
 // is what activating nothing gives you -- so no author has to declare it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
 func TestActivateFollowsComposeSemantics(t *testing.T) {
 	t.Parallel()
 
@@ -169,6 +172,8 @@ func TestActivateFollowsComposeSemantics(t *testing.T) {
 // "optional for this process to boot", so nsctl changes nothing it was not told
 // to change -- stated separately from the table because it is the rule most
 // likely to be "simplified" away later.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
 func TestAnUnmentionedOptionalDependencyIsNeverActivated(t *testing.T) {
 	t.Parallel()
 
@@ -271,6 +276,7 @@ func TestOneClassCanFillSeveralRoles(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
 func TestLoadRefusals(t *testing.T) {
 	t.Parallel()
 
@@ -376,6 +382,7 @@ const wiredFixture = `{
   }}
 }`
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001
 func TestAGateCanBindOrWireARequiredRole(t *testing.T) {
 	t.Parallel()
 
@@ -427,6 +434,7 @@ func lookup(wants []Want, key string) (Want, bool) {
 	return Want{}, false
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC001, HMD_CLI_NEURONSPHERE_NERD010_SPEC008
 func TestGateRefusals(t *testing.T) {
 	t.Parallel()
 
@@ -476,6 +484,8 @@ func TestGateRefusals(t *testing.T) {
 
 // NERD010 SPEC009: a role names a repo class or a resource type. A
 // resource-only role is read, carries its type, and the lock never pins it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD010_SPEC009
 func TestLoadAcceptsAResourceOnlyRole(t *testing.T) {
 	t.Parallel()
 

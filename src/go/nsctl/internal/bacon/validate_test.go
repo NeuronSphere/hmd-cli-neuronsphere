@@ -36,6 +36,8 @@ func messages(findings []Finding, sev Severity) string {
 
 // The seven acme manifests are the motivating case: no errors, no warnings,
 // the one inert note about exec.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC002
 func TestValidateAcceptsAForeignToolsetClass(t *testing.T) {
 	t.Parallel()
 
@@ -58,6 +60,8 @@ func TestValidateAcceptsAForeignToolsetClass(t *testing.T) {
 }
 
 // One fixture per SPEC011 rule.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC011
 func TestValidateRules(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +137,8 @@ func TestValidateAcceptsADeclaredLicence(t *testing.T) {
 }
 
 // Absent VERSION is a warning, and errors sort first.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC011
 func TestValidateOrdersErrorsFirst(t *testing.T) {
 	t.Parallel()
 
@@ -163,6 +169,8 @@ func TestValidateAcceptsALocalDeployScript(t *testing.T) {
 // A stack (NERD017 SPEC001) names its companions rather than deploying an
 // instance of itself, so a deploy section with dependencies but no commands
 // and no deploy_local.sh is not an error.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC001
 func TestValidateAcceptsAStackWithNoDeployCommands(t *testing.T) {
 	t.Parallel()
 

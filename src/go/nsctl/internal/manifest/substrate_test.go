@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC001
 func TestParseSubstrateDefaultsToFull(t *testing.T) {
 	t.Parallel()
 
@@ -24,6 +25,7 @@ func TestParseSubstrateDefaultsToFull(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC001
 func TestParseSubstrateNamesTheChoices(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +42,8 @@ func TestParseSubstrateNamesTheChoices(t *testing.T) {
 
 // Absent means full: an environment written before the key existed keeps the
 // behaviour it had.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC002
 func TestSubstrateModeOfAnAbsentKeyIsFull(t *testing.T) {
 	t.Parallel()
 
@@ -55,6 +59,7 @@ func TestSubstrateModeOfAnAbsentKeyIsFull(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC002
 func TestSubstrateRoundTripsInBothFormats(t *testing.T) {
 	t.Parallel()
 
@@ -76,6 +81,8 @@ func TestSubstrateRoundTripsInBothFormats(t *testing.T) {
 
 // A hand-edited key fails the same way the flag does, with the file named by
 // the loader.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD014_SPEC003
 func TestValidateRejectsAnUnknownSubstrate(t *testing.T) {
 	t.Parallel()
 

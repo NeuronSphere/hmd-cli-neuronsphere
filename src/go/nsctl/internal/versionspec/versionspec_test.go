@@ -18,6 +18,8 @@ import (
 // reused for *selection* would be a wrong deploy. Asserting that this package
 // does not reproduce it is what stops a later "simplification" onto the
 // platform's existing sorter.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC003
 func TestSortIsSemanticAndNotSortVersions(t *testing.T) {
 	t.Parallel()
 
@@ -82,6 +84,8 @@ func sign(n int) int {
 // merely stops them: SPEC002 requires the refusal to name `~= 0.3` and
 // `== 0.3.*`, because every one of the five real-world uses is written ">=0.3"
 // and its author needs to know which of the two they meant.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC002
 func TestOrderedSpecifiersAreRefusedWithBothRemedies(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +129,8 @@ func TestParseRefusesMalformedSpecifiers(t *testing.T) {
 // TestHighestPicksTheNewestSatisfyingVersion is the selection SPEC003 defines,
 // on the shape the document works through: `~= 0.1` against a repo class that
 // has moved past 0.1.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD011_SPEC003
 func TestHighestPicksTheNewestSatisfyingVersion(t *testing.T) {
 	t.Parallel()
 

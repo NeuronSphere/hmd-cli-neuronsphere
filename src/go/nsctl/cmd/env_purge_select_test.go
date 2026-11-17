@@ -106,6 +106,7 @@ func purgeEnv(home string) func(string) string {
 	})
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeIdleSelectsOnlyPoolEnvironmentsIdleLongEnough(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -125,6 +126,7 @@ func TestPurgeIdleSelectsOnlyPoolEnvironmentsIdleLongEnough(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeKeepKeepsTheMostRecentlyReleased(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -138,6 +140,7 @@ func TestPurgeKeepKeepsTheMostRecentlyReleased(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeIdleAndKeepMustBothSelect(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -151,6 +154,7 @@ func TestPurgeIdleAndKeepMustBothSelect(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeSelectorSkipsLeasedAndNeverReleasedEnvironments(t *testing.T) {
 	home := registryHome(t, poolRegistry)
 	markReleased(t, home, "cc-1", time.Now().Add(-3*time.Hour))
@@ -176,6 +180,7 @@ func TestPurgeSelectorSkipsLeasedAndNeverReleasedEnvironments(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeDryRunListsAndPurgesNothing(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -200,6 +205,7 @@ func TestPurgeDryRunListsAndPurgesNothing(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeSelectorWithoutYesListsAndRefuses(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -216,6 +222,7 @@ func TestPurgeSelectorWithoutYesListsAndRefuses(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeSelectorThatSelectsNothingNeverPurgesEverything(t *testing.T) {
 	home := stalePool(t)
 	purges := stubPurge(t, home)
@@ -232,6 +239,7 @@ func TestPurgeSelectorThatSelectsNothingNeverPurgesEverything(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeSelectorFlagsAreChecked(t *testing.T) {
 	t.Parallel()
 	home := stalePool(t)
@@ -247,6 +255,7 @@ func TestPurgeSelectorFlagsAreChecked(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestLeaseListShowsIdlePoolEnvironments(t *testing.T) {
 	t.Parallel()
 	home := stalePool(t)
@@ -267,6 +276,7 @@ func TestLeaseListShowsIdlePoolEnvironments(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD035_SPEC007
 func TestPurgeSelectorNeverTakesAConfiguredMemberEvenIfNamedLikeThePools(t *testing.T) {
 	home := stalePool(t)
 	writePool(t, home, "[pool]\nsize = 4\nmembers = [\"local\", \"cc-1\"]\n")

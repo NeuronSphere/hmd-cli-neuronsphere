@@ -15,6 +15,7 @@ type fakeInfo struct {
 
 func (f fakeInfo) Info(context.Context) (system.Info, error) { return f.info, f.err }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC008
 func TestProbeReadsCapacityAndRootless(t *testing.T) {
 	api := fakeInfo{info: system.Info{
 		ServerVersion:   "27.3.1",
@@ -59,6 +60,8 @@ func TestProbeSurfacesFailure(t *testing.T) {
 }
 
 // The rule is "a different operating system", never a runtime name.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD021_SPEC007
 func TestVMBackedIsOSComparison(t *testing.T) {
 	cases := []struct {
 		osType, goos string

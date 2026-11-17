@@ -50,6 +50,8 @@ func tree(marker string) map[string]string {
 // the *new* tree. Without Invalidate the second apply runs the first build's
 // code under the second build's version, which is the failure SPEC002 refuses to
 // allow from the other direction.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestStoreRegisterRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +101,8 @@ func TestStoreRegisterRoundTrip(t *testing.T) {
 
 // The token in the directory name is the version, so two versions of one class
 // coexist rather than overwriting each other.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestTwoVersionsCoexist(t *testing.T) {
 	t.Parallel()
 
@@ -166,6 +170,8 @@ func TestStoreRejectsATreeThatIsNotARepo(t *testing.T) {
 // src/ is deliberately not required: a manifest may name a schema or
 // configuration artifact, and those legitimately have no sources. This narrows
 // SPEC003's Medium risk row on purpose, so it is pinned rather than incidental.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestASchemaArtifactNeedsNoSrc(t *testing.T) {
 	t.Parallel()
 
@@ -180,6 +186,8 @@ func TestASchemaArtifactNeedsNoSrc(t *testing.T) {
 }
 
 // An entry naming a path outside the destination is refused rather than written.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestUnzipIntoRefusesTraversal(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +204,8 @@ func TestUnzipIntoRefusesTraversal(t *testing.T) {
 // Deploy nodes of different repo classes run concurrently, so two of them
 // arriving at a cold cache race on the same staging directory. The mutex is the
 // mechanism SPEC003 names; this is the test that it is actually load-bearing.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestConcurrentStoresProduceOneTree(t *testing.T) {
 	t.Parallel()
 
@@ -273,6 +283,8 @@ func TestPathsMapsOnlyArtifactSourcedAndCached(t *testing.T) {
 // The cache is reconstructible from the librarian and is shared by every
 // environment, so it lives outside any environment's state directory -- which is
 // what makes `nsctl env purge` cost a refetch and nothing else.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC003
 func TestTheCacheIsOutsideAnyEnvironmentStateDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -351,6 +363,8 @@ func TestZipRoundTripsThroughStore(t *testing.T) {
 // The four causes SPEC007 insists are distinguishable. All four arrive at a
 // caller as one failed request otherwise, and a bare 404 sends the reader to
 // debug whichever they think of first.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD005_SPEC007
 func TestUnavailableTellsTheCausesApart(t *testing.T) {
 	t.Parallel()
 

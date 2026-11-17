@@ -174,6 +174,8 @@ func TestRoutesUseTheEnvironmentsOwnPorts(t *testing.T) {
 // not anything listens on it, so the route is reported from the router's record
 // instead. Asserted in both directions -- the defect this replaces would have
 // passed a routed-only assertion.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC003
 func TestTrinoRouteOnlyWhenRouted(t *testing.T) {
 	t.Parallel()
 
@@ -435,6 +437,8 @@ func TestHTTPProberRespectsContextCancellation(t *testing.T) {
 // like Trino's. Asserted in both directions for the same reason: reporting it
 // from the mode is exactly what this replaces, and a routed-only assertion
 // would pass against that.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD024_SPEC001
 func TestDBAccountRouteOnlyWhenRouted(t *testing.T) {
 	t.Parallel()
 

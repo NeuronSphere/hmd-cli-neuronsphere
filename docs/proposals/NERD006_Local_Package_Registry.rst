@@ -206,6 +206,7 @@ and a deploy node. One service that does both is worth a wrapper image.
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD006
     :status: implemented
+    :tags: trace-exempt
 
     ``hmd-inf-local-registry`` is an ordinary BACON RepoClass. It is not
     bundled into ``nsctl``, and ``nsctl`` contains no reference to it -- that
@@ -274,6 +275,8 @@ and a deploy node. One service that does both is worth a wrapper image.
     the fact is a manifest edit and an apply; the reconcile delta brings up
     one more container and leaves the running ones alone. Untested -- there is
     no second format yet.
+
+    Verified live and in ``hmd-inf-local-registry``, which owns the RepoClass; nothing in this repository refers to it, so there is no test here to write.
 
 .. spec:: One URL
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC002
@@ -351,6 +354,7 @@ and a deploy node. One service that does both is worth a wrapper image.
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD006
     :status: implemented
+    :tags: trace-exempt
 
     devpi is configured with two indexes: ``root/pypi``, a caching mirror of
     an upstream, and ``hmd/local``, a hosted index that **inherits** from it.
@@ -387,6 +391,8 @@ and a deploy node. One service that does both is worth a wrapper image.
     ``root/pypi``. The fallback -- pypiserver plus proxpi, two index URLs,
     ``unsafe-best-match`` doing the joining -- is not needed and is recorded
     only so a future regression has somewhere to go.
+
+    The devpi index configuration lives in ``hmd-inf-local-registry`` and is verified live by installing an internal wheel and a public package through the one inheriting URL.
 
 .. spec:: The container registry
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC004
@@ -549,6 +555,7 @@ and a deploy node. One service that does both is worth a wrapper image.
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD006
     :status: implemented
+    :tags: trace-exempt
 
     ``$HMD_HOME/registry/<format>/`` -- the concrete instance of ``NERD004``
     SPEC008. A sibling of ``floci/`` and ``environments/``, deliberately
@@ -578,6 +585,8 @@ and a deploy node. One service that does both is worth a wrapper image.
     ``nsctl`` creates the directories before the containers start, for the
     stated reason that a missing directory would be created by Docker as
     root-owned.
+
+    The path is derived by the NERD004 SPEC008 extension-directory rule and bound in ``hmd-inf-local-registry``'s compose file; it is verified live by the registry surviving ``env stop`` and removed by ``env purge``.
 
 .. spec:: Conforming to NEP036
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC008
@@ -691,6 +700,7 @@ and a deploy node. One service that does both is worth a wrapper image.
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC010
     :links: HMD_CLI_NEURONSPHERE_NERD006
     :status: implemented
+    :tags: trace-exempt
 
     The local registry has **no meaningful authentication**. It is reachable
     only through ``hmd_proxy`` on loopback, on a single developer's machine,
@@ -731,6 +741,8 @@ and a deploy node. One service that does both is worth a wrapper image.
     If authentication is ever wanted, it is the identity provider's job, and
     it should arrive as a ``NERD004`` extension rather than as four
     per-format password files.
+
+    A threat-model statement about ``hmd-inf-local-registry``'s configuration, verified live by pushing and installing with the dummy credential; it asserts no behaviour of nsctl.
 
 .. spec:: What this is not
     :id: HMD_CLI_NEURONSPHERE_NERD006_SPEC011

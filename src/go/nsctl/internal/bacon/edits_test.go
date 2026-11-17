@@ -78,6 +78,8 @@ func TestSetAndClearLicence(t *testing.T) {
 }
 
 // Every add-* is idempotent by key: run twice, one entry, same bytes.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC008
 func TestAddVerbsAreIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -155,6 +157,7 @@ func TestAddVerbsAreIdempotent(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC008
 func TestRemoveVerbs(t *testing.T) {
 	t.Parallel()
 
@@ -223,6 +226,8 @@ func TestEditsRefuseToClobber(t *testing.T) {
 
 // Authoring the acme product manifest through the verbs reproduces the
 // hand-written file exactly -- the round trip the demo depends on.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC008
 func TestVerbsReproduceTheAcmeManifest(t *testing.T) {
 	t.Parallel()
 

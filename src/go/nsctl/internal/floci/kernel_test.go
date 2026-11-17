@@ -36,6 +36,7 @@ func (r *scriptedRunner) call(t *testing.T, i int) string {
 	return strings.Join(r.calls[i], " ")
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC007
 func TestALoadedModuleIsLeftAlone(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{answers: []string{"present:1"}}
@@ -65,6 +66,7 @@ func TestAZeroSysctlIsNotAMissingModule(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028, HMD_CLI_NEURONSPHERE_NERD028_SPEC007
 func TestAnAbsentModuleIsLoadedAndConfirmed(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{answers: []string{"absent", "", "present:1"}}
@@ -85,6 +87,8 @@ func TestAnAbsentModuleIsLoadedAndConfirmed(t *testing.T) {
 
 // A modprobe that exits 0 and leaves the sysctl absent must not be recorded as a
 // fix, which is why the state is re-read rather than inferred.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC007
 func TestASilentlyIneffectiveLoadIsNotAFix(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{answers: []string{"absent", "", "absent"}}
@@ -97,6 +101,7 @@ func TestASilentlyIneffectiveLoadIsNotAFix(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC007
 func TestAKernelThatCannotBePreparedIsReportedNotFatal(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{
@@ -121,6 +126,7 @@ func TestAnEngineThatWillNotAnswerIsUnknownAndNotUnavailable(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC007
 func TestOptingOutRunsNothing(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{answers: []string{"absent"}}
@@ -136,6 +142,8 @@ func TestOptingOutRunsNothing(t *testing.T) {
 // The probe must sample a fresh namespace, because that is what the k3s
 // container gets; the host namespace is a different question with a different
 // answer.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD028_SPEC002, HMD_CLI_NEURONSPHERE_NERD028_SPEC003
 func TestTheProbeReadsAFreshNamespace(t *testing.T) {
 	t.Parallel()
 	r := &scriptedRunner{answers: []string{"present:1"}}

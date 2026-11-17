@@ -176,6 +176,8 @@ func sortedDeclared(t *testing.T, home string) []string {
 // TestBOMImportFollowsOnlyRequiredRoles is NERD013 SPEC001. The optional roles
 // are not followed, and not following one prunes what it reached in turn --
 // clickhouse is in the BOM and arrives only through otel.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC001, HMD_CLI_NEURONSPHERE_NERD013
 func TestBOMImportFollowsOnlyRequiredRoles(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +212,8 @@ func TestBOMImportFollowsOnlyRequiredRoles(t *testing.T) {
 // else's required role -- and the report says so, rather than claiming the
 // target was not imported. Observed live on hmdtr1's dev, where
 // ms-transform:ext-secrets is optional and ext-secrets arrives via airflow.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC001
 func TestBOMOptionalRoleToAPresentTargetIsKept(t *testing.T) {
 	t.Parallel()
 
@@ -256,6 +260,8 @@ func TestBOMOptionalRoleToAPresentTargetIsKept(t *testing.T) {
 // TestBOMImportFollowsEveryRoleWhenNoneCanBeRead is SPEC001's fallback, and it
 // is the property that makes required-only closure safe to default to: a run
 // that cannot read a declaration behaves exactly as it did before NERD013.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC001
 func TestBOMImportFollowsEveryRoleWhenNoneCanBeRead(t *testing.T) {
 	t.Parallel()
 
@@ -278,6 +284,8 @@ func TestBOMImportFollowsEveryRoleWhenNoneCanBeRead(t *testing.T) {
 
 // TestBOMWithFollowsAnOptionalRole is SPEC002, including that what the role
 // reaches is then closed over by the ordinary rule.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC002
 func TestBOMWithFollowsAnOptionalRole(t *testing.T) {
 	t.Parallel()
 
@@ -302,6 +310,8 @@ func TestBOMWithFollowsAnOptionalRole(t *testing.T) {
 // TestBOMWithRefusesWhenItMatchesNothing is SPEC002's typo guard, and it is
 // seed()'s rule for the same reason: a selector that quietly contributes
 // nothing has exactly the shape of a successful smaller import.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC002
 func TestBOMWithRefusesWhenItMatchesNothing(t *testing.T) {
 	t.Parallel()
 
@@ -323,6 +333,8 @@ func TestBOMWithRefusesWhenItMatchesNothing(t *testing.T) {
 // datadog-lambda -- it is not even in the BOM -- and nothing but the role's
 // presence is validated, so it binds to the core instance rather than leaving a
 // ChangeSet that hmd-ms-deployment refuses.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC003
 func TestBOMStubsARequiredNameOnlyRole(t *testing.T) {
 	t.Parallel()
 
@@ -349,6 +361,8 @@ func TestBOMStubsARequiredNameOnlyRole(t *testing.T) {
 
 // TestBOMNoStubRolesRefusesToInvent is SPEC003's escape hatch, for anyone who
 // would rather have the honest failure than the working import.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC003
 func TestBOMNoStubRolesRefusesToInvent(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +385,8 @@ func TestBOMNoStubRolesRefusesToInvent(t *testing.T) {
 // TestBOMExcludeRefusesAResourceTypedRequiredRole is SPEC002's narrowed
 // refusal. A resource-typed role is validated against what the producing
 // instance really produces, so there is nothing to bind it to.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC003
 func TestBOMExcludeRefusesAResourceTypedRequiredRole(t *testing.T) {
 	t.Parallel()
 
@@ -388,6 +404,8 @@ func TestBOMExcludeRefusesAResourceTypedRequiredRole(t *testing.T) {
 // TestBOMExcludeStubsARequiredNameOnlyRole is the pair to the above, and it is
 // how a cloud-only class is left out on purpose: excluding it is legal because
 // the role it filled can be bound instead.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC002
 func TestBOMExcludeStubsARequiredNameOnlyRole(t *testing.T) {
 	t.Parallel()
 
@@ -411,6 +429,8 @@ func TestBOMExcludeStubsARequiredNameOnlyRole(t *testing.T) {
 
 // TestBOMSelectionFileRoundTrips is NERD013 SPEC004's first property: the file
 // a show writes, imported unedited, selects exactly what the show displayed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC004
 func TestBOMSelectionFileRoundTrips(t *testing.T) {
 	t.Parallel()
 
@@ -437,6 +457,8 @@ func TestBOMSelectionFileRoundTrips(t *testing.T) {
 // role is opted into by flipping a line, and a required name-only target is
 // dropped by flipping another -- whose role is then bound rather than left
 // unfilled.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC004
 func TestBOMSelectionFileWidensAndNarrows(t *testing.T) {
 	t.Parallel()
 
@@ -490,6 +512,8 @@ func TestBOMSelectionFileWidensAndNarrows(t *testing.T) {
 // TestBOMSelectionFileRefusesAMisspeltKey is SPEC004's strictness. A file
 // somebody edited by hand is exactly where a typo happens, and `takes = true`
 // silently ignored would be an import quietly smaller than intended.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC004
 func TestBOMSelectionFileRefusesAMisspeltKey(t *testing.T) {
 	t.Parallel()
 
@@ -511,6 +535,8 @@ func TestBOMSelectionFileRefusesAMisspeltKey(t *testing.T) {
 
 // TestBOMSelectionFileRefusesMixingWithFlags keeps the two ways of saying which
 // instances to take from arguing about it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC004
 func TestBOMSelectionFileRefusesMixingWithFlags(t *testing.T) {
 	t.Parallel()
 
@@ -534,6 +560,8 @@ func TestBOMSelectionFileRefusesMixingWithFlags(t *testing.T) {
 // TestBOMStubReportsEveryRoleItBound is the under-reporting guard. Two
 // instances need the same absent thing; binding the second silently would hide
 // exactly what this warning exists to surface.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD013_SPEC003
 func TestBOMStubReportsEveryRoleItBound(t *testing.T) {
 	t.Parallel()
 

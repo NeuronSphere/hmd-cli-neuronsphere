@@ -13,6 +13,8 @@ func lookupFrom(vars map[string]string) Lookup {
 // supplying everything the tiers below it would have used -- so a tier that
 // stopped winning would be caught by the case above it rather than by the
 // absence of a case.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestResolveEndpointPrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +101,8 @@ func TestResolveEndpointPrecedence(t *testing.T) {
 // TestComposedHostnamesArePinned fixes both templates against the Python that
 // composes them. A wrong host does not fail as "wrong host" -- it fails as a
 // DNS error that reads like a network problem.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestComposedHostnamesArePinned(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +129,8 @@ func TestComposedHostnamesArePinned(t *testing.T) {
 // TestShadowedRecordsWhatTheEnvironmentBeat is the guard SPEC001 asks for: the
 // override still wins, and the fact that it overrode a profile someone wrote
 // down is not lost.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestShadowedRecordsWhatTheEnvironmentBeat(t *testing.T) {
 	t.Parallel()
 
@@ -156,6 +162,8 @@ func TestShadowedRecordsWhatTheEnvironmentBeat(t *testing.T) {
 
 // TestUnresolvedNamesEveryTier is acceptance criterion 7. A refusal that named
 // only the tier the reader happened to miss would send them to the docs.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestUnresolvedNamesEveryTier(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +197,8 @@ func TestUnresolvedNamesEveryTier(t *testing.T) {
 
 // TestProfileEndpointKeysAreOptional is acceptance criterion 8: a file written
 // before this document still parses, and nsctl login still reads it.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD012_SPEC001
 func TestProfileEndpointKeysAreOptional(t *testing.T) {
 	t.Parallel()
 

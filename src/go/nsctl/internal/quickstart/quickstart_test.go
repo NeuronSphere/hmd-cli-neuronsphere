@@ -85,6 +85,8 @@ func drive(t *testing.T, answers string, o Options, rec *recorder) string {
 
 // The flow refuses rather than half-running when there is nobody to answer, and
 // prints the sequence instead -- which is what a CI job actually wants.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestNonInteractiveRefusesAndPrintsTheSequence(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +120,8 @@ func TestNonInteractiveRefusesAndPrintsTheSequence(t *testing.T) {
 }
 
 // A failed host check stops the run before anything is created.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestAFailedHostCheckStops(t *testing.T) {
 	t.Parallel()
 
@@ -138,6 +142,8 @@ func TestAFailedHostCheckStops(t *testing.T) {
 
 // Every step names the command it runs, so the session is a transcript. The
 // commands the flow shows and the commands it runs must be the same.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001, HMD_CLI_NEURONSPHERE_NERD023
 func TestEveryStepShowsTheCommandItRuns(t *testing.T) {
 	t.Parallel()
 
@@ -176,6 +182,8 @@ func TestEveryStepShowsTheCommandItRuns(t *testing.T) {
 // first tutorial and the stacks how-to have all named a stack that is not
 // published, and a guided run whose "here is something real" step fails is worse
 // than one without the step.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestAnUnresolvableStackIsNotOffered(t *testing.T) {
 	t.Parallel()
 
@@ -191,6 +199,8 @@ func TestAnUnresolvableStackIsNotOffered(t *testing.T) {
 }
 
 // Declining a step does not abort the run.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestDecliningAStepContinues(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +223,8 @@ func TestDecliningAStepContinues(t *testing.T) {
 
 // HMD_HOME is never written into a shell profile: the correct file is unknowable
 // and it is the user's. The path is printed and --home carries the run.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestSettleHomePrintsTheExportAndNeverWritesAProfile(t *testing.T) {
 	t.Parallel()
 
@@ -268,6 +280,8 @@ func TestAnExistingHomeIsNotReadvertised(t *testing.T) {
 
 // --yes takes the default answer, which is "no" for everything that deploys: a
 // scripted walk-through must not become a deploy nobody asked for.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestYesTakesTheDefaultsAndDefaultsAreConservative(t *testing.T) {
 	t.Parallel()
 
@@ -310,6 +324,8 @@ func TestExpandUser(t *testing.T) {
 // is the case a live run found: the two steps that work with nothing up --
 // adopting a repository and installing skills -- were being denied to exactly
 // the user whose first start did not work.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC010
 func TestAFailedStartStillOffersTheOfflineSteps(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +387,8 @@ func driveErr(t *testing.T, answers string, o Options, rec *recorder) (string, e
 // Printing a warning and then exiting 0 tells a script -- and the shell the
 // user is watching -- that the platform came up. The offline steps still run;
 // the exit status is what changes.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC010
 func TestAFailedStartIsReportedAsAFailure(t *testing.T) {
 	t.Parallel()
 
@@ -466,6 +484,8 @@ func TestAKnownNameIsStartedDirectly(t *testing.T) {
 // The regression: a home with environments, none of them the one named. The
 // flow used to run a start that could only refuse, because env start's
 // registration is first-run-only (registry.EnsureFirstEnvironment).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestAnAbsentNameIsOfferedForCreation(t *testing.T) {
 	t.Parallel()
 
@@ -542,6 +562,8 @@ func TestAFailedCreationIsAFailure(t *testing.T) {
 
 // Naming a stack is the request. --yes then deploys it, where --yes alone still
 // declines (TestYesTakesTheDefaultsAndDefaultsAreConservative).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestNamingAStackMakesYesDeployIt(t *testing.T) {
 	t.Parallel()
 
@@ -559,6 +581,8 @@ func TestNamingAStackMakesYesDeployIt(t *testing.T) {
 // --stack names a stack; it does not promise one exists. An unpublished name is
 // skipped exactly as the default candidate is, because the alternative is the
 // defect that made this step a no-op everywhere for as long as it existed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC001
 func TestANamedStackThatDoesNotResolveIsSkipped(t *testing.T) {
 	t.Parallel()
 

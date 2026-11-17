@@ -32,6 +32,7 @@ func licensedZips(t *testing.T) map[string][]byte {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestBuildAnnotatesEachLayerWithItsDeclaredLicence(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
@@ -73,6 +74,7 @@ func TestBuildAnnotatesEachLayerWithItsDeclaredLicence(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestReadAndInstallSurfaceTheLayerLicence(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.NoChallenge())
@@ -108,6 +110,7 @@ func TestReadAndInstallSurfaceTheLayerLicence(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC011
 func TestRetagKeepsTheLicenceAnnotation(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")

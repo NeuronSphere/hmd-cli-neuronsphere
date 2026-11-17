@@ -34,6 +34,8 @@ func foreignRepo(t *testing.T, image string, extra ...string) string {
 // more specific than a conventional filename, so exec outranks deploy_local.sh
 // -- and the generated script, which is discarded exactly as it is for a
 // deploy_local.sh node.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC003
 func TestExecOutranksDeployLocalAndTheGeneratedScript(t *testing.T) {
 	t.Parallel()
 
@@ -83,6 +85,8 @@ func TestAForeignNodeOnASharedTreeIsIsolated(t *testing.T) {
 }
 
 // Two exec entries are refused rather than half-run.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC003
 func TestTwoExecEntriesAreRefused(t *testing.T) {
 	t.Parallel()
 
@@ -158,6 +162,8 @@ func realKubeconfig(t *testing.T) string {
 // than a copy of it: a variable added to the map fails here until the spec
 // list agrees, and a variable added to the command line without going through
 // the map fails the second half.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC005
 func TestForeignEnvIsExactlySPEC005(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +216,8 @@ func TestForeignEnvIsExactlySPEC005(t *testing.T) {
 // What SPEC005 drops: the entrypoint override, the mounted script, /root
 // paths, HMD_HOME and the dummy registry credentials. A foreign image may have
 // no bash, an entrypoint of its own, and no root user.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC005
 func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 	t.Parallel()
 
@@ -246,6 +254,8 @@ func TestForeignInvocationAssumesOnlyAnOCIImage(t *testing.T) {
 
 // Absent deploy.image the node runs in projectbuilder, so a repo that declares
 // exec and nothing else behaves as before the key existed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC004
 func TestForeignNodeDefaultsToProjectbuilder(t *testing.T) {
 	t.Parallel()
 
@@ -259,6 +269,8 @@ func TestForeignNodeDefaultsToProjectbuilder(t *testing.T) {
 // End to end through RunNode: the manifest's exec argv runs in the manifest's
 // image, no script is written or mounted, and the configuration comes from
 // the generated script's heredoc rather than the node's (empty) field.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009, HMD_CLI_NEURONSPHERE_NERD009_SPEC004
 func TestRunNodeRunsAForeignNodeInItsOwnImage(t *testing.T) {
 	t.Parallel()
 

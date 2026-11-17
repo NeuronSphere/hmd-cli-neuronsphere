@@ -63,6 +63,7 @@ func publishStack(t *testing.T, reg *ocitest.Registry, repoDir, artifactsDir, na
 	return ref
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC006, HMD_CLI_NEURONSPHERE_NERD017_SPEC007
 func TestStackPushReadsTheVersionAndFillsDigests(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -91,6 +92,7 @@ func TestStackPushReadsTheVersionAndFillsDigests(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC006
 func TestStackPushRefusals(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -122,6 +124,7 @@ func TestStackPushRefusals(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC003, HMD_CLI_NEURONSPHERE_NERD017_SPEC004, HMD_CLI_NEURONSPHERE_NERD017_SPEC009, HMD_CLI_NEURONSPHERE_NERD017
 func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -223,6 +226,7 @@ func TestStackAddDeclaresFromAnAnonymousPull(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC004
 func TestStackRemoveLeavesSharedInstancesAlone(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -252,6 +256,7 @@ func TestStackRemoveLeavesSharedInstancesAlone(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC005
 func TestStackVersionsListsAndCaches(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -277,6 +282,7 @@ func TestStackVersionsListsAndCaches(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC005
 func TestStackPullCachesWithoutDeclaring(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -298,6 +304,7 @@ func TestStackPullCachesWithoutDeclaring(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC003
 func TestStackAddRefusals(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t)
@@ -322,6 +329,8 @@ func TestStackAddRefusals(t *testing.T) {
 
 // TestLockFillsDigestsFromTheCache is NERD017 SPEC007: `nsctl lock` records
 // a digest for anything the cache has seen, and keeps one it had.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD017_SPEC007
 func TestLockFillsDigestsFromTheCache(t *testing.T) {
 	t.Parallel()
 	home, env := fromRepoEnv(t)

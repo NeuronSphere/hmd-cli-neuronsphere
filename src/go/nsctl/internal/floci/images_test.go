@@ -106,6 +106,8 @@ func TestACachedBackendImageIsNotPulledAgain(t *testing.T) {
 // variable and nothing else, so there was no way to tell it was set at all --
 // and they deleted HMD_HOME instead, which cannot clear a shell variable and
 // cost them a Floci bound to a directory that no longer existed.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC009
 func TestAPullFailureNamesTheOverridesValueAndWhereItWasSet(t *testing.T) {
 	t.Parallel()
 
@@ -139,6 +141,8 @@ func TestAPullFailureNamesTheOverridesValueAndWhereItWasSet(t *testing.T) {
 // the remedy is a different file, and saying the wrong one sends the reader
 // looking where the value is not. Deleting HMD_HOME *would* clear this one, so
 // the warning against doing so is not repeated here.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC009
 func TestAPullFailureNamesTheHmdEnvFileWhenThatIsWhereItWasSet(t *testing.T) {
 	t.Parallel()
 

@@ -38,6 +38,7 @@ func gitDocsTree(t *testing.T, url string) string {
 	  {"kind": "agent-skills", "dir": "skills", "source": {"git": "`+url+`"}}]}`, nil)
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC011
 func TestAGitItemClonesIntoTheRepoFolderOnce(t *testing.T) {
 	t.Parallel()
 	url := bareRepo(t, map[string]string{
@@ -83,6 +84,7 @@ func TestAGitItemClonesIntoTheRepoFolderOnce(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC011
 func TestAnotherOriginAtTheTargetIsRefused(t *testing.T) {
 	t.Parallel()
 	url := bareRepo(t, map[string]string{"README.md": "notes"})
@@ -97,6 +99,7 @@ func TestAnotherOriginAtTheTargetIsRefused(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC011
 func TestAGitItemNeedsARepoHome(t *testing.T) {
 	t.Parallel()
 	url := bareRepo(t, map[string]string{"README.md": "notes"})
@@ -108,6 +111,7 @@ func TestAGitItemNeedsARepoHome(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC011
 func TestSameOrigin(t *testing.T) {
 	t.Parallel()
 	for _, pair := range [][2]string{

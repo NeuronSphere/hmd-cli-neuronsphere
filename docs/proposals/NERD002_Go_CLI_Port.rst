@@ -6,6 +6,7 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
 .. req:: Deliver the local NeuronSphere as a single Go binary requiring only Docker
     :id: HMD_CLI_NERD002
     :status: implemented
+    :tags: trace-exempt
 
     The extend-mode local platform currently reachable only through
     ``hmd neuronsphere`` shall be delivered as ``nsctl`` -- a single
@@ -40,6 +41,8 @@ NERD002 nsctl -- a Standalone Go CLI for the Local NeuronSphere
     HMD_HOME`_ -- which also found that the claim had been false in four further
     ways nobody had tested, every one of them hidden by state a working machine
     already has.
+
+    Verified live rather than by a unit test: the gate in `Verified from nothing`_ and the later cold-start runs brought up a control plane and an environment from the binary alone; the testable behaviour sits in the child SPECs, each traced on its own.
 
 .. note::
 

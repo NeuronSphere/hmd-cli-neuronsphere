@@ -39,6 +39,7 @@ func readDoc(t *testing.T, dir string) *bacon.Object {
 	return s.Doc
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC007
 func TestRepoClassInitWritesAndRefusesTwice(t *testing.T) {
 	t.Parallel()
 
@@ -89,6 +90,8 @@ func TestRepoClassVerbsNameInitWhenThereIsNoManifest(t *testing.T) {
 // The seven-command authoring of an acme product, through the CLI, with every
 // verb run twice: one entry each, one line per write, and the file the demo
 // commits.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009, HMD_CLI_NEURONSPHERE_NERD009_SPEC001, HMD_CLI_NEURONSPHERE_NERD009_SPEC002
 func TestRepoClassAuthorsAProductAndIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -216,6 +219,8 @@ func TestRepoClassSetCommandReplacesAndSays(t *testing.T) {
 
 // A TOML tier reads for describe and validate and refuses every write with
 // the file named.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC006
 func TestRepoClassTOMLIsReadOnly(t *testing.T) {
 	t.Parallel()
 
@@ -240,6 +245,7 @@ func TestRepoClassTOMLIsReadOnly(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC008
 func TestRepoClassDescribeJSONAndTable(t *testing.T) {
 	t.Parallel()
 
@@ -262,6 +268,7 @@ func TestRepoClassDescribeJSONAndTable(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD009_SPEC011
 func TestRepoClassValidateExitsOnErrorsAndStrictWarnings(t *testing.T) {
 	t.Parallel()
 

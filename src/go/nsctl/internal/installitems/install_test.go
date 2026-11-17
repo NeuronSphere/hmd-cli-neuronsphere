@@ -138,6 +138,7 @@ func installsOf(t *testing.T, home string) []string {
 	return names
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC005, HMD_CLI_NEURONSPHERE_NERD031_SPEC013
 func TestPythonItemInstallsAndLeavesNoConsoleScript(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -167,6 +168,7 @@ func TestPythonItemInstallsAndLeavesNoConsoleScript(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
 func TestMissingRequirementsAreReportedTogetherWithTheirHints(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, false)
@@ -188,6 +190,7 @@ func TestMissingRequirementsAreReportedTogetherWithTheirHints(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC006
 func TestARefusedIndexIsRedactedAndNamesTheHint(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -210,6 +213,7 @@ func TestARefusedIndexIsRedactedAndNamesTheHint(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC005
 func TestUVExitingZeroWithoutAWorkingEntryPointIsAFailure(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -222,6 +226,7 @@ func TestUVExitingZeroWithoutAWorkingEntryPointIsAFailure(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC006
 func TestUVConfigFileDefaultsToTheHomesOwn(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -255,6 +260,7 @@ func TestUVConfigFileDefaultsToTheHomesOwn(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC007, HMD_CLI_NEURONSPHERE_NERD031_SPEC009, HMD_CLI_NEURONSPHERE_NERD031_SPEC010
 func TestScriptsDocsAndSkillsFromTheArtifact(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, false)
@@ -302,6 +308,7 @@ func TestScriptsDocsAndSkillsFromTheArtifact(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
 func TestAFailureUndoesEverythingThisRunPlaced(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -325,6 +332,7 @@ func TestAFailureUndoesEverythingThisRunPlaced(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC004
 func TestANounTheHostRefusesStopsTheInstallFirst(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, true)
@@ -344,6 +352,7 @@ func TestANounTheHostRefusesStopsTheInstallFirst(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC009, HMD_CLI_NEURONSPHERE_NERD031_SPEC010, HMD_CLI_NEURONSPHERE_NERD031_SPEC014
 func TestRemoveKeepsEditedSkillsAndDropsTheRest(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, false)
@@ -383,6 +392,7 @@ func TestRemoveKeepsEditedSkillsAndDropsTheRest(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC006
 func TestRedact(t *testing.T) {
 	t.Parallel()
 	got := Redact("fetch https://alice:s3cret@idx.example/simple and http://tok@x.io/p and git@github.com:a/b")
@@ -400,5 +410,45 @@ func TestAnUnbuildableLockNamesThePython(t *testing.T) {
 	err := uvFailure(it, "uv pip sync", "  ╰─▶ Call to `setuptools.build_meta.build_wheel` failed (exit status: 1)", os.ErrInvalid)
 	if !strings.Contains(err.Error(), "no wheel for Python 3.12") || !strings.Contains(err.Error(), "regenerate") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// Requirements: HMD_CLI_NEURONSPHERE_NERD031_SPEC008
+func TestABinaryItemCopiesThisPlatformsBinaryOrNamesThePlatformsPresent(t *testing.T) {
+	t.Parallel()
+	item := func(key string) string {
+		return `{"kind": "command", "noun": "tool", "summary": "A tool",
+  "runtime": {"kind": "binary", "binaries": {"` + key + `": "bin/tool"}}}`
+	}
+	files := map[string]string{"bin/tool": "#!/bin/sh\necho tool\n"}
+
+	f := newFixture(t, false)
+	got, err := f.install(manifestTree(t, `{"items": [`+item(PlatformKey())+`]}`, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Runtime != nsconfig.RuntimeBinary || got[0].Noun != "tool" {
+		t.Fatalf("installed %+v", got)
+	}
+	data, err := os.ReadFile(got[0].Target)
+	if err != nil || string(data) != files["bin/tool"] {
+		t.Errorf("target %q = %q, %v; want the artifact's binary", got[0].Target, data, err)
+	}
+	if info, err := os.Stat(got[0].Target); err != nil || info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("target is not executable: %v %v", info, err)
+	}
+
+	g := newFixture(t, false)
+	_, err = g.install(manifestTree(t, `{"items": [`+item("plan9_mips")+`]}`, files))
+	if err == nil {
+		t.Fatal("installed a binary built for another platform")
+	}
+	for _, want := range []string{PlatformKey(), "plan9_mips"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name %q:\n%v", want, err)
+		}
+	}
+	if got := installsOf(t, g.home); len(got) != 0 {
+		t.Errorf("a refused install left %v", got)
 	}
 }

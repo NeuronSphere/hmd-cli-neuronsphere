@@ -149,10 +149,13 @@ Specifications
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD028
     :status: implemented
+    :tags: trace-exempt
 
     ``br_netfilter`` shall be documented as a property of the container engine's
     kernel, not of NeuronSphere, and the documentation shall say that it does not
     survive an engine restart.
+
+    A documentation requirement, verified by review of ``docs/how-to/choose-a-container-engine.rst`` and ``docs/how-to/fix-a-start-that-fails.rst``; there is no code behaviour to test.
 
 .. spec:: The kernel is probed on the endpoint the gate proved
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC002
@@ -196,6 +199,7 @@ Specifications
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD028
     :status: implemented
+    :tags: trace-exempt
 
     The wrapper image shall refuse to start ``server`` or ``agent`` when the
     sysctl does not exist, exiting non-zero with a fatal line. Other subcommands
@@ -204,6 +208,8 @@ Specifications
     It shall test the sysctl's **existence only**, never its value: k3s sets the
     value for its own namespace at boot, so refusing on a ``0`` would refuse a
     cluster that was about to work.
+
+    The guard lives in the ``hmd-img-k3s-floci`` entrypoint, outside this repository, and was verified live by running the image's ``server`` on a machine without the sysctl (see the acceptance run).
 
 .. spec:: A refusal reads as one diagnosis
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC006
@@ -245,6 +251,7 @@ Specifications
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC009
     :links: HMD_CLI_NEURONSPHERE_NERD028
     :status: implemented
+    :tags: trace-exempt
 
     The image tag is pinned exactly, in one source of truth with generated and
     documented copies. Publishing a new wrapper shall move all of them together,
@@ -281,15 +288,20 @@ Specifications
         moving it back reads as removing a safety net rather than as reverting a
         version bump.
 
+    A release-process requirement, verified by the acceptance run in which the published wrapper tag replaced every copy of the pin and a running datastore was kept.
+
 .. spec:: The escape hatch is the previous pin
     :id: HMD_CLI_NEURONSPHERE_NERD028_SPEC010
     :links: HMD_CLI_NEURONSPHERE_NERD028
     :status: implemented
+    :tags: trace-exempt
 
     Floci passes no arbitrary environment into the containers it spawns, so an
     environment variable in the entrypoint is reachable only by someone running
     the image by hand. The documented way to start a cluster anyway shall be to
     pin the previous wrapper image, which the platform already honours.
+
+    A documented procedure that relies on the platform's existing image pin, which is already traced elsewhere; verified live by starting a cluster on the previous wrapper tag.
 
 Alternatives considered
 -----------------------

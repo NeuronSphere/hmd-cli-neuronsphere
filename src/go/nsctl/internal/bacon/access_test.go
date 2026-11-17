@@ -22,6 +22,8 @@ func supersetEntry() AccessEntry {
 // AddAccess is keyed on name and idempotent, and every other key keeps its
 // place -- the property that makes re-running a verb a no-op in the diff.
 // NERD023 SPEC004.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestAddAndRemoveAccess(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +99,8 @@ func TestAddAndRemoveAccess(t *testing.T) {
 
 // An entry with nothing to look up, or a store nsctl cannot read, is refused at
 // authoring time rather than written and discovered at resolution time.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestAddAccessRefusals(t *testing.T) {
 	t.Parallel()
 
@@ -138,6 +142,8 @@ func TestAddAccessRefusals(t *testing.T) {
 // A placeholder with no value is left as written rather than emptied, so an
 // unresolved URL reads as a template that did not resolve instead of a
 // plausible wrong one.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestExpandAccess(t *testing.T) {
 	t.Parallel()
 
@@ -165,6 +171,8 @@ func TestExpandAccess(t *testing.T) {
 
 // NERD023 SPEC005: a manifest names where a credential lives and never holds
 // one, and validate says so rather than ignoring the key.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC005
 func TestValidateRefusesALiteralCredential(t *testing.T) {
 	t.Parallel()
 
@@ -204,6 +212,8 @@ func TestValidateRefusesALiteralCredential(t *testing.T) {
 
 // Shape errors a hand-edited manifest can carry, which the authoring verbs
 // cannot produce and validate therefore has to catch.
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC004
 func TestValidateAccessShape(t *testing.T) {
 	t.Parallel()
 
@@ -247,6 +257,8 @@ func TestValidateAccessShape(t *testing.T) {
 // `instance` is a stack's key. On a stack it is the declaration; on an ordinary
 // class it is ignored, and saying so is the point -- a class describes itself, so
 // the instance is whichever one an environment declared it as (NERD023 SPEC007).
+//
+// Requirements: HMD_CLI_NEURONSPHERE_NERD023_SPEC007
 func TestValidateAccessInstanceBelongsToAStack(t *testing.T) {
 	t.Parallel()
 

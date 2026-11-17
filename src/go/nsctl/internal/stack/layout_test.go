@@ -14,6 +14,7 @@ import (
 
 // NERD019 SPEC001: stack build writes an OCI image layout, deterministically.
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC001
 func TestLayoutRoundTripsAndIsDeterministic(t *testing.T) {
 	t.Parallel()
 	ref, _ := oci.ParseRef("ghcr.io/hmdlabs/stacks/obs")
@@ -69,6 +70,7 @@ func TestReadLayoutRefusals(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC003
 func TestPushLayoutRoundTripsThroughARegistry(t *testing.T) {
 	t.Parallel()
 	reg := ocitest.New(t, ocitest.RequireToken("ci", "pat"))
@@ -121,6 +123,7 @@ func TestPushLayoutRoundTripsThroughARegistry(t *testing.T) {
 	}
 }
 
+// Requirements: HMD_CLI_NEURONSPHERE_NERD019_SPEC003
 func TestNextVersion(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

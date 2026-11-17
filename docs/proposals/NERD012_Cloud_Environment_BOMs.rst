@@ -589,6 +589,7 @@ configuration keys, and a verb that joins two existing halves together.
     :id: HMD_CLI_NEURONSPHERE_NERD012_SPEC007
     :links: HMD_CLI_NEURONSPHERE_NERD012
     :status: implemented
+    :tags: trace-exempt
 
     **Not a write path to the cloud.** ``NERD010`` SPEC008 says a lock is a
     local convenience and never an input to a cloud deploy; ``NERD011`` SPEC006
@@ -622,6 +623,8 @@ configuration keys, and a verb that joins two existing halves together.
     difference -- a cloud environment's roles reach VPCs, API gateways and an
     identity provider that have no local counterpart, and the honest thing
     available is to name each one.
+
+    A scope statement with no behaviour of its own; the read-only direction is exercised by the import specs' tests.
 
 The acceptance run
 ------------------
