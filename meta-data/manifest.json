@@ -134,5 +134,11 @@
         "path": "docs/helm_chart_dev_loop.rst"
       }
     ]
+  },
+  "system": {
+    "name": "cli-go",
+    "role": "cli",
+    "description": "The Go command-line tools.",
+    "parent": "cli"
   }
 }
