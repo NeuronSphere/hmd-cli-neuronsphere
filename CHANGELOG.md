@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-24
+
+- feat: `nsctl repoclass system set|clear` declares the system a repo class belongs to, `describe` reports it, and `nsctl repoclass systems` resolves a workspace's systems, exiting 1 on conflicting definitions, parent loops or unreadable keys (NERD041, NEP058)
+
 ## 2026-11-16
 
 - fix: raise dependency floors for the security fixes (hmd-cli-app ~=1.2 -> ~=1.2.634); the build keeps existing pins (`--no-upgrade`), so a floor is what moves the lock

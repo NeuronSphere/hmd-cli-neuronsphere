@@ -5,7 +5,7 @@ NERD041 System Membership
 
 .. req:: nsctl shall author, report and resolve a repo class's system
     :id: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     ``nsctl repoclass`` shall write and remove the BACON ``system`` key of a
     repo class, report it in ``describe``, and resolve the systems of a
@@ -66,7 +66,7 @@ Specifications
 .. spec:: nsctl repoclass system set writes the key
     :id: HMD_CLI_NEURONSPHERE_NERD041_SPEC001
     :links: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     ``nsctl repoclass system set <name> [--role R] [--description D]
     [--parent P]`` replaces the manifest's ``system`` key.
@@ -91,7 +91,7 @@ Specifications
 .. spec:: nsctl repoclass system clear removes it
     :id: HMD_CLI_NEURONSPHERE_NERD041_SPEC002
     :links: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     ``nsctl repoclass system clear`` removes the key. On a manifest without
     one it changes nothing, prints nothing and exits 0, as ``license clear``
@@ -102,7 +102,7 @@ Specifications
 .. spec:: describe reports the system
     :id: HMD_CLI_NEURONSPHERE_NERD041_SPEC003
     :links: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     ``nsctl repoclass describe --json`` carries ``system`` as an object,
     ``{name, role?, description?, parent?}``, whichever form the manifest
@@ -119,7 +119,7 @@ Specifications
 .. spec:: nsctl repoclass systems resolves a workspace
     :id: HMD_CLI_NEURONSPHERE_NERD041_SPEC004
     :links: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     ``nsctl repoclass systems [--root DIR]... [--json]`` reads the manifests
     of the repo classes under each root. Without ``--root`` it reads the
@@ -158,7 +158,7 @@ Specifications
 .. spec:: Membership is declared, never inferred
     :id: HMD_CLI_NEURONSPHERE_NERD041_SPEC005
     :links: HMD_CLI_NEURONSPHERE_NERD041
-    :status: approved
+    :status: implemented
 
     No nsctl command derives a system from a repository name, prefix or
     directory. ``nsctl repoclass detect`` and ``init`` do not propose one.

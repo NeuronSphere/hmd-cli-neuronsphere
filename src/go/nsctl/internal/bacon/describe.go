@@ -19,6 +19,10 @@ func Describe(doc *Object) *Object {
 		out.Set("project_type", pt)
 	}
 
+	if sys, ok := describeSystem(doc); ok {
+		out.Set("system", sys)
+	}
+
 	if discovery, ok := doc.Object("discovery"); ok && discovery.Len() > 0 {
 		d := NewObject()
 		summary, _ := discovery.String("summary")

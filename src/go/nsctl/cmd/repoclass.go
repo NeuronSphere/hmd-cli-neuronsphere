@@ -137,6 +137,8 @@ None of these verbs needs HMD_HOME or a running platform.`,
 		newRepoClassDiscoveryCommand(path),
 		newRepoClassLicenseCommand(path),
 		newRepoClassAccessCommand(path),
+		newRepoClassSystemCommand(path),
+		newRepoClassSystemsCommand(),
 	)
 	return group
 }
@@ -233,6 +235,13 @@ func renderDescribe(out io.Writer, s *bacon.Store, summary *bacon.Object) {
 	fmt.Fprintf(w, "name\t%s\n", name)
 	fmt.Fprintf(w, "description\t%s\n", description)
 	fmt.Fprintf(w, "manifest\t%s\n", s.Rel)
+	if sys, ok := summary.Object("system"); ok {
+		name, _ := sys.String("name")
+		if role, ok := sys.String("role"); ok {
+			name += " (" + role + ")"
+		}
+		fmt.Fprintf(w, "system\t%s\n", name)
+	}
 	if disc, ok := summary.Object("discovery"); ok {
 		if sum, ok := disc.String("summary"); ok && sum != description {
 			fmt.Fprintf(w, "summary\t%s\n", sum)

@@ -4178,6 +4178,127 @@ Inherited flags
 * ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
 * ``--path`` — The repo class's root directory (default: ``.``)
 
+nsctl repoclass system
+----------------------
+
+Write or remove the manifest's "system": the group of repo classes this one is
+worked on together with, and the part it plays there. A system is not a unit of
+deployment; nothing nsctl builds, deploys or resolves reads it. A repo class
+belongs to at most one system.
+
+--description and --parent define the system itself, and belong only in the one
+manifest that introduces it. "nsctl repoclass systems" reports manifests that
+define the same system differently.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass system
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass system set transform --role engine
+     nsctl repoclass system set cli-go --role cli --parent cli --description "The Go command-line tools"
+     nsctl repoclass system clear
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass system clear
+----------------------------
+
+Remove the declaration
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass system clear
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass system set
+--------------------------
+
+Replace the declaration. With no flags the shorthand is written ("system":
+"<name>"); with any flag, the object form holding only the fields given.
+Names are lower-case letters, digits and single hyphens, starting with a
+letter. Roles: core, engine, image, library, ui, cli, docs.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass system set <name> [flags]
+
+Local flags
+~~~~~~~~~~~
+
+* ``--description`` — the system's description (only in the manifest that introduces it)
+* ``--parent`` — the parent system's name (only in the manifest that introduces it)
+* ``--role`` — the part this repo class plays: core|engine|image|library|ui|cli|docs
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
+nsctl repoclass systems
+-----------------------
+
+Reads the repo classes directly under each --root (default: the current
+directory), skipping hidden directories and git worktrees, and reports each
+system: its resolved description and parent, its members with their roles,
+and its subsystems. A system named only as a parent is listed too.
+
+A system's definition comes from the manifests that give it inline. Manifests
+that agree resolve; manifests that differ are a conflict, reported with every
+manifest involved, and nothing is picked by order. Parent loops are reported
+as cycles. The exit status is 1 when there is any conflict, cycle or
+unreadable system key, and every system is still printed.
+
+Usage
+~~~~~
+
+.. code-block:: text
+
+   nsctl repoclass systems [flags]
+
+Examples
+~~~~~~~~
+
+.. code-block:: shell
+
+   nsctl repoclass systems --root ~/projects
+     nsctl repoclass systems --root ~/projects --json
+
+Local flags
+~~~~~~~~~~~
+
+* ``--json`` — Print the report as JSON
+* ``--root`` — a directory whose repo classes are read (repeatable) (default: ``[]``)
+
+Inherited flags
+~~~~~~~~~~~~~~~
+
+* ``--home`` — Path to HMD_HOME (overrides $HMD_HOME)
+* ``--path`` — The repo class's root directory (default: ``.``)
+
 nsctl repoclass test
 --------------------
 

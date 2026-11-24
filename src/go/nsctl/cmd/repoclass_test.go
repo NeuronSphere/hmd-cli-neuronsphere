@@ -394,3 +394,114 @@ func TestRepoClassLicenseSetAndValidate(t *testing.T) {
 		t.Errorf("a no-op clear printed %q", out)
 	}
 }
+
+// NERD041 SPEC001-SPEC003: `repoclass system` writes the key, describe shows
+// it, a bad value is a usage error, and clear is a quiet no-op when empty.
+func TestRepoClassSystemSetDescribeClear(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	mustRepoclass(t, dir, "init", "hmd-cli-x", "--description", "d")
+	if table := mustRepoclass(t, dir, "describe"); strings.Contains(table, "system") {
+		t.Errorf("describe shows a system before one is set:\n%s", table)
+	}
+	out := mustRepoclass(t, dir, "system", "set", "cli-go", "--role", "cli")
+	if strings.TrimSpace(out) != "wrote meta-data/manifest.json system" {
+		t.Errorf("set printed %q", out)
+	}
+	asJSON := mustRepoclass(t, dir, "describe", "--json")
+	if !strings.Contains(asJSON, `"system": {
+    "name": "cli-go",
+    "role": "cli"
+  }`) {
+		t.Errorf("describe --json lacks the system:\n%s", asJSON)
+	}
+	if table := mustRepoclass(t, dir, "describe"); !strings.Contains(table, "system") || !strings.Contains(table, "cli-go (cli)") {
+		t.Errorf("describe table lacks the system:\n%s", table)
+	}
+	if _, _, err := rc(t, dir, "validate"); err != nil {
+		t.Errorf("validate after set: %v", err)
+	}
+
+	mustRepoclass(t, dir, "system", "set", "transform")
+	got, _ := os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json"))
+	if !strings.Contains(string(got), `"system": "transform"`) {
+		t.Errorf("shorthand not written:\n%s", got)
+	}
+	before := string(got)
+	for _, bad := range [][]string{{"Transform"}, {"x", "--role", "worker"}, {"x", "--parent", "x"}} {
+		if _, _, err := rc(t, dir, append([]string{"system", "set"}, bad...)...); nserr.CodeOf(err) != nserr.Usage {
+			t.Errorf("system set %v = %v, want a usage error", bad, err)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "meta-data", "manifest.json")); string(got) != before {
+		t.Error("a refused set changed the manifest")
+	}
+
+	if out := mustRepoclass(t, dir, "system", "clear"); strings.TrimSpace(out) != "wrote meta-data/manifest.json system" {
+		t.Errorf("clear printed %q", out)
+	}
+	if out := mustRepoclass(t, dir, "system", "clear"); out != "" {
+		t.Errorf("a no-op clear printed %q", out)
+	}
+}
+
+// NERD041 SPEC004: `repoclass systems` resolves a workspace and exits 1 on a
+// conflict, still printing every system.
+func TestRepoClassSystemsResolvesAWorkspace(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, c := range []struct{ name, system string }{
+		{"hmd-cli-a", `{"name": "cli-go", "role": "cli", "parent": "cli"}`},
+		{"hmd-cli-b", `"cli-python"`},
+	} {
+		dir := filepath.Join(root, c.name)
+		os.MkdirAll(filepath.Join(dir, "meta-data"), 0o755)
+		os.WriteFile(filepath.Join(dir, "meta-data", "manifest.json"),
+			[]byte(fmt.Sprintf(`{"name": %q, "description": "d", "build": {}, "system": %s}`, c.name, c.system)), 0o644)
+	}
+	out, _, err := run(t, noHome, "repoclass", "systems", "--root", root, "--json")
+	if err != nil {
+		t.Fatalf("systems: %v", err)
+	}
+	for _, want := range []string{`"name": "cli"`, `"subsystems": [`, `"repo_class": "hmd-cli-a"`, `"conflicts": []`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--json lacks %s:\n%s", want, out)
+		}
+	}
+	table, _, _ := run(t, noHome, "repoclass", "systems", "--root", root)
+	if !strings.Contains(table, "cli-go") || !strings.Contains(table, "hmd-cli-a") {
+		t.Errorf("table:\n%s", table)
+	}
+
+	// A second definition of cli-go's parent conflicts: exit 1, all still shown.
+	dir := filepath.Join(root, "hmd-cli-c")
+	os.MkdirAll(filepath.Join(dir, "meta-data"), 0o755)
+	os.WriteFile(filepath.Join(dir, "meta-data", "manifest.json"),
+		[]byte(`{"name": "hmd-cli-c", "description": "d", "build": {}, "system": {"name": "cli-go", "parent": "tools"}}`), 0o644)
+	out, _, err = run(t, noHome, "repoclass", "systems", "--root", root)
+	if nserr.CodeOf(err) != nserr.Fail {
+		t.Errorf("a conflict exited %v, want 1", err)
+	}
+	if !strings.Contains(out, "conflict") || !strings.Contains(out, "cli-python") {
+		t.Errorf("conflict output:\n%s", out)
+	}
+}
+
+// NERD041 SPEC005: init and detect never propose a system.
+func TestRepoClassInitAndDetectNeverProposeASystem(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "hmd-cli-transform-x", "src", "go"), 0o755)
+	repo := filepath.Join(dir, "hmd-cli-transform-x")
+	if out, _, _ := rc(t, repo, "detect"); strings.Contains(out, "system") {
+		t.Errorf("detect proposed a system:\n%s", out)
+	}
+	mustRepoclass(t, repo, "init", "hmd-cli-transform-x", "--description", "d")
+	got, _ := os.ReadFile(filepath.Join(repo, "meta-data", "manifest.json"))
+	if strings.Contains(string(got), "system") {
+		t.Errorf("init wrote a system:\n%s", got)
+	}
+}
